@@ -31,6 +31,7 @@ export const ITEMS = new Map(MAP.objects.flatMap(o => (o.use?.kind === 'take' ? 
 export interface Pose { x: number; y: number; dir: Dir; walking: boolean; tile: Tile }
 
 type Listener = () => void;
+const SCENE_ONLY = new Set<ServerMsg['t']>(['move', 'speaking', 'emote', 'react']);
 
 export class Store {
   users = new Map<string, ClientUser>();
@@ -62,7 +63,8 @@ export class Store {
   chatWith: string | null = null;       // open conversation
   reactions: Flying[] = [];             // the engine draws and prunes these
   objectFx: { objectId: string; at: number }[] = []; // someone just used it (coffee steam)
-  version = 0;
+  version = 0;    // bumps on any change, including scene-only ones (the engine reads the store every frame)
+  uiVersion = 0;  // bumps only when React chrome has something new to show
   admin = false;      // may rearrange the office
   layoutVersion = 0;  // bumps whenever the furniture changes; the engine redraws the floor
   added: string | null = null; // the thing I just added, to select it
@@ -75,8 +77,8 @@ export class Store {
 
   now() { return Date.now() + this.offset; }
   subscribe = (l: Listener) => { this.listeners.add(l); return () => { this.listeners.delete(l); }; };
-  getVersion = () => this.version;
-  private emit() { this.version++; for (const l of this.listeners) l(); }
+  getVersion = () => this.uiVersion;
+  private emit() { this.version++; this.uiVersion++; for (const l of this.listeners) l(); }
   /** Re-render after state that lives outside the store changed (e.g. voice). */
   changed() { this.emit(); }
   onRtc?: (from: string, signal: RtcSignal) => void;
@@ -421,7 +423,9 @@ export class Store {
         break;
       }
     }
-    this.emit();
+    // Walking, talking and emotes only move pixels on the canvas; the React chrome needn't re-render for them.
+    // (The People list follows walkers on its own 1 s tick.)
+    if (SCENE_ONLY.has(msg.t)) this.version++; else this.emit();
     // A deploy happened while this page was open: reload into the new build, but never mid-call.
     if (this.staleBuild && !this.users.get(this.me)?.callId) location.reload();
   }

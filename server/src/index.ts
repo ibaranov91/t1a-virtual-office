@@ -1,5 +1,6 @@
 import { createServer, type IncomingMessage } from 'node:http';
 import { createReadStream, existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
+import { mkdir, rename, writeFile } from 'node:fs/promises';
 import { extname, join, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash, randomUUID } from 'node:crypto';
@@ -45,13 +46,28 @@ if (existsSync(STATE_FILE)) {
     console.log(`loaded ${world.users.size} users`);
   } catch (e) { console.warn('could not load state:', e); }
 }
+// Written only when something changed; the periodic save goes through the async fs so it never stalls the event loop.
+let lastSaved = '';
+const serialize = () => JSON.stringify({ ...world.dump(), sessions: Object.fromEntries(sessions) });
 const save = () => {
+  const json = serialize(); if (json === lastSaved) return;
   mkdirSync(DATA, { recursive: true });
   const tmp = new URL('state.json.tmp', DATA);
-  writeFileSync(tmp, JSON.stringify({ ...world.dump(), sessions: Object.fromEntries(sessions) }, null, 1));
-  renameSync(tmp, STATE_FILE);
+  writeFileSync(tmp, json); renameSync(tmp, STATE_FILE); lastSaved = json;
 };
-setInterval(save, 30_000);
+let saving = false;
+const saveAsync = async () => {
+  if (saving) return;
+  const json = serialize(); if (json === lastSaved) return;
+  saving = true;
+  try {
+    await mkdir(DATA, { recursive: true });
+    const tmp = new URL('state.json.tmp', DATA);
+    await writeFile(tmp, json); await rename(tmp, STATE_FILE); lastSaved = json;
+  } catch (e) { console.warn('could not save state:', e); }
+  finally { saving = false; }
+};
+setInterval(() => void saveAsync(), 30_000);
 for (const sig of ['SIGINT', 'SIGTERM'] as const) process.on(sig, () => { save(); process.exit(0); });
 
 // Bots are opt-in (BOTS=1): npm run dev and the test instances set it, prod doesn't have it at all.

@@ -2,7 +2,7 @@ import { test, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { World, type User } from './world';
-import { hallDistance, pathDuration, roomAt, sampleMove, seatAt, voiceRooms, WALK_MS_PER_TILE, type TileMap, type Tile } from '../../shared/map';
+import { hallDistance, pathDuration, reindexMap, roomAt, sampleMove, seatAt, voiceRooms, WALK_MS_PER_TILE, type TileMap, type Tile } from '../../shared/map';
 import { PLANT_DIES_DAYS, PLANT_STAGES, plantDead, ROOM_VOICE_MAX, type ServerMsg } from '../../shared/protocol';
 const map: TileMap = JSON.parse(readFileSync(new URL('../../shared/tilemap.json', import.meta.url), 'utf8'));
 const coffee = map.rooms.find(r => r.id === 'coffee')!;
@@ -158,7 +158,7 @@ test('AFK with no destination or no path stays put, leaves immediately and canno
     if (noTile) isolated.rooms = isolated.rooms.filter(r => r.id !== 'lobby');
     else for (let y = 0; y < isolated.height; y++) for (let x = 0; x < isolated.width; x++)
       if (roomAt(isolated, x, y)?.id !== coffee.id) isolated.layers.walkable[y][x] = 0;
-    w.map = isolated; const before = w.position(a.u).tile;
+    reindexMap(isolated); w.map = isolated; const before = w.position(a.u).tile;
     w.handle(a.u, { t: 'leave_room' }, a.socket);
     assert.equal(a.u.callId, null); assert.equal(a.u.afk, true); assert.equal(a.u.move, null); assert.deepEqual(w.position(a.u).tile, before);
     w.voiceTick(); assert.equal(a.u.callId, null);

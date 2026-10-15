@@ -705,7 +705,8 @@ export class World {
   /** Tiles taken in the office, or in one meeting's room. */
   occupied(instance: string | null = null) {
     const s = new Set<string>();
-    for (const u of this.users.values()) if (u.presence !== 'offline' && u.instance === instance) { const d = this.position(u).dest; s.add(`${d.x},${d.y}`); }
+    // `tile` is already where a walk ends (`walk` sets it to the destination), so no need to sample the move
+    for (const u of this.users.values()) if (u.presence !== 'offline' && u.instance === instance) s.add(`${u.tile.x},${u.tile.y}`);
     return s;
   }
 
@@ -911,8 +912,7 @@ export class World {
   dump() {
     return {
       users: [...this.users.values()].map(u => {
-        const p = this.position(u).dest;
-        return { id: u.id, name: u.name, email: u.email, meetLink: u.meetLink, google: u.google, homeDesk: u.homeDesk, look: u.look, lookSet: u.lookSet, tile: p, dir: u.dir, status: u.status, presence: u.presence, bot: u.bot, plant: u.plant, bloomed: u.bloomed, achievements: u.achievements };
+        return { id: u.id, name: u.name, email: u.email, meetLink: u.meetLink, google: u.google, homeDesk: u.homeDesk, look: u.look, lookSet: u.lookSet, tile: u.tile, dir: u.dir, status: u.status, presence: u.presence, bot: u.bot, plant: u.plant, bloomed: u.bloomed, achievements: u.achievements };
       }),
       objects: Object.fromEntries(this.objectOn),
       layout: this.layoutEdited ? this.layout() : undefined,
