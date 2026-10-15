@@ -1,7 +1,9 @@
 // One context for voices, emitters, meters and UI sounds.
+import { prefs, subscribePrefs, type Category } from './prefs';
 let ctx: AudioContext | null = null;
 let master: GainNode | null = null;
-let deafened = false;
+let deafened = prefs.deafened;
+const categories = new Map<Category, GainNode>();
 const failed = new Set<HTMLAudioElement>();
 const listeners = new Set<() => void>();
 const changed = () => { for (const l of listeners) l(); };
@@ -20,6 +22,17 @@ export function output() {
   }
   return master;
 }
+export function categoryOutput(category: Category) {
+  if (!categories.has(category)) {
+    const bus = audio().createGain(); bus.gain.value = prefs.mix[category];
+    bus.connect(output()); categories.set(category, bus);
+  }
+  return categories.get(category)!;
+}
+subscribePrefs(() => {
+  setAudioDeafened(prefs.deafened);
+  for (const [id, bus] of categories) bus.gain.setTargetAtTime(prefs.mix[id], audio().currentTime, .08);
+});
 export function setAudioDeafened(on: boolean) {
   deafened = on;
   if (master) master.gain.setTargetAtTime(on ? 0 : 1, audio().currentTime, .08);

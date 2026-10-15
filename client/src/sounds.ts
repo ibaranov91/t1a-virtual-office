@@ -1,11 +1,7 @@
 // Tiny synthesized UI sounds (no audio files). Meant to be noticed, not to startle:
 // short, low, quiet, and never repeating on their own.
 
-import { audio, output } from './audio';
-
-const KEY = 'deck.sounds';
-export const soundsOn = () => { try { return localStorage.getItem(KEY) !== 'off'; } catch { return true; } };
-export const setSoundsOn = (on: boolean) => { try { localStorage.setItem(KEY, on ? 'on' : 'off'); } catch { /* ignore */ } };
+import { audio, categoryOutput } from './audio';
 
 /** One soft knuckle tap on wood: a low body thump plus a filtered click, decaying in ~0.1 s. */
 function tap(c: AudioContext, at: number, pitch: number, level: number, dest: AudioNode) {
@@ -43,8 +39,7 @@ function tap(c: AudioContext, at: number, pitch: number, level: number, dest: Au
 }
 
 /** "tok-tok": two gentle knocks, the second a touch softer and lower. */
-export function playKnock(dest: AudioNode = output()) {
-  if (!soundsOn()) return;
+export function playKnock(dest: AudioNode = categoryOutput('effects')) {
   try {
     const c = audio();
     const t = c.currentTime + 0.02;
@@ -55,33 +50,30 @@ export function playKnock(dest: AudioNode = output()) {
 
 /** A soft bubbly "pop" for a reaction or a message: one short rising sine. */
 export function playPop() {
-  if (!soundsOn()) return;
   try {
     const c = audio(), at = c.currentTime + 0.01;
     const g = c.createGain();
     g.gain.setValueAtTime(0, at);
     g.gain.linearRampToValueAtTime(0.09, at + 0.01);
     g.gain.exponentialRampToValueAtTime(0.0001, at + 0.16);
-    g.connect(c.destination);
+    g.connect(categoryOutput('effects'));
     const o = c.createOscillator();
     o.type = 'sine';
     o.frequency.setValueAtTime(520, at);
     o.frequency.exponentialRampToValueAtTime(880, at + 0.08);
     o.connect(g); o.start(at); o.stop(at + 0.18);
+    o.onended = () => { o.disconnect(); g.disconnect(); };
   } catch { /* audio unavailable: stay silent */ }
 }
 
-export function playJoin(dest: AudioNode = output()) {
-  if (!soundsOn()) return;
+export function playJoin(dest: AudioNode = categoryOutput('effects')) {
   const c = audio(), t = c.currentTime + .02;
   tap(c, t, 260, .10, dest); tap(c, t + .13, 240, .08, dest);
 }
-export function playLeave(dest: AudioNode = output()) {
-  if (!soundsOn()) return;
+export function playLeave(dest: AudioNode = categoryOutput('effects')) {
   const c = audio(); tap(c, c.currentTime + .02, 150, .10, dest);
 }
-export function playHand(dest: AudioNode = output()) {
-  if (!soundsOn()) return;
+export function playHand(dest: AudioNode = categoryOutput('effects')) {
   const c = audio(), t = c.currentTime + .02;
   for (const [delay, hz] of [[0, 660], [.12, 880]]) {
     const osc = c.createOscillator(), gain = c.createGain(), at = t + delay;

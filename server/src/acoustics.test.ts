@@ -2,16 +2,20 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import type { TileMap } from '../../shared/map';
-import { earshotDistance, roomAt } from '../../shared/map';
-import { distanceGain, doorSpread, field, ROOM_FILL, soundModel, zoneGain, reverbImpulse } from '../../shared/acoustics';
+import { hallDistance, roomAt } from '../../shared/map';
+import { distanceGain, doorSpread, field, ROOM_FILL, soundModel, hallLevel, hallVoiceGain, reverbImpulse } from '../../shared/acoustics';
 const map: TileMap = JSON.parse(readFileSync(new URL('../../shared/tilemap.json', import.meta.url), 'utf8'));
 const coffee = map.rooms.find(r => r.id === 'coffee')!;
 const pose = (x: number, y: number) => ({ x, y, tile: { x: Math.round(x), y: Math.round(y) } });
 const model = (a: ReturnType<typeof pose>, b: ReturnType<typeof pose>, flags = {}) => soundModel(map, field(map, a.tile), a, b, flags);
-test('earshot uses walkable door routes', () => {
-  assert.equal(earshotDistance(map, coffee, 32, 8), 0);
-  assert.equal(earshotDistance(map, coffee, 32, 13), 3);
-  assert.equal(earshotDistance(map, coffee, 29, 13), Infinity);
+test('hall distance uses walkable tiles and seats through doors', () => {
+  assert.equal(hallDistance(map, coffee, 32, 8), 0);
+  assert.equal(hallDistance(map, coffee, 32, 13), 3);
+  assert.equal(hallDistance(map, coffee, 29, 13), 6);
+  assert.equal(hallDistance(map, coffee, 28, 13), 7);
+  assert.equal(hallDistance(map, coffee, 27, 13), Infinity);
+  for (const o of map.objects.filter(o => o.sit && roomAt(map, o.x, o.y)?.id === coffee.id))
+    for (let y = o.y; y < o.y + o.h; y++) for (let x = o.x; x < o.x + o.w; x++) assert.equal(hallDistance(map, coffee, x, y), 0);
 });
 test('sound field travels through doors, ignores furniture and never crosses walls', () => {
   const f = field(map, { x: 32, y: 14 });
@@ -23,13 +27,13 @@ test('distance gain is a gentle inverse law: 1, .625, .417 at 3, 6, 10 tiles, fa
   }
 });
 test('the source room is filled: never below ROOM_FILL anywhere inside it', () => {
-  const lobby = map.rooms.find(r => r.id === 'lobby')!, radio = map.objects.find(o => o.type === 'radio')!;
-  const far = model(pose(lobby.rect.x, lobby.rect.y + lobby.rect.h - 1), pose(radio.x, radio.y));
+  const lobby = map.rooms.find(r => r.id === 'lobby')!, src = pose(13, 14); // a source by the Lobby reception
+  const far = model(pose(lobby.rect.x, lobby.rect.y + lobby.rect.h - 1), src);
   assert.ok(far.gain >= ROOM_FILL - 1e-9, `gain ${far.gain}`);
-  assert.ok(model(pose(30, 14), pose(radio.x, radio.y)).gain < ROOM_FILL); // next room: falls off normally
+  assert.ok(model(pose(30, 14), src).gain < ROOM_FILL); // next room: falls off normally
 });
 test('another room only hears a source near the doorway it comes through; a third room hears nothing', () => {
-  const radio = map.objects.find(o => o.type === 'radio')!, src = pose(radio.x, radio.y);
+  const src = pose(13, 14); // a source by the Lobby reception
   assert.equal(model(pose(3, 5), src).gain, 0);            // deep in Focus
   assert.ok(model(pose(7, 10), src).gain > .1);            // Focus, one step from its door to the Lobby
   assert.ok(model(pose(16, 17), src).gain > .1);           // Co-working, next to the Lobby door
@@ -52,13 +56,32 @@ test('pan and silence', () => {
   assert.ok(model(pose(32, 8), pose(33, 8)).pan > 0);
   assert.deepEqual(model(pose(32, 4), pose(2, 20)), { gain: 0, cutoff: 20000, pan: 0, send: 0, apparent: { x: 2.5, y: 20.5 } });
 });
-test('room override and listener fade affect voices only', () => {
-  assert.equal(model(pose(28, 4), pose(37, 9), { room: coffee, sourceMember: true }).gain, 1);
-  const a = pose(32, 13), b = pose(32, 8);
-  const dry = model(a, b), voice = model(a, b, { room: coffee, sourceMember: true, listener: true });
-  assert.equal(voice.gain, dry.gain * zoneGain(3)); assert.equal(voice.send, dry.send * zoneGain(3));
-  assert.deepEqual(model(a, b, { room: coffee, listener: true }), dry);
-  assert.equal(zoneGain(0), 1); assert.equal(zoneGain(5), 1 - 5 / 6); assert.equal(zoneGain(6), 0);
+test('hall levels fall to zero at six steps, including unreachable tiles', () => {
+  for (const [x, d] of [[32, 3], [31, 4], [30, 5], [29, 6], [28, 7]])
+    assert.equal(hallLevel(map, coffee, { x, y: 13 }), Math.max(0, 1 - d / 6));
+  assert.equal(hallLevel(map, coffee, { x: 32, y: 8 }), 1);
+  assert.equal(hallLevel(map, coffee, { x: 2, y: 20 }), 0);
+});
+test('hall voice gain is symmetric, clear inside and silent before disconnection', () => {
+  const pairs = [[pose(27, 3), pose(21, 7)], [pose(32, 9), pose(32, 14)], [pose(31, 9), pose(31, 13)]];
+  for (const [a, b] of pairs) {
+    const product = hallLevel(map, coffee, a.tile) * hallLevel(map, coffee, b.tile);
+
+    const gain = hallVoiceGain(map, coffee, a, b);
+    assert.equal(gain, hallVoiceGain(map, coffee, b, a));
+    assert.equal(gain, product * (model(a, b).cutoff < 20000 ? .8 : 1));
+  }
+  assert.ok(hallVoiceGain(map, coffee, pose(32, 9), pose(32, 14)) > 0);
+  assert.ok(hallVoiceGain(map, coffee, pose(31, 9), pose(31, 13)) > 0);
+  for (const a of [pose(31.4, 9.3), pose(32.1, 10.2)]) for (const b of [pose(30.8, 13.4), pose(32.2, 14.1)])
+    assert.equal(hallVoiceGain(map, coffee, a, b), hallVoiceGain(map, coffee, b, a));
+  for (const x of [29, 28, 27]) {
+    assert.equal(hallVoiceGain(map, coffee, pose(32, 8), pose(x, 13)), 0);
+    assert.equal(hallVoiceGain(map, coffee, pose(x, 13), pose(32, 8)), 0);
+  }
+  const a = pose(28, 4), b = pose(37, 9);
+  assert.equal(hallVoiceGain(map, coffee, a, b), 1);
+  assert.equal(model(a, b, { room: coffee, sourceMember: true }).gain, 1);
 });
 test('stereo reverb is deterministic with floor-dependent lengths and decaying tails', () => {
   for (const room of [coffee, map.rooms[0], map.rooms[1], null]) {
@@ -71,12 +94,19 @@ test('stereo reverb is deterministic with floor-dependent lengths and decaying t
     assert.ok(energy(a[0].slice(0, 1000)) > energy(a[0].slice(-1000)) * 100);
   }
 });
-test('radio never receives listener zone fade; knock calls stay flat', () => {
-  const radio = map.objects.find(o => o.type === 'radio')!;
+test('the radio plays in the music room and nowhere else; knock calls stay flat', () => {
+  const radio = map.objects.find(o => o.type === 'radio')!, music = map.rooms.find(r => r.id === 'music')!;
+  const src = pose(radio.x, radio.y), inRoom = (x: number, y: number) => roomAt(map, x, y)?.id === 'music';
+  assert.ok(inRoom(radio.x, radio.y));
+  assert.ok(model(pose(music.rect.x + 1, music.rect.y + music.rect.h - 2), src).gain >= ROOM_FILL - 1e-9); // fills its room
+  assert.equal(model(pose(map.spawn.x, map.spawn.y), src).gain, 0); // the Lobby, where pages open: silent
+  assert.ok(model(pose(52, 17), src).gain < .1);                    // Desks, right at the music room door: faint
+  assert.equal(model(pose(48, 17), src).gain, 0);                   // Desks, a few steps in: silent
   assert.deepEqual(radio.sound, { clip: 'radio', gain: .8 }); assert.equal(map.layers.walkable[radio.y][radio.x], 0);
-  const me = pose(14, 14), source = pose(radio.x, radio.y);
+  const me = pose(radio.x + 1, radio.y + 1), source = pose(radio.x, radio.y);
   const dry = model(me, source); assert.ok(dry.gain > 0);
-  assert.deepEqual(model(me, source, { room: coffee, listener: true }), dry);
+  assert.equal(radio.use, undefined); assert.equal(radio.on, undefined);
+  assert.deepEqual(model(me, source, { room: coffee }), dry);
   assert.deepEqual(model(pose(2, 5), pose(37, 9), { knock: true }), {
     gain: 1, cutoff: 20000, pan: 0, send: 0, apparent: { x: 37.5, y: 9.5 },
   });

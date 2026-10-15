@@ -40,8 +40,6 @@ export class Store {
   connected = false;
   voiceOwner = false;
   voiceWait: string | null = null;
-  voiceFocus: string | null = null;
-  voiceFocusSeq = 0;
   soundscape?: Soundscape;
   meetLink: string | null = null; // null = not loaded yet, '' = not set
   email: string | null = null;    // my sign-in (NetBird) email; Meet links open as this Google account
@@ -102,9 +100,7 @@ export class Store {
   pendingKnock: string | null = null;
   meetSetupSkipped = false; // "knock without a room" — don't nag again this session
   requestKnock(targetId: string) {
-    const u = this.users.get(targetId);
-    if (u && this.sameRoomCall(u)) this.focusVoice(targetId);
-    else this.knock(targetId);
+    this.knock(targetId);
   }
   finishKnockSetup(action: 'saved' | 'skip' | 'cancel') {
     const id = this.pendingKnock; this.pendingKnock = null;
@@ -182,31 +178,22 @@ export class Store {
   setHand(up: boolean) { this.send({ t: 'hand', up }); }
   setDeafen(on: boolean) { this.send({ t: 'deafen', on }); }
   claimVoice() { this.send({ t: 'voice_claim' }); }
-  setObjectVolume(id: string, volume: number) { this.send({ t: 'object_volume', id, volume }); }
-  /** Standing still right next to this object (the radio's knob only turns from there). */
-  besideObject(id: string) {
-    const o = MAP.objects.find(o => o.id === id), me = this.users.get(this.me);
-    if (!o || !me) return false;
-    const p = this.pose(me);
-    return !p.walking && besideObject(MAP, o).some(s => s.x === p.tile.x && s.y === p.tile.y);
-  }
-  /** Walk up to an object: the nearest free tile beside it. */
-  walkToObject(id: string) {
-    const o = MAP.objects.find(o => o.id === id), me = this.users.get(this.me);
-    if (!o || !me) return;
-    const here = this.pose(me).tile;
-    const taken = new Set([...this.users.values()].filter(u => u.id !== this.me && u.presence !== 'offline').map(u => `${u.tile.x},${u.tile.y}`));
-    const spots = besideObject(MAP, o).filter(s => !taken.has(`${s.x},${s.y}`))
-      .map(s => ({ s, len: pathTo(MAP, here, s).length || Infinity })).sort((a, b) => a.len - b.len);
-    if (spots[0] && spots[0].len < Infinity) this.moveTo({ x: spots[0].s.x, y: spots[0].s.y });
-  }
-  focusVoice(id: string | null) { this.voiceFocus = id; this.voiceFocusSeq++; this.emit(); }
   roomCallOf(u?: ClientUser) {
     return u?.callId?.startsWith('room:') ? MAP.rooms.find(r => r.id === u.callId!.slice(5)) : undefined;
   }
   sameRoomCall(u: ClientUser) {
     const me = this.users.get(this.me);
     return !!this.roomCallOf(me) && me?.callId === u.callId;
+  }
+  knockReason(u: ClientUser) {
+    const me = this.users.get(this.me), room = this.roomOf(u), hall = this.roomCallOf(u), mine = this.roomCallOf(me);
+    if (u.id === this.me) return 'This is you';
+    if (u.presence === 'offline') return 'Offline';
+    if (me?.callId && me.callId === u.callId) return 'Already talking';
+    if (u.door === 'thinking' || u.door === 'leaving') return 'Heading out';
+    if (hall || room?.rules.voice === 'open') return `In ${(hall ?? room)!.name} — just walk in`;
+    if (mine) return `You're in ${mine.name} voice — step out to knock`;
+    return room?.rules.knock === 'disabled' ? `${room.name}: ${room.rules.label}` : null;
   }
   endCall() { this.send({ t: 'end_call' }); }
   moveToMeet() { this.send({ t: 'to_meet' }); }
@@ -269,7 +256,7 @@ export class Store {
         const next = new Map<string, ClientUser>();
         for (const p of msg.users) {
           const old = this.users.get(p.id);
-          const u: ClientUser = { ...p, path: old?.path ?? null, prev: old?.prev ?? null, faceOverride: old?.faceOverride ?? null, speaking: p.callRole === 'member' && p.callId === old?.callId ? old?.speaking ?? false : false };
+          const u: ClientUser = { ...p, path: old?.path ?? null, prev: old?.prev ?? null, faceOverride: old?.faceOverride ?? null, speaking: !!p.callId && p.callId === old?.callId ? old?.speaking ?? false : false };
           if (p.move && (!old?.move || old.move.startedAt !== p.move.startedAt)) { u.move = null; this.applyMove(u, p.move); }
           next.set(p.id, u);
         }
@@ -289,7 +276,7 @@ export class Store {
         }
         break;
       }
-      case 'object': this.objects = { ...this.objects, [msg.id]: { on: msg.on, volume: msg.volume } }; break;
+      case 'object': this.objects = { ...this.objects, [msg.id]: { on: msg.on } }; break;
       case 'react':
         this.reactions.push({ fromId: msg.fromId, toId: msg.toId, emoji: msg.emoji, at: performance.now() });
         if (msg.toId === this.me && msg.fromId !== this.me) playPop();
@@ -351,9 +338,8 @@ export class Store {
       case 'call': {
         const u = this.users.get(msg.userId);
         if (u) {
-          if (u.callId !== msg.callId && !msg.callId?.startsWith('room:')) u.muted = false;
-          u.callId = msg.callId; u.callRole = msg.callId ? msg.role ?? 'member' : null;
-          if (u.callRole !== 'member') { u.speaking = false; u.hand = false; }
+          if (u.callId !== msg.callId) { u.speaking = false; u.hand = false; }
+          u.callId = msg.callId;
         }
         if (msg.userId === this.me) this.callLink = msg.callId && !msg.callId.startsWith('room:') ? msg.link ?? this.callLink : null;
         break;
@@ -369,7 +355,7 @@ export class Store {
       case 'hand': {
         const u = this.users.get(msg.userId), me = this.users.get(this.me);
         if (u) {
-          if (msg.up && !u.hand && u.id !== this.me && me?.callRole === 'member' && this.sameRoomCall(u)) playHand();
+          if (msg.up && !u.hand && u.id !== this.me && !!me?.callId && this.sameRoomCall(u)) playHand();
           u.hand = msg.up;
         }
         break;
@@ -400,7 +386,7 @@ export class Store {
         const otherId = mine ? msg.toId : msg.fromId, other = this.name(otherId);
         if (msg.reply === 'accept') {
           this.callLink = msg.link ?? this.callLink;
-          this.toast({ kind: 'info', text: `🎙 Voice call with ${other} — you're live`, expires: 4000 });
+          this.toast({ kind: 'info', text: `🎙 Voice call with ${other}`, expires: 4000 });
         }
         else if (mine && msg.reply === 'blocked') this.toast({ kind: 'info', text: msg.reason ?? `Can't knock on ${other} now`, expires: 5000 });
         else if (mine) this.toast({ kind: 'knock_again', userId: otherId, text: msg.reason ?? `${other} said later`, expires: 12000 });
