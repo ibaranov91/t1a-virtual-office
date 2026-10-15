@@ -7,10 +7,12 @@ import { createHash, randomUUID } from 'node:crypto';
 import { reverse as dnsReverse } from 'node:dns/promises';
 import { WebSocketServer } from 'ws';
 import type { TileMap } from '../../shared/map';
-import type { ClientMsg } from '../../shared/protocol';
+import { PRESENT_MAX_BYTES, type ClientMsg } from '../../shared/protocol';
 import { World } from './world';
 import { serveStatic } from './static';
 import { startBots } from './bots';
+import { startCreatures } from './creatures';
+import { DECK_ID_RE, PresentError, Presenter } from './presentation';
 import { finish as finishGoogle, googleEnabled, revoke as revokeGoogle } from './google';
 
 const PORT = Number(process.env.DECK_PORT ?? 8787);
@@ -37,6 +39,8 @@ const STATE_FILE = new URL('state.json', DATA);
 
 const map: TileMap = JSON.parse(readFileSync(new URL('../../shared/tilemap.json', import.meta.url), 'utf8'));
 const world = new World(map);
+const DECKS_DIR = fileURLToPath(new URL('decks/', DATA));
+world.present = new Presenter(DECKS_DIR, map, msg => world.broadcast(msg));
 const sessions = new Map<string, string>(); // session id -> user id
 
 if (existsSync(STATE_FILE)) {
@@ -74,6 +78,8 @@ for (const sig of ['SIGINT', 'SIGTERM'] as const) process.on(sig, () => { save()
 // Bots are opt-in (BOTS=1): npm run dev and the test instances set it, prod doesn't have it at all.
 if (process.env.BOTS && process.env.BOTS !== '0') startBots(world, Number(process.env.BOT_COUNT ?? 4));
 else for (const u of [...world.users.values()]) if (u.bot) world.users.delete(u.id); // bots saved before they were turned off
+// The cat, the dog, the October bat and the cleaner run everywhere, prod included, unless PETS=0.
+startCreatures(world.creatures, process.env.PETS !== '0');
 
 // ---------- macOS app (macos/dist, built by `macos/build.sh --dist` during deploy) ----------
 // One-command install: curl -fsSL <base>/api/mac/install.sh | bash. curl doesn't quarantine what it
@@ -220,6 +226,37 @@ const server = createServer(async (req, res) => {
       world.setGoogle(user, link);
       return page(`Connected as ${link.email}`, 'Calls you start now get their own Meet room. You can close this tab.');
     } catch (e) { return page('Not connected', (e as Error).message); }
+  }
+  // ---------- presentation mode ----------
+  const slide = req.method === 'GET' ? req.url?.match(/^\/api\/present\/([0-9a-f-]{36})\/(\d{1,3})\.(png|jpg)$/) : null;
+  if (slide) {
+    const deck = world.present!.decks.get(slide[1]), n = Number(slide[2]);
+    if (!deck || !DECK_ID_RE.test(deck.id) || n < 1 || n > deck.count || deck.ext[n - 1] !== slide[3]) return json(res, 404, { error: 'not found' });
+    const file = join(DECKS_DIR, deck.id, `${n}.${slide[3]}`);
+    res.writeHead(200, { 'content-type': slide[3] === 'png' ? 'image/png' : 'image/jpeg', 'content-length': statSync(file).size, 'cache-control': 'private, max-age=31536000, immutable' });
+    return createReadStream(file).pipe(res);
+  }
+  if (req.url?.startsWith('/api/present/')) {
+    const userId = sessions.get(String(req.headers['x-deck-session'] ?? ''));
+    if (!userId || !world.users.has(userId)) return json(res, 401, { error: 'sign in first' });
+    if (req.method === 'GET' && req.url === '/api/present/decks')
+      return json(res, 200, { decks: [...world.present!.decks.values()].sort((a, b) => b.at - a.at).slice(0, 20) });
+    if (req.method !== 'POST' || !['/api/present/upload', '/api/present/start'].includes(req.url)) return json(res, 404, { error: 'not found' });
+    const chunks: Buffer[] = []; let size = 0, tooBig = false;
+    req.on('data', (c: Buffer) => { size += c.length; if (size > PRESENT_MAX_BYTES * 1.4) tooBig = true; else chunks.push(c); });
+    req.on('end', async () => {
+      if (tooBig) return json(res, 413, { error: `Too big: ${Math.round(PRESENT_MAX_BYTES / 1024 / 1024)} MB at most.` });
+      try {
+        const body = JSON.parse(Buffer.concat(chunks).toString() || '{}');
+        const deck = req.url === '/api/present/upload' ? await world.present!.upload(userId, body) : world.present!.present(userId, body);
+        json(res, 200, { deck });
+      } catch (e) {
+        if (e instanceof PresentError) return json(res, e.code, { error: e.message });
+        console.warn('presentation upload failed:', e);
+        json(res, 400, { error: 'Upload failed.' });
+      }
+    });
+    return;
   }
   if (req.method === 'GET' && req.url?.startsWith('/api/mac')) {
     const origin = originOf(req);

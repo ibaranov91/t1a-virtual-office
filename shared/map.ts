@@ -16,7 +16,7 @@ export interface Room {
   spots: Spot[];
   homeDesks?: boolean; // seats here can be claimed as someone's home desk
   plantSlots?: Tile[];  // where plants of people without a home desk stand (the Orangery's shelves)
-  rules: { voice?: 'open'; knock: KnockRule; label?: string; occupantLabel?: string };
+  rules: { voice?: 'open'; knock: KnockRule; label?: string; occupantLabel?: string; access?: 'admins' }; // access: only office admins walk in
   meeting: { provider: 'meet' | 'teams'; url: string };
 }
 /** Something you can hold for a while, taken from an object (a coffee from the machine). */
@@ -29,7 +29,10 @@ export type ObjectUse = { kind: 'take'; items: UseItem[] } | { kind: 'toggle'; l
   | { kind: 'meetings'; label: string } // the board by the Meeting room: which calendar meetings are on
   | { kind: 'achievements'; label: string } // the Lobby notice board: your plant and your badges
   | { kind: 'clock'; label: string; city: string; tz: string } // a Lobby wall clock (real time, one city); clicking opens the list of our cities
-  | { kind: 'link'; label: string; url: string }; // opens a page in a new tab (the safe: the vault)
+  | { kind: 'presentation'; label: string } // the Meeting room screen: upload slides and present them
+  | { kind: 'link'; label: string; url: string } // opens a page in a new tab (the safe: the vault)
+  | { kind: 'dealer'; label: string; items: string[] } // hands out items into your inventory (the bouncer, the hat stand)
+  | { kind: 'toilet'; label: string }; // a stall: occupied for a while, fills up with use (see Toilets on the server)
 export interface MapObject {
   id: string; type: string; x: number; y: number; w: number; h: number;
   sound?: { clip?: string; gain: number };
@@ -69,6 +72,7 @@ const SEAT_TYPES = new Set(['chair', 'stool']);
  */
 interface MapIndex {
   walk: Uint8Array; room: Int8Array; seat: Int16Array; byId: Map<string, MapObject>;
+  locked: Uint8Array; // 1 in rooms only admins may enter
   g: Int32Array; came: Int32Array; seen: Uint32Array; gen: number;
 }
 const indexes = new WeakMap<TileMap, MapIndex>();
@@ -79,16 +83,18 @@ export function mapIndex(m: TileMap): MapIndex {
   let ix = indexes.get(m);
   if (ix) return ix;
   const n = m.width * m.height;
-  const walk = new Uint8Array(n), room = new Int8Array(n).fill(-1), seat = new Int16Array(n).fill(-1);
+  const walk = new Uint8Array(n), room = new Int8Array(n).fill(-1), seat = new Int16Array(n).fill(-1), locked = new Uint8Array(n);
   for (let y = 0; y < m.height; y++) for (let x = 0; x < m.width; x++) walk[y * m.width + x] = m.layers.walkable[y][x] === 1 ? 1 : 0;
   m.rooms.forEach((r, i) => {
-    for (let y = r.rect.y; y < r.rect.y + r.rect.h; y++) for (let x = r.rect.x; x < r.rect.x + r.rect.w; x++) room[y * m.width + x] = i;
+    for (let y = r.rect.y; y < r.rect.y + r.rect.h; y++) for (let x = r.rect.x; x < r.rect.x + r.rect.w; x++) {
+      room[y * m.width + x] = i; if (r.rules.access === 'admins') locked[y * m.width + x] = 1;
+    }
   });
   m.objects.forEach((o, i) => { // first match wins, like the old `find`
     if (SEAT_TYPES.has(o.type)) { const k = o.y * m.width + o.x; if (seat[k] < 0) seat[k] = i; }
     else if (o.sit) for (let y = o.y; y < o.y + o.h; y++) for (let x = o.x; x < o.x + o.w; x++) { const k = y * m.width + x; if (seat[k] < 0) seat[k] = i; }
   });
-  ix = { walk, room, seat, byId: new Map(m.objects.map(o => [o.id, o])), g: new Int32Array(n), came: new Int32Array(n), seen: new Uint32Array(n), gen: 0 };
+  ix = { walk, room, seat, locked, byId: new Map(m.objects.map(o => [o.id, o])), g: new Int32Array(n), came: new Int32Array(n), seen: new Uint32Array(n), gen: 0 };
   indexes.set(m, ix);
   return ix;
 }
@@ -102,15 +108,22 @@ export const roomAt = (m: TileMap, x: number, y: number): Room | undefined => {
   return i < 0 ? undefined : m.rooms[i];
 };
 
+/** In a room only office admins may walk into (the Admin room). */
+export const adminOnly = (m: TileMap, x: number, y: number) =>
+  x >= 0 && y >= 0 && x < m.width && y < m.height && mapIndex(m).locked[y * m.width + x] === 1;
+
 export const objectById = (m: TileMap, id: string) => mapIndex(m).byId.get(id);
 
 // Deterministic 4-neighbour A*. Returns tiles from `from` to `to` inclusive, or [] if unreachable.
+// keepOut: not an admin, so admins-only rooms aren't walkable (someone already inside may still walk out).
 const NEIGH: [number, number][] = [[0, -1], [1, 0], [0, 1], [-1, 0]];
-export function findPath(m: TileMap, from: Tile, to: Tile): Tile[] {
+export function findPath(m: TileMap, from: Tile, to: Tile, keepOut = false): Tile[] {
   if (!isWalkable(m, to.x, to.y)) return [];
+  if (keepOut && adminOnly(m, to.x, to.y)) return [];
+  if (keepOut && adminOnly(m, from.x, from.y)) keepOut = false;
   if (from.x === to.x && from.y === to.y) return [{ ...from }];
   const W = m.width, key = (x: number, y: number) => y * W + x;
-  const ix = mapIndex(m), walk = ix.walk, gen = ++ix.gen;
+  const ix = mapIndex(m), walk = ix.walk, locked = ix.locked, gen = ++ix.gen;
   if (gen === 0xffffffff) { ix.seen.fill(0); ix.gen = 1; }
   // g/came are valid for a tile only while seen[tile] === gen
   const gAt = (k: number) => (ix.seen[k] === gen ? ix.g[k] : Infinity);
@@ -147,7 +160,7 @@ export function findPath(m: TileMap, from: Tile, to: Tile): Tile[] {
       const nx = cx + dx, ny = cy + dy;
       if (nx < 0 || ny < 0 || nx >= W || ny >= m.height) continue;
       const nk = key(nx, ny);
-      if (walk[nk] !== 1) continue;
+      if (walk[nk] !== 1 || (keepOut && locked[nk])) continue;
       const ng = cg + 1;
       if (ng < gAt(nk)) {
         set(nk, ng, k);
@@ -164,16 +177,16 @@ export function findPath(m: TileMap, from: Tile, to: Tile): Tile[] {
   return out.reverse();
 }
 
-export interface Move { from: Tile; to: Tile; startedAt: number; path?: Tile[]; face?: Dir }
+export interface Move { from: Tile; to: Tile; startedAt: number; path?: Tile[]; face?: Dir; ms?: number } // ms: per tile (speed effects)
 
 export const dirBetween = (a: Tile, b: Tile, fallback: Dir = 'down'): Dir =>
   b.x > a.x ? 'right' : b.x < a.x ? 'left' : b.y > a.y ? 'down' : b.y < a.y ? 'up' : fallback;
 
 /** Interpolated position along a path at time t. `x,y` are fractional tiles. */
-export function sampleMove(path: Tile[], startedAt: number, t: number) {
+export function sampleMove(path: Tile[], startedAt: number, t: number, ms = WALK_MS_PER_TILE) {
   if (path.length === 0) return null;
   const elapsed = Math.max(0, t - startedAt);
-  const seg = elapsed / WALK_MS_PER_TILE;
+  const seg = elapsed / ms;
   const i = Math.floor(seg);
   if (i >= path.length - 1) {
     const last = path[path.length - 1];
@@ -186,7 +199,7 @@ export function sampleMove(path: Tile[], startedAt: number, t: number) {
 
 const STEP: Record<Dir, Tile> = { down: { x: 0, y: 1 }, up: { x: 0, y: -1 }, left: { x: -1, y: 0 }, right: { x: 1, y: 0 } };
 /** Path to `to`. Sofa seats aren't walkable: you sit down onto one from the tile in front, and get up the same way. */
-export function pathTo(m: TileMap, from: Tile, to: Tile): Tile[] {
+export function pathTo(m: TileMap, from: Tile, to: Tile, keepOut = false): Tile[] {
   if (from.x === to.x && from.y === to.y) return [{ ...from }];
   const front = (t: Tile) => {
     if (isWalkable(m, t.x, t.y)) return null;
@@ -195,12 +208,13 @@ export function pathTo(m: TileMap, from: Tile, to: Tile): Tile[] {
   };
   const up = front(from), down = front(to);
   if (!isWalkable(m, to.x, to.y) && !down) return [];
-  const mid = findPath(m, up ?? from, down ?? to);
+  if (keepOut && adminOnly(m, to.x, to.y)) return [];
+  const mid = findPath(m, up ?? from, down ?? to, keepOut);
   if (!mid.length) return [];
   return [...(up ? [{ ...from }] : []), ...mid, ...(down ? [{ ...to }] : [])];
 }
 
-export const pathDuration = (path: Tile[]) => Math.max(0, path.length - 1) * WALK_MS_PER_TILE;
+export const pathDuration = (path: Tile[], ms = WALK_MS_PER_TILE) => Math.max(0, path.length - 1) * ms;
 
 /** Free walkable tiles touching an object's footprint, each with the direction that faces the object. */
 export function besideObject(m: TileMap, o: MapObject): Spot[] {
@@ -208,6 +222,16 @@ export function besideObject(m: TileMap, o: MapObject): Spot[] {
   for (let x = o.x; x < o.x + o.w; x++) { out.push({ x, y: o.y + o.h, dir: 'up' }); out.push({ x, y: o.y - 1, dir: 'down' }); }
   for (let y = o.y; y < o.y + o.h; y++) { out.push({ x: o.x - 1, y, dir: 'right' }); out.push({ x: o.x + o.w, y, dir: 'left' }); }
   return out.filter(t => isWalkable(m, t.x, t.y));
+}
+
+/** A toilet stall's door: the tile in front of its left half (stalls stand against a wall, door facing the room). */
+export const stallDoor = (o: MapObject): Tile => ({ x: o.x, y: o.y - 1 });
+/** Where the line for a stall stands: straight out from the door, first in line nearest. */
+export function stallLine(m: TileMap, o: MapObject, n: number): Spot[] {
+  const door = stallDoor(o), out: Spot[] = [];
+  for (let y = door.y - 1; out.length < n && y >= 0 && isWalkable(m, door.x, y); y--) out.push({ x: door.x, y, dir: 'down' });
+  while (out.length < n) out.push(out.at(-1) ?? { ...door, dir: 'down' }); // a long line bunches up at its end
+  return out;
 }
 
 /** Seat (chair/stool) on this tile, with the direction a sitter faces. */
@@ -316,15 +340,16 @@ export function layoutProblem(m: TileMap, checkDungeonReach = true): string | nu
   }
   // you walk over to these to use them (the calendars and boards just open)
   for (const o of m.objects) if ((o.use?.kind === 'take' || o.use?.kind === 'toggle' || o.use?.kind === 'arcade' || o.use?.kind === 'instrument') && !besideObject(m, o).some(ok)) return `nobody could reach the ${objectName(o.type)}`;
+  for (const o of m.objects) if (o.use?.kind === 'toilet' && !ok(stallDoor(o))) return `nobody could get into the ${objectName(o.type)}`;
   return null;
 }
 
 /** What to call an object type in the UI: "big table", not table_big. */
 export const objectName = (type: string) => ({ table_long: 'long table', table_big: 'big table', table_round: 'round table', plant_shelf: 'plant shelf',
-  painting_small: 'small painting', coffee_machine: 'coffee machine', meetings_board: 'meetings board', noticeboard: 'notice board', exit_door: 'exit door' } as Record<string, string>)[type] ?? type.replace(/_/g, ' ');
+  painting_small: 'small painting', coffee_machine: 'coffee machine', meetings_board: 'meetings board', noticeboard: 'notice board', exit_door: 'exit door', server_rack: 'server rack', dj_booth: 'DJ booth', neon_sign: 'neon sign' } as Record<string, string>)[type] ?? type.replace(/_/g, ' ');
 
 /** Types that are one of a kind (the way out, the coffee machine…): they can be moved but not removed. */
-export const KEEP_TYPES = new Set(['exit_door', 'coffee_machine', 'fridge', 'jukebox', 'arcade', 'records', 'meetings_board', 'noticeboard', 'clock_nyc', 'clock_berlin', 'clock_moscow', 'safe', 'keyboard', 'drum_kit', 'bass_amp']);
+export const KEEP_TYPES = new Set(['exit_door', 'coffee_machine', 'fridge', 'jukebox', 'arcade', 'records', 'meetings_board', 'noticeboard', 'clock_nyc', 'clock_berlin', 'clock_moscow', 'safe', 'keyboard', 'drum_kit', 'bass_amp', 'screen', 'toilet', 'bouncer', 'hat_stand']);
 /** Types that stay exactly where they are. */
 export const FIXED_TYPES = new Set(['exit_door']);
 export const RUG_MIN = 2, RUG_MAX = 24;

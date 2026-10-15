@@ -96,6 +96,30 @@ npm run typecheck    # run before every commit or deploy
   Only a human's own `move` ending on the garden hole can fall into `instance: 'dungeon'`; `walkSeq` cancels stale
   fall/key/door timers on any later walk or placement. The server owns key state and sends it only to its owner;
   client discovery resets per visit. Neither is persisted.
+- **Creatures and cups** (`server/src/creatures.ts`, drawn by `client/src/creatures.ts`): a cat, a dog, a bat (October only)
+  and the cleaner. Not users: their own `creatures`/`creature` messages, never in the people list, never knock. They run
+  everywhere, prod included (`PETS=0` turns them off). Holding a coffee or tea, click a table tile to put the cup down
+  (`cup_put`; at most `MAX_CUPS`, saved in `state.json`); the cleaner paths to settled cups, wipes, takes them away. Cups
+  also vanish after 30 min. The ghost of Mazurkevich is client-only (night hours, or 3 min an hour); in dev,
+  `__deck.engine.critters.summonGhost()` brings him out.
+- **Presentation mode** (`server/src/presentation.ts`, `client/src/Presentation.tsx`): the Meeting room's wall screen
+  (`use.kind: 'presentation'`) takes PNG/JPG slides or one PDF (rendered with poppler's `pdftoppm` if the machine has it,
+  else refused) behind a PIN (`DECK_PRESENT_PIN`, default `1234`), via `POST /api/present/upload` with the session in
+  `x-deck-session`. Decks are files in `data/decks/<id>/` and survive restarts; who's presenting is memory only. Everyone in
+  the screen's room sees the slides as a 90s magazine page; the presenter flips with ← →, Stop ends it, and it ends by itself
+  60 s after the presenter's last tab closes.
+- **Admin room & Berghain** (east column, x 65-73): a room with `rules.access: 'admins'` is walkable only for admins
+  (`findPath`/`pathTo` take `keepOut`; the server sends non-admins' paths in `move` so clients match). Berghain's
+  `use.kind: 'toilet'` stalls live in `server/src/toilets.ts` (in memory): up to `TOILET_CAPACITY` (4) inside (hidden,
+  heads over the half door), the rest line up straight out from the door (`stallLine`) and move in as places free up.
+  Full after `TOILET_FULL` visits; drains over time or an admin plunges. Knocks on someone inside go to Later. With
+  company inside, "Rack a line" puts a line + card on the stall's shelf; it needs `drugs` in your inventory. The
+  bouncer (`use.kind: 'dealer'`) puts `drugs` in your inventory (`User.items`, saved, sent only to you in `me`, at most
+  `ITEMS_MAX` of a kind); racking takes one. **Sniff** (`toilet_sniff`) takes a line off the shelf and gives you the `unicorns` effect.
+- **Pockets (inventory)** are `User.items` (strings): `drugs` from the bouncer and hats as `hat:<style>` from the Lobby hat stand
+  (`use.kind: 'dealer'` hands out one of its `items`; one of each hat). The 🎒 button lists them; wearing a hat is the `hat`
+  effect, and a non-GM may only wear a hat that's in their pockets. Judges (`DECK_JUDGES`) find `hat:judge` and office admins
+  `hat:admin` in their pockets on connect (`grantHats`, by sign-in email; put on the first time, removable after).
 - **Room behavior is data.** Knock rules, meeting links and home-desk rooms live in `tilemap.json`
   (from `gen-map.mjs`), not in code.
 

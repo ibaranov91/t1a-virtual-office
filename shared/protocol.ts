@@ -30,6 +30,19 @@ export const underground = (u: { instance: string | null }) => u.instance === DU
 
 export const ROOM_VOICE_MAX = 12;
 export const AFK_MS = 10 * 60_000;
+/** A toilet stall in Berghain: up to TOILET_CAPACITY people inside (`in`), the rest line up outside (`queue`), and
+ *  how many visits since it was last cleaned. At TOILET_FULL it overflows: nobody gets in until it drains (one level per
+ *  TOILET_DRAIN_MS) or an admin plunges it. `shelf`: lines racked on its little shelf (cleared when it empties). */
+export interface ToiletState { fill: number; in: string[]; queue: string[]; shelf: number }
+export const TOILET_CAPACITY = 4;
+export const TOILET_FULL = 8;
+export const TOILET_USE_MS = 45_000;
+export const TOILET_DRAIN_MS = 3 * 60_000;
+export const TOILET_SHELF_MAX = 4;
+/** What racking a line on the shelf takes from your inventory (the bouncer sells it). */
+export const TOILET_SHELF_ITEM = 'drugs';
+export const ITEMS_MAX = 3; // of one kind in your inventory
+export const toiletFull = (s?: ToiletState) => !!s && s.fill >= TOILET_FULL;
 /** A toggle object's shared state. */
 export interface ObjectState { on: boolean }
 
@@ -92,6 +105,9 @@ export const ACHIEVEMENTS: Achievement[] = [
 
 export interface Look { skin: string; hair: string; shirt: string; pants: string; eyes: string; shoes: string; glassesColor: string; hatColor: string; style: number; top: number; bottom: number; glasses: number; hat: number }
 
+/** A buff, debuff or hat on a person (see shared/effects.ts). until: when it wears off (ms); absent = until removed. */
+export interface Effect { kind: string; until?: number; data?: Record<string, unknown> }
+
 export interface PublicUser {
   id: string; name: string; look: Look;
   lookSet: boolean;
@@ -110,7 +126,30 @@ export interface PublicUser {
   plant: Plant | null;      // on their home desk, or in the Orangery if they have none
   bloomed: string[];        // plant kinds they've grown to full bloom
   achievements: Record<string, number>; // achievement id → when it was earned (ms)
+  effects: Effect[];        // buffs, debuffs, hats; the server adds, expires and broadcasts them
 }
+
+/** Office animals and helpers. Not people: never in the user list, never knock, never counted.
+ *  ms: milliseconds per tile of the current walk (they amble, fly or drift at their own pace). */
+export type CreatureKind = 'cat' | 'dog' | 'bat' | 'cleaner';
+export type CreaturePose = 'idle' | 'sit' | 'nap' | 'clean' | 'hang';
+export interface Creature {
+  id: string; kind: CreatureKind; name: string;
+  tile: Tile; dir: Dir; pose: CreaturePose;
+  walk: { path: Tile[]; startedAt: number; ms: number } | null;
+}
+/** A cup someone left on a table; the cleaner takes it away. */
+export interface Cup { id: string; tile: Tile; item: string; at: number }
+export const MAX_CUPS = 12;
+export const CUP_ITEMS = ['coffee', 'tea'];
+/** Furniture you can put a cup on. */
+export const CUP_TABLES = ['table_long', 'table_round', 'table_big', 'desk', 'counter'];
+export const cupTableAt = <O extends { type: string; x: number; y: number; w: number; h: number }>(objects: O[], t: Tile) =>
+  objects.find(o => CUP_TABLES.includes(o.type) && t.x >= o.x && t.x < o.x + o.w && t.y >= o.y && t.y < o.y + o.h);
+export type CreatureServerMsg =
+  | { t: 'creatures'; creatures: Creature[] } // everyone, on connect and when one appears or leaves
+  | { t: 'creature'; creature: Creature }     // one of them set off, sat down, fell asleep…
+  | { t: 'cups'; cups: Cup[] };
 
 /** Quick reactions you can toss at someone; they float up over their head for everyone to see. */
 export const REACTIONS = ['👋', '👍', '❤️', '😂', '🎉', '☕'] as const;
@@ -155,9 +194,18 @@ export type LayoutEdit =
   | { op: 'rug_add'; x: number; y: number; color?: string; w?: number; h?: number }
   | { op: 'rug'; id: string; color?: string; w?: number; h?: number };
 
+/** Presentation mode: a deck of slide images shown on a screen object to everyone in its room. */
+export interface DeckInfo { id: string; title: string; count: number; ext: string[]; by: string; at: number } // ext: each slide's file extension
+export interface LiveDeck { deck: DeckInfo; slide: number; presenter: string; objectId: string; room: string; away?: boolean } // away: presenter disconnected, ends after PRESENT_AWAY_MS
+export const PRESENT_AWAY_MS = 60_000;
+export const PRESENT_MAX_SLIDES = 60;
+export const PRESENT_MAX_BYTES = 30 * 1024 * 1024; // one upload, all slides together
+export const slideUrl = (d: DeckInfo, i: number) => `/api/present/${d.id}/${i + 1}.${d.ext[i]}`;
+
 // server -> client
 export type ServerMsg =
   | ParkIncoming
+  | CreatureServerMsg
   | { t: 'game_status'; userId: string; game: PublicUser['game'] }
   | { t: 'game_cheer'; userId: string; kind: number }
   | { t: 'arcade'; cabinets: CabinetSummary[] }
@@ -168,8 +216,9 @@ export type ServerMsg =
   // the furniture and rugs: on connect, and to everyone after each admin edit. by: who made it; added: a new thing's id
   | { t: 'layout'; layout: Layout; by?: string; added?: string }
   | { t: 'hello'; you: string; serverTime: number; build?: string } // build: the client bundle the server serves (absent in dev)
-  | { t: 'state'; users: PublicUser[]; objects: Record<string, ObjectState>; jukebox?: Record<string, JukeboxState>; instruments?: Record<string, string | null>; serverTime: number }
-  | { t: 'move'; userId: string; from: Tile; to: Tile; startedAt: number; path?: Tile[]; face?: Dir }
+  | { t: 'state'; users: PublicUser[]; objects: Record<string, ObjectState>; toilets?: Record<string, ToiletState>; jukebox?: Record<string, JukeboxState>; instruments?: Record<string, string | null>; serverTime: number }
+  | { t: 'move'; userId: string; from: Tile; to: Tile; startedAt: number; path?: Tile[]; face?: Dir; ms?: number } // ms: per tile, absent = WALK_MS_PER_TILE
+  | { t: 'effects'; userId: string; effects: Effect[] }
   | { t: 'status'; userId: string; status: string }
   | { t: 'tz'; userId: string; tz: string | null }
   | { t: 'presence'; userId: string; presence: Presence }
@@ -179,7 +228,7 @@ export type ServerMsg =
   | { t: 'knock_reply'; knockId: string; fromId: string; toId: string; reply: 'accept' | 'later' | 'blocked'; link?: string; reason?: string; fallback?: boolean; cancelled?: boolean }
   // private settings, only to the user themselves. google: the connected Google account (null = not connected),
   // absent when this instance has no Google sign-in
-  | { t: 'me'; meetLink: string; email?: string; google?: string | null; calendar?: boolean; admin?: boolean } // calendar: Calendar access granted; admin: may rearrange the office
+  | { t: 'me'; meetLink: string; email?: string; google?: string | null; calendar?: boolean; admin?: boolean; judge?: boolean; items?: string[] } // calendar: Calendar access granted; admin: may rearrange the office
   | { t: 'google_auth'; url: string; calendar?: boolean } // open this to connect Google (in the system browser from the Mac app)
   | { t: 'calendar'; events?: CalEvent[]; error?: string } // my own events, only to me
   | { t: 'agenda'; items: AgendaItem[] } // my calendar meetings now and soon, only to me
@@ -199,6 +248,7 @@ export type ServerMsg =
   | { t: 'holding'; userId: string; item: string | null; objectId?: string; fromId?: string } // objectId: just taken; fromId: handed over
   | { t: 'jukebox'; id: string; state: JukeboxState }
   | { t: 'object'; id: string; on: boolean; by: string }
+  | { t: 'toilet'; id: string; state: ToiletState }
   | { t: 'react'; fromId: string; toId: string; emoji: Reaction }
   | { t: 'chat'; msg: ChatMsg }
   | { t: 'chat_history'; withId: string; messages: ChatMsg[] }
@@ -207,11 +257,13 @@ export type ServerMsg =
   | { t: 'notice'; text: string }
   | { t: 'voice_wait'; roomId: string | null }
   | { t: 'voice_owner'; owner: boolean }
-  | { t: 'look'; userId: string; look: Look; lookSet: boolean };
+  | { t: 'look'; userId: string; look: Look; lookSet: boolean }
+  | { t: 'presentation'; live: LiveDeck | null };
 
 // client -> server
 export type ClientMsg =
   | ParkOutgoing
+  | { t: 'cup_put'; tile: Tile } // put the coffee or tea you're holding down on this table tile
   | { t: 'game_play'; epoch: number }
   | { t: 'game_leave' }
   | { t: 'game_menu'; epoch: number; op: 'lobby' | 'restart' }
@@ -254,7 +306,14 @@ export type ClientMsg =
   | { t: 'voice_claim' }
   | { t: 'edit'; edit: LayoutEdit } // office admins only
   | { t: 'edit_reset' }              // office admins only: back to the generated layout
-  | { t: 'look'; look: Look };
+  | { t: 'toilet_plunge'; objectId: string } // office admins only: a full stall is clean again
+  | { t: 'toilet_shelf'; objectId: string }  // inside with company and the item in your inventory: rack a line
+  | { t: 'toilet_sniff'; objectId: string }  // inside, a line on the shelf: take it (and see unicorns)
+  | { t: 'look'; look: Look }
+  // put an effect on someone (on: true) or take it off. Yourself: 'self' effects; office admins (GMs): anyone, any effect.
+  | { t: 'effect'; targetId: string; kind: string; on: boolean; style?: string }
+  | { t: 'present_slide'; slide: number } // presenter only
+  | { t: 'present_stop' };                // presenter only
 
 /** An IANA zone name this runtime knows ('Europe/Warsaw'), so a client can't put arbitrary text on everyone's screen. */
 export function isTimeZone(tz: unknown): tz is string {
