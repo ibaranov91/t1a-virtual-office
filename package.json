@@ -2,11 +2,18 @@
   "name": "the-deck",
   "private": true,
   "type": "module",
-  "workspaces": ["server", "client"],
+  "workspaces": [
+    "server",
+    "client"
+  ],
   "scripts": {
     "gen": "node scripts/gen-map.mjs && node scripts/gen-assets.mjs",
     "dev": "concurrently -k -n server,client -c yellow,cyan \"npm run dev -w server\" \"npm run dev -w client\"",
-    "typecheck": "tsc -p server --noEmit && tsc -p client --noEmit"
+    "typecheck": "tsc -p server --noEmit && tsc -p client --noEmit",
+    "dev:mesh": "DECK_MESH=1 npm run dev"
   },
-  "devDependencies": { "concurrently": "^9.1.0", "typescript": "^5.6.3" }
+  "devDependencies": {
+    "concurrently": "^9.1.0",
+    "typescript": "^5.6.3"
+  }
 }

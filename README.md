@@ -7,6 +7,11 @@ npm install
 npm run dev        # server :8787 + Vite client :5173
 ```
 
+`npm run dev:mesh` serves the same thing over HTTPS (self-signed) on localhost and on this machine's
+NordVPN Meshnet address (100.64.0.0/10, auto-detected; override with `DECK_MESH_IP`). Other Meshnet devices open
+`https://<mesh-ip>:5173`. HTTPS is what gives them microphone access for voice. Requests from other networks are dropped,
+and the API always listens on 127.0.0.1 in dev.
+
 Open http://localhost:5173, enter any name, token `deck` (override with `DECK_TOKEN`).
 `BOTS=0` disables the 12 dev bots. State is dumped to `data/state.json` every 30 s.
 
