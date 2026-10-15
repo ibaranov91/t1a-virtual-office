@@ -34,7 +34,7 @@ export function startBots(world: World, count = 4) {
   const bots = () => [...world.users.values()].filter(u => u.bot);
   const next = new Map<string, number>();
   const presenceUntil = new Map<string, number>();
-  for (const b of bots()) { next.set(b.id, Date.now() + Math.random() * 6000); if (b.presence === 'offline') b.presence = 'online'; }
+  for (const b of bots()) { next.set(b.id, Date.now() + Math.random() * 6000); b.presence = 'online'; } // away/in-call timers aren't persisted, so start fresh
 
   const goSomewhere = (b: User, preferRoom?: string) => {
     const occ = world.occupied();
@@ -56,6 +56,7 @@ export function startBots(world: World, count = 4) {
   setInterval(() => {
     const now = Date.now();
     for (const b of bots()) {
+      if (b.callId) { presenceUntil.delete(b.id); continue; } // on a call: stay put
       const until = presenceUntil.get(b.id);
       if (until && now > until) { world.setPresence(b, 'online'); presenceUntil.delete(b.id); }
       if ((next.get(b.id) ?? 0) > now) continue;
@@ -67,11 +68,9 @@ export function startBots(world: World, count = 4) {
       else if (r < 0.8) { world.setPresence(b, 'away'); presenceUntil.set(b.id, now + 25000 + Math.random() * 50000); }
       else if (r < 0.88) { world.setPresence(b, 'in_call'); presenceUntil.set(b.id, now + 25000 + Math.random() * 40000); if (Math.random() < 0.6) goSomewhere(b, 'meeting'); }
       else if (r < 0.92) {
-        // occasionally knock on a human who is online, so solo testing sees incoming knocks
-        const humans = [...world.users.values()].filter(u => !u.bot && u.presence === 'online' && u.door !== 'thinking' && u.door !== 'leaving');
+        // bots only knock on each other (never on real people), so the floor has some life
         const others = bots().filter(o => o.id !== b.id && o.presence === 'online');
-        const target = humans.length && Math.random() < 0.5 ? pick(humans) : others.length ? pick(others) : null;
-        if (target) world.knock(b, target);
+        if (others.length) world.knock(b, pick(others));
       }
     }
   }, 500);

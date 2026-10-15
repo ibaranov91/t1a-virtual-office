@@ -22,7 +22,21 @@ export interface PublicUser {
   tile: Tile; dir: Dir; move: Move | null;
   presence: Presence; status: string; emote: Emote; bot: boolean; door: Door;
   homeDesk: Tile | null;
+  callId: string | null; // in a knock-started call; everyone with the same callId is talking together
+  muted: boolean;        // mic muted in that call
 }
+
+/** Built-in voice calls are peer-to-peer; keep them small. Bigger groups go to Meet. */
+export const MAX_CALL_SIZE = 5;
+
+/** WebRTC signaling payload, relayed by the server between members of the same call. */
+export type RtcSignal =
+  // conn: one connection attempt (chosen by the offerer); inst: one page's voice session.
+  // They let each side drop replies meant for an older attempt or an old page.
+  | { kind: 'hello'; inst: string } // a fresh page joining (or rejoining) the call asks the offerer to (re)connect
+  | { kind: 'offer'; sdp: string; conn: string }
+  | { kind: 'answer'; sdp: string; conn: string; inst: string }
+  | { kind: 'ice'; candidate: RTCIceCandidateInit | null; conn: string };
 
 export interface Knock {
   id: string; fromId: string; toId: string;
@@ -41,7 +55,11 @@ export type ServerMsg =
   | { t: 'knock'; knockId: string; fromId: string; toId: string }
   | { t: 'knock_reply'; knockId: string; fromId: string; toId: string; reply: 'accept' | 'later' | 'blocked'; link?: string; reason?: string; fallback?: boolean }
   | { t: 'me'; meetLink: string } // private settings, only to the user themselves
-  | { t: 'desk'; userId: string; desk: Tile | null };
+  | { t: 'desk'; userId: string; desk: Tile | null }
+  | { t: 'call'; userId: string; callId: string | null; link?: string } // link: the call's Meet room, only to members
+  | { t: 'rtc'; from: string; signal: RtcSignal }
+  | { t: 'speaking'; userId: string; on: boolean }
+  | { t: 'mute'; userId: string; muted: boolean };
 
 // client -> server
 export type ClientMsg =
@@ -52,4 +70,8 @@ export type ClientMsg =
   | { t: 'knock_reply'; knockId: string; reply: 'accept' | 'later' }
   | { t: 'meet_link'; link: string }
   | { t: 'claim_desk' }   // the seat you're sitting on becomes your home desk
-  | { t: 'release_desk' };
+  | { t: 'release_desk' }
+  | { t: 'end_call' }
+  | { t: 'rtc'; to: string; signal: RtcSignal }
+  | { t: 'speaking'; on: boolean }
+  | { t: 'mute'; muted: boolean };

@@ -422,6 +422,19 @@ frames.bubble_dots = bubble((t) => { for (const x of [3, 6, 9]) t.rect(x, 5, 2, 
 frames.bubble_meeting = bubble((t) => {
   t.rect(3, 3, 8, 5, '#5577a8'); t.rect(4, 4, 6, 3, '#9cc8e0'); t.hline(5, 8, 4, '#4a4a5a');
 });
+// muted mic in a call
+frames.bubble_muted = bubble((t) => {
+  t.rect(6, 2, 2, 4, '#7a6a64'); t.px(5, 5, '#7a6a64'); t.px(8, 5, '#7a6a64'); t.hline(5, 6, 4, '#7a6a64'); t.px(6, 7, '#7a6a64'); t.hline(5, 8, 4, '#7a6a64');
+  for (let i = 0; i < 7; i++) t.px(3 + i, 2 + i, '#d8463c');
+});
+// talking: sound bars; _1/_2 alternate while speaking, _0 is the quiet listener
+for (const [i, hs] of [[0, [1, 2, 1, 2]], [1, [2, 5, 3, 4]], [2, [4, 3, 5, 2]]]) {
+  frames[`bubble_talk_${i}`] = bubble((t) => {
+    const c = i === 0 ? '#9ab8b0' : '#3f8f84';
+    hs.forEach((h, k) => t.rect(3 + k * 2 + (k > 1 ? 1 : 0), 8 - h, 1, h, c));
+    if (i) t.px(2, 3, '#e8b860'); // a little spark when speaking
+  });
+}
 {
   const t = new Img(10, 8); // destination marker
   t.hline(1, 1, 8, '#f8d850'); t.hline(2, 2, 6, '#f8d850'); t.hline(3, 3, 4, '#f8d850'); t.hline(4, 4, 2, '#f8d850');

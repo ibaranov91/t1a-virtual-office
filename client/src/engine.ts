@@ -11,7 +11,7 @@ const DIR_ROW: Record<string, number> = { down: 0, left: 1, right: 2, up: 3 };
 const WALK_FPS = 8; // 4 frames per tile at 4 tiles/s
 const SIT_FRAME = 5;
 
-type BubbleKind = 'bubble_bang' | 'bubble_headset' | 'bubble_zzz' | 'bubble_meeting' | 'bubble_dots' | 'bubble_think';
+type BubbleKind = 'bubble_bang' | 'bubble_headset' | 'bubble_zzz' | 'bubble_meeting' | 'bubble_dots' | 'bubble_think' | 'bubble_talk';
 // where the bag hangs when carried, per facing; behind = drawn before the body
 const BAG_HAND: Record<string, { dx: number; behind: boolean }> = {
   down: { dx: 10, behind: false }, up: { dx: -3, behind: false }, left: { dx: 7, behind: true }, right: { dx: -1, behind: true },
@@ -315,6 +315,7 @@ export class Engine {
     if (u.door === 'thinking') return 'bubble_think';
     if (u.door === 'leaving') return null;
     if (u.emote === 'knock') return 'bubble_bang';
+    if (u.callId) return 'bubble_talk';
     if (u.presence === 'in_call') return 'bubble_headset';
     if (u.presence === 'away') return 'bubble_zzz';
     if (!p.walking && roomAt(MAP, p.tile.x, p.tile.y)?.rules.occupantLabel) return 'bubble_meeting';
@@ -357,9 +358,26 @@ export class Engine {
     if (!kind) return;
     const age = ms - (this.bubbleState.get(u.id)?.at ?? 0);
     let dy = age < 70 ? -3 : age < 140 ? 1 : 0;
+    if (kind === 'bubble_talk') {
+      const speaking = this.isSpeaking(u);
+      const frame = u.muted ? 'bubble_muted' : speaking ? (Math.floor(ms / 140) % 2 ? 'bubble_talk_1' : 'bubble_talk_2') : 'bubble_talk_0';
+      this.blit(ctx, frame, x + 9, baseY - 24 - 12 + dy + (speaking ? -(Math.floor(ms / 280) % 2) : 0));
+      return;
+    }
     if (kind === 'bubble_bang') dy += Math.floor(ms / 180) % 2 ? -1 : 0;
     else dy += Math.floor((ms + hash(u.id) * 13) / 600) % 2 ? 0 : -1;
     this.blit(ctx, kind, x + 9, baseY - 24 - 12 + dy);
+  }
+
+  /** Fake turn-taking for two people on a call, from server time so every viewer sees the same conversation. */
+  private isSpeaking(u: ClientUser) {
+    if (!u.callId || u.muted) return false;
+    if (!u.bot) return !!u.speaking; // real people: their actual mic activity (voice calls)
+    const members = [u, ...this.store.callPeers(u)].map(m => m.id).sort();
+    const turn = Math.floor(this.store.now() / 1800); // ~1.8 s turns
+    const h = hash(`${u.callId}|${turn}`);
+    if (h % 6 === 0) return false; // a beat of silence now and then
+    return members[(h >> 3) % members.length] === u.id;
   }
 
   private drawSteam(o: MapObject, ms: number) {
@@ -423,7 +441,7 @@ export class Engine {
     const dpr = window.devicePixelRatio || 1;
     const room = roomAt(MAP, p.tile.x, p.tile.y);
     const presence = u.door === 'thinking' ? 'packing up…' : u.door === 'leaving' ? 'heading out' : u.door === 'arriving' ? 'just arrived'
-      : u.presence === 'in_call' ? 'in a call' : u.presence === 'away' ? 'away' : room?.rules.occupantLabel ?? 'around';
+      : u.callId ? `talking with ${this.store.names(this.store.callPeers(u))}` : u.presence === 'in_call' ? 'in a call' : u.presence === 'away' ? 'away' : room?.rules.occupantLabel ?? 'around';
     const lines = [`${u.name}${u.id === this.store.me ? ' (you)' : ''} · ${presence}`];
     if (u.status) lines.push(`“${u.status}”`);
     if (u.id !== this.store.me && u.door !== 'thinking' && u.door !== 'leaving') lines.push(room?.rules.knock === 'disabled' ? `${room.name}: no knocking` : 'click to knock');

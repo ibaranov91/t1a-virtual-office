@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { loadAssets, type Assets } from './assets';
 import { Engine } from './engine';
+import { Voice } from './voice';
+import { playKnock, setSoundsOn, soundsOn } from './sounds';
 import { MAP, Store } from './net';
-import { normalizeMeetLink } from '../../shared/protocol';
+import { MEET_LINK_RE, normalizeMeetLink } from '../../shared/protocol';
 import { seatAt } from '../../shared/map';
 
 // Dev server: sign in automatically as ?as=<name> (default "Dev"); each name keeps its own session,
@@ -103,6 +105,18 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
   const [, tick] = useState(0);
 
   useEffect(() => { store.connect(); return () => store.close(); }, [store]);
+  // built-in voice for knock calls
+  const [voice, setVoice] = useState<Voice | null>(null);
+  useEffect(() => {
+    let v: Voice | null = null, unsub = () => {};
+    fetch('/api/config').then(r => r.json()).then(c => {
+      v = new Voice(store, c.iceServers ?? []);
+      unsub = store.subscribe(() => v!.sync());
+      v.sync(); setVoice(v);
+      if (import.meta.env.DEV) Object.assign(window, { __voice: v });
+    }).catch(() => {});
+    return () => { unsub(); v?.destroy(); };
+  }, [store]);
   useEffect(() => { loadAssets().then(setAssets); }, []);
   useEffect(() => {
     if (!assets || !canvasRef.current) return;
@@ -127,7 +141,10 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
         {!store.connected && assets && <div className="loading small">Reconnecting…</div>}
         {showRooms && <RoomList store={store} onPick={(id) => engineRef.current?.focusUser(id)} onClose={() => setShowRooms(false)} />}
         {(showMeet || store.pendingKnock) && <MeetSetup key={store.pendingKnock ?? 'panel'} store={store} onClose={() => setShowMeet(false)} />}
-        <DeskChip store={store} />
+        <div className="chips">
+          <CallChip store={store} voice={voice} />
+          <DeskChip store={store} />
+        </div>
         <Toasts store={store} />
       </div>
     </div>
@@ -160,6 +177,7 @@ function TopBar({ store, roomName, onToggleRooms, onToggleMeet, onLogout, onZoom
       </div>
       <button onClick={onToggleMeet} className={`meet-btn${store.meetLink === '' ? ' unset' : ''}`}
         title={store.meetLink ? `Your Meet room: ${store.meetLink}` : 'Set your Google Meet link'}>Meet</button>
+      <SoundToggle />
       <button onClick={onToggleRooms} title="Rooms">Rooms</button>
       <button onClick={onLogout} title="Sign out" className="ghost">Leave</button>
     </header>
@@ -225,7 +243,7 @@ function MeetSetup({ store, onClose }: { store: Store; onClose: () => void }) {
             : 'When you knock and they accept, you both join this room.'}
         </p>
         <ol className="steps">
-          <li>Open <a href="https://meet.google.com/" target="_blank" rel="noreferrer">meet.google.com</a> (opens a new tab)</li>
+          <li>Open <ExternalLink href="https://meet.google.com/">meet.google.com</ExternalLink> (opens a new tab)</li>
           <li>Click <b>New meeting</b> → <b>Create a meeting for later</b></li>
           <li>Copy the link and paste it here — it's yours to reuse</li>
         </ol>
@@ -240,6 +258,60 @@ function MeetSetup({ store, onClose }: { store: Store; onClose: () => void }) {
           <button disabled={!parsed || parsed === store.meetLink}>{knockTo ? `Save & knock` : 'Save'}</button>
         </div>
       </form>
+    </div>
+  );
+}
+
+/** Knock sound on/off, remembered per browser. Turning it on plays a sample. */
+function SoundToggle() {
+  const [on, setOn] = useState(soundsOn);
+  return (
+    <button className="ghost sound-btn" title={on ? 'Knock sound on (click to mute)' : 'Knock sound off'}
+      onClick={() => { setSoundsOn(!on); setOn(!on); if (!on) playKnock(); }}>
+      {on ? '🔔' : '🔕'}
+    </button>
+  );
+}
+
+/** Always opens in a new tab — never replaces the office (some shells ignore target=_blank). */
+function ExternalLink({ href, onOpen, children }: { href: string; onOpen?: () => void; children: React.ReactNode }) {
+  const open = (e: React.MouseEvent) => {
+    e.preventDefault();
+    const w = window.open(href, '_blank');
+    if (w) w.opener = null;
+    else { // popup blocked: fall back to a real new-tab anchor click
+      const a = document.createElement('a');
+      a.href = href; a.target = '_blank'; a.rel = 'noopener noreferrer'; a.click();
+    }
+    onOpen?.();
+  };
+  return <a href={href} target="_blank" rel="noopener noreferrer" onClick={open}>{children}</a>;
+}
+
+/** While you're on a knock call: who with, rejoin, hang up. */
+function CallChip({ store, voice }: { store: Store; voice: Voice | null }) {
+  const me = store.users.get(store.me);
+  if (!me?.callId) return null;
+  const peers = store.callPeers(me);
+  const humans = peers.filter(u => !u.bot).length;
+  const state = !voice ? 'starting…'
+    : voice.micError ? 'listen-only'
+    : humans === 0 ? 'no one to hear you'
+    : voice.connectedCount() < humans ? 'connecting…' : voice.muted ? 'muted' : 'live';
+  // only offer Meet when the call has a real shared room (not meet.google.com/new)
+  const meet = store.callLink && MEET_LINK_RE.test(store.callLink) ? store.callLink : null;
+  return (
+    <div className="desk-chip call-chip">
+      <span className={`dot ${state === 'live' ? 'live' : ''}`} />
+      <span>Talking with {store.names(peers)} <small className="muted">· {state}</small></span>
+      {voice?.needsGesture && <button onClick={() => voice.resumeAudio()}>Enable sound</button>}
+      {voice && !voice.micError && (
+        <button className={voice.muted ? 'muted-btn' : 'ghost'} onClick={() => voice.toggleMute()} title={voice.muted ? 'Unmute' : 'Mute'}>
+          {voice.muted ? '🔇 Unmute' : '🎙 Mute'}
+        </button>
+      )}
+      {meet && <ExternalLink href={meet}>Move to Meet</ExternalLink>}
+      <button className="end" onClick={() => store.endCall()}>Leave</button>
     </div>
   );
 }
@@ -272,7 +344,7 @@ function Toasts({ store }: { store: Store }) {
             <button onClick={() => store.replyKnock(t.knockId!, 'accept')}>Accept</button>
             <button className="ghost" onClick={() => store.replyKnock(t.knockId!, 'later')}>Later</button>
           </>}
-          {t.kind === 'link' && t.link && <a href={t.link} target="_blank" rel="noreferrer" onClick={() => store.dismiss(t.id)}>Join call</a>}
+          {t.kind === 'link' && t.link && <ExternalLink href={t.link} onOpen={() => store.dismiss(t.id)}>Join call</ExternalLink>}
           {t.kind !== 'knock_in' && <button className="ghost x" onClick={() => store.dismiss(t.id)}>×</button>}
         </div>
       ))}

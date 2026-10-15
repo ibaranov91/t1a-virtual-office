@@ -95,8 +95,20 @@ canvas { display: block; image-rendering: pixelated; touch-action: none; }
 .paste-row { display: flex; gap: 6px; }
 .paste-row input { flex: 1; }
 
-.desk-chip { position: absolute; left: 50%; top: 10px; transform: translateX(-50%); display: flex; align-items: center; gap: 10px;
+.chips { position: absolute; left: 8px; right: 8px; top: 10px; display: grid; gap: 6px; justify-items: center; pointer-events: none; }
+.chips > * { pointer-events: auto; }
+.desk-chip { display: flex; align-items: center; gap: 10px;
   background: rgba(42,31,36,.95); border: 2px solid var(--wood); border-radius: 8px; padding: 5px 6px 5px 12px; font-size: 13px;
   box-shadow: 0 4px 16px rgba(0,0,0,.4); animation: pop .22s steps(2) both; white-space: nowrap; max-width: calc(100% - 16px); }
 .desk-chip span { overflow: hidden; text-overflow: ellipsis; }
 .desk-chip span:only-child { padding-right: 6px; }
+
+.call-chip { border-color: var(--accent2); }
+.call-chip a { background: var(--accent2); color: #142010; font-weight: 700; padding: 5px 11px; border-radius: 6px; text-decoration: none; }
+.call-chip .end { background: var(--danger); color: #fff; }
+
+.call-chip .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: none; }
+.call-chip .dot.live { background: var(--accent2); box-shadow: 0 0 0 3px rgba(124,200,124,.25); }
+.call-chip small { font-size: 11px; }
+.call-chip .muted-btn { background: var(--danger); color: #fff; }
+.call-chip .ghost { color: var(--text); }

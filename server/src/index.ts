@@ -20,6 +20,11 @@ const TRUSTED_CIDRS = (process.env.NETBIRD_TRUSTED_CIDR ?? '192.0.2.1/32').split
 // ^proxy-[a-z0-9]+-\d+-\d+\.nb\.t1a\.internal\.?$ — the proxy's IP changes on restart but its name pattern doesn't.
 const TRUSTED_PEER = process.env.NETBIRD_TRUSTED_PEER ? new RegExp(process.env.NETBIRD_TRUSTED_PEER, 'i') : null;
 // Name+token login: on by default in dev, off when NetBird is on unless explicitly allowed.
+// Voice: browsers on NetBird usually connect directly; STUN helps otherwise, TURN (e.g. coturn) via DECK_ICE_SERVERS JSON.
+const ICE_SERVERS = (() => {
+  try { return process.env.DECK_ICE_SERVERS ? JSON.parse(process.env.DECK_ICE_SERVERS) : [{ urls: 'stun:stun.l.google.com:19302' }]; }
+  catch { console.warn('bad DECK_ICE_SERVERS, using STUN only'); return [{ urls: 'stun:stun.l.google.com:19302' }]; }
+})();
 const TOKEN_LOGIN = process.env.TOKEN_LOGIN ? process.env.TOKEN_LOGIN === 'true' : !NETBIRD;
 const DATA = new URL('../../data/', import.meta.url);
 const STATE_FILE = new URL('state.json', DATA);
@@ -113,7 +118,7 @@ const json = (res: import('node:http').ServerResponse, code: number, body: unkno
 };
 const server = createServer(async (req, res) => {
   if (req.method === 'GET' && req.url === '/api/health') return json(res, 200, { ok: true, users: world.users.size });
-  if (req.method === 'GET' && req.url === '/api/config') return json(res, 200, { netbird: NETBIRD, tokenLogin: TOKEN_LOGIN });
+  if (req.method === 'GET' && req.url === '/api/config') return json(res, 200, { netbird: NETBIRD, tokenLogin: TOKEN_LOGIN, iceServers: ICE_SERVERS });
   // Two-step NetBird login: GET only says who you are (so logout doesn't bounce you back in), POST signs in.
   if (req.url === '/api/auth/netbird' && (req.method === 'GET' || req.method === 'POST')) {
     const email = await netbirdEmail(req);

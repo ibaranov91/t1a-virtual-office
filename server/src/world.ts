@@ -3,7 +3,7 @@ import {
   findPath, isWalkable, pathDuration, roomAt, sampleMove, seatAt, WALK_MS_PER_TILE,
   type Dir, type TileMap, type Tile,
 } from '../../shared/map';
-import { normalizeMeetLink, type ClientMsg, type Door, type Knock, type Look, type Presence, type PublicUser, type ServerMsg } from '../../shared/protocol';
+import { MAX_CALL_SIZE, normalizeMeetLink, type ClientMsg, type Door, type Knock, type Look, type Presence, type PublicUser, type ServerMsg } from '../../shared/protocol';
 
 export interface User extends PublicUser {
   path: Tile[] | null; // path of the current move (server-side bookkeeping)
@@ -11,7 +11,10 @@ export interface User extends PublicUser {
   meetLink?: string;    // personal reusable Google Meet room; only shared with knock partners
   offlineAt?: number;   // when they walked out the door (not persisted)
   lastSpot?: Tile;      // where they were before heading out (not persisted)
+  presenceBeforeCall?: Presence;
 }
+
+interface Call { id: string; members: Set<string>; link: string; fallback: boolean }
 
 const WALK_HOME_AFTER_MS = 5 * 60_000; // back within this: return to where you were, else your home desk
 
@@ -42,6 +45,7 @@ export class World {
   private sockets = new Map<string, Set<Send>>();
   private listeners = new Set<Send>();
   private doorTimers = new Map<string, NodeJS.Timeout>();
+  private callTimers = new Map<string, NodeJS.Timeout>(); // per member: when they hang up
 
   constructor(public map: TileMap) {}
 
@@ -109,6 +113,7 @@ export class World {
     this.setDoor(u, 'thinking');
     this.doorTimer(u, () => {
       for (const k of this.knocks.values()) if (k.fromId === u.id && (k.state === 'walking' || k.state === 'pending')) this.closeKnock(k, 'later', 'Knock cancelled');
+      this.leaveCall(u);
       this.setDoor(u, 'leaving');
       u.lastSpot = this.position(u).dest;
       const at = this.walk(u, this.map.exit, 'up') ?? Date.now();
@@ -143,7 +148,7 @@ export class World {
     const u: User = {
       email,
       id: randomUUID().slice(0, 8), name, look: lookFor(name), tile: tile ?? { ...this.map.spawn }, dir: 'down',
-      move: null, path: null, presence: bot ? 'online' : 'offline', status: '', emote: null, bot, homeDesk: null, door: null,
+      move: null, path: null, presence: bot ? 'online' : 'offline', status: '', emote: null, bot, homeDesk: null, door: null, callId: null, muted: false,
     };
     this.users.set(u.id, u);
     this.broadcast(this.snapshot());
@@ -205,6 +210,54 @@ export class World {
     u.presence = presence;
     this.broadcast({ t: 'presence', userId: u.id, presence });
   }
+  // ---------- calls ----------
+  // A knock-started conversation. Anyone can knock their way in (except in the Meeting room);
+  // everyone in it shares one Meet link. Ends when fewer than two people are left.
+  private calls = new Map<string, Call>();
+
+  /** An accepted knock: join the call either of them is already in, or start a new one. Returns the call. */
+  connectCall(from: User, to: User): Call {
+    const existing = (to.callId && this.calls.get(to.callId)) || (from.callId && this.calls.get(from.callId)) || null;
+    if (existing) {
+      for (const u of [from, to]) this.joinCall(u, existing);
+      return existing;
+    }
+    // new call: the knocker's own Meet room, so everyone lands in the same place; else the room's generic link
+    const room = this.roomOf(to) ?? this.map.rooms.find(r => r.id === 'lobby')!;
+    const call: Call = { id: randomUUID().slice(0, 8), members: new Set(), link: from.meetLink ?? room.meeting.url, fallback: !from.meetLink };
+    this.calls.set(call.id, call);
+    for (const u of [from, to]) this.joinCall(u, call);
+    return call;
+  }
+  private joinCall(u: User, call: Call) {
+    if (u.callId === call.id) return;
+    this.leaveCall(u);
+    call.members.add(u.id);
+    u.callId = call.id; u.muted = false;
+    u.presenceBeforeCall = u.presence === 'in_call' ? 'online' : u.presence;
+    for (const [id] of this.sockets) this.sendTo(id, { t: 'call', userId: u.id, callId: call.id, link: call.members.has(id) ? call.link : undefined });
+    this.setPresence(u, 'in_call');
+    // nobody really knows when someone leaves Meet: bots hang up on their own, humans press End (or leave the office)
+    const humansThere = [...call.members].some(id => !this.users.get(id)?.bot);
+    const ms = !u.bot ? 2 * 60 * 60_000 : humansThere ? 120_000 + Math.random() * 180_000 : 30_000 + Math.random() * 60_000;
+    this.callTimers.set(u.id, setTimeout(() => this.leaveCall(u), ms));
+  }
+  callFull(u: User) { const c = u.callId ? this.calls.get(u.callId) : undefined; return !!c && c.members.size >= MAX_CALL_SIZE; }
+  leaveCall(u: User) {
+    const call = u.callId ? this.calls.get(u.callId) : undefined;
+    const t = this.callTimers.get(u.id); if (t) clearTimeout(t); this.callTimers.delete(u.id);
+    if (!u.callId) return;
+    u.callId = null; u.muted = false;
+    call?.members.delete(u.id);
+    this.broadcast({ t: 'call', userId: u.id, callId: null });
+    if (u.presence === 'in_call') this.setPresence(u, u.presenceBeforeCall ?? 'online');
+    u.presenceBeforeCall = undefined;
+    if (call && call.members.size < 2) { // nobody left to talk to
+      this.calls.delete(call.id);
+      for (const id of call.members) { const m = this.users.get(id); if (m) this.leaveCall(m); }
+    }
+  }
+
   setEmote(u: User, emote: User['emote']) {
     u.emote = emote;
     this.broadcast({ t: 'emote', userId: u.id, emote });
@@ -220,11 +273,13 @@ export class World {
   // ---------- knock ----------
   knock(from: User, to: User) {
     if (from.id === to.id || to.presence === 'offline' || goingOut(from)) return;
+    if (from.callId && from.callId === to.callId) return; // already talking
     for (const k of this.knocks.values()) if (k.fromId === from.id && (k.state === 'walking' || k.state === 'pending')) this.closeKnock(k, 'later');
     const k: Knock & { timer?: NodeJS.Timeout } = { id: randomUUID().slice(0, 8), fromId: from.id, toId: to.id, state: 'walking' };
     this.knocks.set(k.id, k);
     const room = this.roomOf(to);
     if (goingOut(to)) return this.closeKnock(k, 'blocked', `${to.name} is heading out`);
+    if (this.callFull(to)) return this.closeKnock(k, 'blocked', `${to.name}'s call is full (${MAX_CALL_SIZE}) — try Meet`);
     if (room?.rules.knock === 'disabled') {
       return this.closeKnock(k, 'blocked', `${to.name} is in ${room.name} — ${room.rules.label ?? 'no knocking'}`);
     }
@@ -258,7 +313,7 @@ export class World {
     k.state = 'pending';
     this.setEmote(to, 'knock');
     this.broadcast({ t: 'knock', knockId: k.id, fromId: from.id, toId: to.id });
-    if (room?.rules.knock === 'later' || to.presence === 'in_call') {
+    if (room?.rules.knock === 'later' || (to.presence === 'in_call' && !to.callId)) {
       k.timer = setTimeout(() => this.closeKnock(k, 'later', `${to.name} is ${room?.rules.occupantLabel ?? 'in a call'} — sent to Later`), 1400);
     } else {
       k.timer = setTimeout(() => this.closeKnock(k, 'later', `${to.name} didn't answer — sent to Later`), 30_000);
@@ -280,14 +335,12 @@ export class World {
     if (to && wasPending && to.emote === 'knock') this.setEmote(to, null);
     const base = { t: 'knock_reply', knockId: k.id, fromId: k.fromId, toId: k.toId, reply, reason } as const;
     if (reply === 'accept' && to) {
-      // the knocker's own Meet room, so both land in the same call; else the room's generic link
+      // join (or start) the call; whoever they knocked, everyone in it shares the same Meet link
       const from = this.users.get(k.fromId);
-      const room = this.roomOf(to) ?? this.map.rooms.find(r => r.id === 'lobby')!;
-      const link = from?.meetLink ?? room.meeting.url;
-      const fallback = !from?.meetLink;
+      const call = from ? this.connectCall(from, to) : null;
       // the link goes only to the two people involved; everyone else just learns the knock is over
       const pair = new Set([k.fromId, k.toId]);
-      for (const id of pair) this.sendTo(id, { ...base, link, fallback });
+      for (const id of pair) this.sendTo(id, { ...base, link: call?.link, fallback: call?.fallback });
       for (const [id] of this.sockets) if (!pair.has(id)) this.sendTo(id, base);
     } else this.broadcast(base);
     setTimeout(() => this.knocks.delete(k.id), 60_000);
@@ -313,7 +366,21 @@ export class World {
         this.sendTo(u.id, { t: 'me', meetLink: link });
         break;
       }
-      case 'presence': if (['online', 'away', 'in_call'].includes(msg.presence)) this.setPresence(u, msg.presence); break;
+      case 'presence': {
+        if (!['online', 'away', 'in_call'].includes(msg.presence)) break;
+        if (msg.presence !== 'in_call') this.leaveCall(u); // switching away from "in a call" hangs up
+        this.setPresence(u, msg.presence);
+        break;
+      }
+      case 'end_call': this.leaveCall(u); break;
+      // voice: relay WebRTC signaling only between members of the same call
+      case 'rtc': {
+        const to = this.users.get(String(msg.to));
+        if (u.callId && to?.callId === u.callId && to.id !== u.id) this.sendTo(to.id, { t: 'rtc', from: u.id, signal: msg.signal });
+        break;
+      }
+      case 'speaking': if (u.callId) this.broadcast({ t: 'speaking', userId: u.id, on: !!msg.on }); break;
+      case 'mute': if (u.callId) { u.muted = !!msg.muted; this.broadcast({ t: 'mute', userId: u.id, muted: u.muted }); } break;
       case 'knock': { const to = this.users.get(msg.targetId); if (to) this.knock(u, to); break; }
       case 'knock_reply': this.reply(u, msg.knockId, msg.reply === 'accept' ? 'accept' : 'later'); break;
     }
@@ -331,7 +398,7 @@ export class World {
   load(data: ReturnType<World['dump']>) {
     for (const d of data.users ?? []) {
       const tile = isWalkable(this.map, d.tile.x, d.tile.y) ? d.tile : { ...this.map.spawn };
-      this.users.set(d.id, { ...d, homeDesk: d.homeDesk ?? null, tile, move: null, path: null, emote: null, door: null, presence: d.bot ? d.presence : 'offline' });
+      this.users.set(d.id, { ...d, homeDesk: d.homeDesk ?? null, tile, move: null, path: null, emote: null, door: null, callId: null, muted: false, presence: d.bot ? d.presence : 'offline' });
     }
   }
 }
