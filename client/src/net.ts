@@ -1,7 +1,7 @@
 // WebSocket client + the client-side mirror of server state.
 import mapJson from '../../shared/tilemap.json';
 import { besideObject, pathTo, roomAt, sampleMove, type Dir, type Tile, type TileMap } from '../../shared/map';
-import { PLANT_STAGES, ROOM_VOICE_MAX, type AgendaItem, type CalEvent, type MeetingRoomInfo, type ChatMsg, type ObjectState, type ClientMsg, type PublicUser, type Reaction, type RtcSignal, type ServerMsg } from '../../shared/protocol';
+import { ACHIEVEMENTS, PLANT_STAGES, plantName, ROOM_VOICE_MAX, type AgendaItem, type CalEvent, type MeetingRoomInfo, type ChatMsg, type ObjectState, type ClientMsg, type PublicUser, type Reaction, type RtcSignal, type ServerMsg } from '../../shared/protocol';
 import { playHand, playKnock, playPop } from './sounds';
 import type { Soundscape } from './soundscape';
 
@@ -146,6 +146,8 @@ export class Store {
   }
   closeCalendar() { this.calendarOpen = false; this.emit(); }
   openMeetings() { this.meetingsOpen = true; this.emit(); }
+  achievementsOpen = false;
+  openAchievements(open = true) { this.achievementsOpen = open; this.emit(); }
   closeMeetings() { this.meetingsOpen = false; this.emit(); }
   goToMeeting(key: string) {
     this.send({ t: 'meeting_go', key });
@@ -331,10 +333,16 @@ export class Store {
       case 'desk': { const u = this.users.get(msg.userId); if (u) u.homeDesk = msg.desk; break; }
       case 'plant': {
         const u = this.users.get(msg.userId); if (!u) break;
-        const was = u.plant; u.plant = msg.plant;
-        if (u.id === this.me && msg.plant) this.toast({ kind: 'info', expires: 5000,
-          text: msg.plant.stage === 0 ? '🌱 You planted a new plant' : `🌱 Your plant grew: ${PLANT_STAGES[msg.plant.stage]}`,
-          hint: msg.plant.stage === 0 && was ? 'The old one withered after a week without a status' : 'It grows once a day you set a status' });
+        const was = u.plant, earned = u.achievements;
+        u.plant = msg.plant; u.bloomed = msg.bloomed; u.achievements = msg.achievements;
+        if (u.id !== this.me || !msg.plant) break;
+        const p = msg.plant;
+        if (was) this.toast({ kind: 'info', expires: 5000,
+          text: p.stage === 0 ? '🌱 You planted a new seedling' : `🌱 Your ${plantName(p)} grew: ${PLANT_STAGES[p.stage]}`,
+          hint: p.stage === 0 ? 'The old one withered after a week without a status' : 'It grows once a day you set a status' });
+        for (const a of ACHIEVEMENTS) if (msg.achievements[a.id] && !earned[a.id]) {
+          playPop(); this.toast({ kind: 'info', expires: 8000, text: `${a.icon} Achievement: ${a.title}`, hint: 'See all on the notice board in the Lobby' });
+        }
         break;
       }
       case 'to_meet': {

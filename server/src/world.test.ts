@@ -237,16 +237,19 @@ test('radio is always on without a shared knob; lamp toggles still broadcast and
   const restored = new World(map); restored.load(saved);
   const after = restored.snapshot() as Extract<ServerMsg, { t: 'state' }>; assert.deepEqual(after.objects[lamp.id], { on: !before.objects[lamp.id].on });
 });
-test('a status a day grows your plant one stage; a week without one kills it and the next status replants', t => {
+test('a pot on first login; a status a day grows it, blooms earn badges, a week without one kills it', t => {
   const { w, add, tick } = setup(t), a = add('A'), DAY = 86_400_000, stage = () => a.u.plant?.stage;
-  assert.equal(stage(), undefined);
-  w.handle(a.u, { t: 'status', status: '' }, a.socket); assert.equal(stage(), undefined); // clearing it isn't tending
-  w.handle(a.u, { t: 'status', status: 'hi' }, a.socket); assert.equal(stage(), 0);
-  w.handle(a.u, { t: 'status', status: 'again' }, a.socket); assert.equal(stage(), 0); // once a day
-  tick(DAY); w.handle(a.u, { t: 'status', status: 'day 2' }, a.socket); assert.equal(stage(), 1);
-  for (let i = 0; i < 9; i++) { tick(DAY); w.handle(a.u, { t: 'status', status: `day ${i + 3}` }, a.socket); }
-  assert.equal(stage(), PLANT_STAGES.length - 1); // stays in bloom
+  assert.equal(stage(), 0); assert.ok(a.u.plant?.kind); // planted on connect
+  const kind = a.u.plant!.kind!;
+  w.handle(a.u, { t: 'status', status: '' }, a.socket); assert.equal(stage(), 0); // clearing it isn't tending
+  w.handle(a.u, { t: 'status', status: 'hi' }, a.socket); assert.equal(stage(), 1); // today counts already
+  assert.ok(a.u.achievements.tended);
+  w.handle(a.u, { t: 'status', status: 'again' }, a.socket); assert.equal(stage(), 1); // once a day
+  for (let i = 0; i < 8; i++) { tick(DAY); w.handle(a.u, { t: 'status', status: `day ${i + 2}` }, a.socket); }
+  assert.equal(stage(), PLANT_STAGES.length - 1); assert.equal(a.u.plant?.kind, kind); // stays in bloom, same flower
+  assert.ok(a.u.achievements.bloom); assert.deepEqual(a.u.bloomed, [kind]); assert.equal(a.u.achievements.botanist, undefined);
   tick(PLANT_DIES_DAYS * DAY); assert.ok(plantDead(a.u.plant!, Date.now()));
   w.handle(a.u, { t: 'status', status: 'back' }, a.socket); assert.equal(stage(), 0);
-  assert.ok(a.messages.some(m => m.t === 'plant'));
+  assert.notEqual(a.u.plant?.kind, kind); // replanted as something new
+  assert.ok(a.messages.some(m => m.t === 'plant' && m.achievements.bloom));
 });

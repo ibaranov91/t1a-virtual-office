@@ -282,3 +282,24 @@ button:focus-visible, summary:focus-visible, input[type="range"]:focus-visible {
   .appearance-options { min-height: 180px; }
   .appearance-actions { grid-column: 1; }
 }
+
+.trophy-btn { position: relative; }
+.trophy-btn .dot { position: absolute; top: 3px; right: 4px; width: 7px; height: 7px; border-radius: 50%; background: #6ab0e8; box-shadow: 0 0 0 2px var(--panel2); }
+.achievements .plant-card { display: flex; gap: 12px; align-items: center; padding: 8px; border-radius: 6px; background: var(--panel2); }
+.achievements .plant-card > div { display: grid; gap: 4px; font-size: 13px; }
+.achievements .plant-card p { margin: 0; }
+.achievements .plant-card p.todo { color: #8cc4ec; }
+.achievements .plant-card p.ok { color: #9ccc78; }
+.plant-sprite { image-rendering: pixelated; flex: none; }
+.achievements .pips { display: flex; gap: 3px; }
+.achievements .pips i { width: 14px; height: 5px; border-radius: 2px; background: var(--line); }
+.achievements .pips i.on { background: #7bb85a; }
+.achievements .muted-line { color: var(--muted); }
+.achievement-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.achievement-list li { display: flex; align-items: center; gap: 10px; font-size: 13px; padding: 6px 8px; border-radius: 6px; background: var(--panel2); }
+.achievement-list li > span:nth-child(2) { flex: 1; }
+.achievement-list .icon { font-size: 20px; filter: grayscale(1); opacity: .45; }
+.achievement-list li.got .icon { filter: none; opacity: 1; }
+.achievement-list li.soon { opacity: .6; }
+.achievement-list .state { color: var(--muted); white-space: nowrap; }
+.achievement-list li.got .state { color: #9ccc78; }

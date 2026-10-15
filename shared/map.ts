@@ -19,7 +19,8 @@ export interface Room {
 export interface UseItem { id: string; label: string; icon: string }
 /** What clicking an object offers: take something from it, flip it on/off, or look at your calendar on it. */
 export type ObjectUse = { kind: 'take'; items: UseItem[] } | { kind: 'toggle'; label: string } | { kind: 'calendar'; label: string }
-  | { kind: 'meetings'; label: string }; // the board by the Meeting room: which calendar meetings are on
+  | { kind: 'meetings'; label: string } // the board by the Meeting room: which calendar meetings are on
+  | { kind: 'achievements'; label: string }; // the Lobby notice board: your plant and your badges
 export interface MapObject {
   id: string; type: string; x: number; y: number; w: number; h: number;
   sound?: { clip: string; gain: number };

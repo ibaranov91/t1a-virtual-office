@@ -35,12 +35,33 @@ export const meetAs = (link: string, email?: string | null) => {
 };
 
 /** Everyone's desk plant. It grows one stage on each day you set a status and withers after a week without one.
- *  care: the last day (UTC day number) it was tended. */
-export interface Plant { stage: number; care: number }
+ *  care: the last day (UTC day number) it was tended. kind: which flower it turns into (random when planted);
+ *  absent on plants from before kinds existed, which grow into the original flowering bush. */
+export interface Plant { stage: number; care: number; kind?: PlantKind }
 export const PLANT_STAGES = ['just planted', 'sprouting', 'growing', 'leafy', 'budding', 'in bloom'] as const;
 export const PLANT_DIES_DAYS = 7;
+export const PLANT_KINDS = ['tulip_red', 'tulip_yellow', 'tulip_pink', 'daisy', 'sunflower', 'cactus', 'lavender'] as const;
+export type PlantKind = typeof PLANT_KINDS[number];
+const KIND_NAMES: Record<PlantKind | 'bush', string> = {
+  bush: 'flowering bush', tulip_red: 'red tulip', tulip_yellow: 'yellow tulip', tulip_pink: 'pink tulip',
+  daisy: 'daisy', sunflower: 'sunflower', cactus: 'cactus', lavender: 'lavender',
+};
+export const PLANT_REVEAL = 3; // every plant is the same seedling until this stage: what it becomes is a surprise
+export const plantName = (p: Plant) => (p.stage >= PLANT_REVEAL ? KIND_NAMES[p.kind ?? 'bush'] : 'seedling');
+export const kindName = (k: string) => KIND_NAMES[k as PlantKind] ?? k;
 export const dayNumber = (ms: number) => Math.floor(ms / 86_400_000);
 export const plantDead = (p: Plant, now: number) => dayNumber(now) - p.care >= PLANT_DIES_DAYS;
+
+/** Badges, shown on the Achievements board. Earned ones are kept per person with when they were earned.
+ *  soon: announced but not earnable yet. */
+export interface Achievement { id: string; icon: string; title: string; how: string; goal?: number; soon?: boolean }
+export const BOTANIST_KINDS = 3;
+export const ACHIEVEMENTS: Achievement[] = [
+  { id: 'tended', icon: '💧', title: 'Green fingers', how: 'Set a status on a new day. Each day you do, your plant grows one stage.' },
+  { id: 'bloom', icon: '🌸', title: 'In bloom', how: `Grow your plant all the way: set a status on ${PLANT_STAGES.length - 1} more days, never ${PLANT_DIES_DAYS} days apart.` },
+  { id: 'botanist', icon: '🌻', title: 'Botanist', how: `Bloom ${BOTANIST_KINDS} different flowers. A plant that withers is replanted as a new, random one.`, goal: BOTANIST_KINDS },
+  { id: 'event', icon: '🎉', title: 'Party person', how: 'Be in the office during an office event.', soon: true },
+];
 
 export interface Look { skin: string; hair: string; shirt: string; pants: string; eyes: string; shoes: string; glassesColor: string; hatColor: string; style: number; top: number; bottom: number; glasses: number; hat: number }
 
@@ -58,6 +79,8 @@ export interface PublicUser {
   meeting: number | null;   // in a calendar meeting until then (ms); knocks go to Later
   instance: string | null;  // inside a meeting's own room: only people in the same one see each other
   plant: Plant | null;      // on their home desk, or in the Orangery if they have none
+  bloomed: string[];        // plant kinds they've grown to full bloom
+  achievements: Record<string, number>; // achievement id → when it was earned (ms)
 }
 
 /** Quick reactions you can toss at someone; they float up over their head for everyone to see. */
@@ -116,7 +139,7 @@ export type ServerMsg =
   | { t: 'instance'; userId: string; instance: string | null; tile: Tile; dir: Dir } // stepped into (or out of) a meeting room
   | { t: 'meetings'; rooms: MeetingRoomInfo[] } // running meeting rooms, for the board
   | { t: 'desk'; userId: string; desk: Tile | null }
-  | { t: 'plant'; userId: string; plant: Plant | null }
+  | { t: 'plant'; userId: string; plant: Plant | null; bloomed: string[]; achievements: Record<string, number> }
   | { t: 'call'; userId: string; callId: string | null; link?: string } // link: the call's Meet room, only to members
   | { t: 'rtc'; from: string; signal: RtcSignal }
   | { t: 'speaking'; userId: string; on: boolean }

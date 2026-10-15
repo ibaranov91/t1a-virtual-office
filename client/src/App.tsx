@@ -7,7 +7,7 @@ import { needsGesture, resume } from './audio';
 import { prefs, savePrefs, type Category } from './prefs';
 import { ITEMS, MAP, Store, type ClientUser } from './net';
 import { inNativeApp, syncNative } from './native';
-import { MAX_CHAT_LEN, MEET_LINK_RE, meetAs, normalizeMeetLink, REACTIONS } from '../../shared/protocol';
+import { ACHIEVEMENTS, dayNumber, MAX_CHAT_LEN, MEET_LINK_RE, meetAs, normalizeMeetLink, kindName, PLANT_DIES_DAYS, PLANT_KINDS, PLANT_REVEAL, PLANT_STAGES, plantDead, plantName, REACTIONS, type Plant } from '../../shared/protocol';
 import { hallLevel } from '../../shared/acoustics';
 import { seatAt } from '../../shared/map';
 
@@ -141,6 +141,7 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
       const use = p?.kind === 'object' ? MAP.objects.find(o => o.id === p.id)?.use : undefined;
       if (use?.kind === 'calendar') { setPick(null); return store.openCalendar(); }
       if (use?.kind === 'meetings') { setPick(null); return store.openMeetings(); }
+      if (use?.kind === 'achievements') { setPick(null); return store.openAchievements(); }
       setPick(cur => (p && cur?.kind === p.kind && cur.id === p.id ? null : p)); // same target again: close
     };
     e.onZoom = () => tick(n => n + 1);
@@ -168,6 +169,7 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
           onRoom={id => { engineRef.current?.walkToRoom(id); if (compact()) setShowRooms(false); }} />}
         {store.calendarOpen && <CalendarPanel store={store} />}
         {store.meetingsOpen && <MeetingsPanel store={store} />}
+        {store.achievementsOpen && me && <AchievementsPanel store={store} me={me} assets={assets} />}
         {(showMeet || store.pendingKnock) && <MeetSetup key={store.pendingKnock ?? 'panel'} store={store} onClose={() => setShowMeet(false)} />}
         {showAppearance && me && <AppearanceMenu key={me.id} look={me.look} assets={assets} firstTime={!me.lookSet}
           onSave={(look) => { store.setLook(look); setShowAppearance(false); }} onClose={() => setShowAppearance(false)} />}
@@ -214,7 +216,7 @@ function TopBar({ store, roomName, onToggleRooms, onToggleMeet, onToggleAppearan
         <option value="in_call">🎧 In a call</option>
       </select>
       <form className="status" onSubmit={e => { e.preventDefault(); store.setStatus(status); setDraft(null); (document.activeElement as HTMLElement)?.blur(); }}>
-        <input value={status} maxLength={80} placeholder="What are you on?" onChange={e => setDraft(e.target.value)}
+        <input value={status} maxLength={80} placeholder="What are you on? (waters your plant)" onChange={e => setDraft(e.target.value)}
           onBlur={() => { if (draft !== null) { store.setStatus(draft); setDraft(null); } }} />
       </form>
       <div className="zoom">
@@ -232,6 +234,11 @@ function TopBar({ store, roomName, onToggleRooms, onToggleMeet, onToggleAppearan
         <button onClick={onToggleRooms} title="Who's where: click a room or a person to walk there" className="rooms-btn">People</button>
         <button onClick={onLogout} title="Sign out" className="ghost">Leave</button>
       </div>
+      <button onClick={() => store.openAchievements(!store.achievementsOpen)} className="hanger-btn trophy-btn"
+        title={me?.plant && needsWater(me.plant, store.now()) ? 'Achievements · your plant needs a status today' : 'Achievements and your plant'} aria-label="Achievements and your plant">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 4h8v5a4 4 0 0 1-8 0V4ZM8 6H5v1a3 3 0 0 0 3 3M16 6h3v1a3 3 0 0 1-3 3M12 13v4M8 20h8M9 17h6" /></svg>
+        {me?.plant && needsWater(me.plant, store.now()) && <b className="dot" />}
+      </button>
       <button onClick={onToggleAppearance} className="hanger-btn" title="Character appearance" aria-label="Character appearance">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a2 2 0 0 0-2 2c0 1 .7 1.6 1.6 2.4.6.5 1.1 1 1.1 1.8V11M12 9l-7 9h14l-7-9ZM3 21h18" /></svg>
       </button>
@@ -440,6 +447,64 @@ function MeetingChip({ store }: { store: Store }) {
     {m?.link && <ExternalLink href={meetAs(m.link, store.meetAccount)}>Join call</ExternalLink>}
     <button className="end" onClick={() => store.leaveMeeting()}>Leave</button>
   </div>;
+}
+
+/** Today's status hasn't been set yet (or the plant is gone): the plant wants attention. */
+const needsWater = (p: Plant, now: number) => plantDead(p, now) || p.care < dayNumber(now);
+
+/** A plant sprite from the world atlas, scaled up crisply. */
+function PlantSprite({ assets, plant, now, scale = 4 }: { assets: Assets | null; plant: Plant; now: number; scale?: number }) {
+  const ref = useRef<HTMLCanvasElement>(null);
+  const name = plantDead(plant, now) ? 'pot_dead' : plant.kind && plant.stage >= PLANT_REVEAL ? `pot_${plant.kind}_${plant.stage}` : `pot_${plant.stage}`;
+  useEffect(() => {
+    const c = ref.current, f = assets?.atlas.frames[name]; if (!c || !f || !assets) return;
+    const ctx = c.getContext('2d')!; ctx.imageSmoothingEnabled = false; ctx.clearRect(0, 0, c.width, c.height);
+    ctx.drawImage(assets.world, f.x, f.y, f.w, f.h, 0, 0, f.w * scale, f.h * scale);
+  }, [assets, name, scale]);
+  return <canvas ref={ref} width={12 * scale} height={20 * scale} className="plant-sprite" />;
+}
+
+/** The Lobby notice board (and the 🏆 button): how your plant is doing, what makes it grow, and your achievements. */
+function AchievementsPanel({ store, me, assets }: { store: Store; me: ClientUser; assets: Assets | null }) {
+  const now = store.now(), today = dayNumber(now), p = me.plant, close = () => store.openAchievements(false);
+  const dead = p && plantDead(p, now), left = p ? PLANT_DIES_DAYS - (today - p.care) : 0;
+  const when = (ms: number) => new Date(ms).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+  return (
+    <div className="modal-backdrop" onClick={e => { if (e.target === e.currentTarget) close(); }}>
+      <div className="meet-panel guided calendar-panel achievements">
+        <div className="rooms-head"><span>🏆 Achievements</span><button type="button" className="ghost" aria-label="Close" onClick={close}>×</button></div>
+        <section className="plant-card">
+          {p && <PlantSprite assets={assets} plant={p} now={now} />}
+          <div>
+            <b>{!p ? 'No plant yet' : dead ? 'Your plant withered' : `Your ${plantName(p)}`}</b>
+            {p && !dead && <>
+              <div className="pips" aria-label={`Stage ${p.stage + 1} of ${PLANT_STAGES.length}`}>{PLANT_STAGES.map((_, i) => <i key={i} className={i <= p.stage ? 'on' : ''} />)}</div>
+              <small>{PLANT_STAGES[p.stage]}{p.stage < PLANT_REVEAL ? ' · what it becomes shows at stage 4' : ''}</small>
+            </>}
+            <p className={p && !dead && p.care >= today ? 'ok' : 'todo'}>
+              {!p ? 'Set a status to plant one.'
+                : dead ? `A week passed without a status. Set one to plant a new seedling.`
+                : p.care >= today ? '✓ Watered today: it grows again tomorrow when you set a status.'
+                : `💧 Set a status today to water it. It withers in ${left} day${left === 1 ? '' : 's'} without one.`}
+            </p>
+            <small className="muted-line">Your plant grows one stage each day you set a status, in the box at the top. It stands on your home desk, or in the Orangery if you don't have one.</small>
+          </div>
+        </section>
+        <ul className="achievement-list">
+          {ACHIEVEMENTS.map(a => {
+            const got = me.achievements[a.id];
+            const progress = a.id === 'botanist' && !got ? `${Math.min(me.bloomed.length, a.goal!)}/${a.goal}` : null;
+            return <li key={a.id} className={got ? 'got' : a.soon ? 'soon' : ''}>
+              <span className="icon">{a.icon}</span>
+              <span><b>{a.title}</b><br /><small>{a.how}</small>
+                {a.id === 'botanist' && me.bloomed.length > 0 && <><br /><small className="muted-line">Bloomed: {me.bloomed.map(kindName).join(', ')} · {PLANT_KINDS.length} kinds in all</small></>}</span>
+              <small className="state">{got ? `✓ ${when(got)}` : a.soon ? 'Coming soon' : progress ?? ''}</small>
+            </li>;
+          })}
+        </ul>
+      </div>
+    </div>
+  );
 }
 
 /** The board by the Meeting room: meetings on right now in their own rooms. Titles only for their attendees. */
@@ -802,7 +867,7 @@ function ActionWheel({ store, engine, pick, onPerson, onClose }: { store: Store;
     }
   } else {
     const o = MAP.objects.find(o => o.id === pick.id);
-    if (!o?.use || o.use.kind === 'calendar' || o.use.kind === 'meetings') return null;
+    if (!o?.use || o.use.kind === 'calendar' || o.use.kind === 'meetings' || o.use.kind === 'achievements') return null;
     if (o.use.kind === 'toggle') {
       const on = store.objects[o.id]?.on ?? o.on ?? true;
       title = o.use.label[0].toUpperCase() + o.use.label.slice(1);
