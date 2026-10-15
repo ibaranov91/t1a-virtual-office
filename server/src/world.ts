@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import {
-  findPath, isWalkable, pathDuration, roomAt, sampleMove, WALK_MS_PER_TILE,
+  findPath, isWalkable, pathDuration, roomAt, sampleMove, seatAt, WALK_MS_PER_TILE,
   type Dir, type TileMap, type Tile,
 } from '../../shared/map';
 import { normalizeMeetLink, type ClientMsg, type Knock, type Look, type Presence, type PublicUser, type ServerMsg } from '../../shared/protocol';
@@ -9,7 +9,10 @@ export interface User extends PublicUser {
   path: Tile[] | null; // path of the current move (server-side bookkeeping)
   email?: string;       // identity from NetBird; never broadcast
   meetLink?: string;    // personal reusable Google Meet room; only shared with knock partners
+  offlineAt?: number;   // when the last socket closed (not persisted)
 }
+
+const WALK_HOME_AFTER_MS = 5 * 60_000; // a quick reload keeps you where you were
 
 const SKINS = ['#f8dcc0', '#f2c79b', '#e2ad7f', '#c98d5e', '#a46a43', '#7c4f32'];
 const HAIRS = ['#2b1d1f', '#4f2b1a', '#6b3e26', '#a0603a', '#d8a050', '#ecd59a', '#b4473a', '#8c8a98', '#3e5a8a', '#c8789a'];
@@ -53,13 +56,16 @@ export class World {
     this.sockets.get(userId)!.add(send);
     this.listeners.add(send);
     send({ t: 'hello', you: userId, serverTime: Date.now() });
-    if (u.presence === 'offline') { u.presence = 'online'; this.broadcast({ t: 'presence', userId, presence: 'online' }); }
+    if (u.presence === 'offline') {
+      u.presence = 'online'; this.broadcast({ t: 'presence', userId, presence: 'online' });
+      if (u.homeDesk && (!u.offlineAt || Date.now() - u.offlineAt > WALK_HOME_AFTER_MS)) this.walkHome(u);
+    }
     send(this.snapshot());
     send({ t: 'me', meetLink: u.meetLink ?? '' });
     return () => {
       this.listeners.delete(send);
       const set = this.sockets.get(userId)!; set.delete(send);
-      if (set.size === 0 && !u.bot) { u.presence = 'offline'; this.broadcast({ t: 'presence', userId, presence: 'offline' }); }
+      if (set.size === 0 && !u.bot) { u.presence = 'offline'; u.offlineAt = Date.now(); this.broadcast({ t: 'presence', userId, presence: 'offline' }); }
     };
   }
 
@@ -68,7 +74,7 @@ export class World {
     const u: User = {
       email,
       id: randomUUID().slice(0, 8), name, look: lookFor(name), tile: tile ?? { ...this.map.spawn }, dir: 'down',
-      move: null, path: null, presence: bot ? 'online' : 'offline', status: '', emote: null, bot,
+      move: null, path: null, presence: bot ? 'online' : 'offline', status: '', emote: null, bot, homeDesk: null,
     };
     this.users.set(u.id, u);
     this.broadcast(this.snapshot());
@@ -95,11 +101,38 @@ export class World {
     const path = findPath(this.map, from, to);
     if (!path.length) return null;
     const startedAt = Math.round(now + pos.remainingMs);
+    face ??= seatAt(this.map, to.x, to.y)?.dir; // sit facing the desk/table
     u.move = { from, to, startedAt, face }; u.path = path; u.tile = to;
     if (face) u.dir = face;
     else if (path.length > 1) { const a = path[path.length - 2], b = path[path.length - 1]; u.dir = b.x > a.x ? 'right' : b.x < a.x ? 'left' : b.y > a.y ? 'down' : 'up'; }
     this.broadcast({ t: 'move', userId: u.id, from, to, startedAt, face });
     return startedAt + pathDuration(path);
+  }
+
+  // ---------- home desks ----------
+  deskOwner(t: Tile) { return [...this.users.values()].find(o => o.homeDesk?.x === t.x && o.homeDesk?.y === t.y); }
+  claimedDesks() { const s = new Set<string>(); for (const o of this.users.values()) if (o.homeDesk) s.add(`${o.homeDesk.x},${o.homeDesk.y}`); return s; }
+  private setDesk(u: User, desk: Tile | null) {
+    u.homeDesk = desk;
+    this.broadcast({ t: 'desk', userId: u.id, desk });
+  }
+  claimDesk(u: User) {
+    const p = this.position(u);
+    if (p.remainingMs > 0 || p.dest.x !== p.tile.x || p.dest.y !== p.tile.y) return; // must be sitting, not walking
+    const seat = seatAt(this.map, p.tile.x, p.tile.y);
+    if (!seat?.homeDesk) return;
+    const owner = this.deskOwner(seat);
+    if (owner && owner.id !== u.id) return;
+    this.setDesk(u, { x: seat.x, y: seat.y });
+  }
+  releaseDesk(u: User) { if (u.homeDesk) this.setDesk(u, null); }
+  /** Arrive through the Lobby and walk to your desk. */
+  private walkHome(u: User) {
+    const d = u.homeDesk!;
+    const someoneThere = [...this.users.values()].some(o => o.id !== u.id && o.presence !== 'offline' && (() => { const p = this.position(o).dest; return p.x === d.x && p.y === d.y; })());
+    if (someoneThere) return;
+    u.move = null; u.path = null; u.tile = { ...this.map.spawn };
+    this.walk(u, d);
   }
 
   setStatus(u: User, status: string) {
@@ -206,6 +239,8 @@ export class World {
         break;
       }
       case 'status': this.setStatus(u, String(msg.status ?? '')); break;
+      case 'claim_desk': this.claimDesk(u); break;
+      case 'release_desk': this.releaseDesk(u); break;
       case 'meet_link': {
         const raw = String(msg.link ?? '');
         const link = raw.trim() ? normalizeMeetLink(raw) : '';
@@ -225,14 +260,14 @@ export class World {
     return {
       users: [...this.users.values()].map(u => {
         const p = this.position(u).dest;
-        return { id: u.id, name: u.name, email: u.email, meetLink: u.meetLink, look: u.look, tile: p, dir: u.dir, status: u.status, presence: u.presence, bot: u.bot };
+        return { id: u.id, name: u.name, email: u.email, meetLink: u.meetLink, homeDesk: u.homeDesk, look: u.look, tile: p, dir: u.dir, status: u.status, presence: u.presence, bot: u.bot };
       }),
     };
   }
   load(data: ReturnType<World['dump']>) {
     for (const d of data.users ?? []) {
       const tile = isWalkable(this.map, d.tile.x, d.tile.y) ? d.tile : { ...this.map.spawn };
-      this.users.set(d.id, { ...d, tile, move: null, path: null, emote: null, presence: d.bot ? d.presence : 'offline' });
+      this.users.set(d.id, { ...d, homeDesk: d.homeDesk ?? null, tile, move: null, path: null, emote: null, presence: d.bot ? d.presence : 'offline' });
     }
   }
 }

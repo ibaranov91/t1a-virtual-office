@@ -8,12 +8,13 @@ export interface Room {
   id: string; name: string; type: string;
   rect: { x: number; y: number; w: number; h: number };
   capacity: number; floor: string; rug: string; spots: Spot[];
+  homeDesks?: boolean; // seats here can be claimed as someone's home desk
   rules: { knock: KnockRule; label?: string; occupantLabel?: string };
   meeting: { provider: 'meet' | 'teams'; url: string };
 }
 export interface MapObject {
   id: string; type: string; x: number; y: number; w: number; h: number;
-  wall?: boolean; walkable?: boolean; light?: boolean; steam?: boolean;
+  wall?: boolean; walkable?: boolean; light?: boolean; steam?: boolean; dir?: Dir;
 }
 export interface TileMap {
   version: number; width: number; height: number; tileSize: number;
@@ -105,3 +106,11 @@ export function sampleMove(path: Tile[], startedAt: number, t: number) {
 }
 
 export const pathDuration = (path: Tile[]) => Math.max(0, path.length - 1) * WALK_MS_PER_TILE;
+
+const SEAT_TYPES = new Set(['chair', 'stool']);
+/** Seat (chair/stool) on this tile, with the direction a sitter faces. */
+export function seatAt(m: TileMap, x: number, y: number): (Spot & { homeDesk: boolean }) | null {
+  const o = m.objects.find(o => SEAT_TYPES.has(o.type) && o.x === x && o.y === y);
+  if (!o) return null;
+  return { x, y, dir: o.dir ?? 'down', homeDesk: o.type === 'chair' && !!roomAt(m, x, y)?.homeDesks };
+}

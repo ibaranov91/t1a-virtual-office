@@ -18,6 +18,7 @@ export interface PublicUser {
   id: string; name: string; look: Look;
   tile: Tile; dir: Dir; move: Move | null;
   presence: Presence; status: string; emote: Emote; bot: boolean;
+  homeDesk: Tile | null;
 }
 
 export interface Knock {
@@ -35,7 +36,8 @@ export type ServerMsg =
   | { t: 'emote'; userId: string; emote: Emote }
   | { t: 'knock'; knockId: string; fromId: string; toId: string }
   | { t: 'knock_reply'; knockId: string; fromId: string; toId: string; reply: 'accept' | 'later' | 'blocked'; link?: string; reason?: string; fallback?: boolean }
-  | { t: 'me'; meetLink: string }; // private settings, only to the user themselves
+  | { t: 'me'; meetLink: string } // private settings, only to the user themselves
+  | { t: 'desk'; userId: string; desk: Tile | null };
 
 // client -> server
 export type ClientMsg =
@@ -44,4 +46,6 @@ export type ClientMsg =
   | { t: 'presence'; presence: Exclude<Presence, 'offline'> }
   | { t: 'knock'; targetId: string }
   | { t: 'knock_reply'; knockId: string; reply: 'accept' | 'later' }
-  | { t: 'meet_link'; link: string };
+  | { t: 'meet_link'; link: string }
+  | { t: 'claim_desk' }   // the seat you're sitting on becomes your home desk
+  | { t: 'release_desk' };

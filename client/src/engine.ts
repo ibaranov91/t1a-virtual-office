@@ -1,6 +1,6 @@
 // The floor: one <canvas>, one requestAnimationFrame loop.
 // Order: static tilemap → y-sorted furniture + sprites → nameplates & bubbles → ambient tint → UI hints.
-import { isWalkable, roomAt, type MapObject } from '../../shared/map';
+import { isWalkable, roomAt, seatAt, type MapObject } from '../../shared/map';
 import type { Assets, Frame } from './assets';
 import { drawText, textWidth } from './font';
 import { MAP, type ClientUser, type Pose, type Store } from './net';
@@ -9,6 +9,7 @@ const TS = MAP.tileSize;
 const MW = MAP.width * TS, MH = MAP.height * TS;
 const DIR_ROW: Record<string, number> = { down: 0, left: 1, right: 2, up: 3 };
 const WALK_FPS = 8; // 4 frames per tile at 4 tiles/s
+const SIT_FRAME = 5;
 
 type BubbleKind = 'bubble_bang' | 'bubble_headset' | 'bubble_zzz' | 'bubble_meeting' | 'bubble_dots';
 
@@ -103,10 +104,11 @@ export class Engine {
     // wall decor + floor-level furniture (chairs) are static
     for (const o of MAP.objects) {
       if (!o.wall && !o.walkable) continue;
-      const fr = this.f(o.type); if (!fr) continue;
+      const name = o.dir && this.f(`${o.type}_${o.dir}`) ? `${o.type}_${o.dir}` : o.type; // chairs face their desk
+      const fr = this.f(name); if (!fr) continue;
       const x = o.x * TS + (o.w * TS - fr.w) / 2;
       const y = o.wall ? o.y * TS : (o.y + o.h) * TS - fr.h;
-      this.blit(ctx, o.type, x, y);
+      this.blit(ctx, name, x, y);
     }
     return c;
   }
@@ -215,6 +217,16 @@ export class Engine {
       this.blit(ctx, 'marker', me.move.to.x * TS + 3, me.move.to.y * TS + 2 + bounce);
     }
 
+    // home-desk name tags on empty claimed chairs
+    const deskOwners = new Map<string, ClientUser>();
+    for (const u of this.store.users.values()) if (u.homeDesk) deskOwners.set(`${u.homeDesk.x},${u.homeDesk.y}`, u);
+    for (const [key, owner] of deskOwners) {
+      const [dx, dy] = key.split(',').map(Number);
+      const op = poses.get(owner.id);
+      if (op && !op.walking && op.tile.x === dx && op.tile.y === dy) continue; // they're sitting on it
+      this.drawDeskTag(owner, dx, dy);
+    }
+
     // y-sorted drawables
     type D = { base: number; draw: () => void };
     const ds: D[] = [];
@@ -243,25 +255,47 @@ export class Engine {
 
     // hover tooltip in screen space
     if (this.hoverUser) this.drawTooltip(this.hoverUser, poses, camX, camY);
+    else if (this.hoverTile) {
+      const owner = deskOwners.get(`${this.hoverTile.x},${this.hoverTile.y}`);
+      if (owner) this.drawLabel(owner.id === this.store.me ? 'Your desk' : `${owner.name}'s desk`, this.hoverTile.x * TS + 8, this.hoverTile.y * TS, camX, camY);
+    }
   };
 
   private drawSprite(u: ClientUser, p: Pose, ms: number) {
     const ctx = this.ctx, c = this.assets.atlas.character;
     const sheet = this.assets.sheet(u.look);
     const x = Math.round(p.x * TS), baseY = Math.round(p.y * TS) + TS;
-    // shadow
-    ctx.fillStyle = 'rgba(40,20,25,0.28)';
-    ctx.beginPath(); ctx.ellipse(x + 8, baseY - 1.5, 5.5, 2, 0, 0, Math.PI * 2); ctx.fill();
+    const seat = p.walking ? null : seatAt(MAP, p.tile.x, p.tile.y);
+    // shadow (a seated sprite's shadow is the chair's)
+    if (!seat) {
+      ctx.fillStyle = 'rgba(40,20,25,0.28)';
+      ctx.beginPath(); ctx.ellipse(x + 8, baseY - 1.5, 5.5, 2, 0, 0, Math.PI * 2); ctx.fill();
+    }
     let frame = 0, bob = 0;
     if (p.walking) frame = 1 + (Math.floor((ms / 1000) * WALK_FPS) % 4);
+    else if (seat) { frame = SIT_FRAME; p = { ...p, dir: seat.dir }; }
     else {
       const phase = (ms + hash(u.id) * 37) % 1800;
       bob = u.presence === 'away' ? (phase < 900 ? 1 : 0) : phase < 300 ? 1 : 0; // tiny breathing bob
     }
     const row = DIR_ROW[p.dir] ?? 0;
     ctx.globalAlpha = u.presence === 'away' ? 0.8 : 1;
-    ctx.drawImage(sheet, frame * c.frameW, row * c.frameH, c.frameW, c.frameH, x, baseY - c.frameH + bob - 1, c.frameW, c.frameH);
+    ctx.drawImage(sheet, frame * c.frameW, (DIR_ROW[p.dir] ?? row) * c.frameH, c.frameW, c.frameH, x, baseY - c.frameH + bob - 1, c.frameW, c.frameH);
     ctx.globalAlpha = 1;
+    // facing a desk: the chair's backrest is in front of the sitter
+    if (seat?.dir === 'up' && this.f('chair_up_back') && MAP.objects.some(o => o.type === 'chair' && o.x === seat.x && o.y === seat.y)) {
+      this.blit(ctx, 'chair_up_back', seat.x * TS, seat.y * TS);
+    }
+  }
+
+  private drawDeskTag(owner: ClientUser, x: number, y: number) {
+    const ctx = this.ctx;
+    const label = owner.name.split(/\s+/).map(w => w[0]).join('').slice(0, 2).toUpperCase();
+    const w = textWidth(label) + 4;
+    const px = x * TS + 8 - Math.floor(w / 2), py = y * TS + 5;
+    ctx.fillStyle = 'rgba(30,18,22,0.8)'; ctx.fillRect(px - 1, py - 1, w + 2, 9);
+    ctx.fillStyle = owner.look.shirt; ctx.fillRect(px, py, w, 7);
+    drawText(ctx, label, px + 2, py + 1, '#fff8e8');
   }
 
   private bubbleFor(u: ClientUser, p: Pose): BubbleKind | null {
@@ -354,6 +388,17 @@ export class Engine {
       }
     }
     ctx.restore();
+  }
+
+  private drawLabel(text: string, wx: number, wy: number, camX: number, camY: number) {
+    const ctx = this.ctx, dpr = window.devicePixelRatio || 1;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.font = '600 12px ui-rounded, system-ui, sans-serif';
+    const w = ctx.measureText(text).width + 14;
+    const sx = ((wx - camX) * this.px) / dpr - w / 2, sy = ((wy - camY) * this.px) / dpr - 26;
+    ctx.fillStyle = 'rgba(33,22,26,0.94)'; ctx.strokeStyle = '#8a5a3c'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.roundRect(sx, sy, w, 22, 6); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#ffe9c4'; ctx.fillText(text, sx + 7, sy + 15);
   }
 
   private drawTooltip(id: string, poses: Map<string, Pose>, camX: number, camY: number) {

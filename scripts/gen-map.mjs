@@ -19,7 +19,7 @@ const hash = (x, y) => ((x * 73856093) ^ (y * 19349663)) >>> 0;
 // ---- rooms (floor rectangles, walls excluded) ----
 const rooms = [
   { id: 'focus', name: 'Focus', type: 'focus', rect: { x: 1, y: 3, w: 12, h: 8 }, capacity: 6,
-    floor: 'wood_dark', rug: 'green',
+    floor: 'wood_dark', rug: 'green', homeDesks: true,
     rules: { knock: 'disabled', label: 'quiet — no knocking' },
     meeting: { provider: 'meet', url: 'https://meet.google.com/new' } },
   { id: 'meeting', name: 'Meeting', type: 'meeting', rect: { x: 14, y: 3, w: 12, h: 8 }, capacity: 8,
@@ -35,7 +35,7 @@ const rooms = [
     rules: { knock: 'allow', label: 'say hi' },
     meeting: { provider: 'meet', url: 'https://meet.google.com/new' } },
   { id: 'cowork', name: 'Co-working', type: 'cowork', rect: { x: 16, y: 13, w: 23, h: 10 }, capacity: 16,
-    floor: 'wood', rug: 'teal',
+    floor: 'wood', rug: 'teal', homeDesks: true,
     rules: { knock: 'allow', label: 'open mic' },
     meeting: { provider: 'meet', url: 'https://meet.google.com/new' } },
 ];
@@ -176,7 +176,8 @@ for (const r of rooms) r.spots = [];
 for (const o of objects) {
   if (o.type !== 'chair' && o.type !== 'stool') continue;
   const r = roomOf(o.x, o.y);
-  if (r) r.spots.push({ x: o.x, y: o.y, dir: seatDir(o) });
+  o.dir = seatDir(o);
+  if (r) r.spots.push({ x: o.x, y: o.y, dir: o.dir });
 }
 const stand = (id, list) => rooms.find(r => r.id === id).spots.push(...list.map(([x, y, dir]) => ({ x, y, dir })));
 stand('coffee', [[30, 8, 'down'], [31, 8, 'down'], [33, 5, 'up'], [29, 4, 'up'], [37, 7, 'left']]);

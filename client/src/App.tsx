@@ -3,6 +3,7 @@ import { loadAssets, type Assets } from './assets';
 import { Engine } from './engine';
 import { MAP, Store } from './net';
 import { normalizeMeetLink } from '../../shared/protocol';
+import { seatAt } from '../../shared/map';
 
 // Dev server: sign in automatically as ?as=<name> (default "Dev"); each name keeps its own session,
 // so several tabs can be different people.
@@ -126,6 +127,7 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
         {!store.connected && assets && <div className="loading small">Reconnecting…</div>}
         {showRooms && <RoomList store={store} onPick={(id) => engineRef.current?.focusUser(id)} onClose={() => setShowRooms(false)} />}
         {(showMeet || store.pendingKnock) && <MeetSetup key={store.pendingKnock ?? 'panel'} store={store} onClose={() => setShowMeet(false)} />}
+        <DeskChip store={store} />
         <Toasts store={store} />
       </div>
     </div>
@@ -238,6 +240,23 @@ function MeetSetup({ store, onClose }: { store: Store; onClose: () => void }) {
           <button disabled={!parsed || parsed === store.meetLink}>{knockTo ? `Save & knock` : 'Save'}</button>
         </div>
       </form>
+    </div>
+  );
+}
+
+/** When you're sitting at a desk chair: claim it, see whose it is, or release yours. */
+function DeskChip({ store }: { store: Store }) {
+  const me = store.users.get(store.me);
+  if (!me) return null;
+  const p = store.pose(me);
+  const seat = p.walking ? null : seatAt(MAP, p.tile.x, p.tile.y);
+  if (!seat?.homeDesk) return null;
+  const owner = [...store.users.values()].find(u => u.homeDesk?.x === seat.x && u.homeDesk?.y === seat.y);
+  return (
+    <div className="desk-chip">
+      {!owner && <><span>Free desk</span><button onClick={() => store.claimDesk()}>Make this my desk</button></>}
+      {owner?.id === me.id && <><span>Your desk — you'll start here when you come in</span><button className="ghost" onClick={() => store.releaseDesk()}>Release</button></>}
+      {owner && owner.id !== me.id && <span>{owner.name}'s desk</span>}
     </div>
   );
 }

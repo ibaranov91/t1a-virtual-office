@@ -448,56 +448,86 @@
    "w": 16,
    "h": 16
   },
-  "stool": {
+  "chair_down": {
    "x": 0,
    "y": 142,
    "w": 16,
    "h": 16
   },
-  "painting_small": {
+  "chair_up": {
    "x": 17,
    "y": 142,
    "w": 16,
    "h": 16
   },
-  "clock": {
+  "chair_up_back": {
    "x": 34,
    "y": 142,
    "w": 16,
    "h": 16
   },
-  "bubble_zzz": {
+  "chair_right": {
    "x": 51,
+   "y": 142,
+   "w": 16,
+   "h": 16
+  },
+  "chair_left": {
+   "x": 68,
+   "y": 142,
+   "w": 16,
+   "h": 16
+  },
+  "stool": {
+   "x": 85,
+   "y": 142,
+   "w": 16,
+   "h": 16
+  },
+  "painting_small": {
+   "x": 102,
+   "y": 142,
+   "w": 16,
+   "h": 16
+  },
+  "clock": {
+   "x": 119,
+   "y": 142,
+   "w": 16,
+   "h": 16
+  },
+  "bubble_zzz": {
+   "x": 136,
    "y": 142,
    "w": 14,
    "h": 14
   },
   "bubble_headset": {
-   "x": 66,
+   "x": 151,
    "y": 142,
    "w": 14,
    "h": 14
   },
   "bubble_bang": {
-   "x": 81,
+   "x": 166,
    "y": 142,
    "w": 14,
    "h": 14
   },
   "bubble_dots": {
-   "x": 96,
+   "x": 181,
    "y": 142,
    "w": 14,
    "h": 14
   },
   "bubble_meeting": {
-   "x": 111,
+   "x": 196,
    "y": 142,
    "w": 14,
    "h": 14
   },
   "marker": {
-   "x": 126,
+   "x": 211,
    "y": 142,
    "w": 10,
    "h": 8
@@ -507,7 +537,7 @@
   "image": "characters.png",
   "frameW": 16,
   "frameH": 24,
-  "framesPerDir": 5,
+  "framesPerDir": 6,
   "dirs": [
    "down",
    "left",

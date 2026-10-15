@@ -78,6 +78,8 @@ export class Store {
   setStatus(status: string) { this.send({ t: 'status', status }); }
   setPresence(presence: 'online' | 'away' | 'in_call') { this.send({ t: 'presence', presence }); }
   setMeetLink(link: string) { this.send({ t: 'meet_link', link }); }
+  claimDesk() { this.send({ t: 'claim_desk' }); }
+  releaseDesk() { this.send({ t: 'release_desk' }); }
 
   toast(t: Omit<Toast, 'id'>) {
     const toast = { ...t, id: ++this.toastSeq };
@@ -131,6 +133,7 @@ export class Store {
       }
       case 'move': { const u = this.users.get(msg.userId); if (u) this.applyMove(u, msg); break; }
       case 'me': this.meetLink = msg.meetLink; break;
+      case 'desk': { const u = this.users.get(msg.userId); if (u) u.homeDesk = msg.desk; break; }
       case 'status': { const u = this.users.get(msg.userId); if (u) u.status = msg.status; break; }
       case 'presence': { const u = this.users.get(msg.userId); if (u) u.presence = msg.presence; break; }
       case 'emote': { const u = this.users.get(msg.userId); if (u) u.emote = msg.emote; break; }
