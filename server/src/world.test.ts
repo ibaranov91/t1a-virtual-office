@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { World, type User } from './world';
 import { findPath, doorwayTiles, pathDuration, reindexMap, roomAt, sampleMove, seatAt, voiceRooms, WALK_MS_PER_TILE, type TileMap, type Tile } from '../../shared/map';
 import { TRACKS } from '../../shared/music';
+import { EFFECTS, SPEED_FACTOR, walkMs } from '../../shared/effects';
 import { PLANT_DIES_DAYS, PLANT_STAGES, plantDead, ROOM_VOICE_MAX, type ClientMsg, type ServerMsg } from '../../shared/protocol';
 const map: TileMap = JSON.parse(readFileSync(new URL('../../shared/tilemap.json', import.meta.url), 'utf8'));
 const coffee = map.rooms.find(r => r.id === 'coffee')!;
@@ -1022,4 +1023,89 @@ test('note bucket permits the burst then only the sustained rate, including afte
   tick(1000);
   for (let i = 0; i < 41; i++) { note(a); note(a, { on: false }); }
   assert.equal(notes(b.messages).length, 144); // 40 ons + 40 offs
+});
+
+// ---------- effects ----------
+const GM_EMAIL = 'ivan.baranov@t1a.com', JUDGE_EMAIL = 'oleg.mikhov@t1a.com';
+function people(t: TestContext) {
+  const s = setup(t);
+  const person = (name: string, email?: string, tile: Tile = { x: 32, y: 12 }) => {
+    const u = s.w.addUser(name, false, tile, email); u.presence = 'online';
+    const messages: ServerMsg[] = [];
+    return { u, messages, ...s.w.connect(u.id, m => messages.push(m)) };
+  };
+  return { ...s, person };
+}
+const effect = (targetId: string, kind: string, on = true, style?: string): ClientMsg => ({ t: 'effect', targetId, kind, on, style });
+const kinds = (u: User) => u.effects.map(e => e.kind).sort();
+
+test('effects: GM debuffs anyone, they broadcast and wear off on time', t => {
+  const { w, person, tick } = people(t), gm = person('Gm', GM_EMAIL), b = person('B', undefined, { x: 32, y: 8 });
+  w.handle(gm.u, effect(b.u.id, 'drunk'), gm.socket);
+  w.handle(gm.u, effect(b.u.id, 'unicorns'), gm.socket);
+  assert.deepEqual(kinds(b.u), ['drunk', 'unicorns']);
+  const sent = b.messages.filter(m => m.t === 'effects' && m.userId === b.u.id);
+  assert.equal(sent.length, 2);
+  assert.equal((w.snapshot() as Extract<ServerMsg, { t: 'state' }>).users.find(u => u.id === b.u.id)?.effects.length, 2);
+  tick(EFFECTS.drunk.ms! - 1); assert.deepEqual(kinds(b.u), ['drunk', 'unicorns']);
+  tick(250); assert.deepEqual(kinds(b.u), ['unicorns']);
+  assert.deepEqual(b.messages.at(-1), { t: 'effects', userId: b.u.id, effects: b.u.effects });
+  tick(EFFECTS.unicorns.ms!); assert.deepEqual(kinds(b.u), []);
+  w.handle(gm.u, effect(b.u.id, 'vampire'), gm.socket); w.handle(gm.u, effect(b.u.id, 'vampire', false), gm.socket);
+  assert.deepEqual(kinds(b.u), []);
+});
+
+test('effects: people only put hats on themselves; GM-only and server-only effects are refused', t => {
+  const { w, person } = people(t), a = person('A'), b = person('B', undefined, { x: 32, y: 8 });
+  for (const kind of ['vampire', 'fire_aura', 'gum', 'drunk', 'unicorns', 'speed', 'nope', '__proto__', 'constructor'])
+    w.handle(a.u, effect(a.u.id, kind), a.socket);
+  assert.deepEqual(kinds(a.u), []);
+  w.handle(a.u, effect(b.u.id, 'hat', true, 'party'), a.socket); assert.deepEqual(kinds(b.u), []);
+  w.handle(a.u, effect(a.u.id, 'hat', true, 'judge'), a.socket);
+  w.handle(a.u, effect(a.u.id, 'hat', true, '<script>'), a.socket);
+  w.handle(a.u, { t: 'effect', targetId: a.u.id, kind: 'hat', on: true } as ClientMsg, a.socket);
+  assert.deepEqual(kinds(a.u), []);
+  w.handle(a.u, effect(a.u.id, 'hat', true, 'wizard'), a.socket);
+  assert.deepEqual(a.u.effects, [{ kind: 'hat', data: { style: 'wizard' } }]); // no end: worn until taken off
+  w.handle(a.u, effect(a.u.id, 'hat', true, 'cowboy'), a.socket);
+  assert.deepEqual(a.u.effects, [{ kind: 'hat', data: { style: 'cowboy' } }]); // replaced, not stacked
+  w.handle(a.u, effect(a.u.id, 'hat', false), a.socket); assert.deepEqual(kinds(a.u), []);
+  // the hat is saved; timed effects aren't
+  w.handle(a.u, effect(a.u.id, 'hat', true, 'top'), a.socket); w.addEffect(a.u, 'speed');
+  const saved = w.dump().users.find(u => u.id === a.u.id)!;
+  assert.deepEqual(saved.effects, [{ kind: 'hat', data: { style: 'top' } }]);
+  const w2 = new World(structuredClone(map)); w2.load(JSON.parse(JSON.stringify(w.dump())));
+  assert.deepEqual(w2.users.get(a.u.id)!.effects, [{ kind: 'hat', data: { style: 'top' } }]);
+});
+
+test('effects: judges wear the judge hat, which stays on', t => {
+  const { w, person } = people(t), judge = person('Oleg', JUDGE_EMAIL), gm = person('Gm', GM_EMAIL, { x: 32, y: 8 });
+  assert.deepEqual(judge.u.effects, [{ kind: 'hat', data: { style: 'judge' } }]);
+  assert.ok(judge.messages.some(m => m.t === 'me' && m.judge));
+  w.handle(judge.u, effect(judge.u.id, 'hat', false), judge.socket);
+  w.handle(gm.u, effect(judge.u.id, 'hat', true, 'party'), gm.socket);
+  assert.deepEqual(judge.u.effects, [{ kind: 'hat', data: { style: 'judge' } }]);
+  assert.equal(gm.u.effects.length, 0); // not a judge
+});
+
+test('effects: coffee makes you walk faster, timed the same on server and in the move message', t => {
+  const { w, person, tick } = people(t), a = person('A', undefined, { x: 32, y: 12 });
+  const machine = w.map.objects.find(o => o.type === 'coffee_machine')!;
+  w.use(a.u, machine.id); tick(20_000);
+  assert.equal(a.u.holding, 'coffee');
+  const speed = a.u.effects.find(e => e.kind === 'speed')!;
+  assert.ok(speed.until && speed.until > Date.now() && speed.until <= Date.now() + EFFECTS.speed.ms!);
+  const ms = walkMs(a.u.effects);
+  assert.equal(ms, Math.round(WALK_MS_PER_TILE / SPEED_FACTOR));
+  a.messages.length = 0;
+  const start = Date.now(), end = w.walk(a.u, { x: 32, y: 12 })!;
+  const move = a.messages.find(m => m.t === 'move') as Extract<ServerMsg, { t: 'move' }>;
+  assert.equal(move.ms, ms); assert.equal(a.u.move!.ms, ms);
+  assert.equal(end - move.startedAt, pathDuration(a.u.path!, ms));
+  assert.ok(end - start < pathDuration(a.u.path!)); // quicker than a plain walk
+  const mid = move.startedAt + 2.5 * ms; // the server's idea of where they are follows the quicker pace
+  assert.deepEqual(w.position(a.u, mid).tile, sampleMove(a.u.path!, move.startedAt, mid, ms)!.tile);
+  tick(EFFECTS.speed.ms!); assert.equal(a.u.effects.some(e => e.kind === 'speed'), false);
+  a.messages.length = 0; w.walk(a.u, { x: 32, y: 8 });
+  assert.equal((a.messages.find(m => m.t === 'move') as Extract<ServerMsg, { t: 'move' }>).ms, undefined);
 });

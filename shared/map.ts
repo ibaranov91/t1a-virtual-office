@@ -163,16 +163,16 @@ export function findPath(m: TileMap, from: Tile, to: Tile): Tile[] {
   return out.reverse();
 }
 
-export interface Move { from: Tile; to: Tile; startedAt: number; path?: Tile[]; face?: Dir }
+export interface Move { from: Tile; to: Tile; startedAt: number; path?: Tile[]; face?: Dir; ms?: number } // ms: per tile (speed effects)
 
 export const dirBetween = (a: Tile, b: Tile, fallback: Dir = 'down'): Dir =>
   b.x > a.x ? 'right' : b.x < a.x ? 'left' : b.y > a.y ? 'down' : b.y < a.y ? 'up' : fallback;
 
 /** Interpolated position along a path at time t. `x,y` are fractional tiles. */
-export function sampleMove(path: Tile[], startedAt: number, t: number) {
+export function sampleMove(path: Tile[], startedAt: number, t: number, ms = WALK_MS_PER_TILE) {
   if (path.length === 0) return null;
   const elapsed = Math.max(0, t - startedAt);
-  const seg = elapsed / WALK_MS_PER_TILE;
+  const seg = elapsed / ms;
   const i = Math.floor(seg);
   if (i >= path.length - 1) {
     const last = path[path.length - 1];
@@ -199,7 +199,7 @@ export function pathTo(m: TileMap, from: Tile, to: Tile): Tile[] {
   return [...(up ? [{ ...from }] : []), ...mid, ...(down ? [{ ...to }] : [])];
 }
 
-export const pathDuration = (path: Tile[]) => Math.max(0, path.length - 1) * WALK_MS_PER_TILE;
+export const pathDuration = (path: Tile[], ms = WALK_MS_PER_TILE) => Math.max(0, path.length - 1) * ms;
 
 /** Free walkable tiles touching an object's footprint, each with the direction that faces the object. */
 export function besideObject(m: TileMap, o: MapObject): Spot[] {

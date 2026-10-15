@@ -92,6 +92,9 @@ export const ACHIEVEMENTS: Achievement[] = [
 
 export interface Look { skin: string; hair: string; shirt: string; pants: string; eyes: string; shoes: string; glassesColor: string; hatColor: string; style: number; top: number; bottom: number; glasses: number; hat: number }
 
+/** A buff, debuff or hat on a person (see shared/effects.ts). until: when it wears off (ms); absent = until removed. */
+export interface Effect { kind: string; until?: number; data?: Record<string, unknown> }
+
 export interface PublicUser {
   id: string; name: string; look: Look;
   lookSet: boolean;
@@ -109,6 +112,7 @@ export interface PublicUser {
   plant: Plant | null;      // on their home desk, or in the Orangery if they have none
   bloomed: string[];        // plant kinds they've grown to full bloom
   achievements: Record<string, number>; // achievement id → when it was earned (ms)
+  effects: Effect[];        // buffs, debuffs, hats; the server adds, expires and broadcasts them
 }
 
 /** Quick reactions you can toss at someone; they float up over their head for everyone to see. */
@@ -168,7 +172,8 @@ export type ServerMsg =
   | { t: 'layout'; layout: Layout; by?: string; added?: string }
   | { t: 'hello'; you: string; serverTime: number; build?: string } // build: the client bundle the server serves (absent in dev)
   | { t: 'state'; users: PublicUser[]; objects: Record<string, ObjectState>; jukebox?: Record<string, JukeboxState>; instruments?: Record<string, string | null>; serverTime: number }
-  | { t: 'move'; userId: string; from: Tile; to: Tile; startedAt: number; path?: Tile[]; face?: Dir }
+  | { t: 'move'; userId: string; from: Tile; to: Tile; startedAt: number; path?: Tile[]; face?: Dir; ms?: number } // ms: per tile, absent = WALK_MS_PER_TILE
+  | { t: 'effects'; userId: string; effects: Effect[] }
   | { t: 'status'; userId: string; status: string }
   | { t: 'presence'; userId: string; presence: Presence }
   | { t: 'emote'; userId: string; emote: Emote }
@@ -177,7 +182,7 @@ export type ServerMsg =
   | { t: 'knock_reply'; knockId: string; fromId: string; toId: string; reply: 'accept' | 'later' | 'blocked'; link?: string; reason?: string; fallback?: boolean; cancelled?: boolean }
   // private settings, only to the user themselves. google: the connected Google account (null = not connected),
   // absent when this instance has no Google sign-in
-  | { t: 'me'; meetLink: string; email?: string; google?: string | null; calendar?: boolean; admin?: boolean } // calendar: Calendar access granted; admin: may rearrange the office
+  | { t: 'me'; meetLink: string; email?: string; google?: string | null; calendar?: boolean; admin?: boolean; judge?: boolean } // calendar: Calendar access granted; admin: may rearrange the office
   | { t: 'google_auth'; url: string; calendar?: boolean } // open this to connect Google (in the system browser from the Mac app)
   | { t: 'calendar'; events?: CalEvent[]; error?: string } // my own events, only to me
   | { t: 'agenda'; items: AgendaItem[] } // my calendar meetings now and soon, only to me
@@ -251,4 +256,6 @@ export type ClientMsg =
   | { t: 'voice_claim' }
   | { t: 'edit'; edit: LayoutEdit } // office admins only
   | { t: 'edit_reset' }              // office admins only: back to the generated layout
-  | { t: 'look'; look: Look };
+  | { t: 'look'; look: Look }
+  // put an effect on someone (on: true) or take it off. Yourself: 'self' effects; office admins (GMs): anyone, any effect.
+  | { t: 'effect'; targetId: string; kind: string; on: boolean; style?: string };
