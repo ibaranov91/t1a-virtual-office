@@ -206,6 +206,14 @@ export class Store {
   }
   edit(edit: LayoutEdit) { this.send({ t: 'edit', edit }); }
   resetLayout() { this.send({ t: 'edit_reset' }); }
+  /** My time zone, shown to colleagues in the hover card; on unless switched off (kept on this device only). */
+  get shareTz() { try { return localStorage.getItem('deck.shareTz') !== 'off'; } catch { return true; } }
+  setShareTz(on: boolean) { try { localStorage.setItem('deck.shareTz', on ? 'on' : 'off'); } catch { /* storage unavailable */ } this.sendTz(); this.emit(); }
+  /** The zone the browser reports, and the one picked by hand instead (null = follow the browser). */
+  detectedTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  get pickedTz(): string | null { try { return localStorage.getItem('deck.tz'); } catch { return null; } }
+  setPickedTz(tz: string | null) { try { if (tz) localStorage.setItem('deck.tz', tz); else localStorage.removeItem('deck.tz'); } catch { /* storage unavailable */ } this.sendTz(); this.emit(); }
+  private sendTz() { this.send({ t: 'tz', tz: this.shareTz ? this.pickedTz ?? this.detectedTz : null }); }
   setStatus(status: string) { this.send({ t: 'status', status }); }
   setLook(look: PublicUser['look']) { this.send({ t: 'look', look }); }
   setPresence(presence: 'online' | 'away' | 'in_call') { this.send({ t: 'presence', presence }); }
@@ -375,6 +383,7 @@ export class Store {
         this.offset = msg.serverTime - Date.now();
         if (msg.build && this.build && msg.build !== this.build) this.staleBuild = true;
         this.build ??= msg.build;
+        this.sendTz();
         break;
       case 'game_session':
         if (msg.session) { this.gameOpen = true; this.gameCheers.clear(); }
@@ -565,6 +574,7 @@ export class Store {
       case 'speaking': { const u = this.users.get(msg.userId); if (u) u.speaking = msg.on; break; }
       case 'mute': { const u = this.users.get(msg.userId); if (u) { u.muted = msg.muted; if (msg.muted) u.speaking = false; } break; }
       case 'status': { const u = this.users.get(msg.userId); if (u) u.status = msg.status; break; }
+      case 'tz': { const u = this.users.get(msg.userId); if (u) { if (msg.tz) u.tz = msg.tz; else delete u.tz; } break; }
       case 'look': { const u = this.users.get(msg.userId); if (u) { u.look = msg.look; u.lookSet = msg.lookSet; } break; }
       case 'presence': { const u = this.users.get(msg.userId); if (u) u.presence = msg.presence; break; }
       case 'emote': { const u = this.users.get(msg.userId); if (u) u.emote = msg.emote; break; }

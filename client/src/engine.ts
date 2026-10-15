@@ -11,6 +11,12 @@ import { underground, MEETING_ROOM_ID, PLANT_REVEAL, PLANT_STAGES, plantDead, pl
 import { ITEMS, MAP, type ClientUser, type Pose, type Store, type DungeonFx } from './net';
 
 const TS = MAP.tileSize;
+/** "🕒 14:35 · Warsaw", plus "tomorrow"/"yesterday" when their date isn't mine. */
+function localTime(tz: string) {
+  const now = new Date(), day = (z?: string) => new Intl.DateTimeFormat('en-CA', { timeZone: z }).format(now), theirs = day(tz), mine = day();
+  const time = new Intl.DateTimeFormat([], { timeZone: tz, hour: '2-digit', minute: '2-digit' }).format(now);
+  return `🕒 ${time}${theirs === mine ? '' : theirs > mine ? ' tomorrow' : ' yesterday'} · ${tz.split('/').pop()!.replace(/_/g, ' ')}`;
+}
 const zoneFmt = new Map<string, Intl.DateTimeFormat>();
 /** Hour and minute on the wall in an IANA zone, right now. */
 function zoneHM(tz: string) {
@@ -1253,6 +1259,7 @@ export class Engine {
     const lines = [`${u.name}${u.id === this.store.me ? ' (you)' : ''} · ${presence}`];
     if (u.game) lines.push(this.store.gameDescription(u.game.cabinet, u.id));
     if (u.status) lines.push(`“${u.status}”`);
+    if (u.tz && u.id !== this.store.me) lines.push(localTime(u.tz));
     const extra = [u.following && `following ${this.store.name(u.following).split(' ')[0]}`, u.holding && ITEM_ICON.get(u.holding)].filter(Boolean).join(' · ');
     if (extra) lines.push(extra);
     if (this.selected?.id !== id) lines.push(u.id === this.store.me ? 'click to react'
