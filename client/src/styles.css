@@ -99,6 +99,7 @@ canvas { display: block; image-rendering: pixelated; touch-action: none; }
 /* thumb dock: only on phones and small windows (see COMPACT in App.tsx) */
 .dock { display: none; }
 @media (max-width: 560px), (max-height: 500px) {
+  .stage.editing .canvas-wrap { left: 0; } /* no room to dock: the catalog overlays as before */
   .where, .brand, .zoom, .rooms-btn, .me-name, .topbar > .voice-icons { display: none; }
   .topbar { gap: 6px; flex-wrap: nowrap; padding-top: max(4px, env(safe-area-inset-top)); padding-bottom: 4px; }
   .topbar button, .topbar select, .topbar input { min-height: 40px; }
@@ -368,6 +369,10 @@ button:focus-visible, summary:focus-visible, input[type="range"]:focus-visible {
 .hanger-btn.on { background: var(--accent); color: #2a1a10; }
 .edit-panel { position: absolute; top: 8px; left: 8px; bottom: 8px; width: 260px; max-width: calc(100% - 16px); overflow: auto; z-index: 7;
   background: rgba(42,31,36,.95); border: 2px solid var(--accent); border-radius: 10px; padding: 8px 10px; display: flex; flex-direction: column; gap: 8px; }
+/* Rearranging docks the catalog on the left and slides it in; the floor shifts right instead of being covered (the engine follows its wrapper's size) */
+.stage.editing .canvas-wrap { left: 280px; transition: left .18s ease-out; }
+.stage.editing > .edit-panel:not(.gm-panel) { top: 0; left: 0; bottom: 0; border-radius: 0 10px 10px 0; border-left: 0; animation: slide-in .18s ease-out; }
+@keyframes slide-in { from { transform: translateX(-100%); } to { transform: none; } }
 .edit-panel .hint { margin: 0; color: var(--muted); font-size: 12px; }
 .gm-panel { bottom: auto; max-height: calc(100% - 16px); }
 .gm-panel .gm-icon { font-size: 18px; line-height: 1; }

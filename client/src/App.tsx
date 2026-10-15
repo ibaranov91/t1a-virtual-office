@@ -187,7 +187,7 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
         onToggleMeet={() => setShowMeet(s => !s)} onToggleAppearance={() => setShowAppearance(s => me?.lookSet ? !s : true)} engine={engine}
         editing={editing} onToggleEdit={() => setEditing(e => !e)} gmOpen={gmOpen} onToggleGm={() => setGmOpen(o => !o)}
         pocketsOpen={pocketsOpen} onTogglePockets={() => setPocketsOpen(o => !o)} />
-      <div className="stage">
+      <div className={`stage${editing && store.admin && !down && engine ? ' editing' : ''}`}>
         <div className="canvas-wrap"><canvas ref={canvasRef} /></div>
         {!assets && <div className="loading">Unlocking the door…</div>}
         {!store.connected && assets && <div className="loading small">Reconnecting…</div>}
