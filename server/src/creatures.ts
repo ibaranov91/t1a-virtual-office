@@ -10,7 +10,7 @@ export const CUP_TTL_MS = 30 * 60_000;     // with no cleaner around (PETS=0), c
 export const CLEAN_MS = 1800;              // pausing at the table
 export const PET_MS = 2000;                // the hearts
 export const PET_FOLLOW_MS = 60_000;       // then it tags along with the person
-export const BAT_CHANCE = 1 / 3;           // per try
+export const BAT_CHANCE = 0.7;             // per try
 export const BAT_COOLDOWN_MS = 1000;
 export const BAT_RESPAWN_MS = 10 * 60_000; // after a catch
 const SPEED: Record<CreatureKind, number> = { cat: 320, dog: 230, bat: 150, cleaner: 300 };
