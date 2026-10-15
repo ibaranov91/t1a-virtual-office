@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'reac
 import { loadAssets, type Assets } from './assets';
 import { Engine } from './engine';
 import { MAP, Store } from './net';
+import { normalizeMeetLink } from '../../shared/protocol';
 
 // Dev server: sign in automatically as ?as=<name> (default "Dev"); each name keeps its own session,
 // so several tabs can be different people.
@@ -97,6 +98,7 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const engineRef = useRef<Engine | null>(null);
   const [showRooms, setShowRooms] = useState(() => window.innerWidth > 900);
+  const [showMeet, setShowMeet] = useState(false);
   const [, tick] = useState(0);
 
   useEffect(() => { store.connect(); return () => store.close(); }, [store]);
@@ -116,20 +118,22 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
   return (
     <div className="office">
       <TopBar store={store} roomName={myRoom?.name} onToggleRooms={() => setShowRooms(s => !s)} onLogout={onLogout}
+        onToggleMeet={() => setShowMeet(s => !s)}
         onZoom={(d) => engineRef.current?.setZoom((engineRef.current.zoomBias ?? 0) + d)} />
       <div className="stage">
         <div className="canvas-wrap"><canvas ref={canvasRef} /></div>
         {!assets && <div className="loading">Unlocking the door…</div>}
         {!store.connected && assets && <div className="loading small">Reconnecting…</div>}
         {showRooms && <RoomList store={store} onPick={(id) => engineRef.current?.focusUser(id)} onClose={() => setShowRooms(false)} />}
+        {(showMeet || store.pendingKnock) && <MeetSetup key={store.pendingKnock ?? 'panel'} store={store} onClose={() => setShowMeet(false)} />}
         <Toasts store={store} />
       </div>
     </div>
   );
 }
 
-function TopBar({ store, roomName, onToggleRooms, onLogout, onZoom }: {
-  store: Store; roomName?: string; onToggleRooms: () => void; onLogout: () => void; onZoom: (d: number) => void;
+function TopBar({ store, roomName, onToggleRooms, onToggleMeet, onLogout, onZoom }: {
+  store: Store; roomName?: string; onToggleRooms: () => void; onToggleMeet: () => void; onLogout: () => void; onZoom: (d: number) => void;
 }) {
   const me = store.users.get(store.me);
   const [draft, setDraft] = useState<string | null>(null);
@@ -152,6 +156,8 @@ function TopBar({ store, roomName, onToggleRooms, onLogout, onZoom }: {
         <button onClick={() => onZoom(-1)} title="Zoom out">−</button>
         <button onClick={() => onZoom(1)} title="Zoom in">+</button>
       </div>
+      <button onClick={onToggleMeet} className={`meet-btn${store.meetLink === '' ? ' unset' : ''}`}
+        title={store.meetLink ? `Your Meet room: ${store.meetLink}` : 'Set your Google Meet link'}>Meet</button>
       <button onClick={onToggleRooms} title="Rooms">Rooms</button>
       <button onClick={onLogout} title="Sign out" className="ghost">Leave</button>
     </header>
@@ -197,13 +203,52 @@ function RoomList({ store, onPick, onClose }: { store: Store; onPick: (id: strin
   );
 }
 
+/** Meet room setup: from the Meet button, or as a guided step the first time you knock without one. */
+function MeetSetup({ store, onClose }: { store: Store; onClose: () => void }) {
+  const knockTo = store.pendingKnock ? store.users.get(store.pendingKnock) : undefined;
+  const [value, setValue] = useState(store.meetLink ?? '');
+  const parsed = value.trim() ? normalizeMeetLink(value) : '';
+  const done = (action: 'saved' | 'skip' | 'cancel') => { if (knockTo) store.finishKnockSetup(action); onClose(); };
+  const save = (link: string) => { store.setMeetLink(link); done('saved'); };
+  const pasteFromClipboard = async () => { try { setValue(await navigator.clipboard.readText()); } catch { /* not allowed: user pastes by hand */ } };
+  return (
+    <div className={knockTo ? 'modal-backdrop' : ''} onClick={e => { if (knockTo && e.target === e.currentTarget) done('cancel'); }}>
+      <form className={`meet-panel${knockTo ? ' guided' : ''}`} onSubmit={e => { e.preventDefault(); if (parsed) save(parsed); }}>
+        <div className="rooms-head">
+          <span>{knockTo ? `Before you knock on ${knockTo.name.split(' ')[0]}…` : 'Your Google Meet room'}</span>
+          <button type="button" className="ghost" onClick={() => done('cancel')}>×</button>
+        </div>
+        <p className="muted">
+          {knockTo ? 'Set up your own Meet room once. When someone accepts your knock, you both join it — no more two separate calls.'
+            : 'When you knock and they accept, you both join this room.'}
+        </p>
+        <ol className="steps">
+          <li>Open <a href="https://meet.google.com/" target="_blank" rel="noreferrer">meet.google.com</a> (opens a new tab)</li>
+          <li>Click <b>New meeting</b> → <b>Create a meeting for later</b></li>
+          <li>Copy the link and paste it here — it's yours to reuse</li>
+        </ol>
+        <div className="paste-row">
+          <input autoFocus value={value} onChange={e => setValue(e.target.value)} placeholder="https://meet.google.com/abc-defg-hij" />
+          <button type="button" className="ghost" onClick={pasteFromClipboard} title="Paste from clipboard">Paste</button>
+        </div>
+        {parsed === null && <p className="err">That doesn't look like a Meet room link (abc-defg-hij).</p>}
+        <div className="row">
+          {knockTo && <button type="button" className="ghost" onClick={() => done('skip')}>Knock without a room</button>}
+          {!knockTo && store.meetLink && <button type="button" className="ghost" onClick={() => save('')}>Clear</button>}
+          <button disabled={!parsed || parsed === store.meetLink}>{knockTo ? `Save & knock` : 'Save'}</button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
 function Toasts({ store }: { store: Store }) {
   return (
     <div className="toasts">
       {store.toasts.map(t => (
         <div key={t.id} className={`toast ${t.kind}`}>
           {t.kind === 'knock_in' && <span className="bang">!</span>}
-          <span className="txt">{t.text}</span>
+          <span className="txt">{t.text}{t.hint && <small className="hint">{t.hint}</small>}</span>
           {t.kind === 'knock_in' && t.knockId && <>
             <button onClick={() => store.replyKnock(t.knockId!, 'accept')}>Accept</button>
             <button className="ghost" onClick={() => store.replyKnock(t.knockId!, 'later')}>Later</button>

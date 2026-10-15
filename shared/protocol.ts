@@ -3,6 +3,15 @@ import type { Dir, Move, Tile } from './map';
 export type Presence = 'online' | 'away' | 'in_call' | 'offline';
 export type Emote = 'knock' | null;
 
+/** A reusable Google Meet room link, e.g. https://meet.google.com/abc-defg-hij */
+export const MEET_LINK_RE = /^https:\/\/meet\.google\.com\/[a-z]{3}-[a-z]{4}-[a-z]{3}$/;
+export const normalizeMeetLink = (raw: string) => {
+  let s = raw.trim().toLowerCase().replace(/[?#].*$/, '').replace(/\/+$/, '');
+  if (/^[a-z]{3}-[a-z]{4}-[a-z]{3}$/.test(s)) s = `https://meet.google.com/${s}`;
+  if (s.startsWith('meet.google.com/')) s = `https://${s}`;
+  return MEET_LINK_RE.test(s) ? s : null;
+};
+
 export interface Look { skin: string; hair: string; shirt: string; pants: string; style: number }
 
 export interface PublicUser {
@@ -25,7 +34,8 @@ export type ServerMsg =
   | { t: 'presence'; userId: string; presence: Presence }
   | { t: 'emote'; userId: string; emote: Emote }
   | { t: 'knock'; knockId: string; fromId: string; toId: string }
-  | { t: 'knock_reply'; knockId: string; fromId: string; toId: string; reply: 'accept' | 'later' | 'blocked'; link?: string; reason?: string };
+  | { t: 'knock_reply'; knockId: string; fromId: string; toId: string; reply: 'accept' | 'later' | 'blocked'; link?: string; reason?: string; fallback?: boolean }
+  | { t: 'me'; meetLink: string }; // private settings, only to the user themselves
 
 // client -> server
 export type ClientMsg =
@@ -33,4 +43,5 @@ export type ClientMsg =
   | { t: 'status'; status: string }
   | { t: 'presence'; presence: Exclude<Presence, 'offline'> }
   | { t: 'knock'; targetId: string }
-  | { t: 'knock_reply'; knockId: string; reply: 'accept' | 'later' };
+  | { t: 'knock_reply'; knockId: string; reply: 'accept' | 'later' }
+  | { t: 'meet_link'; link: string };

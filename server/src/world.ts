@@ -3,11 +3,12 @@ import {
   findPath, isWalkable, pathDuration, roomAt, sampleMove, WALK_MS_PER_TILE,
   type Dir, type TileMap, type Tile,
 } from '../../shared/map';
-import type { ClientMsg, Knock, Look, Presence, PublicUser, ServerMsg } from '../../shared/protocol';
+import { normalizeMeetLink, type ClientMsg, type Knock, type Look, type Presence, type PublicUser, type ServerMsg } from '../../shared/protocol';
 
 export interface User extends PublicUser {
   path: Tile[] | null; // path of the current move (server-side bookkeeping)
   email?: string;       // identity from NetBird; never broadcast
+  meetLink?: string;    // personal reusable Google Meet room; only shared with knock partners
 }
 
 const SKINS = ['#f8dcc0', '#f2c79b', '#e2ad7f', '#c98d5e', '#a46a43', '#7c4f32'];
@@ -41,7 +42,7 @@ export class World {
     return { t: 'state', serverTime: Date.now(), users: [...this.users.values()].map(this.toPublic) };
   }
   private toPublic = (u: User): PublicUser => {
-    const { path: _p, email: _e, ...pub } = u;
+    const { path: _p, email: _e, meetLink: _m, ...pub } = u;
     return pub;
   };
 
@@ -54,6 +55,7 @@ export class World {
     send({ t: 'hello', you: userId, serverTime: Date.now() });
     if (u.presence === 'offline') { u.presence = 'online'; this.broadcast({ t: 'presence', userId, presence: 'online' }); }
     send(this.snapshot());
+    send({ t: 'me', meetLink: u.meetLink ?? '' });
     return () => {
       this.listeners.delete(send);
       const set = this.sockets.get(userId)!; set.delete(send);
@@ -180,12 +182,18 @@ export class World {
     k.state = reply;
     const to = this.users.get(k.toId);
     if (to && wasPending && to.emote === 'knock') this.setEmote(to, null);
-    let link: string | undefined;
+    const base = { t: 'knock_reply', knockId: k.id, fromId: k.fromId, toId: k.toId, reply, reason } as const;
     if (reply === 'accept' && to) {
+      // the knocker's own Meet room, so both land in the same call; else the room's generic link
+      const from = this.users.get(k.fromId);
       const room = this.roomOf(to) ?? this.map.rooms.find(r => r.id === 'lobby')!;
-      link = room.meeting.url;
-    }
-    this.broadcast({ t: 'knock_reply', knockId: k.id, fromId: k.fromId, toId: k.toId, reply, link, reason });
+      const link = from?.meetLink ?? room.meeting.url;
+      const fallback = !from?.meetLink;
+      // the link goes only to the two people involved; everyone else just learns the knock is over
+      const pair = new Set([k.fromId, k.toId]);
+      for (const id of pair) this.sendTo(id, { ...base, link, fallback });
+      for (const [id] of this.sockets) if (!pair.has(id)) this.sendTo(id, base);
+    } else this.broadcast(base);
     setTimeout(() => this.knocks.delete(k.id), 60_000);
   }
 
@@ -198,6 +206,14 @@ export class World {
         break;
       }
       case 'status': this.setStatus(u, String(msg.status ?? '')); break;
+      case 'meet_link': {
+        const raw = String(msg.link ?? '');
+        const link = raw.trim() ? normalizeMeetLink(raw) : '';
+        if (link === null) break; // invalid: ignore, the client validates too
+        u.meetLink = link || undefined;
+        this.sendTo(u.id, { t: 'me', meetLink: link });
+        break;
+      }
       case 'presence': if (['online', 'away', 'in_call'].includes(msg.presence)) this.setPresence(u, msg.presence); break;
       case 'knock': { const to = this.users.get(msg.targetId); if (to) this.knock(u, to); break; }
       case 'knock_reply': this.reply(u, msg.knockId, msg.reply === 'accept' ? 'accept' : 'later'); break;
@@ -209,7 +225,7 @@ export class World {
     return {
       users: [...this.users.values()].map(u => {
         const p = this.position(u).dest;
-        return { id: u.id, name: u.name, email: u.email, look: u.look, tile: p, dir: u.dir, status: u.status, presence: u.presence, bot: u.bot };
+        return { id: u.id, name: u.name, email: u.email, meetLink: u.meetLink, look: u.look, tile: p, dir: u.dir, status: u.status, presence: u.presence, bot: u.bot };
       }),
     };
   }

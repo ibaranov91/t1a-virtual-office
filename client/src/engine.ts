@@ -176,7 +176,7 @@ export class Engine {
     if (!d || d.moved) return;
     const w = this.toWorld(e);
     const hit = this.userAt(w.x, w.y);
-    if (hit && hit !== this.store.me) { this.store.knock(hit); this.manualCam = false; return; }
+    if (hit && hit !== this.store.me) { this.store.requestKnock(hit); this.manualCam = false; return; }
     const tx = Math.floor(w.x / TS), ty = Math.floor(w.y / TS);
     if (isWalkable(MAP, tx, ty)) { this.store.moveTo({ x: tx, y: ty }); this.manualCam = false; }
   };

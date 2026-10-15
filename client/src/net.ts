@@ -13,7 +13,7 @@ export interface ClientUser extends PublicUser {
 
 export interface Toast {
   id: number; kind: 'knock_in' | 'info' | 'link';
-  text: string; link?: string; knockId?: string; expires?: number;
+  text: string; link?: string; knockId?: string; expires?: number; hint?: string;
 }
 
 export interface Pose { x: number; y: number; dir: Dir; walking: boolean; tile: Tile }
@@ -26,6 +26,7 @@ export class Store {
   offset = 0; // serverTime - localTime
   toasts: Toast[] = [];
   connected = false;
+  meetLink: string | null = null; // null = not loaded yet, '' = not set
   version = 0;
   private listeners = new Set<Listener>();
   private ws: WebSocket | null = null;
@@ -57,12 +58,26 @@ export class Store {
   // ---------- actions ----------
   moveTo(to: Tile) { this.send({ t: 'move', to }); }
   knock(targetId: string) { this.send({ t: 'knock', targetId }); }
+  /** Knock, but first walk the user through setting up their Meet room if they have none. */
+  pendingKnock: string | null = null;
+  meetSetupSkipped = false; // "knock without a room" — don't nag again this session
+  requestKnock(targetId: string) {
+    if (this.meetLink === '' && !this.meetSetupSkipped) { this.pendingKnock = targetId; this.emit(); return; }
+    this.knock(targetId);
+  }
+  finishKnockSetup(action: 'saved' | 'skip' | 'cancel') {
+    const id = this.pendingKnock; this.pendingKnock = null;
+    if (action === 'skip') this.meetSetupSkipped = true;
+    if (id && action !== 'cancel') this.knock(id); // after meet_link on the same socket, so the server has it
+    this.emit();
+  }
   replyKnock(knockId: string, reply: 'accept' | 'later') {
     this.send({ t: 'knock_reply', knockId, reply });
     this.dismiss(this.toasts.find(t => t.knockId === knockId)?.id ?? -1);
   }
   setStatus(status: string) { this.send({ t: 'status', status }); }
   setPresence(presence: 'online' | 'away' | 'in_call') { this.send({ t: 'presence', presence }); }
+  setMeetLink(link: string) { this.send({ t: 'meet_link', link }); }
 
   toast(t: Omit<Toast, 'id'>) {
     const toast = { ...t, id: ++this.toastSeq };
@@ -115,6 +130,7 @@ export class Store {
         this.users = next; break;
       }
       case 'move': { const u = this.users.get(msg.userId); if (u) this.applyMove(u, msg); break; }
+      case 'me': this.meetLink = msg.meetLink; break;
       case 'status': { const u = this.users.get(msg.userId); if (u) u.status = msg.status; break; }
       case 'presence': { const u = this.users.get(msg.userId); if (u) u.presence = msg.presence; break; }
       case 'emote': { const u = this.users.get(msg.userId); if (u) u.emote = msg.emote; break; }
@@ -133,7 +149,12 @@ export class Store {
         if (forMe) this.toasts = this.toasts.filter(t => t.knockId !== msg.knockId);
         if (!mine && !forMe) break;
         const other = this.name(mine ? msg.toId : msg.fromId);
-        if (msg.reply === 'accept') this.toast({ kind: 'link', text: `Meeting with ${other}`, link: msg.link, expires: 30000 });
+        if (msg.reply === 'accept') {
+          const hint = !msg.fallback ? undefined
+            : mine ? 'Set your Meet link (Meet button) so you both land in the same room.'
+            : `${other} has no Meet link set, so this may open a separate room.`;
+          this.toast({ kind: 'link', text: `Meeting with ${other}`, link: msg.link, hint, expires: 45000 });
+        }
         else if (mine) this.toast({ kind: 'info', text: msg.reason ?? `${other} said later`, expires: 5000 });
         else if (forMe && msg.reason) this.toast({ kind: 'info', text: `Missed a knock from ${other}`, expires: 5000 });
         break;
