@@ -1,7 +1,7 @@
 // WebSocket client + the client-side mirror of server state.
 import mapJson from '../../shared/tilemap.json';
-import { besideObject, pathTo, roomAt, sampleMove, type Dir, type Tile, type TileMap } from '../../shared/map';
-import { ACHIEVEMENTS, PLANT_STAGES, plantName, ROOM_VOICE_MAX, type AgendaItem, type CalEvent, type MeetingRoomInfo, type ChatMsg, type ObjectState, type ClientMsg, type PublicUser, type Reaction, type RtcSignal, type ServerMsg } from '../../shared/protocol';
+import { applyLayout, besideObject, pathTo, roomAt, sampleMove, type Dir, type Tile, type TileMap } from '../../shared/map';
+import { ACHIEVEMENTS, PLANT_STAGES, plantName, ROOM_VOICE_MAX, type AgendaItem, type LayoutEdit, type CalEvent, type MeetingRoomInfo, type ChatMsg, type ObjectState, type ClientMsg, type PublicUser, type Reaction, type RtcSignal, type ServerMsg } from '../../shared/protocol';
 import { playHand, playKnock, playPop } from './sounds';
 import type { Soundscape } from './soundscape';
 
@@ -63,6 +63,9 @@ export class Store {
   reactions: Flying[] = [];             // the engine draws and prunes these
   objectFx: { objectId: string; at: number }[] = []; // someone just used it (coffee steam)
   version = 0;
+  admin = false;      // may rearrange the office
+  layoutVersion = 0;  // bumps whenever the furniture changes; the engine redraws the floor
+  added: string | null = null; // the thing I just added, to select it
   private listeners = new Set<Listener>();
   private ws: WebSocket | null = null;
   private toastSeq = 0;
@@ -129,6 +132,8 @@ export class Store {
     this.send({ t: 'knock_reply', knockId, reply });
     this.dismiss(this.toasts.find(t => t.knockId === knockId)?.id ?? -1);
   }
+  edit(edit: LayoutEdit) { this.send({ t: 'edit', edit }); }
+  resetLayout() { this.send({ t: 'edit_reset' }); }
   setStatus(status: string) { this.send({ t: 'status', status }); }
   setLook(look: PublicUser['look']) { this.send({ t: 'look', look }); }
   setPresence(presence: 'online' | 'away' | 'in_call') { this.send({ t: 'presence', presence }); }
@@ -298,11 +303,15 @@ export class Store {
       }
       case 'chat_history': this.chats.set(msg.withId, msg.messages); break;
       case 'move': { const u = this.users.get(msg.userId); if (u) this.applyMove(u, msg); break; }
+      case 'layout':
+        applyLayout(MAP, msg.layout); this.layoutVersion++;
+        if (msg.by === this.me && msg.added) this.added = msg.added;
+        break;
       case 'me': {
         if (this.google === null && msg.google) this.toast({ kind: 'info', text: `Google connected as ${msg.google}`, hint: 'Calls you start now get their own Meet room', expires: 6000 });
         if (!this.calendarAccess && msg.calendar && this.google) this.toast({ kind: 'info', text: 'Google Calendar connected', expires: 4000 });
         const calendarNow = !!msg.calendar && !this.calendarAccess;
-        this.meetLink = msg.meetLink; this.email = msg.email ?? null; this.google = msg.google; this.calendarAccess = !!msg.calendar;
+        this.meetLink = msg.meetLink; this.email = msg.email ?? null; this.google = msg.google; this.calendarAccess = !!msg.calendar; this.admin = !!msg.admin;
         if (msg.google !== null) this.googleAuthUrl = null;
         if (this.calendarAccess) this.calendarAuthUrl = null;
         if (calendarNow && this.calendarOpen) this.loadCalendar(); // just granted from the open panel

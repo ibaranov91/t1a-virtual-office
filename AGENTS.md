@@ -70,6 +70,14 @@ npm run typecheck    # run before every commit or deploy
   and is remembered per device (`deck.zoom`). The lowest level fits the whole floor: the overview, with room tags and a
   "You" pin; when it's small, a tap zooms in instead of walking. Pinch, ⌘/ctrl-scroll, `+ − 0`, `M`. Phones and short
   windows (`COMPACT` in App.tsx, same media query in styles.css) get a thumb dock and bottom sheets instead of top-bar buttons.
+- **Edit mode** (pencil in the top bar, admins only: `DECK_ADMINS`, emails, default `ivan.baranov@t1a.com`; `npm run dev`
+  adds the name `dev`, and names only count for logins without an email). Admins drag furniture and rugs, add from the
+  catalog (one of each generated type), recolor/resize rugs, Reset. Walls, floors and rooms stay as generated; the
+  furniture and rugs are a `Layout` the server owns (`edit` → `layout` to everyone, saved in `state.json` once changed).
+  `applyLayout` in `shared/map.ts` derives walkable tiles, chair facing, seats and plant slots from it; `layoutProblem`
+  refuses anything that blocks a doorway, the way in, a seat or a coffee machine/lamp (the client runs the same check for
+  the red/green ghost). Home desks follow their chair; people under new furniture step aside. A saved layout overrides
+  `gen-map.mjs`'s furniture, so after changing the generator, Reset (or drop `layout` from `state.json`) to see it.
 - **Room behavior is data.** Knock rules, meeting links and home-desk rooms live in `tilemap.json`
   (from `gen-map.mjs`), not in code.
 

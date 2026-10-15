@@ -1,7 +1,8 @@
 // Generates shared/tilemap.json — the single source of truth for the floor.
 // Layers are 2D arrays of indices into `tiles` (atlas frame names); 0 = nothing.
-// Run: node scripts/gen-map.mjs
+// Run: npm run gen (it needs tsx, for the shared layout code)
 import { writeFileSync } from 'node:fs';
+import { applyLayout, layoutProblem } from '../shared/map.ts';
 
 const W = 65, H = 34;
 const SOUTH = 23; // the old outer wall: now the building's back wall, the Orangery and the Garden lie beyond it
@@ -127,14 +128,9 @@ for (const y of [31, 32]) floor[y][15] = tid('door_floor');
   for (const x of [18, 19]) path(x, 30);
 }
 
-// ---- rugs (9-slice into the floor layer) ----
-const rug = (color, x0, y0, w, h) => {
-  for (let y = y0; y < y0 + h; y++) for (let x = x0; x < x0 + w; x++) {
-    const v = y === y0 ? 'n' : y === y0 + h - 1 ? 's' : '';
-    const hz = x === x0 ? 'w' : x === x0 + w - 1 ? 'e' : '';
-    floor[y][x] = tid(`rug_${color}_${(v + hz) || 'c'}`);
-  }
-};
+// ---- rugs (drawn 9-slice over the floor; admins can move them) ----
+const rugs = [];
+const rug = (color, x, y, w, h) => rugs.push({ id: `r${rugs.length + 1}`, color, x, y, w, h });
 rug('green', 2, 6, 9, 2);
 rug('blue', 16, 4, 8, 5);
 rug('orange', 28, 5, 9, 3);
@@ -271,38 +267,9 @@ obj('bench', 21, 26, 3, 1, { sit: true, dir: 'down' });
 obj('bench', 47, 26, 3, 1, { sit: true, dir: 'down' });
 obj('bench', 34, 31, 3, 1, { sit: true, dir: 'down' });
 
-// ---- walkable mask ----
-const walkable = grid(1);
-for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (walls[y][x]) walkable[y][x] = 0;
-for (const o of objects) {
-  if (o.wall || o.walkable) continue;
-  for (let y = o.y; y < o.y + o.h; y++) for (let x = o.x; x < o.x + o.w; x++) walkable[y][x] = 0;
-}
-
-// ---- spots: seats facing their table + a few standing spots ----
-const roomOf = (x, y) => rooms.find(r => x >= r.rect.x && x < r.rect.x + r.rect.w && y >= r.rect.y && y < r.rect.y + r.rect.h);
-const seatDir = (o) => {
-  const free = (x, y) => walkable[y]?.[x] === 1;
-  // face the neighbouring blocked furniture
-  if (!free(o.x, o.y - 1) && walls[o.y - 1][o.x] === 0) return 'up';
-  if (!free(o.x, o.y + 1)) return 'down';
-  if (!free(o.x + 1, o.y)) return 'right';
-  if (!free(o.x - 1, o.y)) return 'left';
-  return 'down';
-};
-for (const r of rooms) r.spots = [];
-for (const o of objects) {
-  if (o.sit) { // sofas: every tile is a seat
-    const r = roomOf(o.x, o.y);
-    for (let x = o.x; x < o.x + o.w; x++) if (r) r.spots.push({ x, y: o.y, dir: o.dir });
-    continue;
-  }
-  if (o.type !== 'chair' && o.type !== 'stool') continue;
-  const r = roomOf(o.x, o.y);
-  o.dir = seatDir(o);
-  if (r) r.spots.push({ x: o.x, y: o.y, dir: o.dir });
-}
-const stand = (id, list) => rooms.find(r => r.id === id).spots.push(...list.map(([x, y, dir]) => ({ x, y, dir })));
+// ---- standing spots (seats follow the furniture: applyLayout in shared/map.ts) ----
+for (const r of rooms) r.stand = [];
+const stand = (id, list) => rooms.find(r => r.id === id).stand.push(...list.map(([x, y, dir]) => ({ x, y, dir })));
 stand('coffee', [[30, 8, 'down'], [31, 8, 'down'], [33, 5, 'up'], [29, 4, 'up'], [37, 7, 'left']]);
 stand('lobby', [[4, 17, 'down'], [8, 17, 'down'], [6, 20, 'down'], [11, 15, 'up'], [3, 19, 'right']]);
 stand('focus', [[7, 7, 'down']]);
@@ -313,29 +280,15 @@ stand('desks', [[42, 17, 'right'], [50, 18, 'left']]);
 stand('music', [[57, 7, 'up'], [60, 8, 'up'], [58, 10, 'up']]);
 stand('orangery', [[7, 27, 'down'], [8, 29, 'down'], [7, 31, 'down']]);
 stand('garden', [[42, 29, 'down'], [43, 29, 'down'], [31, 27, 'left'], [56, 28, 'down'], [20, 28, 'down']]);
-// where people's plants stand when they have no home desk: the Orangery's shelf tiles, in order
-for (const o of objects) if (o.type === 'plant_shelf') for (let x = o.x; x < o.x + o.w; x++) {
-  const r = roomOf(x, o.y); (r.plantSlots ??= []).push({ x, y: o.y });
-}
-if (!walkable[EXIT.y][EXIT.x]) throw new Error('exit not walkable');
-for (const r of rooms) for (const s of r.spots) {
-  const sofa = objects.find(o => o.sit && s.x >= o.x && s.x < o.x + o.w && s.y >= o.y && s.y < o.y + o.h);
-  if (!walkable[s.y][s.x] && !sofa) throw new Error(`spot ${r.id} ${s.x},${s.y} not walkable`);
-}
 
-const map = { version: 1, width: W, height: H, tileSize: 16, tiles, layers: { floor, walls, walkable }, rooms, objects, spawn: { x: 7, y: 17 }, exit: EXIT };
-const reached = new Set([`${map.spawn.x},${map.spawn.y}`]), queue = [map.spawn];
-for (let i = 0; i < queue.length; i++) for (const [dx, dy] of [[0, -1], [1, 0], [0, 1], [-1, 0]]) {
-  const x = queue[i].x + dx, y = queue[i].y + dy, key = `${x},${y}`;
-  if (walkable[y]?.[x] === 1 && !reached.has(key)) { reached.add(key); queue.push({ x, y }); }
-}
-// a sofa seat isn't walkable: you sit down onto it from the tile in front, so that tile must be reachable
-const FRONT = { down: [0, 1], up: [0, -1], left: [-1, 0], right: [1, 0] };
-const reachable = (t) => {
-  const sofa = objects.find(o => o.sit && t.x >= o.x && t.x < o.x + o.w && t.y >= o.y && t.y < o.y + o.h);
-  const [dx, dy] = sofa ? FRONT[sofa.dir] : [0, 0];
-  return reached.has(`${t.x + dx},${t.y + dy}`);
-};
-for (const t of [map.spawn, EXIT, ...rooms.flatMap(r => r.spots)]) if (!reachable(t)) throw new Error(`unreachable tile ${t.x},${t.y}`);
+// one of each kind of object, for admins to add more of
+const catalog = {};
+for (const { id: _i, x: _x, y: _y, ...t } of objects) catalog[t.type] ??= t;
+
+const map = { version: 1, width: W, height: H, tileSize: 16, tiles, layers: { floor, walls, walkable: [] }, rooms, objects: [], rugs: [], spawn: { x: 7, y: 17 }, exit: EXIT, catalog };
+applyLayout(map, { objects, rugs });
+for (const r of rooms) for (const s of r.stand) if (!r.spots.includes(s)) throw new Error(`standing spot ${r.id} ${s.x},${s.y} is under furniture`);
+const problem = layoutProblem(map);
+if (problem) throw new Error(problem);
 writeFileSync(new URL('../shared/tilemap.json', import.meta.url), JSON.stringify(map));
-console.log(`tilemap: ${W}x${H}, ${tiles.length - 1} tile kinds, ${objects.length} objects, ${rooms.reduce((n, r) => n + r.spots.length, 0)} spots`);
+console.log(`tilemap: ${W}x${H}, ${tiles.length - 1} tile kinds, ${objects.length} objects, ${rugs.length} rugs, ${rooms.reduce((n, r) => n + r.spots.length, 0)} spots`);
