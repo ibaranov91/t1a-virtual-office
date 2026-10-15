@@ -4,7 +4,7 @@
 
 Grid 75×55 tiles of 16px. Office: 0,0 75×34 (camera, overview and edit mode stay inside it). Dungeon: 17,36 31×19, not connected to the office.
 Spawn 7,17, exit 12,13, garden hole 63,25, hatch 20,32.
-Coordinates are tile x,y (x right, y down). Object ids are positional (o1…o224): append new objects at the end of gen-map.mjs so saved layouts keep their ids.
+Coordinates are tile x,y (x right, y down). Object ids are positional (o1…o242): append new objects at the end of gen-map.mjs so saved layouts keep their ids.
 
 Look things up from the shell: `npm run where -- <roomId|objectType|useKind|objectId|x,y>`.
 
@@ -41,15 +41,15 @@ Each room is filled with its letter (table below) and labelled with its id. `#` 
  22 #DDDDDDDDDDDDDD#EEEEEEEEEEEEEEEEEEEEEEE#GGGGGGGGGGGGG#IIIIIIIIII#MMMMMMMMM#
  23 #########++################++###############++############++###############
  24 #########++################++###############++############++###############
- 25 #JJJJJJJJJJJJJJ#KKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKK0%,,,,,,,,,%
- 26 #JJJJJJJJJJJJJJ#KKKKKKKKKKKKNNNNNNNNNNNKKKKKKKKKKKKKKKKKKKKKKKKK%,,,,,,,,,%
- 27 #JJJJJJJJJJJJJJ#KKKKKKKKKKKKNNNNNNNNNNNKKKKKKKKKKKKKKKKKKKKKKKKK%,,,,,,,,,%
- 28 #JJJorangeryJJJ#KKKKKKKKKKKKNNterraceNNKKKKKKKKKgardenKKKKKKKKKK%,,,,,,,,,%
- 29 #JJJJJJJJJJJJJJ#KKKKKKKKKKKKNNNNNNNNNNNKKKKKKKKKKKKKKKKKKKKKKKKK%,,,,,,,,,%
- 30 #JJJJJJJJJJJJJJ#KKKKKKKKKKKKNNNNNNNNNNNKKKKKKKKKKKKKKKKKKKKKKKKK%,,,,,,,,,%
- 31 #JJJJJJJJJJJJJJ+KKKKKKKKKKKKNNNNNNNNNNNKKKKKKKKKKKKKKKKKKKKKKKKK%,,,,,,,,,%
- 32 #JJJJJJJJJJJJJJ+KKKK=KKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKK%,,,,,,,,,%
- 33 ################%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+ 25 #JJJJJJJJJJJJJJ#KKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKK0#OOOOOOOOO#
+ 26 #JJJJJJJJJJJJJJ#KKKKKKKKKKKKNNNNNNNNNNNKKKKKKKKKKKKKKKKKKKKKKKKK#OOOOOOOOO#
+ 27 #JJJJJJJJJJJJJJ#KKKKKKKKKKKKNNNNNNNNNNNKKKKKKKKKKKKKKKKKKKKKKKKK#OOOOOOOOO#
+ 28 #JJJorangeryJJJ#KKKKKKKKKKKKNNterraceNNKKKKKKKKKgardenKKKKKKKKKK#OlibraryO#
+ 29 #JJJJJJJJJJJJJJ#KKKKKKKKKKKKNNNNNNNNNNNKKKKKKKKKKKKKKKKKKKKKKKKK+OOOOOOOOO#
+ 30 #JJJJJJJJJJJJJJ#KKKKKKKKKKKKNNNNNNNNNNNKKKKKKKKKKKKKKKKKKKKKKKKK+OOOOOOOOO#
+ 31 #JJJJJJJJJJJJJJ+KKKKKKKKKKKKNNNNNNNNNNNKKKKKKKKKKKKKKKKKKKKKKKKK#OOOOOOOOO#
+ 32 #JJJJJJJJJJJJJJ+KKKK=KKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKK#OOOOOOOOO#
+ 33 ################%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%###########
 ```
 
 ## Furniture plan
@@ -63,12 +63,12 @@ Each room is filled with its letter (table below) and labelled with its id. `#` 
   0 ###########################################################################
   1 #####################**###########*########################################
   2 #####################**####################################################
-  3 #X........***#X...........#.XXXX*XX.*.X#X...........*#X........X#XXXXX....#
+  3 #X........XX*#X...........#.XXXX*XX.*.X#X...........*#X........X#XXXXX....#
   4 #.XX.XX.XX...#...h.h.h....#..s.........#.XX.XX.XX.XX.#.**.**.*..#......XX.#
   5 #.h..h..h....#...XXXXXXh..#......s.....#.h..h..h..h..#....**....#......h..#
   6 #............+..hXXXXXX...+..hXh..hXh..#.............#..........#.........#
-  7 #......s...XX+....h.h.h...+..........s.#......s......#**.s......#XXXXX...X#
-  8 #.XX.....XXhh#..........s.#...ss.......#.XXXX...XXXX.#**....s...#.........#
+  7 #......s.....+....h.h.h...+..........s.#......s......#**.s......#XXXXX...X#
+  8 #.XX.....XX..#..........s.#...ss.......#.XXXX...XXXX.#**....s...#.........#
   9 #.h......h..*#.....s......#..hhh.......#.h.h....h.h..#..........#.....s...#
  10 #............#*..........X#*..........X#............X#....s.....#.........#
  11 ######++###########++###########++############++##########++############++#
@@ -85,15 +85,15 @@ Each room is filled with its letter (table below) and labelled with its id. `#` 
  22 #X.............#X.....................*#X......XX....#*........*#...******#
  23 #########++################++###############++############++###############
  24 #########++################++###############++############++###############
- 25 #X............X#...............................................0%,,,,,,,,,%
- 26 #.XXXX....XXXX.#.X...hhh.....h.h.Xh.h...XX.....hhh.X...XX.....X.%,,X,,,,,,%
- 27 #......s.......#.............XXX..XXX...........................%,,,,,,,X,%
- 28 #.XXXX....XXXX.#....s.........h....h....................s.......%,,,,,,,,,%
- 29 #.......s......#.................s........ss....................%,,,,,,,,,%
- 30 #.XXXX....XXXX.#.........................XXXX...................%,,,,,,,,,%
- 31 #......s.......+.....XX.X.....XX**hhh.X..XXXX...X.....X.....XX.X%,,,,,X,,,%
- 32 #*.............+....=...........................................%,,,,,,,,,%
- 33 ################%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+ 25 #X............X#...............................................0#.XXs**sXX#
+ 26 #.XXXX....XXXX.#.X...hhh.....h.h.Xh.h...XX.....hhh.X...XX.....X.#h..h..h..#
+ 27 #......s.......#.............XXX..XXX...........................#XX.XX.XXX#
+ 28 #.XXXX....XXXX.#....s.........h....h....................s.......#.h..h..hh#
+ 29 #.......s......#.................s........ss....................+.........#
+ 30 #.XXXX....XXXX.#.........................XXXX...................+h..h..h..#
+ 31 #......s.......+.....XX.X.....XX**hhh.X..XXXX...X.....X.....XX.X#XX.XX.XXX#
+ 32 #*.............+....=...........................................#.h..h..hh#
+ 33 ################%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%###########
 ```
 
 ## Dungeon
@@ -129,7 +129,7 @@ A maze under the garden, not connected to the office: you fall in through the ho
 
 |  | id | name | type | rect (x,y w×h) | cap | knock | voice | access | homeDesks | seats | label |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| A | `focus` | Focus | focus | 1,3 12×8 | 6 | disabled |  |  | yes | 8 | quiet · no knocks |
+| A | `focus` | Focus | focus | 1,3 12×8 | 6 | disabled |  |  | yes | 6 | quiet · no knocks |
 | B | `meeting` | Meeting | meeting | 14,3 12×8 | 8 | later |  |  |  | 10 | knocks wait for later |
 | C | `coffee` | Coffee | coffee | 27,3 12×8 | 10 | allow | open |  |  | 12 | open voice · walk in to talk |
 | D | `lobby` | Lobby | lobby | 1,13 14×10 | 30 | allow |  |  |  | 8 | knock to talk |
@@ -143,6 +143,7 @@ A maze under the garden, not connected to the office: you fall in through the ho
 | L | `admin` | Admin | admin | 65,3 9×8 | 4 | allow |  | admins |  | 2 | admins only · knock to talk |
 | M | `berghain` | Berghain | club | 65,13 9×10 | 20 | allow |  |  |  | 3 | club · knock to talk |
 | N | `terrace` | Terrace | garden | 28,26 11×6 | 8 | allow |  |  |  | 9 | lunch outside · knock to talk |
+| O | `library` | Library | library | 65,25 9×8 | 14 | later |  |  |  | 16 | in the library · knocks wait for later |
 
 Rooms are data (`rooms` in scripts/gen-map.mjs): knock rules, voice, access and meeting links are read from here, not code.
 A room listed later wins the tiles it shares with an earlier one (the Terrace sits inside the Garden).
@@ -155,7 +156,6 @@ Every object with a `use` (wall decor counts toward the room below it). Routing 
 | id | type | kind | routing | x,y | w×h | room | label / details |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | o7 | `noticeboard` | `achievements` | — | 2,12 | 2×1 | lobby | achievements (on a wall) |
-| o19 | `bookshelf` | `library` | reach | 10,3 | 2×1 | focus | library |
 | o20 | `lamp` | `toggle` | wheel use reach | 12,3 | 1×1 | focus | lamp |
 | o22 | `lamp` | `toggle` | wheel use reach | 12,9 | 1×1 | focus | lamp |
 | o40 | `coffee_machine` | `take` | wheel use reach | 32,3 | 1×1 | coffee | coffee, tea |
@@ -191,6 +191,7 @@ Every object with a `use` (wall decor counts toward the room below it). Routing 
 | o204 | `toilet` | `toilet` | wheel use | 68,21 | 2×2 | berghain | toilet |
 | o205 | `toilet` | `toilet` | wheel use | 70,21 | 2×2 | berghain | toilet |
 | o206 | `toilet` | `toilet` | wheel use | 72,21 | 2×2 | berghain | toilet |
+| o208 | `bookshelf_tall` | `library` | reach | 69,25 | 2×1 | library | library |
 | o210 | `dance_floor` | `dance` | — | 66,15 | 4×3 | berghain | dance floor |
 | o223 | `food_cart` | `take` | wheel use reach | 32,31 | 2×1 | terrace | sandwich, ramen, salad, pizza |
 | o224 | `bell` | `bell` | use | 11,14 | 1×1 | lobby | bell |
@@ -201,7 +202,7 @@ Kinds with no object on the map yet: none.
 
 | room | objects (type ×count) |
 | --- | --- |
-| `focus` | window ×2, desk ×5, chair ×7, bookshelf, lamp ×2, plant, reading_desk ×2 |
+| `focus` | window ×2, desk ×5, chair ×5, bookshelf, lamp ×2, plant |
 | `meeting` | whiteboard, painting, table_long, chair ×8, plant ×2, lamp, screen |
 | `coffee` | window ×2, counter ×6, coffee_machine, fridge, plant ×2, table_round ×2, stool ×4, sofa, lamp, calendar |
 | `lobby` | noticeboard, painting_small, plant ×3, sofa, table_round, reception, safe, bookshelf, hat_rack, exit_door, lamp, bell |
@@ -215,7 +216,7 @@ Kinds with no object on the map yet: none.
 | `admin` | window, server_rack ×10, desk, chair, plant |
 | `berghain` | neon_sign, dj_booth, bouncer, lamp, toilet ×3, dance_floor |
 | `terrace` | tree ×2, flowerbed, bench, table_picnic ×2, chair ×6, food_cart |
-| `(none)` | tree ×3 |
+| `library` | bookshelf_tall ×3, reading_desk ×2, chair ×14, reading_table ×6 |
 
 ## Free space
 
@@ -225,7 +226,7 @@ A 3×3 feature fits where both sides are ≥ 3. `layoutProblem` (shared/map.ts) 
 
 | room | free rects (x,y w×h) |
 | --- | --- |
-| `focus` | 1,6 6×2 · 4,8 5×2 · 9,5 3×2 |
+| `focus` | 1,6 6×2 · 4,8 5×2 · 9,5 3×3 |
 | `meeting` | 15,7 3×3 · 21,8 3×3 (rug) · 15,3 2×3 · 23,3 3×2 · 23,6 2×2 (rug) |
 | `coffee` | 32,7 5×3 (rug) · 37,4 2×3 · 27,4 2×2 · 30,4 2×2 · 34,4 2×2 · 28,7 2×2 (rug) · +1 smaller |
 | `lobby` | 7,18 7×3 (rug) · 3,14 5×3 · 1,16 2×6 · 13,14 2×3 · 4,18 2×3 (rug) · 11,16 2×2 (rug) · +1 smaller |
@@ -235,13 +236,13 @@ A 3×3 feature fits where both sides are ≥ 3. `layoutProblem` (shared/map.ts) 
 | `music` | 61,6 3×5 (rug) · 58,7 2×3 (rug) · 56,9 2×2 (rug) |
 | `arcade` | 57,15 4×4 · 55,17 2×4 · 61,17 2×4 (rug) · 62,15 2×2 · 59,19 2×2 |
 | `orangery` | 8,31 6×2 · 3,31 4×2 · 6,25 3×2 · 6,28 2×3 · 8,27 2×2 |
-| `garden` | 45,29 19×2 · 16,29 12×2 · 39,27 8×2 · 57,26 5×3 · 24,25 3×4 · 52,25 3×4 · +11 smaller |
+| `garden` | 45,29 18×2 · 16,29 12×2 · 39,27 8×2 · 57,26 5×3 · 24,25 3×4 · 52,25 3×4 · +11 smaller |
 | `admin` | 65,4 6×3 · 65,8 5×3 · 71,6 2×4 |
 | `berghain` | 72,14 2×6 · 65,20 2×3 · 70,13 2×2 · 70,18 2×2 |
 | `terrace` | 37,26 2×5 · 28,28 2×4 · 34,29 3×2 · 32,27 2×2 · 30,29 2×2 |
+| `library` | 67,28 2×2 (rug) · 70,28 2×2 (rug) · 72,29 2×2 (rug) |
 
 ### Room for a new room
 
-- Unused floor inside the office at 65,25 9×8 (69 free tiles, in no room): nobody can walk there yet. A room there needs a `rooms` entry and a doorway (a gap in the wall or hedge, floored with `door_floor`).
 - Rows 34..54 are outside the office (void, except the dungeon at 17,36 31×19). A new wing there means growing `OFFICE_H` (and `H`) in gen-map.mjs and moving `dungeonRect` down.
 - Making the grid wider means growing `W` in gen-map.mjs; the east edge (x 74) is the outer wall.
