@@ -15,6 +15,18 @@ export const normalizeMeetLink = (raw: string) => {
   return MEET_LINK_RE.test(s) ? s : null;
 };
 
+/** A Meet link opened as this Google account. A bare link uses the browser's default account, and if that
+ *  isn't the one that made the room (say a personal Gmail), Meet treats you as a guest: "Ask to join". */
+export const meetAs = (link: string, email?: string | null) => {
+  if (!email) return link;
+  try {
+    const u = new URL(link);
+    if (u.hostname !== 'meet.google.com') return link;
+    u.searchParams.set('authuser', email);
+    return u.toString();
+  } catch { return link; }
+};
+
 export interface Look { skin: string; hair: string; shirt: string; pants: string; style: number }
 
 export interface PublicUser {
@@ -64,7 +76,7 @@ export type ServerMsg =
   | { t: 'door'; userId: string; door: Door }
   | { t: 'knock'; knockId: string; fromId: string; toId: string }
   | { t: 'knock_reply'; knockId: string; fromId: string; toId: string; reply: 'accept' | 'later' | 'blocked'; link?: string; reason?: string; fallback?: boolean; cancelled?: boolean }
-  | { t: 'me'; meetLink: string } // private settings, only to the user themselves
+  | { t: 'me'; meetLink: string; email?: string } // private settings, only to the user themselves
   | { t: 'desk'; userId: string; desk: Tile | null }
   | { t: 'call'; userId: string; callId: string | null; link?: string } // link: the call's Meet room, only to members
   | { t: 'rtc'; from: string; signal: RtcSignal }

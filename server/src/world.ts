@@ -89,7 +89,7 @@ export class World {
     this.stayAfterAll(u);
     if (u.presence === 'offline') this.comeIn(u);
     send(this.snapshot());
-    send({ t: 'me', meetLink: u.meetLink ?? '' });
+    send({ t: 'me', meetLink: u.meetLink ?? '', email: u.email });
     return () => {
       this.listeners.delete(send);
       const set = this.sockets.get(userId)!; set.delete(send);
@@ -481,7 +481,7 @@ export class World {
         const link = raw.trim() ? normalizeMeetLink(raw) : '';
         if (link === null) break; // invalid: ignore, the client validates too
         u.meetLink = link || undefined;
-        this.sendTo(u.id, { t: 'me', meetLink: link });
+        this.sendTo(u.id, { t: 'me', meetLink: link, email: u.email });
         break;
       }
       case 'presence': {

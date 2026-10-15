@@ -5,7 +5,7 @@ import { Voice } from './voice';
 import { playKnock, setSoundsOn, soundsOn } from './sounds';
 import { ITEMS, MAP, Store } from './net';
 import { inNativeApp, syncNative } from './native';
-import { MAX_CHAT_LEN, MEET_LINK_RE, normalizeMeetLink, REACTIONS } from '../../shared/protocol';
+import { MAX_CHAT_LEN, MEET_LINK_RE, meetAs, normalizeMeetLink, REACTIONS } from '../../shared/protocol';
 import { seatAt } from '../../shared/map';
 
 // Dev server: sign in automatically as ?as=<name> (default "Dev"); each name keeps its own session,
@@ -252,7 +252,8 @@ function MeetSetup({ store, onClose }: { store: Store; onClose: () => void }) {
             : 'When you knock and they accept, you both join this room.'}
         </p>
         <ol className="steps">
-          <li>Open <ExternalLink href="https://meet.google.com/">meet.google.com</ExternalLink> (opens a new tab)</li>
+          <li>Open <ExternalLink href={meetAs('https://meet.google.com/', store.email)}>meet.google.com</ExternalLink> (opens a new tab)
+            {store.email && <> as <b>{store.email}</b></>}</li>
           <li>Click <b>New meeting</b> → <b>Create a meeting for later</b></li>
           <li>Copy the link and paste it here — it's yours to reuse</li>
         </ol>
@@ -345,7 +346,7 @@ function CallChip({ store, voice }: { store: Store; voice: Voice | null }) {
           {voice.muted ? '🔇 Unmute' : '🎙 Mute'}
         </button>
       )}
-      {meet && <ExternalLink href={meet}>Move to Meet</ExternalLink>}
+      {meet && <ExternalLink href={meetAs(meet, store.email)}>Move to Meet</ExternalLink>}
       <button className="end" onClick={() => store.endCall()}>Leave</button>
     </div>
   );
@@ -384,7 +385,7 @@ function Toasts({ store }: { store: Store }) {
             {t.text.startsWith('Missed') ? 'Knock back' : 'Knock again'}
           </button>}
           {t.kind === 'chat' && t.userId && <button onClick={() => store.openChat(t.userId!)}>Reply</button>}
-          {t.kind === 'link' && t.link && <ExternalLink href={t.link} onOpen={() => store.dismiss(t.id)}>Join call</ExternalLink>}
+          {t.kind === 'link' && t.link && <ExternalLink href={meetAs(t.link, store.email)} onOpen={() => store.dismiss(t.id)}>Join call</ExternalLink>}
           {t.kind !== 'knock_in' && t.kind !== 'knock_out' && <button className="ghost x" onClick={() => store.dismiss(t.id)}>×</button>}
         </div>
       ))}

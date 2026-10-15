@@ -37,6 +37,7 @@ export class Store {
   toasts: Toast[] = [];
   connected = false;
   meetLink: string | null = null; // null = not loaded yet, '' = not set
+  email: string | null = null;    // my sign-in (NetBird) email; Meet links open as this Google account
   build: string | undefined;  // the server's client build when this page loaded
   staleBuild = false;         // server now serves a newer build; reload when not in a call
   objects: Record<string, { on: boolean }> = {};
@@ -215,7 +216,7 @@ export class Store {
       }
       case 'chat_history': this.chats.set(msg.withId, msg.messages); break;
       case 'move': { const u = this.users.get(msg.userId); if (u) this.applyMove(u, msg); break; }
-      case 'me': this.meetLink = msg.meetLink; break;
+      case 'me': this.meetLink = msg.meetLink; this.email = msg.email ?? null; break;
       case 'desk': { const u = this.users.get(msg.userId); if (u) u.homeDesk = msg.desk; break; }
       case 'call': {
         const u = this.users.get(msg.userId); if (u) { u.callId = msg.callId; u.muted = false; u.speaking = false; }
