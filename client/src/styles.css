@@ -55,7 +55,7 @@ button.netbird small { font-weight: 500; font-size: 11px; opacity: .75; }
 .id-main b { flex: 0 0 auto; max-width: 140px; }
 .id-room { color: var(--muted); font-weight: 500; flex: 0 2 auto; }
 .id-status { flex: 0 1 auto; }
-.id-status.muted { color: var(--muted); }
+.id-status.muted { color: var(--muted); margin: 0; }
 .presence-pop { position: absolute; top: calc(100% + 6px); left: 0; z-index: 20; display: grid; gap: 4px; padding: 6px; min-width: 150px;
   background: var(--panel); border: 2px solid var(--wood); border-radius: 8px; box-shadow: 0 6px 20px rgba(0,0,0,.45); }
 .presence-pop button { display: flex; align-items: center; gap: 8px; text-align: left; }
