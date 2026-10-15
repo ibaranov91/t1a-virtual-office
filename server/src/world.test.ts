@@ -237,18 +237,26 @@ test('radio is always on without a shared knob; lamp toggles still broadcast and
   const restored = new World(map); restored.load(saved);
   const after = restored.snapshot() as Extract<ServerMsg, { t: 'state' }>; assert.deepEqual(after.objects[lamp.id], { on: !before.objects[lamp.id].on });
 });
-test('a saved layout from before the safe gets one at its generated spot; a blocked spot is skipped', t => {
-  const { w } = setup(t), safe = map.objects.find(o => o.type === 'safe')!;
-  const without = { objects: map.objects.filter(o => o.type !== 'safe'), rugs: map.rugs };
-  const restored = new World(structuredClone(map)); restored.load({ ...w.dump(), layout: structuredClone(without) });
-  const added = restored.map.objects.find(o => o.type === 'safe')!;
-  assert.ok(added); assert.deepEqual([added.x, added.y, added.use], [safe.x, safe.y, safe.use]);
-  // something already stands where the safe would go: the rest of the layout still loads, without a safe
-  const plant = without.objects.find(o => o.type === 'plant')!;
-  const blocked = { ...without, objects: without.objects.map(o => (o.id === plant.id ? { ...o, x: safe.x, y: safe.y } : o)) };
-  const other = new World(structuredClone(map)); other.load({ ...w.dump(), layout: structuredClone(blocked) });
-  assert.equal(other.map.objects.some(o => o.type === 'safe'), false);
-  assert.deepEqual(other.map.objects.find(o => o.id === plant.id)!.x, safe.x);
+test('a saved layout is brought up to date with the vault door: added, moved into the wall, kept where the admin put it', t => {
+  const { w } = setup(t), safe = map.objects.find(o => o.type === 'safe')!, url = (o: { use?: unknown }) => (o.use as { url: string }).url;
+  const load = (objects: typeof map.objects) => { const r = new World(structuredClone(map)); r.load({ ...w.dump(), layout: structuredClone({ objects, rugs: map.rugs }) }); return r.map.objects; };
+  const without = map.objects.filter(o => o.type !== 'safe');
+  // from before the safe: it appears at its generated spot
+  let got = load(without).find(o => o.type === 'safe')!;
+  assert.deepEqual([got.x, got.y, got.wall, got.use], [safe.x, safe.y, true, safe.use]);
+  // the old floor safe (a box by reception): reshaped, so it goes into the wall where the build puts it
+  got = load([...without, { id: 'old', type: 'safe', x: 13, y: 14, w: 1, h: 1, use: { kind: 'link', label: 'vault', url: 'https://old/' } }]).find(o => o.type === 'safe')!;
+  assert.deepEqual([got.x, got.y, got.w, got.wall, url(got)], [safe.x, safe.y, 2, true, url(safe)]);
+  assert.equal(load(without).some(o => o.id === 'old'), false);
+  // the admin moved the door along the wall: it stays there, with the build's link
+  got = load([...without, { ...safe, id: 'mine', x: 4, use: { kind: 'link', label: 'vault', url: 'https://old/' } }]).find(o => o.type === 'safe')!;
+  assert.deepEqual([got.id, got.x, got.y, url(got)], ['mine', 4, safe.y, url(safe)]);
+  // a painting hangs where the door would go: the rest of the layout still loads, without a door
+  const painting = without.find(o => o.type === 'painting_small')!;
+  const blocked = without.map(o => (o.id === painting.id ? { ...o, x: safe.x, y: safe.y } : o));
+  const objects = load(blocked);
+  assert.equal(objects.some(o => o.type === 'safe'), false);
+  assert.equal(objects.find(o => o.id === painting.id)!.x, safe.x);
 });
 test('a pot on first login; a status a day grows it, blooms earn badges, a week without one kills it', t => {
   const { w, add, tick } = setup(t), a = add('A'), DAY = 86_400_000, stage = () => a.u.plant?.stage;
