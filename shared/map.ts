@@ -11,6 +11,7 @@ export interface Room {
   rect: { x: number; y: number; w: number; h: number };
   capacity: number; floor: string; rug: string; spots: Spot[];
   homeDesks?: boolean; // seats here can be claimed as someone's home desk
+  plantSlots?: Tile[];  // where plants of people without a home desk stand (the Orangery's shelves)
   rules: { voice?: 'open'; knock: KnockRule; label?: string; occupantLabel?: string };
   meeting: { provider: 'meet' | 'teams'; url: string };
 }

@@ -5,6 +5,7 @@ import {
 } from '../../shared/map';
 import {
   ZONE_IN_TILES, ZONE_OUT_TILES, MAX_CALL_SIZE, MEETING_ROOM_ID, MAX_CHAT_LEN, normalizeMeetLink, REACTIONS, ROOM_VOICE_MAX,
+  dayNumber, plantDead, PLANT_STAGES,
   type ChatMsg, type ClientMsg, type Door, type Knock, type Look, type Presence, type PublicUser, type Reaction, type ServerMsg,
 } from '../../shared/protocol';
 import { Meetings } from './meetings';
@@ -195,7 +196,7 @@ export class World {
       email,
       id: randomUUID().slice(0, 8), name, look: lookFor(name), lookSet: false, tile: tile ?? { ...this.map.spawn }, dir: 'down',
       move: null, path: null, presence: bot ? 'online' : 'offline', status: '', emote: null, bot, homeDesk: null, door: null, callId: null, deafened: false, hand: false, muted: false,
-      following: null, holding: null, meeting: null, instance: null,
+      following: null, holding: null, meeting: null, instance: null, plant: null,
     };
     this.users.set(u.id, u);
     this.broadcast(this.snapshot());
@@ -359,6 +360,14 @@ export class World {
   setStatus(u: User, status: string) {
     u.status = status.slice(0, 80);
     this.broadcast({ t: 'status', userId: u.id, status: u.status });
+    if (u.status.trim()) this.tendPlant(u);
+  }
+  /** Setting a status tends your plant: one stage a day. A dead one (or none yet) is replanted. */
+  tendPlant(u: User, now = Date.now()) {
+    const today = dayNumber(now), p = u.plant && !plantDead(u.plant, now) ? u.plant : null;
+    if (p?.care === today) return;
+    u.plant = p ? { stage: Math.min(PLANT_STAGES.length - 1, p.stage + 1), care: today } : { stage: 0, care: today };
+    this.broadcast({ t: 'plant', userId: u.id, plant: u.plant });
   }
   setPresence(u: User, presence: Presence) {
     if (u.presence === presence) return;
@@ -820,7 +829,7 @@ export class World {
     return {
       users: [...this.users.values()].map(u => {
         const p = this.position(u).dest;
-        return { id: u.id, name: u.name, email: u.email, meetLink: u.meetLink, google: u.google, homeDesk: u.homeDesk, look: u.look, lookSet: u.lookSet, tile: p, dir: u.dir, status: u.status, presence: u.presence, bot: u.bot };
+        return { id: u.id, name: u.name, email: u.email, meetLink: u.meetLink, google: u.google, homeDesk: u.homeDesk, look: u.look, lookSet: u.lookSet, tile: p, dir: u.dir, status: u.status, presence: u.presence, bot: u.bot, plant: u.plant };
       }),
       objects: Object.fromEntries(this.objectOn),
       chats: Object.fromEntries(this.chats),
@@ -831,7 +840,7 @@ export class World {
       const tile = isWalkable(this.map, d.tile.x, d.tile.y) || seatAt(this.map, d.tile.x, d.tile.y) ? d.tile : { ...this.map.spawn };
       const legacy = lookFor(d.name);
       const look = { ...legacy, ...d.look, eyes: d.look?.eyes ?? legacy.eyes, shoes: d.look?.shoes ?? legacy.shoes, top: d.look?.top ?? 0, bottom: d.look?.bottom ?? 0, glasses: d.look?.glasses ?? 0, hat: d.look?.hat ?? 0, glassesColor: d.look?.glassesColor ?? legacy.glassesColor, hatColor: d.look?.hatColor ?? legacy.hatColor };
-      this.users.set(d.id, { ...d, look, lookSet: d.lookSet ?? false, homeDesk: d.homeDesk ?? null, tile, move: null, path: null, emote: null, door: null, callId: null, deafened: false, hand: false, muted: false, following: null, holding: null, meeting: null, instance: null, presence: d.bot ? d.presence : 'offline' });
+      this.users.set(d.id, { ...d, look, lookSet: d.lookSet ?? false, homeDesk: d.homeDesk ?? null, plant: d.plant ?? null, tile, move: null, path: null, emote: null, door: null, callId: null, deafened: false, hand: false, muted: false, following: null, holding: null, meeting: null, instance: null, presence: d.bot ? d.presence : 'offline' });
     }
     for (const [id, on] of Object.entries(data.objects ?? {})) if (this.objectOn.has(id)) this.objectOn.set(id, !!on);
     for (const [key, msgs] of Object.entries(data.chats ?? {})) this.chats.set(key, msgs);

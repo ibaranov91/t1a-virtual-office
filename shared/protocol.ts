@@ -34,6 +34,14 @@ export const meetAs = (link: string, email?: string | null) => {
   } catch { return link; }
 };
 
+/** Everyone's desk plant. It grows one stage on each day you set a status and withers after a week without one.
+ *  care: the last day (UTC day number) it was tended. */
+export interface Plant { stage: number; care: number }
+export const PLANT_STAGES = ['just planted', 'sprouting', 'growing', 'leafy', 'budding', 'in bloom'] as const;
+export const PLANT_DIES_DAYS = 7;
+export const dayNumber = (ms: number) => Math.floor(ms / 86_400_000);
+export const plantDead = (p: Plant, now: number) => dayNumber(now) - p.care >= PLANT_DIES_DAYS;
+
 export interface Look { skin: string; hair: string; shirt: string; pants: string; eyes: string; shoes: string; glassesColor: string; hatColor: string; style: number; top: number; bottom: number; glasses: number; hat: number }
 
 export interface PublicUser {
@@ -49,6 +57,7 @@ export interface PublicUser {
   holding: string | null;   // a UseItem id (coffee, snack…) in hand for a while
   meeting: number | null;   // in a calendar meeting until then (ms); knocks go to Later
   instance: string | null;  // inside a meeting's own room: only people in the same one see each other
+  plant: Plant | null;      // on their home desk, or in the Orangery if they have none
 }
 
 /** Quick reactions you can toss at someone; they float up over their head for everyone to see. */
@@ -107,6 +116,7 @@ export type ServerMsg =
   | { t: 'instance'; userId: string; instance: string | null; tile: Tile; dir: Dir } // stepped into (or out of) a meeting room
   | { t: 'meetings'; rooms: MeetingRoomInfo[] } // running meeting rooms, for the board
   | { t: 'desk'; userId: string; desk: Tile | null }
+  | { t: 'plant'; userId: string; plant: Plant | null }
   | { t: 'call'; userId: string; callId: string | null; link?: string } // link: the call's Meet room, only to members
   | { t: 'rtc'; from: string; signal: RtcSignal }
   | { t: 'speaking'; userId: string; on: boolean }

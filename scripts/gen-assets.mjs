@@ -677,6 +677,106 @@ STYLES.forEach((style, si) => TOPS.forEach((top, ti) => BOTTOMS.forEach((bottom,
   }
 }))));
 
+// ---------- outside + plants (own noise, so the shared rnd() sequence above stays put) ----------
+const noise = (x, y, k) => (((x * 73856093) ^ (y * 19349663) ^ (k * 83492791)) >>> 0) % 100;
+for (let v = 0; v < 3; v++) { // grass
+  const t = new Img(16, 16);
+  t.rect(0, 0, 16, 16, '#6f9e4a');
+  for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) {
+    const n = noise(x, y, v + 1);
+    if (n < 9) t.px(x, y, '#5e8a3e'); else if (n < 15) t.px(x, y, '#82b25a');
+  }
+  for (let i = 0; i < 3; i++) { const x = (i * 5 + v * 4 + 2) % 15, y = (i * 7 + v * 3 + 3) % 14; t.vline(x, y, 2, '#4f7a34'); t.px(x + 1, y, '#4f7a34'); }
+  if (v === 2) { t.px(11, 4, '#f0e070'); t.px(4, 11, '#f4f0f0'); }
+  frames[`grass_${v}`] = t;
+}
+for (let v = 0; v < 2; v++) { // stepping-stone path
+  const t = new Img(16, 16);
+  t.rect(0, 0, 16, 16, '#6f9e4a');
+  t.rect(0, 0, 16, 16, '#c8b48e');
+  for (const [x, y, w, h] of v ? [[1, 1, 6, 6], [9, 2, 6, 5], [2, 9, 5, 6], [8, 9, 7, 6]] : [[1, 2, 7, 5], [10, 1, 5, 6], [1, 9, 6, 6], [9, 9, 6, 5]]) {
+    t.rect(x, y, w, h, '#dccaa4'); t.hline(x, y, w, '#ebdcbc'); t.hline(x, y + h - 1, w, '#b09c78');
+  }
+  frames[`path_${v}`] = t;
+}
+{
+  const t = new Img(16, 16); // the building's outside wall: brick
+  t.rect(0, 0, 16, 16, '#a9604a');
+  for (let row = 0; row < 4; row++) {
+    const y = row * 4; t.hline(0, y + 3, 16, '#7e4434');
+    for (let x = row % 2 ? 0 : 4; x < 16; x += 8) t.vline(x, y, 3, '#7e4434');
+    t.hline(0, y, 16, '#b97058');
+  }
+  t.rect(0, 0, 16, 2, '#7a4b34'); t.hline(0, 2, 16, '#c99f6e');
+  frames.wall_face_ext = t;
+}
+{
+  const t = new Img(16, 16); // hedge
+  t.rect(0, 0, 16, 16, '#3f6a30');
+  for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) { const n = noise(x, y, 7); if (n < 18) t.px(x, y, '#52823c'); else if (n < 24) t.px(x, y, '#2f5224'); }
+  frames.hedge = t;
+}
+{
+  const t = new Img(64, 24); // plant shelf: a slatted wooden bench, pots stand on top
+  t.rect(1, 8, 62, 6, W1); t.hline(1, 8, 62, W1L); t.hline(1, 11, 62, W1D);
+  t.rect(1, 14, 62, 3, W1D); t.hline(1, 16, 62, W1DD);
+  for (const x of [3, 31, 59]) t.rect(x, 17, 2, 6, W1DD);
+  frames.plant_shelf = t.outline();
+}
+{
+  const t = new Img(32, 48); // tree: round crown over a trunk on one tile
+  t.rect(13, 30, 6, 16, '#7d4a26'); t.vline(14, 30, 16, '#9c5f30'); t.hline(11, 45, 10, '#5a3a20');
+  for (const [x, y, rx, ry, c] of [[16, 18, 14, 13, '#3f6a30'], [16, 16, 12, 11, '#4a7e3a'], [12, 12, 7, 6, '#5f9a48'], [21, 20, 6, 5, '#5f9a48'], [11, 9, 3, 3, '#7bb85a']]) t.ellipse(x, y, rx, ry, c);
+  for (const [x, y] of [[9, 20], [22, 11], [17, 25], [6, 15]]) t.px(x, y, '#8cc864');
+  frames.tree = t.outline();
+}
+{
+  const t = new Img(32, 20); // flower bed
+  t.rect(1, 8, 30, 10, '#6a4a30'); t.hline(1, 8, 30, '#8a6040'); t.rect(2, 10, 28, 6, '#4a3424');
+  const C = ['#e87a8a', '#f0d050', '#b080d8', '#f4f0f0', '#e89a50'];
+  for (let i = 0; i < 9; i++) {
+    const x = 3 + i * 3, y = 4 + (i % 3);
+    t.vline(x + 1, y + 2, 10 - y, '#4a7e3a'); t.px(x + 2, y + 5, '#5f9a48');
+    t.rect(x, y, 3, 2, C[i % C.length]); t.px(x + 1, y, '#fff0a0');
+  }
+  frames.flowerbed = t.outline();
+}
+{
+  const t = new Img(64, 32); // pond
+  t.ellipse(32, 16, 31, 15, '#9a8a70'); t.ellipse(32, 16, 28, 12.5, '#4a88b0'); t.ellipse(30, 14, 22, 8, '#5a9cc4');
+  t.hline(18, 10, 10, '#a8d4ec'); t.hline(36, 19, 8, '#a8d4ec');
+  t.ellipse(44, 13, 4, 2.5, '#5f9a48'); t.px(45, 12, '#f4b0c0'); t.ellipse(20, 20, 3, 2, '#5f9a48');
+  t.rect(26, 15, 3, 2, '#e89a50'); t.px(29, 16, '#e89a50');
+  frames.pond = t.outline();
+}
+{
+  const t = new Img(48, 20); // garden bench
+  t.rect(2, 2, 44, 3, W1D); t.hline(2, 2, 44, W1); t.rect(2, 6, 44, 3, W1D); t.hline(2, 6, 44, W1);
+  t.rect(1, 10, 46, 5, W1); t.hline(1, 10, 46, W1L); t.hline(1, 14, 46, W1DD);
+  for (const x of [3, 43]) t.rect(x, 2, 2, 17, '#3a3a40');
+  frames.bench = t.outline();
+}
+// someone's plant, stage 0 (just planted) … 5 (in bloom), and withered: a small pot that sits on a desk or a shelf
+const pot = (draw) => {
+  const t = new Img(12, 20);
+  draw(t);
+  t.rect(3, 14, 6, 5, '#c0643c'); t.hline(2, 13, 8, '#d8805a'); t.hline(3, 18, 6, '#9a4a2a'); t.vline(4, 15, 3, '#d8805a');
+  t.hline(3, 13, 6, '#5a3a20');
+  return t.outline();
+};
+const G = '#5f9a48', GD = '#4a7e3a', GL = '#8cc864';
+frames.pot_0 = pot(t => { t.px(6, 12, GL); t.px(5, 11, GL); });
+frames.pot_1 = pot(t => { t.vline(6, 9, 4, G); t.rect(4, 9, 2, 1, GL); t.rect(7, 8, 2, 1, GL); });
+frames.pot_2 = pot(t => { t.vline(6, 6, 7, G); t.ellipse(4.5, 9, 2, 1.2, G); t.ellipse(8, 7, 2, 1.2, G); t.px(6, 5, GL); });
+frames.pot_3 = pot(t => { t.vline(6, 5, 8, GD); t.ellipse(6, 7, 4, 3, G); t.ellipse(4, 10, 2.5, 1.5, GD); t.ellipse(8.5, 10, 2.5, 1.5, GD); t.px(5, 5, GL); t.px(8, 7, GL); });
+frames.pot_4 = pot(t => { t.vline(6, 3, 10, GD); t.ellipse(6, 7, 5, 4, G); t.ellipse(4, 10, 3, 1.8, GD); t.ellipse(8.5, 10, 3, 1.8, GD); t.px(4, 6, GL); t.px(8, 8, GL); t.rect(5, 1, 2, 3, '#e87a8a'); });
+frames.pot_5 = pot(t => {
+  t.vline(6, 4, 9, GD); t.ellipse(6, 8, 5, 4, G); t.ellipse(4, 11, 3, 1.8, GD); t.ellipse(8.5, 11, 3, 1.8, GD); t.px(8, 9, GL);
+  for (const [x, y] of [[6, 1], [4, 3], [8, 3], [6, 5], [4, 0], [8, 0]]) t.px(x, y, '#e87a8a');
+  t.rect(5, 2, 3, 2, '#f0a0b0'); t.px(6, 3, '#f8e070');
+});
+frames.pot_dead = pot(t => { t.vline(6, 7, 6, '#8a7048'); t.px(5, 7, '#8a7048'); t.px(4, 8, '#8a7048'); t.px(7, 9, '#a08a58'); t.px(8, 10, '#a08a58'); t.px(3, 9, '#6a5438'); });
+
 // ---------- pack world atlas (shelf packer) ----------
 const names = Object.keys(frames).sort((a, b) => frames[b].h - frames[a].h || frames[b].w - frames[a].w);
 const AW = 256; let x = 0, y = 0, rowH = 0; const rects = {};
