@@ -4,11 +4,12 @@ import type { LayoutEdit } from './protocol';
 
 export type Dir = 'down' | 'left' | 'right' | 'up';
 export interface Tile { x: number; y: number }
+export interface Rect extends Tile { w: number; h: number }
 export interface Spot extends Tile { dir: Dir }
 export type KnockRule = 'allow' | 'disabled' | 'later';
 export interface Room {
   id: string; name: string; type: string;
-  rect: { x: number; y: number; w: number; h: number };
+  rect: Rect;
   capacity: number; floor: string; rug: string;
   stand: Spot[];  // standing spots (no furniture); `spots` adds every seat, so it follows the furniture
   spots: Spot[];
@@ -41,6 +42,11 @@ export interface Layout { objects: MapObject[]; rugs: Rug[] }
 export type ObjectTemplate = Omit<MapObject, 'id' | 'x' | 'y'>;
 export interface TileMap {
   version: number; width: number; height: number; tileSize: number;
+  office: Rect;
+  dungeon?: {
+    rect: Rect; hole: Tile; hatch: Tile; landing: Tile; door: Rect; doorFront: Tile;
+    keySpots: Tile[]; torches: Tile[]; decor: { type: string; x: number; y: number }[];
+  };
   tiles: string[];
   layers: { floor: number[][]; walls: number[][]; walkable: number[][] };
   rooms: Room[]; objects: MapObject[]; rugs: Rug[]; spawn: Tile;
@@ -268,19 +274,24 @@ export function applyLayout(m: TileMap, l: Layout) {
 
 /** Why this layout won't do, or null if it's fine: furniture on the floor and decor on the walls, nothing on top of
  *  anything else, and the way in, every doorway, every seat and everything you can use still reachable. */
-export function layoutProblem(m: TileMap): string | null {
+export function layoutProblem(m: TileMap, checkDungeonReach = true): string | null {
   const { walls, floor } = m.layers;
-  const inside = (t: Tile) => t.x >= 0 && t.y >= 0 && t.x < m.width && t.y < m.height;
+  const inside = (t: Tile) => inRect(m.office, t.x, t.y);
+  const coversEntrance = (t: Tile) => m.dungeon && (['hole', 'hatch'] as const).find(k => m.dungeon![k].x === t.x && m.dungeon![k].y === t.y);
+  for (const o of [...m.objects, ...m.rugs]) if (!inside(o) || !inside({ x: o.x + o.w - 1, y: o.y + o.h - 1 })) return "that's outside the office";
   const taken = new Map<string, string>();
   const claim = (key: string, what: string) => { const had = taken.get(key); taken.set(key, what); return had; };
   for (const o of m.objects) for (const t of footprint(o)) {
-    if (!inside(t)) return `the ${objectName(o.type)} is off the map`;
+    const entrance = coversEntrance(t);
+    if (entrance && !o.wall) return `that covers the ${entrance}`;
     if (o.wall ? !walls[t.y][t.x] : walls[t.y][t.x]) return o.wall ? `the ${objectName(o.type)} goes on a wall` : `the ${objectName(o.type)} can't stand in a wall`;
     const had = claim(`${o.wall ? 'w' : 'f'}${t.x},${t.y}`, objectName(o.type));
     if (had) return `the ${objectName(o.type)} overlaps the ${had}`;
   }
   for (const r of m.rugs) for (const t of footprint(r)) {
-    if (!inside(t) || walls[t.y][t.x]) return 'a rug has to lie on the floor';
+    const entrance = coversEntrance(t);
+    if (entrance) return `that covers the ${entrance}`;
+    if (walls[t.y][t.x]) return 'a rug has to lie on the floor';
     if (claim(`r${t.x},${t.y}`, 'rug')) return 'rugs can\'t overlap';
   }
   const reached = new Set([`${m.spawn.x},${m.spawn.y}`]), queue = [m.spawn];
@@ -289,6 +300,7 @@ export function layoutProblem(m: TileMap): string | null {
     if (isWalkable(m, x, y) && !reached.has(key)) { reached.add(key); queue.push({ x, y }); }
   }
   const ok = (t: Tile) => reached.has(`${t.x},${t.y}`);
+  if (checkDungeonReach && m.dungeon) for (const k of ['hole', 'hatch'] as const) if (!ok(m.dungeon[k])) return `that blocks the ${k}`;
   if (!ok(m.exit)) return 'that blocks the way in';
   for (let y = 0; y < m.height; y++) for (let x = 0; x < m.width; x++) {
     if (m.tiles[floor[y][x]] === 'door_floor' && !walls[y][x] && !ok({ x, y })) return 'that blocks a doorway';

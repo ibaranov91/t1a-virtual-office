@@ -92,3 +92,23 @@ export function playHand(dest: AudioNode = categoryOutput('effects')) {
     osc.onended = () => { osc.disconnect(); gain.disconnect(); };
   }
 }
+
+/** Dungeon discoveries use the same quiet effects bus as the office UI. */
+export function playDungeon(event: 'fell' | 'key' | 'locked' | 'opening' | 'escaped') {
+  try {
+    const c = audio(), t = c.currentTime + .01, dest = categoryOutput('effects');
+    const note = (delay: number, hz: number, end: number, duration: number, level: number, type: OscillatorType = 'sine') => {
+      const at = t + delay, o = c.createOscillator(), g = c.createGain();
+      o.type = type; o.frequency.setValueAtTime(hz, at); o.frequency.exponentialRampToValueAtTime(end, at + duration);
+      g.gain.setValueAtTime(0, at); g.gain.linearRampToValueAtTime(level, at + .008);
+      g.gain.exponentialRampToValueAtTime(.0001, at + duration);
+      o.connect(g).connect(dest); o.start(at); o.stop(at + duration + .02);
+      o.onended = () => { o.disconnect(); g.disconnect(); };
+    };
+    if (event === 'fell') { note(0, 950, 180, .42, .035); tap(c, t + .43, 100, .08, dest); }
+    else if (event === 'key') { note(0, 1047, 1047, .18, .045); note(.12, 1568, 1568, .24, .04); }
+    else if (event === 'locked') for (let i = 0; i < 3; i++) note(i * .045, 870 + i * 170, 570, .055, .022, 'triangle');
+    else if (event === 'opening') { tap(c, t, 420, .055, dest); note(.06, 140, 75, .35, .03, 'triangle'); }
+    else [523, 659, 784].forEach((hz, i) => note(i * .11, hz, hz, .23, .045));
+  } catch { /* audio unavailable: stay silent */ }
+}

@@ -4,7 +4,7 @@ import {
   type Dir, type Layout, type Room, type Spot, type TileMap, type Tile,
 } from '../../shared/map';
 import {
-  MAX_CALL_SIZE, MEETING_ROOM_ID, MAX_CHAT_LEN, normalizeMeetLink, REACTIONS, ROOM_VOICE_MAX,
+  DUNGEON_INSTANCE, underground, MAX_CALL_SIZE, MEETING_ROOM_ID, MAX_CHAT_LEN, normalizeMeetLink, REACTIONS, ROOM_VOICE_MAX,
   dayNumber, plantDead, BOTANIST_KINDS, PLANT_KINDS, PLANT_STAGES, type Plant,
   type ChatMsg, type ClientMsg, type Door, type Knock, type LayoutEdit, type Look, type Presence, type PublicUser, type Reaction, type ServerMsg,
 } from '../../shared/protocol';
@@ -13,7 +13,13 @@ import { Jukebox } from './jukebox';
 import { Meetings } from './meetings';
 import { authUrl, CALENDAR_SCOPE, createSpace, forgetAccess, googleEnabled, listEvents, revoke, type GoogleLink } from './google';
 
+type DungeonEvent = Extract<ServerMsg, { t: 'dungeon' }>['event'];
+interface DungeonTimer { seq: number; at: number; timer: NodeJS.Timeout; run: () => void }
 export interface User extends PublicUser {
+  walkSeq?: number;
+  dungeon?: { key: Tile | null; hasKey: boolean };
+  lastKeySpot?: Tile;
+  dungeonTimers?: Partial<Record<'fall' | 'key' | 'door' | 'opening', DungeonTimer>>;
   path: Tile[] | null; // path of the current move (server-side bookkeeping)
   email?: string;       // identity from NetBird; never broadcast
   meetLink?: string;    // personal reusable Google Meet room; only shared with knock partners
@@ -103,7 +109,7 @@ export class World {
       jukebox: Object.fromEntries([...this.jukeboxes].map(([id, j]) => [id, j.state])) };
   }
   private toPublic = (u: User): PublicUser => {
-    const { path: _p, email: _e, meetLink: _m, google: _g, offlineAt: _o, lastSpot: _l, presenceBeforeCall: _b, prev: _v, afk: _a, returnTo: _r, ...pub } = u;
+    const { path: _p, email: _e, meetLink: _m, google: _g, offlineAt: _o, lastSpot: _l, presenceBeforeCall: _b, prev: _v, afk: _a, returnTo: _r, walkSeq: _s, dungeon: _d, lastKeySpot: _k, dungeonTimers: _t, ...pub } = u;
     return pub;
   };
 
@@ -121,6 +127,7 @@ export class World {
     send({ t: 'layout', layout: this.layout() }); // before anyone's walk, which every client paths on this floor
     send(this.snapshot());
     send(this.me(u));
+    if (underground(u) && u.dungeon) send({ t: 'dungeon', ...u.dungeon });
     send({ t: 'meetings', rooms: this.meetingRooms() });
     if (!u.bot) this.meetings.sendAgenda(u, true);
     send({ t: 'voice_wait', roomId: this.waiting.get(userId) ?? null });
@@ -175,7 +182,7 @@ export class World {
     this.doorTimer(u, () => {
       for (const k of this.knocks.values()) if (k.fromId === u.id && (k.state === 'walking' || k.state === 'pending')) this.closeKnock(k, 'later', 'Knock cancelled');
       this.leaveCall(u);
-      if (u.instance) this.leaveMeeting(u);
+      if (u.instance) this.leaveInstance(u);
       this.setFollowing(u, null);
       for (const f of this.users.values()) if (f.following === u.id) this.setFollowing(f, null);
       this.setDoor(u, 'leaving');
@@ -238,7 +245,11 @@ export class World {
     const pos = this.position(u, now);
     const from = pos.next;
     const path = pathTo(this.map, from, to); // also sits down onto a sofa
-    if (!path.length) return null;
+    if (!path.length) return null; // nothing changes: the current walk (and its dungeon timers) goes on
+    // A due pickup belongs to the old walk even if its callback hasn't run yet.
+    const keyTimer = u.dungeonTimers?.key;
+    if (underground(u) && keyTimer && keyTimer.at <= now) keyTimer.run();
+    this.bumpWalk(u);
     const startedAt = Math.round(now + pos.remainingMs);
     face ??= seatAt(this.map, to.x, to.y)?.dir; // sit facing the desk/table
     u.prev = u.move && u.path && now < u.move.startedAt + pathDuration(u.path) ? { path: u.path, startedAt: u.move.startedAt } : undefined;
@@ -247,7 +258,26 @@ export class World {
     else if (path.length > 1) { const a = path[path.length - 2], b = path[path.length - 1]; u.dir = b.x > a.x ? 'right' : b.x < a.x ? 'left' : b.y > a.y ? 'down' : 'up'; }
     this.broadcast({ t: 'move', userId: u.id, from, to, startedAt, face });
     for (const f of this.users.values()) if (f.following === u.id) this.trail(f, to, startedAt + FOLLOW_LAG_MS);
-    return startedAt + pathDuration(path);
+    const end = startedAt + pathDuration(path);
+    if (underground(u) && u.dungeon && this.map.dungeon) {
+      const key = u.dungeon.key, i = key ? path.findIndex(p => p.x === key.x && p.y === key.y) : -1;
+      if (!u.dungeon.hasKey && i >= 0) this.dungeonTimer(u, 'key', startedAt + i * WALK_MS_PER_TILE, () => {
+        if (!u.dungeon || !underground(u)) return;
+        u.dungeon.hasKey = true; u.dungeon.key = null; this.sendDungeon(u, 'key');
+      });
+      if (this.sameTile(to, this.map.dungeon.doorFront)) this.dungeonTimer(u, 'door', end, () => {
+        if (!underground(u) || !u.dungeon || !this.walkDone(u)) return;
+        // When key and door share a deadline, always settle the pickup first.
+        const pickup = u.dungeonTimers?.key;
+        if (pickup && pickup.at <= Date.now()) pickup.run();
+        if (!u.dungeon.hasKey) { this.sendDungeon(u, 'locked'); return; }
+        this.sendDungeon(u, 'opening');
+        this.dungeonTimer(u, 'opening', Date.now() + 900, () => {
+          if (underground(u)) this.leaveDungeon(u, 'escaped');
+        });
+      });
+    }
+    return end;
   }
 
   /** Nearest free tile beside `target` for someone at `from` (their own tile counts as free). */
@@ -269,7 +299,7 @@ export class World {
   // ---------- follow ----------
   follow(u: User, target: User | null) {
     if (target) {
-      if (target.id === u.id || target.presence === 'offline' || goingOut(target) || goingOut(u) || target.instance !== u.instance) return;
+      if (underground(u) || underground(target) || target.id === u.id || target.presence === 'offline' || goingOut(target) || goingOut(u) || target.instance !== u.instance) return;
       for (let t: User | undefined = target; t; t = t.following ? this.users.get(t.following) : undefined) if (t.id === u.id) return; // no circles
     }
     this.setFollowing(u, target?.id ?? null);
@@ -324,7 +354,7 @@ export class World {
     this.broadcast({ t: 'object', id, ...this.objectState(id), by: by.id });
   }
   give(u: User, to: User) {
-    if (!u.holding || to.id === u.id || to.holding || to.presence === 'offline' || goingOut(to)) return;
+    if (u.instance !== to.instance || !u.holding || to.id === u.id || to.holding || to.presence === 'offline' || goingOut(to)) return;
     const item = u.holding;
     this.setHolding(u, null);
     this.setHolding(to, item, undefined, u.id);
@@ -466,6 +496,95 @@ export class World {
     if (!hadCalendar && link?.scopes.includes(CALENDAR_SCOPE)) void this.meetings.poll(); // their meetings show up now, not in 2 minutes
   }
 
+  // ---------- the place under the garden ----------
+  private sameTile(a: Tile, b: Tile) { return a.x === b.x && a.y === b.y; }
+  private inDungeon(t: Tile) {
+    const r = this.map.dungeon?.rect;
+    return !!r && t.x >= r.x && t.x < r.x + r.w && t.y >= r.y && t.y < r.y + r.h;
+  }
+  private walkDone(u: User) { return !!u.move && !!u.path && Date.now() >= u.move.startedAt + pathDuration(u.path); }
+  private bumpWalk(u: User) {
+    u.walkSeq = (u.walkSeq ?? 0) + 1;
+    for (const t of Object.values(u.dungeonTimers ?? {})) clearTimeout(t.timer);
+    u.dungeonTimers = undefined;
+  }
+  private dungeonTimer(u: User, kind: 'fall' | 'key' | 'door' | 'opening', at: number, fn: () => void) {
+    const seq = u.walkSeq ?? 0;
+    const run = () => {
+      if (u.dungeonTimers?.[kind] !== entry) return;
+      clearTimeout(entry.timer); delete u.dungeonTimers[kind];
+      if (u.walkSeq === seq && Date.now() >= at) fn();
+    };
+    const entry: DungeonTimer = { seq, at, run, timer: setTimeout(run, Math.max(0, at - Date.now())) };
+    clearTimeout(u.dungeonTimers?.[kind]?.timer);
+    (u.dungeonTimers ??= {})[kind] = entry;
+  }
+  private sendDungeon(u: User, event?: DungeonEvent) {
+    this.sendTo(u.id, { t: 'dungeon', key: u.dungeon?.key ?? null, hasKey: u.dungeon?.hasKey ?? false, ...(event ? { event } : {}) });
+  }
+  private stopFollowers(u: User) {
+    this.setFollowing(u, null);
+    for (const f of this.users.values()) if (f.following === u.id) this.setFollowing(f, null);
+  }
+  private fall(u: User) {
+    const d = this.map.dungeon;
+    if (!d) return;
+    for (const k of this.knocks.values()) if ((k.fromId === u.id || k.toId === u.id) && (k.state === 'walking' || k.state === 'pending')) this.closeKnock(k, 'later', 'Knock cancelled', k.fromId === u.id);
+    this.leaveCall(u); this.setWaiting(u, null);
+    clearTimeout(this.errands.get(u.id)); this.errands.delete(u.id);
+    this.stopFollowers(u);
+    const choices = d.keySpots.filter(t => !u.lastKeySpot || !this.sameTile(t, u.lastKeySpot));
+    const key = choices[Math.floor(Math.random() * choices.length)];
+    u.instance = DUNGEON_INSTANCE; u.dungeon = { key: { ...key }, hasKey: false }; u.lastKeySpot = { ...key };
+    const occ = this.occupied(DUNGEON_INSTANCE), queue = [d.landing], seen = new Set([`${d.landing.x},${d.landing.y}`]);
+    let spot = d.landing;
+    for (let i = 0; i < queue.length; i++) {
+      const t = queue[i];
+      if (!occ.has(`${t.x},${t.y}`)) { spot = t; break; }
+      for (const [dx, dy] of [[0, -1], [1, 0], [0, 1], [-1, 0]]) {
+        const p = { x: t.x + dx, y: t.y + dy }, k = `${p.x},${p.y}`;
+        if (this.inDungeon(p) && isWalkable(this.map, p.x, p.y) && !seen.has(k)) { seen.add(k); queue.push(p); }
+      }
+    }
+    this.place(u, spot); this.sendDungeon(u, 'fell');
+  }
+  /** Only office tiles connected to spawn can be climb-out destinations in a saved layout. */
+  private dungeonExit(escaped: boolean): Tile {
+    const d = this.map.dungeon, occ = this.occupied();
+    if (!d) return this.freeLobbyTile(occ);
+    const target = escaped ? d.hatch : d.hole, reached = new Set<string>(), queue = [this.map.spawn];
+    reached.add(`${this.map.spawn.x},${this.map.spawn.y}`);
+    const office = this.map.office;
+    const neighbours = (t: Tile) => [[0, -1], [1, 0], [0, 1], [-1, 0]].map(([dx, dy]) => ({ x: t.x + dx, y: t.y + dy }))
+      .filter(t => t.x >= office.x && t.y >= office.y && t.x < office.x + office.w && t.y < office.y + office.h && isWalkable(this.map, t.x, t.y));
+    for (let i = 0; i < queue.length; i++) for (const p of neighbours(queue[i])) {
+      const k = `${p.x},${p.y}`; if (!reached.has(k)) { reached.add(k); queue.push(p); }
+    }
+    if (!reached.has(`${target.x},${target.y}`)) return this.freeLobbyTile(occ);
+    const exits = [target], seen = new Set([`${target.x},${target.y}`]);
+    for (let i = 0; i < exits.length; i++) {
+      const t = exits[i], k = `${t.x},${t.y}`;
+      if ((escaped || !this.sameTile(t, d.hole)) && !occ.has(k)) return t;
+      for (const p of neighbours(t)) {
+        const k = `${p.x},${p.y}`;
+        if (reached.has(k) && !seen.has(k)) { seen.add(k); exits.push(p); }
+      }
+    }
+    return this.freeLobbyTile(occ);
+  }
+  private leaveDungeon(u: User, how: 'escaped' | 'gave_up' | 'quiet') {
+    if (!underground(u)) return;
+    this.stopFollowers(u);
+    const exit = this.dungeonExit(how === 'escaped');
+    this.bumpWalk(u); u.dungeon = undefined; u.instance = null;
+    if (how === 'escaped') { this.award(u, 'escape', Date.now()); this.plantChanged(u); }
+    if (how !== 'quiet') this.sendDungeon(u, how);
+    this.place(u, exit);
+  }
+  private leaveInstance(u: User, announce = true) {
+    if (underground(u)) this.leaveDungeon(u, 'quiet'); else if (u.instance) this.leaveMeeting(u, announce);
+  }
+
   // ---------- calendar meetings ----------
   // A meeting's room is a copy of the Meeting room for its attendees only (instance). Everyone else sees
   // it on the board by the Meeting room; the people in it see only each other.
@@ -483,7 +602,8 @@ export class World {
   }
   /** Jump straight to a tile (into or out of a meeting's room); no walking between the two. */
   private place(u: User, tile: Tile) {
-    u.tile = { ...tile }; u.move = null; u.path = null;
+    this.bumpWalk(u);
+    u.tile = { ...tile }; u.move = null; u.path = null; u.prev = undefined;
     u.dir = seatAt(this.map, tile.x, tile.y)?.dir ?? 'down';
     this.broadcast({ t: 'instance', userId: u.id, instance: u.instance, tile: u.tile, dir: u.dir });
   }
@@ -491,7 +611,7 @@ export class World {
   enterMeeting(u: User, key: string) {
     const m = this.meetings.events.get(key);
     if (!m || u.bot || u.presence === 'offline' || goingOut(u) || !this.meetings.canEnter(u, m) || u.instance === m.instance) return;
-    if (u.instance) this.leaveMeeting(u, false);
+    if (u.instance) this.leaveInstance(u, false);
     for (const k of this.knocks.values()) if ((k.fromId === u.id || k.toId === u.id) && (k.state === 'walking' || k.state === 'pending')) this.closeKnock(k, 'later', 'Knock cancelled', k.fromId === u.id);
     this.leaveCall(u); // a knock call or room voice: they're off to the meeting
     this.setWaiting(u, null);
@@ -516,6 +636,7 @@ export class World {
   }
   /** Back to where they were in the office (or the Lobby if someone's there now). */
   leaveMeeting(u: User, announce = true) {
+    if (!u.instance || underground(u)) return;
     const inst = u.instance ? this.instances.get(u.instance) : undefined;
     for (const f of this.users.values()) if (f.following === u.id) this.setFollowing(f, null);
     this.setFollowing(u, null);
@@ -679,7 +800,7 @@ export class World {
       const i = out.objects.findIndex(s => s.type === o.type), have = i >= 0 ? out.objects[i] : undefined;
       if (have && !!have.wall === !!o.wall && have.w === o.w && have.h === o.h) { out.objects[i] = { ...structuredClone(o), id: have.id, x: have.x, y: have.y }; continue; }
       const next = { ...out, objects: [...out.objects.filter((_, j) => j !== i), structuredClone(o)] };
-      const problem = layoutProblem(withLayout(this.map, next));
+      const problem = layoutProblem(withLayout(this.map, next), false);
       let placed = !problem;
       const room = roomAt(this.map, o.x, o.y);
       if (problem && !o.wall && room) {
@@ -690,7 +811,7 @@ export class World {
         positions.sort((a, b) => Math.abs(a.x - o.x) + Math.abs(a.y - o.y) - Math.abs(b.x - o.x) - Math.abs(b.y - o.y) || a.y - b.y || a.x - b.x);
         for (const pos of positions) {
           Object.assign(next.objects[next.objects.length - 1], pos);
-          if (!layoutProblem(withLayout(this.map, next))) { placed = true; break; }
+          if (!layoutProblem(withLayout(this.map, next), false)) { placed = true; break; }
         }
       }
       if (!placed) console.warn(`${have ? 'reshaped' : 'new'} ${objectName(o.type)} not placed in the saved layout: ${problem}`);
@@ -763,6 +884,8 @@ export class World {
 
   // ---------- knock ----------
   private knockBlock(from: User, to: User) {
+    if (underground(to)) return `${to.name} is somewhere underground 🕳`;
+    if (underground(from)) return "You're underground — find the way out first";
     const dest = this.position(to).dest, target = roomAt(this.map, dest.x, dest.y);
     if (target?.rules.voice === 'open') return `${to.name} is in ${target.name} — just walk in`;
     const hall = to.callId ? this.calls.get(to.callId)?.room : undefined;
@@ -859,8 +982,13 @@ export class World {
         if (u.door === 'arriving') { this.doorTimer(u, null); this.setDoor(u, null); } // off on their own way: bag's put away
         this.setFollowing(u, null);
         const to = { x: msg.to.x | 0, y: msg.to.y | 0 };
-        if (u.instance && !this.inMeetingRoom(to)) break; // a meeting's room has no way out but Leave
-        this.walk(u, to);
+        if (underground(u) ? !this.inDungeon(to) : u.instance && !this.inMeetingRoom(to)) break;
+        const at = this.walk(u, to);
+        const hole = this.map.dungeon?.hole;
+        if (at !== null && hole && this.sameTile(to, hole)) this.dungeonTimer(u, 'fall', at, () => {
+          if (!u.bot && u.presence !== 'offline' && this.sockets.get(u.id)?.size && !goingOut(u) && !u.instance &&
+            this.walkDone(u) && this.sameTile(u.tile, hole)) this.fall(u);
+        });
         break;
       }
       case 'status': this.setStatus(u, String(msg.status ?? '')); break;
@@ -898,7 +1026,8 @@ export class World {
         break;
       }
       case 'meeting_go': this.enterMeeting(u, String(msg.key)); break;
-      case 'meeting_leave': if (u.instance) this.leaveMeeting(u); break;
+      case 'meeting_leave': if (u.instance && !underground(u)) this.leaveMeeting(u); break;
+      case 'dungeon_leave': this.leaveDungeon(u, 'gave_up'); break;
       case 'meeting_out': if (!u.bot) this.meetings.leave(u, String(msg.key)); break;
       case 'calendar': {
         const g = u.google;
@@ -986,7 +1115,7 @@ export class World {
   dump() {
     return {
       users: [...this.users.values()].map(u => {
-        return { id: u.id, name: u.name, email: u.email, meetLink: u.meetLink, google: u.google, homeDesk: u.homeDesk, look: u.look, lookSet: u.lookSet, tile: u.tile, dir: u.dir, status: u.status, presence: u.presence, bot: u.bot, plant: u.plant, bloomed: u.bloomed, achievements: u.achievements };
+        return { id: u.id, name: u.name, email: u.email, meetLink: u.meetLink, google: u.google, homeDesk: u.homeDesk, look: u.look, lookSet: u.lookSet, tile: underground(u) ? this.dungeonExit(false) : u.tile, dir: u.dir, status: u.status, presence: u.presence, bot: u.bot, plant: u.plant, bloomed: u.bloomed, achievements: u.achievements };
       }),
       objects: Object.fromEntries(this.objectOn),
       jukebox: Object.fromEntries([...this.jukeboxes].map(([id, j]) => [id, j.dump()])),
@@ -998,16 +1127,28 @@ export class World {
     // saved in the radio days: the radio goes (withNewFixtures then brings in the jukebox)
     if (data.layout) data.layout = { ...data.layout, objects: data.layout.objects.filter(o => o.type !== 'radio') };
     if (data.layout) { // an admin rearranged the office; if it no longer fits the generated floor, start over from that
-      const layout = this.withNewFixtures(data.layout);
-      const problem = layoutProblem(withLayout(this.map, layout));
+      const covers = (o: { x: number; y: number; w: number; h: number }) => this.map.dungeon &&
+        [this.map.dungeon.hole, this.map.dungeon.hatch].some(t => t.x >= o.x && t.x < o.x + o.w && t.y >= o.y && t.y < o.y + o.h);
+      const objects = data.layout.objects.filter(o => {
+        if (!covers(o)) return true;
+        console.warn(`saved ${objectName(o.type)} dropped: covers the hole or hatch`); return false;
+      });
+      const rugs = data.layout.rugs.filter(r => {
+        if (!covers(r)) return true;
+        console.warn(`saved ${r.color} rug dropped: covers the hole or hatch`); return false;
+      });
+      const layout = this.withNewFixtures({ objects, rugs });
+      const problem = layoutProblem(withLayout(this.map, layout), false);
       if (problem) console.warn(`saved layout dropped: ${problem}`);
       else {
         applyLayout(this.map, layout); this.layoutEdited = true;
         this.syncToggles(); this.syncJukeboxes();
+        if (this.map.dungeon) for (const k of ['hole', 'hatch'] as const)
+          if (!findPath(this.map, this.map.spawn, this.map.dungeon[k]).length) console.warn(`saved layout blocks the ${k}; keeping layout`);
       }
     }
     for (const d of data.users ?? []) {
-      const tile = isWalkable(this.map, d.tile.x, d.tile.y) || seatAt(this.map, d.tile.x, d.tile.y) ? d.tile : { ...this.map.spawn };
+      const tile = this.inDungeon(d.tile) ? this.dungeonExit(false) : isWalkable(this.map, d.tile.x, d.tile.y) || seatAt(this.map, d.tile.x, d.tile.y) ? d.tile : { ...this.map.spawn };
       const legacy = lookFor(d.name);
       const look = { ...legacy, ...d.look, eyes: d.look?.eyes ?? legacy.eyes, shoes: d.look?.shoes ?? legacy.shoes, top: d.look?.top ?? 0, bottom: d.look?.bottom ?? 0, glasses: d.look?.glasses ?? 0, hat: d.look?.hat ?? 0, glassesColor: d.look?.glassesColor ?? legacy.glassesColor, hatColor: d.look?.hatColor ?? legacy.hatColor };
       this.users.set(d.id, { ...d, look, lookSet: d.lookSet ?? false, homeDesk: d.homeDesk ?? null, plant: d.plant ?? null, bloomed: d.bloomed ?? [], achievements: d.achievements ?? {}, tile, move: null, path: null, emote: null, door: null, callId: null, deafened: false, hand: false, muted: false, following: null, holding: null, meeting: null, instance: null, presence: d.bot ? d.presence : 'offline' });
