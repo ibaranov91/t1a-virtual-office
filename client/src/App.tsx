@@ -184,6 +184,7 @@ function TopBar({ store, roomName, onToggleRooms, onToggleMeet, onLogout, onZoom
       </div>
       <button onClick={onToggleMeet} className={`meet-btn${store.meetLink === '' ? ' unset' : ''}`}
         title={store.meetLink ? `Your Meet room: ${store.meetLink}` : 'Set your Google Meet link'}>Meet</button>
+      <UnreadButton store={store} />
       <SoundToggle />
       <MacAppButton />
       <button onClick={onToggleRooms} title="Rooms">Rooms</button>
@@ -273,6 +274,17 @@ function MeetSetup({ store, onClose }: { store: Store; onClose: () => void }) {
 }
 
 /** Knock sound on/off, remembered per browser. Turning it on plays a sample. */
+/** 💬 N in the top bar while messages are unread; opens the oldest unread chat (the Rooms panel is often closed). */
+function UnreadButton({ store }: { store: Store }) {
+  const senders = [...store.unread.keys()]; // insertion order = oldest unread first
+  const total = [...store.unread.values()].reduce((a, b) => a + b, 0);
+  if (!total) return null;
+  return (
+    <button className="unread-btn" onClick={() => store.openChat(senders[0])}
+      title={`Unread from ${store.names(senders.map(id => store.users.get(id)!).filter(Boolean))}`}>💬 {total}</button>
+  );
+}
+
 /** "Mac app" in the top bar (on a Mac, outside the app): the one-line install command to copy. */
 function MacAppButton() {
   const [mac, setMac] = useState<{ install: string } | null>(null);

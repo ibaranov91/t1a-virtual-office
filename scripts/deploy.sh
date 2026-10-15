@@ -35,7 +35,7 @@ echo "→ deploying '$NAME' ($OWNER, login: $LOGIN) to $HOST:$PORT  →  $URL"
 npm run build -w client
 # The Mac app ships with the instance (macos/dist). Only a Mac can build it; elsewhere, deploy without it.
 rm -rf macos/dist
-if [ "$(uname)" = Darwin ]; then macos/build.sh --dist || echo "warning: Mac app build failed; deploying without it" >&2
+if [ "$(uname)" = Darwin ]; then macos/build.sh --dist "$NAME" || echo "warning: Mac app build failed; deploying without it" >&2
 else echo "warning: not on macOS; deploying without the Mac app" >&2; fi
 rsync -az --delete \
   --exclude node_modules --exclude data --exclude .claude --exclude '*.log' \

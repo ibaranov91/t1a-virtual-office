@@ -7,11 +7,15 @@ const handler = (): Handler | undefined => (window as unknown as { webkit?: { me
 
 export const inNativeApp = () => !!handler();
 
-/** Mirror what the menu bar shows (knocks, call, busy) whenever it changes. The knock card's
- *  Later calls `window.__deckNative.reply`; accepting happens in the page so voice starts from a click. */
+/** Mirror what the menu bar shows (knocks, call, busy, unread messages) whenever it changes. The knock card's
+ *  Later calls `window.__deckNative.reply`; accepting happens in the page so voice starts from a click.
+ *  Clicking the icon with unread messages calls `__deckNative.openChat`. */
 export function syncNative(store: Store) {
   if (!handler()) return () => {};
-  Object.assign(window, { __deckNative: { reply: (knockId: string, reply: 'accept' | 'later') => store.replyKnock(knockId, reply) } });
+  Object.assign(window, { __deckNative: {
+    reply: (knockId: string, reply: 'accept' | 'later') => store.replyKnock(knockId, reply),
+    openChat: (withId: string) => store.openChat(withId),
+  } });
   // The app compares this with its own build and updates itself. Asked on every (re)connect: a deploy
   // that only changes the Mac app restarts the server without reloading this page.
   const checkMacApp = () => fetch('/api/mac').then(r => (r.ok ? r.json() : null))
@@ -26,6 +30,7 @@ export function syncNative(store: Store) {
       inCall: !!me?.callId,
       busy: me?.presence === 'away' || !!me?.callId, // quiet mode: icon only, no knock card
       knocks: store.toasts.filter(t => t.kind === 'knock_in').map(t => ({ id: t.knockId, text: t.text })),
+      unread: [...store.unread].map(([id, count]) => ({ id, name: store.name(id), count })), // oldest first
     };
     const key = JSON.stringify(state);
     if (key !== last) { last = key; handler()?.postMessage(state); }

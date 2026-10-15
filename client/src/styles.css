@@ -152,3 +152,4 @@ canvas { display: block; image-rendering: pixelated; touch-action: none; }
   display: flex; flex-direction: column; gap: 8px; padding: 12px; background: var(--panel); border: 2px solid var(--wood); border-radius: 8px; }
 .mac-app-pop p { margin: 0; font-size: 12px; }
 .mac-app-pop code { display: block; padding: 8px; background: var(--bg); border-radius: 6px; font-size: 12px; word-break: break-all; cursor: copy; user-select: all; }
+.unread-btn { background: #6a8ad0; color: #fff; }
