@@ -1,8 +1,9 @@
 // WebSocket client + the client-side mirror of server state.
 import mapJson from '../../shared/tilemap.json';
-import { pathTo, roomAt, sampleMove, type Dir, type Tile, type TileMap } from '../../shared/map';
-import type { ChatMsg, ClientMsg, PublicUser, Reaction, RtcSignal, ServerMsg } from '../../shared/protocol';
-import { playKnock, playPop } from './sounds';
+import { besideObject, pathTo, roomAt, sampleMove, type Dir, type Tile, type TileMap } from '../../shared/map';
+import { ROOM_VOICE_MAX, type ChatMsg, type ObjectState, type ClientMsg, type PublicUser, type Reaction, type RtcSignal, type ServerMsg } from '../../shared/protocol';
+import { playHand, playKnock, playPop } from './sounds';
+import type { Soundscape } from './soundscape';
 
 export const MAP = mapJson as unknown as TileMap;
 
@@ -36,11 +37,16 @@ export class Store {
   offset = 0; // serverTime - localTime
   toasts: Toast[] = [];
   connected = false;
+  voiceOwner = false;
+  voiceWait: string | null = null;
+  voiceFocus: string | null = null;
+  voiceFocusSeq = 0;
+  soundscape?: Soundscape;
   meetLink: string | null = null; // null = not loaded yet, '' = not set
   email: string | null = null;    // my sign-in (NetBird) email; Meet links open as this Google account
   build: string | undefined;  // the server's client build when this page loaded
   staleBuild = false;         // server now serves a newer build; reload when not in a call
-  objects: Record<string, { on: boolean }> = {};
+  objects: Record<string, ObjectState> = {};
   chats = new Map<string, ChatMsg[]>(); // by the other person's id
   unread = new Map<string, number>();
   chatWith: string | null = null;       // open conversation
@@ -69,12 +75,12 @@ export class Store {
     ws.onopen = () => { this.connected = true; this.emit(); };
     ws.onmessage = (e) => this.onMessage(JSON.parse(e.data));
     ws.onclose = (e) => {
-      this.connected = false; this.emit();
+      this.connected = false; this.voiceOwner = false; this.emit();
       if (e.code === 4001) return this.onUnauthorized();
       if (!this.closed) setTimeout(() => this.connect(), 1500);
     };
   }
-  close() { this.closed = true; this.ws?.close(); }
+  close() { this.closed = true; this.connected = false; this.voiceOwner = false; this.emit(); this.ws?.close(); }
   send(msg: ClientMsg) { if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(msg)); }
 
   // ---------- actions ----------
@@ -84,7 +90,9 @@ export class Store {
   pendingKnock: string | null = null;
   meetSetupSkipped = false; // "knock without a room" — don't nag again this session
   requestKnock(targetId: string) {
-    this.knock(targetId);
+    const u = this.users.get(targetId);
+    if (u && this.sameRoomCall(u)) this.focusVoice(targetId);
+    else this.knock(targetId);
   }
   finishKnockSetup(action: 'saved' | 'skip' | 'cancel') {
     const id = this.pendingKnock; this.pendingKnock = null;
@@ -118,6 +126,36 @@ export class Store {
   setMeetLink(link: string) { this.send({ t: 'meet_link', link }); }
   claimDesk() { this.send({ t: 'claim_desk' }); }
   releaseDesk() { this.send({ t: 'release_desk' }); }
+  leaveRoom() { this.send({ t: 'leave_room' }); }
+  setHand(up: boolean) { this.send({ t: 'hand', up }); }
+  setDeafen(on: boolean) { this.send({ t: 'deafen', on }); }
+  claimVoice() { this.send({ t: 'voice_claim' }); }
+  setObjectVolume(id: string, volume: number) { this.send({ t: 'object_volume', id, volume }); }
+  /** Standing still right next to this object (the radio's knob only turns from there). */
+  besideObject(id: string) {
+    const o = MAP.objects.find(o => o.id === id), me = this.users.get(this.me);
+    if (!o || !me) return false;
+    const p = this.pose(me);
+    return !p.walking && besideObject(MAP, o).some(s => s.x === p.tile.x && s.y === p.tile.y);
+  }
+  /** Walk up to an object: the nearest free tile beside it. */
+  walkToObject(id: string) {
+    const o = MAP.objects.find(o => o.id === id), me = this.users.get(this.me);
+    if (!o || !me) return;
+    const here = this.pose(me).tile;
+    const taken = new Set([...this.users.values()].filter(u => u.id !== this.me && u.presence !== 'offline').map(u => `${u.tile.x},${u.tile.y}`));
+    const spots = besideObject(MAP, o).filter(s => !taken.has(`${s.x},${s.y}`))
+      .map(s => ({ s, len: pathTo(MAP, here, s).length || Infinity })).sort((a, b) => a.len - b.len);
+    if (spots[0] && spots[0].len < Infinity) this.moveTo({ x: spots[0].s.x, y: spots[0].s.y });
+  }
+  focusVoice(id: string | null) { this.voiceFocus = id; this.voiceFocusSeq++; this.emit(); }
+  roomCallOf(u?: ClientUser) {
+    return u?.callId?.startsWith('room:') ? MAP.rooms.find(r => r.id === u.callId!.slice(5)) : undefined;
+  }
+  sameRoomCall(u: ClientUser) {
+    const me = this.users.get(this.me);
+    return !!this.roomCallOf(me) && me?.callId === u.callId;
+  }
   endCall() { this.send({ t: 'end_call' }); }
   moveToMeet() { this.send({ t: 'to_meet' }); }
   callLink: string | null = null; // the Meet link for the call I'm in
@@ -179,12 +217,13 @@ export class Store {
         const next = new Map<string, ClientUser>();
         for (const p of msg.users) {
           const old = this.users.get(p.id);
-          const u: ClientUser = { ...p, path: old?.path ?? null, prev: old?.prev ?? null, faceOverride: old?.faceOverride ?? null };
+          const u: ClientUser = { ...p, path: old?.path ?? null, prev: old?.prev ?? null, faceOverride: old?.faceOverride ?? null, speaking: p.callRole === 'member' && p.callId === old?.callId ? old?.speaking ?? false : false };
           if (p.move && (!old?.move || old.move.startedAt !== p.move.startedAt)) { u.move = null; this.applyMove(u, p.move); }
           next.set(p.id, u);
         }
         this.users = next;
         this.objects = msg.objects ?? {};
+        this.soundscape?.resetAdmitted();
         break;
       }
       case 'follow': { const u = this.users.get(msg.userId); if (u) u.following = msg.targetId; break; }
@@ -198,7 +237,7 @@ export class Store {
         }
         break;
       }
-      case 'object': this.objects = { ...this.objects, [msg.id]: { on: msg.on } }; break;
+      case 'object': this.objects = { ...this.objects, [msg.id]: { on: msg.on, volume: msg.volume } }; break;
       case 'react':
         this.reactions.push({ fromId: msg.fromId, toId: msg.toId, emoji: msg.emoji, at: performance.now() });
         if (msg.toId === this.me && msg.fromId !== this.me) playPop();
@@ -227,8 +266,29 @@ export class Store {
         break;
       }
       case 'call': {
-        const u = this.users.get(msg.userId); if (u) { u.callId = msg.callId; u.muted = false; u.speaking = false; }
-        if (msg.userId === this.me) this.callLink = msg.callId ? msg.link ?? this.callLink : null;
+        const u = this.users.get(msg.userId);
+        if (u) {
+          if (u.callId !== msg.callId && !msg.callId?.startsWith('room:')) u.muted = false;
+          u.callId = msg.callId; u.callRole = msg.callId ? msg.role ?? 'member' : null;
+          if (u.callRole !== 'member') { u.speaking = false; u.hand = false; }
+        }
+        if (msg.userId === this.me) this.callLink = msg.callId && !msg.callId.startsWith('room:') ? msg.link ?? this.callLink : null;
+        break;
+      }
+      case 'voice_owner': this.voiceOwner = msg.owner; break;
+      case 'voice_wait': {
+        const was = this.voiceWait; this.voiceWait = msg.roomId;
+        if (!was && msg.roomId) this.toast({ kind: 'info', text: `${MAP.rooms.find(r => r.id === msg.roomId)?.name ?? 'Room'} voice is full (${ROOM_VOICE_MAX}) — you'll join when someone leaves`, expires: 6000 });
+        break;
+      }
+      case 'notice': this.toast({ kind: 'info', text: msg.text, expires: 6000 }); break;
+      case 'deafen': { const u = this.users.get(msg.userId); if (u) { u.deafened = msg.on; if (msg.on) u.speaking = false; } break; }
+      case 'hand': {
+        const u = this.users.get(msg.userId), me = this.users.get(this.me);
+        if (u) {
+          if (msg.up && !u.hand && u.id !== this.me && me?.callRole === 'member' && this.sameRoomCall(u)) playHand();
+          u.hand = msg.up;
+        }
         break;
       }
       case 'rtc': this.onRtc?.(msg.from, msg.signal); return; // no re-render needed

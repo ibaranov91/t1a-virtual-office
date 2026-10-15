@@ -337,6 +337,22 @@ const counterSeg = (t, y0) => {
   frames.reception = t.outline();
 }
 
+{
+  const t = new Img(16, 16); // retro radio
+  t.rect(2, 6, 12, 8, W1D); t.hline(2, 6, 12, W1L); t.rect(3, 7, 7, 6, '#4a4a58');
+  for (let x = 4; x < 10; x += 2) t.vline(x, 8, 4, '#8a929a');
+  t.rect(11, 8, 2, 2, '#f2b45a'); t.px(12, 12, '#e8dcc8');
+  t.hline(5, 3, 6, W1DD); t.vline(5, 3, 3, W1DD); t.vline(10, 3, 3, W1DD);
+  t.vline(12, 1, 5, '#c4ccd4'); frames.radio = t.outline();
+}
+for (const n of [1, 2]) {
+  const t = new Img(8, 9), c = '#f2b45a';
+  t.vline(4, 1, 5, c); t.ellipse(3, 6, 2, 1.5, c);
+  if (n === 1) t.hline(4, 1, 3, c);
+  else { t.hline(4, 1, 3, c); t.vline(6, 1, 4, c); t.px(5, 5, c); }
+  frames[`note_${n}`] = t.outline();
+}
+
 // ---------- wall decor ----------
 {
   const t = new Img(32, 32); // window
@@ -417,6 +433,16 @@ frames.bubble_headset = bubble((t) => {
   t.hline(4, 2, 6, '#4a4a5a'); t.px(3, 3, '#4a4a5a'); t.px(10, 3, '#4a4a5a');
   t.rect(2, 4, 2, 4, '#4f9a92'); t.rect(10, 4, 2, 4, '#4f9a92');
   t.hline(4, 8, 3, '#4a4a5a'); t.px(4, 7, '#4a4a5a');
+});
+frames.bubble_hand = bubble((t) => {
+  const c = '#d0a040';
+  t.rect(5, 4, 5, 5, c); t.vline(5, 2, 4, c); t.vline(7, 1, 5, c); t.vline(9, 2, 4, c);
+  t.rect(3, 5, 2, 2, c); t.px(4, 7, c); t.px(6, 8, '#f2c79b');
+});
+frames.bubble_deaf = bubble((t) => {
+  t.hline(4, 2, 6, '#4a4a5a'); t.px(3, 3, '#4a4a5a'); t.px(10, 3, '#4a4a5a');
+  t.rect(2, 4, 2, 4, '#4f9a92'); t.rect(10, 4, 2, 4, '#4f9a92');
+  for (let i = 0; i < 8; i++) t.px(3 + i, 1 + i, '#d8463c');
 });
 frames.bubble_bang = bubble((t) => { t.rect(6, 2, 2, 4, '#d8463c'); t.rect(6, 7, 2, 2, '#d8463c'); });
 frames.bubble_dots = bubble((t) => { for (const x of [3, 6, 9]) t.rect(x, 5, 2, 2, '#7a5a50'); });
