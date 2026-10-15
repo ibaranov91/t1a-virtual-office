@@ -31,7 +31,7 @@ npm run typecheck    # run before every commit or deploy
 - `VITE_PORT` / `DECK_PORT` run a second copy beside the first. Port 5174 may be held by another worktree's
   session, so leave other sessions' processes alone and pick a free port.
 - Debug handles exist in dev only: `window.__deck` = `{ store, engine }` and `window.__voice`.
-  `engine.setZoom(n)` and `engine.focusUser(id)` help with screenshots. `store.knock(id)` and
+  `engine.setZoom(cssScale)`, `engine.toggleOverview()` and `engine.focusUser(id)` help with screenshots. `store.knock(id)` and
   `store.replyKnock(id, 'accept')` drive the knock flow without clicking.
 
 ## How things work (the parts that bite)
@@ -66,6 +66,10 @@ npm run typecheck    # run before every commit or deploy
   of the Meeting room (same tiles), where only people with the same `instance` see each other; the office sees them on
   the board by the Meeting room and under "In meetings". No voice inside. Leave, or the meeting's end, puts you back
   where you were. Instances live in memory only.
+- **Zoom** is whole device pixels per art pixel (crisp; on Retina that includes 1.5×, 2.5×), glides 140 ms between levels
+  and is remembered per device (`deck.zoom`). The lowest level fits the whole floor: the overview, with room tags and a
+  "You" pin; when it's small, a tap zooms in instead of walking. Pinch, ⌘/ctrl-scroll, `+ − 0`, `M`. Phones and short
+  windows (`COMPACT` in App.tsx, same media query in styles.css) get a thumb dock and bottom sheets instead of top-bar buttons.
 - **Room behavior is data.** Knock rules, meeting links and home-desk rooms live in `tilemap.json`
   (from `gen-map.mjs`), not in code.
 

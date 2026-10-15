@@ -15,6 +15,9 @@ import { seatAt } from '../../shared/map';
 // so several tabs can be different people.
 const DEV_AS = import.meta.env.DEV ? (new URLSearchParams(location.search).get('as')?.trim() || 'Dev') : null;
 const SESSION_KEY = DEV_AS ? `deck.session.dev.${DEV_AS.toLowerCase()}` : 'deck.session';
+/** Phones and small windows: a thumb dock and bottom sheets (keep in step with styles.css). */
+const COMPACT = '(max-width: 560px), (max-height: 500px)';
+const compact = () => window.matchMedia(COMPACT).matches;
 
 export default function App() {
   const [session, setSession] = useState(() => { try { return localStorage.getItem(SESSION_KEY); } catch { return null; } });
@@ -108,6 +111,7 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
   const [showMeet, setShowMeet] = useState(false);
   const [pick, setPick] = useState<Pick | null>(null);
   const [, tick] = useState(0);
+  const [engine, setEngine] = useState<Engine | null>(null);
 
   useEffect(() => { store.connect(); return () => store.close(); }, [store]);
   useEffect(() => { const s = new Soundscape(store); return () => s.destroy(); }, [store]);
@@ -136,9 +140,10 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
       if (use?.kind === 'meetings') { setPick(null); return store.openMeetings(); }
       setPick(cur => (p && cur?.kind === p.kind && cur.id === p.id ? null : p)); // same target again: close
     };
-    engineRef.current = e;
+    e.onZoom = () => tick(n => n + 1);
+    engineRef.current = e; setEngine(e);
     if (import.meta.env.DEV) Object.assign(window, { __deck: { store, engine: e } });
-    return () => e.destroy();
+    return () => { e.destroy(); setEngine(null); };
   }, [assets, store]);
   useEffect(() => { const i = setInterval(() => { tick(n => n + 1); store.checkAgenda(); }, 1000); return () => clearInterval(i); }, [store]);
   useEffect(() => { if (engineRef.current) engineRef.current.selected = pick; }, [pick]);
@@ -149,13 +154,14 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
   return (
     <div className="office">
       <TopBar store={store} roomName={myRoom?.name} onToggleRooms={() => setShowRooms(s => !s)} onLogout={onLogout}
-        onToggleMeet={() => setShowMeet(s => !s)}
-        onZoom={(d) => engineRef.current?.setZoom((engineRef.current.zoomBias ?? 0) + d)} />
+        onToggleMeet={() => setShowMeet(s => !s)} engine={engine} />
       <div className="stage">
         <div className="canvas-wrap"><canvas ref={canvasRef} /></div>
         {!assets && <div className="loading">Unlocking the door…</div>}
         {!store.connected && assets && <div className="loading small">Reconnecting…</div>}
-        {showRooms && <RoomList store={store} onPick={(id) => engineRef.current?.focusUser(id)} onClose={() => setShowRooms(false)} />}
+        {showRooms && <RoomList store={store} onClose={() => setShowRooms(false)}
+          onPick={id => { engineRef.current?.focusUser(id); if (compact()) setShowRooms(false); }}
+          onRoom={id => { engineRef.current?.focusRoom(id); if (compact()) setShowRooms(false); }} />}
         {store.calendarOpen && <CalendarPanel store={store} />}
         {store.meetingsOpen && <MeetingsPanel store={store} />}
         {(showMeet || store.pendingKnock) && <MeetSetup key={store.pendingKnock ?? 'panel'} store={store} onClose={() => setShowMeet(false)} />}
@@ -167,16 +173,25 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
         <Toasts store={store} />
         {pick && engineRef.current && <ActionWheel key={`${pick.kind}:${pick.id}`} store={store} engine={engineRef.current} pick={pick} onClose={() => setPick(null)} />}
         {store.chatWith && <ChatPanel key={store.chatWith} store={store} withId={store.chatWith} />}
+        <Dock store={store} engine={engine} roomsOpen={showRooms} onRooms={() => setShowRooms(s => !s)} />
       </div>
     </div>
   );
 }
 
-function TopBar({ store, roomName, onToggleRooms, onToggleMeet, onLogout, onZoom }: {
-  store: Store; roomName?: string; onToggleRooms: () => void; onToggleMeet: () => void; onLogout: () => void; onZoom: (d: number) => void;
+function TopBar({ store, roomName, onToggleRooms, onToggleMeet, onLogout, engine }: {
+  store: Store; roomName?: string; onToggleRooms: () => void; onToggleMeet: () => void; onLogout: () => void; engine: Engine | null;
 }) {
   const me = store.users.get(store.me);
   const [draft, setDraft] = useState<string | null>(null);
+  const [more, setMore] = useState(false);
+  useEffect(() => { // the ⋯ menu closes on a tap anywhere else
+    if (!more) return;
+    const off = (e: PointerEvent) => { if (!(e.target as HTMLElement).closest('.topbar')) setMore(false); };
+    window.addEventListener('pointerdown', off);
+    return () => window.removeEventListener('pointerdown', off);
+  }, [more]);
+  const z = engine?.zoom;
   const status = draft ?? me?.status ?? '';
   return (
     <header className="topbar">
@@ -193,23 +208,28 @@ function TopBar({ store, roomName, onToggleRooms, onToggleMeet, onLogout, onZoom
           onBlur={() => { if (draft !== null) { store.setStatus(draft); setDraft(null); } }} />
       </form>
       <div className="zoom">
-        <button onClick={() => onZoom(-1)} title="Zoom out">−</button>
-        <button onClick={() => onZoom(1)} title="Zoom in">+</button>
+        <button onClick={() => engine?.zoomOut()} disabled={!z?.canOut} title="Zoom out (−, ⌘ scroll or pinch)" aria-label="Zoom out">−</button>
+        <button onClick={() => engine?.zoomIn()} disabled={!z?.canIn} title="Zoom in (+, ⌘ scroll or pinch)" aria-label="Zoom in">+</button>
+        <button onClick={() => engine?.toggleOverview()} className={z?.overview ? 'on' : ''} aria-pressed={!!z?.overview}
+          title={z?.overview ? 'Back to where you were (M)' : 'Whole floor (M)'}>⤢</button>
       </div>
-      <button onClick={onToggleMeet} className={`meet-btn${store.meetLink === '' && !store.google ? ' unset' : ''}`}
-        title={store.google ? `Google connected: ${store.google}` : store.meetLink ? `Your Meet room: ${store.meetLink}` : 'Set up Google Meet'}>Meet</button>
       <UnreadButton store={store} />
-      <SoundToggle />
-      <MacAppButton />
-      <button onClick={onToggleRooms} title="Rooms">Rooms</button>
-      <button onClick={onLogout} title="Sign out" className="ghost">Leave</button>
+      <button className="ghost more-btn" aria-label="More" aria-expanded={more} onClick={() => setMore(m => !m)}>⋯</button>
+      <div className={`top-more${more ? ' open' : ''}`} onClick={e => { if (!(e.target as HTMLElement).closest('.mac-app')) setMore(false); }}>
+        <button onClick={onToggleMeet} className={`meet-btn${store.meetLink === '' && !store.google ? ' unset' : ''}`}
+          title={store.google ? `Google connected: ${store.google}` : store.meetLink ? `Your Meet room: ${store.meetLink}` : 'Set up Google Meet'}>Meet</button>
+        <SoundToggle />
+        <MacAppButton />
+        <button onClick={onToggleRooms} title="Rooms" className="rooms-btn">Rooms</button>
+        <button onClick={onLogout} title="Sign out" className="ghost">Leave</button>
+      </div>
     </header>
   );
 }
 
 const PRESENCE_COLOR: Record<string, string> = { online: '#7cc87c', away: '#e0b050', in_call: '#d86a5a', offline: '#666' };
 
-function RoomList({ store, onPick, onClose }: { store: Store; onPick: (id: string) => void; onClose: () => void }) {
+function RoomList({ store, onPick, onRoom, onClose }: { store: Store; onPick: (id: string) => void; onRoom: (id: string) => void; onClose: () => void }) {
   const byRoom = new Map<string, string[]>();
   for (const u of store.users.values()) {
     if (u.presence === 'offline') continue;
@@ -226,7 +246,7 @@ function RoomList({ store, onPick, onClose }: { store: Store; onPick: (id: strin
         if ((r.id === 'hall' || r.id === 'meetings') && !ids.length) return null;
         return (
           <section key={r.id}>
-            <h3>{r.name} <small>{ids.length}{r.capacity ? `/${r.capacity}` : ''} · {r.rules.label}</small></h3>
+            <h3 onClick={MAP.rooms.some(m => m.id === r.id) ? () => onRoom(r.id) : undefined}>{r.name} <small>{ids.length}{r.capacity ? `/${r.capacity}` : ''} · {r.rules.label}</small></h3>
             <ul>
               {ids.map(id => {
                 const u = store.users.get(id)!;
@@ -409,6 +429,23 @@ function CalendarPanel({ store }: { store: Store }) {
         <div className="row"><ExternalLink href={calendarHome}>Open Google Calendar</ExternalLink></div>
       </div>
     </div>
+  );
+}
+
+/** Phones and small windows: the floor's controls within thumb reach. */
+function Dock({ store, engine, roomsOpen, onRooms }: { store: Store; engine: Engine | null; roomsOpen: boolean; onRooms: () => void }) {
+  const z = engine?.zoom;
+  const total = [...store.unread.values()].reduce((a, b) => a + b, 0);
+  const chatWith = [...store.unread.keys()][0] ?? [...store.chats.keys()].at(-1);
+  return (
+    <nav className="dock" aria-label="Floor">
+      <button className={roomsOpen ? 'on' : ''} aria-pressed={roomsOpen} onClick={onRooms}><span className="ic">👥</span><small>Rooms</small></button>
+      <button className={z?.overview ? 'on' : ''} aria-pressed={!!z?.overview} onClick={() => engine?.toggleOverview()}>
+        <span className="ic">🗺️</span><small>{z?.overview ? 'Back' : 'Floor'}</small></button>
+      <button onClick={() => engine?.recenter()}><span className="ic">📍</span><small>Me</small></button>
+      <button onClick={() => (chatWith ? store.openChat(chatWith) : onRooms())} title={chatWith ? undefined : 'Pick someone in Rooms to message'}>
+        <span className="ic">💬</span>{total > 0 && <b className="badge">{total}</b>}<small>Chat</small></button>
+    </nav>
   );
 }
 
@@ -691,7 +728,7 @@ function ActionWheel({ store, engine, pick, onClose }: { store: Store; engine: E
   // buttons ring the sprite without covering it, at any zoom; the whole wheel stays on screen
   const R = Math.max(items.length <= 2 ? 46 : items.length <= 4 ? 56 : 66, at.r + 30);
   const x = Math.round(Math.min(Math.max(at.x, R + 28), window.innerWidth - R - 28));
-  const y = Math.round(Math.min(Math.max(at.y, R + 70), window.innerHeight - R - 30));
+  const y = Math.round(Math.min(Math.max(at.y, R + 70), window.innerHeight - R - (compact() ? 100 : 30))); // clear of the dock
   // two items sit left/right; more start at the top and go clockwise
   const start = items.length === 2 ? Math.PI : -Math.PI / 2;
   return (

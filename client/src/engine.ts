@@ -33,8 +33,19 @@ export class Engine {
   private ctx: CanvasRenderingContext2D;
   private staticLayer: HTMLCanvasElement;
   private raf = 0;
-  private scale = 2;      // art pixels -> css pixels
-  private px = 2;         // art pixels -> device pixels
+  private px = 2;         // art pixels -> device pixels; whole numbers keep the art crisp (fractional only mid-glide)
+  private dpr = 1;
+  private minPx = 1;      // the whole floor fits
+  private maxPx = 8;      // 4 css pixels per art pixel
+  private targetPx = 0;   // the level we're at or gliding to (0 until the first layout)
+  private prevPx = 0;     // where the overview goes back to
+  private glide: { from: number; at: number; sx: number; sy: number; wx: number; wy: number } | null = null;
+  private pointers = new Map<number, { x: number; y: number }>();
+  private pinch: { dist: number; px: number; x: number; y: number } | null = null;
+  private gesture: { px: number; at: number } | null = null; // Safari trackpad pinch
+  private wheelAcc = 0;
+  /** Zoom level or overview changed (the chrome's buttons follow it). */
+  onZoom?: () => void;
   private cam = { x: 0, y: 0 };
   private manualCam = false;
   private viewW = 0; private viewH = 0;
@@ -54,7 +65,6 @@ export class Engine {
   private steamers: MapObject[];
   private placedPlates: { x: number; y: number; w: number }[] = [];
   private snapped = false;
-  zoomBias = 0;
 
   constructor(private canvas: HTMLCanvasElement, private store: Store, private assets: Assets) {
     this.ctx = canvas.getContext('2d')!;
@@ -69,7 +79,12 @@ export class Engine {
     canvas.addEventListener('pointerdown', this.onDown);
     canvas.addEventListener('pointermove', this.onMove);
     canvas.addEventListener('pointerup', this.onUp);
-    canvas.addEventListener('pointerleave', () => { this.hoverUser = null; this.hoverObject = null; this.hoverTile = null; this.drag = null; });
+    canvas.addEventListener('pointercancel', this.onCancel);
+    canvas.addEventListener('pointerleave', this.onLeave);
+    canvas.addEventListener('wheel', this.onWheel, { passive: false });
+    canvas.addEventListener('gesturestart', this.onGesture);
+    canvas.addEventListener('gesturechange', this.onGesture);
+    window.addEventListener('keydown', this.onKey);
     this.raf = requestAnimationFrame(this.frame);
   }
 
@@ -78,16 +93,31 @@ export class Engine {
     this.canvas.removeEventListener('pointerdown', this.onDown);
     this.canvas.removeEventListener('pointermove', this.onMove);
     this.canvas.removeEventListener('pointerup', this.onUp);
+    this.canvas.removeEventListener('pointercancel', this.onCancel);
+    this.canvas.removeEventListener('pointerleave', this.onLeave);
+    this.canvas.removeEventListener('wheel', this.onWheel);
+    this.canvas.removeEventListener('gesturestart', this.onGesture);
+    this.canvas.removeEventListener('gesturechange', this.onGesture);
+    window.removeEventListener('keydown', this.onKey);
   }
 
   /** Pan the camera to a person (from the room list). */
   focusUser(id: string) {
     const u = this.store.users.get(id); if (!u) return;
     const p = this.store.pose(u);
-    this.manualCam = true;
-    this.cam = this.clampCam(p.x * TS + 8 - this.viewW / 2, p.y * TS - this.viewH / 2);
+    this.lookAt(p.x * TS + 8, p.y * TS);
   }
-  recenter() { this.manualCam = false; }
+  /** Pan to a room (from the room list), out of the overview if we're in it. */
+  focusRoom(id: string) {
+    const r = MAP.rooms.find(r => r.id === id)?.rect; if (!r) return;
+    this.lookAt((r.x + r.w / 2) * TS, (r.y + r.h / 2) * TS);
+  }
+  private lookAt(wx: number, wy: number) {
+    this.manualCam = true;
+    if (this.overview) return this.zoomTo(this.backPx(), { sx: this.canvas.width / 2, sy: this.canvas.height / 2 }, { wx, wy });
+    this.cam = this.clampCam(wx - this.viewW / 2, wy - this.viewH / 2);
+  }
+  recenter() { this.manualCam = false; if (this.overview) this.zoomTo(this.backPx()); }
   /** CSS-pixel position of a user's sprite centre (debug/tests). */
   screenPos(id: string) {
     const u = this.store.users.get(id); if (!u) return null;
@@ -148,15 +178,68 @@ export class Engine {
     const parent = this.canvas.parentElement!;
     const w = parent.clientWidth, h = parent.clientHeight;
     const dpr = window.devicePixelRatio || 1;
-    const fit = Math.floor(Math.min(w / MW, h / MH));
-    this.scale = Math.max(2, Math.min(4, fit + this.zoomBias));
-    this.px = Math.max(1, Math.round(this.scale * dpr));
+    if (dpr !== this.dpr) { // moved to a screen with other density: keep the same css size
+      this.targetPx *= dpr / this.dpr; this.prevPx *= dpr / this.dpr; this.dpr = dpr;
+    }
     this.canvas.width = Math.round(w * dpr); this.canvas.height = Math.round(h * dpr);
     this.canvas.style.width = w + 'px'; this.canvas.style.height = h + 'px';
-    this.viewW = this.canvas.width / this.px; this.viewH = this.canvas.height / this.px;
+    // zoom levels are whole device pixels per art pixel: crisp at every step, and on Retina that includes 1.5x, 2.5x…
+    // a phone can't fit the floor even at 1: then the overview is a smoothed fraction, the one level that isn't crisp
+    const fit = Math.min(this.canvas.width / MW, this.canvas.height / MH);
+    this.minPx = fit < 1 ? fit : Math.floor(fit);
+    this.maxPx = Math.max(this.minPx, Math.round(4 * dpr));
+    this.px = this.targetPx = this.clampPx(this.targetPx || this.savedPx());
+    this.glide = null;
+    this.layoutView();
     this.cam = this.clampCam(this.cam.x, this.cam.y);
+    this.onZoom?.();
   }
-  setZoom(bias: number) { this.zoomBias = bias; this.resize(); }
+  private layoutView() { this.viewW = this.canvas.width / this.px; this.viewH = this.canvas.height / this.px; }
+  private clampPx(px: number) { return Math.max(this.minPx, Math.min(this.maxPx, px < 1 ? this.minPx : Math.round(px))); }
+  /** A comfortable level: 2-4 css pixels per art pixel, as big as the floor allows. */
+  private defaultPx() {
+    const fit = Math.floor(Math.min(this.canvas.width / MW, this.canvas.height / MH) / this.dpr);
+    return this.clampPx(Math.max(2, Math.min(4, fit)) * this.dpr);
+  }
+  private savedPx() {
+    try { const s = Number(localStorage.getItem('deck.zoom')); if (s > 0) return s * this.dpr; } catch { /* default */ }
+    return this.defaultPx();
+  }
+  private backPx() { return this.prevPx > this.minPx ? this.prevPx : Math.max(this.defaultPx(), this.minPx + 1); }
+  private step() { return Math.max(1, Math.round(this.dpr / 2)); }
+  /** Zoomed all the way out and the floor is smaller than a comfortable size: room tags show. */
+  get overview() { return this.targetPx === this.minPx && this.minPx < this.defaultPx(); }
+  /** So small that a tap zooms in rather than walking you somewhere. */
+  private get tapZooms() { return this.overview && this.minPx / this.dpr < 1.5; }
+  get zoom() { return { scale: this.targetPx / this.dpr, overview: this.overview, canIn: this.targetPx < this.maxPx, canOut: this.targetPx > this.minPx }; }
+  zoomIn() { this.zoomTo(this.targetPx + this.step()); }
+  zoomOut() { this.zoomTo(this.targetPx - this.step()); }
+  resetZoom() { this.zoomTo(this.defaultPx()); }
+  toggleOverview() { this.zoomTo(this.overview ? this.backPx() : this.minPx); }
+  /** css pixels per art pixel (debug/screenshots). */
+  setZoom(scale: number) { this.zoomTo(scale * this.dpr); }
+  /**
+   * Glide to a level, keeping one point still: the given screen point (device px), or me while the camera follows me.
+   * With a world point too, that point ends up at the screen point.
+   */
+  private zoomTo(px: number, at?: { sx: number; sy: number }, world?: { wx: number; wy: number }) {
+    px = this.clampPx(px);
+    if (px === this.targetPx && !world) return;
+    if (this.targetPx > this.minPx) this.prevPx = this.targetPx;
+    const me = !this.manualCam && this.store.users.get(this.store.me);
+    const mp = me ? this.store.pose(me) : null;
+    const s = at ?? (mp ? { sx: (mp.x * TS + 8 - this.cam.x) * this.px, sy: (mp.y * TS - this.cam.y) * this.px } : { sx: this.canvas.width / 2, sy: this.canvas.height / 2 });
+    const w = world ?? { wx: this.cam.x + s.sx / this.px, wy: this.cam.y + s.sy / this.px };
+    this.glide = { from: this.px, at: performance.now(), ...s, ...w };
+    this.targetPx = px;
+    if (px > this.minPx || !this.overview) try { localStorage.setItem('deck.zoom', String(px / this.dpr)); } catch { /* ignore */ }
+    this.onZoom?.();
+  }
+  /** Device-pixel point in the canvas under a pointer. */
+  private devicePoint(e: { clientX: number; clientY: number }) {
+    const r = this.canvas.getBoundingClientRect(), k = this.canvas.width / r.width;
+    return { sx: (e.clientX - r.left) * k, sy: (e.clientY - r.top) * k };
+  }
   private clampCam(x: number, y: number) {
     const cx = MW <= this.viewW ? -(this.viewW - MW) / 2 : Math.max(0, Math.min(MW - this.viewW, x));
     const cy = MH <= this.viewH ? -(this.viewH - MH) / 2 : Math.max(0, Math.min(MH - this.viewH, y));
@@ -204,16 +287,77 @@ export class Engine {
     return best;
   }
   private onDown = (e: PointerEvent) => {
-    this.canvas.setPointerCapture(e.pointerId);
+    try { this.canvas.setPointerCapture(e.pointerId); } catch { /* synthetic pointer (tests) */ }
+    this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (this.pointers.size === 2) { // second finger: a pinch, never a tap or a drag
+      const [a, b] = [...this.pointers.values()];
+      this.pinch = { dist: Math.hypot(a.x - b.x, a.y - b.y) || 1, px: this.targetPx, x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+      this.drag = null; this.manualCam = true;
+      return;
+    }
+    if (this.pointers.size > 2) return;
     this.drag = { x: e.clientX, y: e.clientY, camX: this.cam.x, camY: this.cam.y, moved: false };
   };
+  private onPinch() {
+    const [a, b] = [...this.pointers.values()], pin = this.pinch!;
+    const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+    const at = this.devicePoint({ clientX: mid.x, clientY: mid.y });
+    const k = this.canvas.width / this.canvas.getBoundingClientRect().width;
+    // the floor under the fingers moves with them
+    if (this.glide) { this.glide.sx = at.sx; this.glide.sy = at.sy; }
+    else this.cam = this.clampCam(this.cam.x - ((mid.x - pin.x) * k) / this.px, this.cam.y - ((mid.y - pin.y) * k) / this.px);
+    pin.x = mid.x; pin.y = mid.y;
+    this.zoomTo(pin.px * (Math.hypot(a.x - b.x, a.y - b.y) / pin.dist), at);
+  }
+  private onCancel = (e: PointerEvent) => { this.pointers.delete(e.pointerId); if (this.pointers.size < 2) this.pinch = null; this.drag = null; };
+  private onLeave = (e: PointerEvent) => { this.hoverUser = null; this.hoverObject = null; this.hoverTile = null; if (!this.pointers.has(e.pointerId)) this.drag = null; };
+  private onWheel = (e: WheelEvent) => {
+    e.preventDefault();
+    if (e.ctrlKey || e.metaKey) { // a trackpad pinch arrives as ctrl+wheel; ⌘/ctrl + mouse wheel too
+      if (this.gesture && performance.now() - this.gesture.at < 300) return; // Safari sent it as a gesture already
+      this.wheelAcc += e.deltaY * (e.deltaMode === 1 ? 16 : 1);
+      if (Math.abs(this.wheelAcc) < 40) return;
+      this.manualCam = true;
+      this.zoomTo(this.targetPx + (this.wheelAcc < 0 ? 1 : -1) * this.step(), this.devicePoint(e));
+      this.wheelAcc = 0;
+      return;
+    }
+    // two-finger scroll (or a plain wheel) pans, like a design tool
+    const k = (this.canvas.width / this.canvas.getBoundingClientRect().width) * (e.deltaMode === 1 ? 16 : 1);
+    this.manualCam = true;
+    if (this.glide) { this.glide.wx += (e.deltaX * k) / this.px; this.glide.wy += (e.deltaY * k) / this.px; }
+    else this.cam = this.clampCam(this.cam.x + (e.deltaX * k) / this.px, this.cam.y + (e.deltaY * k) / this.px);
+  };
+  /** Safari (and the Mac app's web view) report trackpad and iOS pinches as gesture events, with a running scale. */
+  private onGesture = (ev: Event) => {
+    ev.preventDefault(); // also stops iOS zooming the whole page
+    if (this.pointers.size >= 2) return; // touch pinch: pointer events already handle it
+    const e = ev as Event & { scale: number; clientX: number; clientY: number };
+    if (ev.type === 'gesturestart' || !this.gesture) this.gesture = { px: this.targetPx, at: 0 };
+    this.gesture.at = performance.now();
+    this.manualCam = true;
+    this.zoomTo(this.gesture.px * e.scale, this.devicePoint(e));
+  };
+  private onKey = (e: KeyboardEvent) => {
+    const t = e.target;
+    if (e.metaKey || e.ctrlKey || e.altKey || (t instanceof Element && t.closest('input, textarea, select, [contenteditable]'))) return;
+    if (e.key === '+' || e.key === '=') this.zoomIn();
+    else if (e.key === '-' || e.key === '_') this.zoomOut();
+    else if (e.key === '0') this.resetZoom();
+    else if (e.key === 'm' || e.key === 'M') this.toggleOverview();
+    else return;
+    e.preventDefault();
+  };
   private onMove = (e: PointerEvent) => {
+    if (this.pointers.has(e.pointerId)) this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (this.pinch && this.pointers.size >= 2) return this.onPinch();
     if (this.drag) {
       const dx = e.clientX - this.drag.x, dy = e.clientY - this.drag.y;
       if (Math.abs(dx) + Math.abs(dy) > 6) this.drag.moved = true;
       if (this.drag.moved) {
+        const k = this.canvas.width / this.canvas.getBoundingClientRect().width / this.px;
         this.manualCam = true;
-        this.cam = this.clampCam(this.drag.camX - dx / this.scale, this.drag.camY - dy / this.scale);
+        this.cam = this.clampCam(this.drag.camX - dx * k, this.drag.camY - dy * k);
       }
     }
     const w = this.toWorld(e);
@@ -222,12 +366,18 @@ export class Engine {
     this.hoverObject = this.hoverUser || inside ? null : this.objectAt(w.x, w.y);
     const tx = Math.floor(w.x / TS), ty = Math.floor(w.y / TS);
     this.hoverTile = isWalkable(MAP, tx, ty) && (!inside || inMeetingRoom(tx, ty)) ? { x: tx, y: ty } : null;
-    this.canvas.style.cursor = this.hoverUser || this.hoverObject ? 'pointer' : this.hoverTile ? 'crosshair' : 'default';
+    this.canvas.style.cursor = this.tapZooms ? 'zoom-in' : this.hoverUser || this.hoverObject ? 'pointer' : this.hoverTile ? 'crosshair' : 'default';
   };
   private onUp = (e: PointerEvent) => {
+    this.pointers.delete(e.pointerId);
+    if (this.pinch) { if (this.pointers.size < 2) this.pinch = null; return; }
     const d = this.drag; this.drag = null;
     if (!d || d.moved) return;
     const w = this.toWorld(e);
+    if (this.tapZooms) { // overview: a tap zooms in right there
+      this.manualCam = true; this.onPick?.(null);
+      return this.zoomTo(this.backPx(), this.devicePoint(e), { wx: w.x, wy: w.y });
+    }
     const hit = this.userAt(w.x, w.y);
     if (hit) return this.onPick?.({ kind: 'user', id: hit });
     const inside = this.myInstance();
@@ -246,9 +396,16 @@ export class Engine {
     const users = [...this.store.users.values()].filter(u => this.visible(u));
     const poses = new Map<string, Pose>(users.map(u => [u.id, this.store.pose(u, t)]));
 
-    // camera follows me unless the user dragged
     const me = this.store.users.get(this.store.me);
-    if (me && !this.manualCam && poses.get(me.id)) {
+    if (this.glide) { // zooming: the anchor point stays put while the scale eases to the next crisp level
+      const g = this.glide, f = Math.min(1, (performance.now() - g.at) / 140);
+      this.px = f >= 1 ? this.targetPx : g.from + (this.targetPx - g.from) * (1 - (1 - f) ** 3);
+      if (f >= 1) this.glide = null;
+      this.layoutView();
+      this.cam = this.clampCam(g.wx - g.sx / this.px, g.wy - g.sy / this.px);
+    }
+    // camera follows me unless the user dragged
+    else if (me && !this.manualCam && poses.get(me.id)) {
       const p = poses.get(me.id)!;
       const target = me.instance // a meeting's room: keep the room in the middle
         ? this.clampCam((MEETING.x + MEETING.w / 2) * TS - this.viewW / 2, (MEETING.y + MEETING.h / 2) * TS - this.viewH / 2)
@@ -260,12 +417,12 @@ export class Engine {
 
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.fillStyle = '#1b1418'; ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
-    ctx.imageSmoothingEnabled = false;
+    ctx.imageSmoothingEnabled = this.px < 1;
     ctx.setTransform(this.px, 0, 0, this.px, -camX * this.px, -camY * this.px);
     ctx.drawImage(this.staticLayer, 0, 0);
 
     // hover tile + my destination marker
-    if (this.hoverTile && !this.hoverUser) {
+    if (this.hoverTile && !this.hoverUser && !this.tapZooms) {
       ctx.strokeStyle = 'rgba(255,240,200,0.55)'; ctx.lineWidth = 1;
       ctx.strokeRect(this.hoverTile.x * TS + 0.5, this.hoverTile.y * TS + 0.5, TS - 1, TS - 1);
     }
@@ -335,9 +492,11 @@ export class Engine {
     this.drawReactions(poses, ms);
 
     this.drawAmbient(ctx, camX, camY);
+    if (this.overview && !me?.instance) this.drawRoomTags(users, poses, camX, camY);
 
     // hover tooltip in screen space
-    if (this.hoverUser) this.drawTooltip(this.hoverUser, poses, camX, camY);
+    if (this.tapZooms) { /* overview: room tags only */ }
+    else if (this.hoverUser) this.drawTooltip(this.hoverUser, poses, camX, camY);
     else if (this.hoverObject && !this.selected) {
       const o = this.hoverObject, fr = this.f(o.type)!;
       const what = o.use?.kind === 'toggle' ? `${o.use.label[0].toUpperCase()}${o.use.label.slice(1)} · ${this.isOn(o) ? 'on' : 'off'}`
@@ -562,15 +721,29 @@ export class Engine {
     ctx.restore();
   }
 
-  private drawLabel(text: string, wx: number, wy: number, camX: number, camY: number) {
+  /** Overview: each room's name and headcount on its floor, and a pin over me. */
+  private drawRoomTags(users: ClientUser[], poses: Map<string, Pose>, camX: number, camY: number) {
+    const count = new Map<string, number>();
+    for (const u of users) { const p = poses.get(u.id)!, r = roomAt(MAP, p.tile.x, p.tile.y); if (r) count.set(r.id, (count.get(r.id) ?? 0) + 1); }
+    for (const r of MAP.rooms) {
+      const n = count.get(r.id) ?? 0;
+      this.drawLabel(n ? `${r.name} · ${n}` : r.name, (r.rect.x + r.rect.w / 2) * TS, (r.rect.y + r.rect.h / 2) * TS + 13 / this.px * this.dpr, camX, camY, n ? 1 : 0.6);
+    }
+    const mp = poses.get(this.store.me);
+    if (mp) this.drawLabel('You', mp.x * TS + 8, mp.y * TS + TS - 26, camX, camY, 1, true);
+  }
+
+  private drawLabel(text: string, wx: number, wy: number, camX: number, camY: number, alpha = 1, accent = false) {
     const ctx = this.ctx, dpr = window.devicePixelRatio || 1;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.font = '600 12px ui-rounded, system-ui, sans-serif';
     const w = ctx.measureText(text).width + 14;
     const sx = ((wx - camX) * this.px) / dpr - w / 2, sy = ((wy - camY) * this.px) / dpr - 26;
-    ctx.fillStyle = 'rgba(33,22,26,0.94)'; ctx.strokeStyle = '#8a5a3c'; ctx.lineWidth = 2;
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = accent ? 'rgba(90,50,20,0.96)' : 'rgba(33,22,26,0.94)'; ctx.strokeStyle = accent ? '#f2b45a' : '#8a5a3c'; ctx.lineWidth = 2;
     ctx.beginPath(); ctx.roundRect(sx, sy, w, 22, 6); ctx.fill(); ctx.stroke();
-    ctx.fillStyle = '#ffe9c4'; ctx.fillText(text, sx + 7, sy + 15);
+    ctx.fillStyle = accent ? '#ffe08a' : '#ffe9c4'; ctx.fillText(text, sx + 7, sy + 15);
+    ctx.globalAlpha = 1;
   }
 
   private drawTooltip(id: string, poses: Map<string, Pose>, camX: number, camY: number) {
