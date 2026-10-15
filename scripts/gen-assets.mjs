@@ -1117,22 +1117,23 @@ for (const blink of [0, 1]) { // a rack of servers, LEDs blinking
   t.px(12, 10, '#e8b860'); // earpiece
   frames.bouncer = t.outline();
 }
-const stall = (state) => { // a toilet stall: free (door open), busy (door shut), full (overflowing, taped off)
-  const t = new Img(16, 32);
-  t.rect(0, 4, 16, 27, '#3a3346'); t.rect(1, 5, 14, 25, '#2a2433'); // partitions and back
-  t.vline(0, 4, 27, '#6d6080'); t.vline(15, 4, 27, '#6d6080'); t.hline(0, 4, 16, '#8a7aa0');
-  t.rect(5, 12, 6, 5, '#e8e6ee'); t.hline(5, 12, 6, '#ffffff'); t.px(9, 13, '#a0a4ae'); // tank
-  t.ellipse(8, 22, 4, 3, '#e8e6ee'); t.ellipse(8, 22, 2.5, 1.8, state === 'full' ? '#7a5a2e' : '#7ab8d8'); t.rect(6, 24, 4, 4, '#d8d6de');
+const stall = (state) => { // a roomy stall for up to four: free (door open), busy (half door shut), full (overflowing, taped off)
+  const t = new Img(32, 32);
+  t.rect(0, 0, 32, 32, '#3a3346'); t.rect(2, 2, 28, 29, '#2a2433'); // partitions and back wall
+  t.vline(0, 0, 32, '#6d6080'); t.vline(31, 0, 32, '#6d6080'); t.hline(0, 0, 32, '#8a7aa0');
+  t.rect(5, 4, 8, 6, '#e8e6ee'); t.hline(5, 4, 8, '#ffffff'); t.px(11, 5, '#a0a4ae'); // tank
+  t.ellipse(9, 17, 5, 4, '#e8e6ee'); t.ellipse(9, 17, 3, 2.4, state === 'full' ? '#7a5a2e' : '#7ab8d8'); t.rect(7, 20, 5, 6, '#d8d6de');
+  t.rect(17, 6, 12, 4, '#a8825a'); t.hline(17, 6, 12, '#c49c70'); t.hline(17, 10, 12, '#6a4a32'); // the little shelf
+  t.px(18, 11, '#6a4a32'); t.px(27, 11, '#6a4a32');
+  if (state === 'free') { t.rect(2, 16, 3, 15, '#6b4a8a'); t.vline(4, 16, 15, '#8a64b0'); } // door swung open
   if (state === 'busy') {
-    t.rect(1, 6, 14, 23, '#6b4a8a'); t.hline(1, 6, 14, '#8a64b0'); t.vline(1, 6, 23, '#5a3c76');
-    t.rect(10, 15, 3, 2, '#d84a4a'); t.px(4, 17, '#e8b860');
-    t.rect(4, 29, 3, 1, '#2a2a30'); t.rect(9, 29, 3, 1, '#2a2a30'); // feet under the door
+    t.rect(2, 16, 28, 15, '#6b4a8a'); t.hline(2, 16, 28, '#8a64b0'); t.vline(16, 17, 14, '#5a3c76');
+    t.rect(25, 22, 3, 2, '#d84a4a'); t.px(14, 24, '#e8b860'); t.px(18, 24, '#e8b860');
   }
   if (state === 'full') {
-    t.ellipse(8, 28, 7, 2.5, '#8a6a3a'); t.ellipse(8, 28, 5, 1.5, '#a07e4a'); t.ellipse(4, 26, 2, 1, '#8a6a3a');
-    for (let i = 0; i < 16; i++) t.px(i, 9 + (i >> 1), i % 4 < 2 ? '#e8c840' : '#1a1a1f'); // tape across
-    for (let i = 0; i < 16; i++) t.px(i, 17 - (i >> 1), i % 4 < 2 ? '#e8c840' : '#1a1a1f');
-    t.px(5, 1, '#111'); t.px(10, 2, '#111'); t.px(12, 0, '#111'); // flies
+    t.ellipse(14, 28, 13, 3, '#8a6a3a'); t.ellipse(14, 28, 10, 2, '#a07e4a'); t.ellipse(5, 24, 3, 1.5, '#8a6a3a');
+    for (let i = 0; i < 32; i++) { const c = i % 4 < 2 ? '#e8c840' : '#1a1a1f'; t.px(i, 8 + (i >> 1), c); t.px(i, 23 - (i >> 1), c); } // tape across
+    t.px(9, 2, '#111'); t.px(20, 3, '#111'); t.px(24, 1, '#111'); // flies
   }
   return t.outline();
 };

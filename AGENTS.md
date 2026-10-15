@@ -98,8 +98,11 @@ npm run typecheck    # run before every commit or deploy
   client discovery resets per visit. Neither is persisted.
 - **Admin room & Berghain** (east column, x 65-73): a room with `rules.access: 'admins'` is walkable only for admins
   (`findPath`/`pathTo` take `keepOut`; the server sends non-admins' paths in `move` so clients match). Berghain's
-  `use.kind: 'toilet'` stalls live in `server/src/toilets.ts` (in memory): 20 s per visit, full at `TOILET_FULL`,
-  drain over time or an admin plunges; knocks on someone inside go to Later.
+  `use.kind: 'toilet'` stalls live in `server/src/toilets.ts` (in memory): up to `TOILET_CAPACITY` (4) inside (hidden,
+  heads over the half door), the rest line up straight out from the door (`stallLine`) and move in as places free up.
+  Full after `TOILET_FULL` visits; drains over time or an admin plunges. Knocks on someone inside go to Later. With
+  company inside, "Rack a line" puts a line + card on the stall's shelf; it needs `drugs` in your inventory. The
+  inventory doesn't exist yet: `World.hasItem` reads `DECK_FREE_ITEMS` (e.g. `DECK_FREE_ITEMS=drugs npm run dev`).
 - **Room behavior is data.** Knock rules, meeting links and home-desk rooms live in `tilemap.json`
   (from `gen-map.mjs`), not in code.
 

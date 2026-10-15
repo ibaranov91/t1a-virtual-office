@@ -308,7 +308,7 @@ obj('neon_sign', 67, 12, 2, 1, { wall: true });
 obj('dj_booth', 67, 13, 3, 1);
 obj('bouncer', 65, 16); // right by the door from the Arcade
 obj('lamp', 65, 13, 1, 1, LAMP);
-for (const x of [70, 71, 72]) obj('toilet', x, 21, 1, 2, { use: { kind: 'toilet', label: 'toilet' } });
+for (const x of [68, 70, 72]) obj('toilet', x, 21, 2, 2, { use: { kind: 'toilet', label: 'toilet' } });
 for (const [x, y] of [[67, 26], [70, 31], [72, 27]]) obj('tree', x, y, 1, 1); // the patch behind the hedge
 
 // ---- standing spots (seats follow the furniture: applyLayout in shared/map.ts) ----
@@ -325,7 +325,7 @@ stand('music', [[57, 7, 'up'], [60, 8, 'up'], [58, 10, 'up']]);
 stand('arcade', [[55, 16, 'up'], [61, 16, 'up'], [58, 19, 'up']]);
 stand('orangery', [[7, 27, 'down'], [8, 29, 'down'], [7, 31, 'down']]);
 stand('admin', [[70, 9, 'left']]);
-stand('berghain', [[68, 17, 'down'], [70, 18, 'left'], [67, 19, 'right']]);
+stand('berghain', [[69, 16, 'down'], [71, 17, 'left'], [66, 19, 'right']]);
 stand('garden', [[42, 29, 'down'], [43, 29, 'down'], [31, 27, 'left'], [56, 28, 'down'], [20, 28, 'down']]);
 
 // ---- a separate, deterministic maze under the garden (never furniture) ----

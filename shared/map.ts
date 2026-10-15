@@ -221,6 +221,16 @@ export function besideObject(m: TileMap, o: MapObject): Spot[] {
   return out.filter(t => isWalkable(m, t.x, t.y));
 }
 
+/** A toilet stall's door: the tile in front of its left half (stalls stand against a wall, door facing the room). */
+export const stallDoor = (o: MapObject): Tile => ({ x: o.x, y: o.y - 1 });
+/** Where the line for a stall stands: straight out from the door, first in line nearest. */
+export function stallLine(m: TileMap, o: MapObject, n: number): Spot[] {
+  const door = stallDoor(o), out: Spot[] = [];
+  for (let y = door.y - 1; out.length < n && y >= 0 && isWalkable(m, door.x, y); y--) out.push({ x: door.x, y, dir: 'down' });
+  while (out.length < n) out.push(out.at(-1) ?? { ...door, dir: 'down' }); // a long line bunches up at its end
+  return out;
+}
+
 /** Seat (chair/stool) on this tile, with the direction a sitter faces. */
 export function seatAt(m: TileMap, x: number, y: number): (Spot & { homeDesk: boolean; type: string }) | null {
   if (x < 0 || y < 0 || x >= m.width || y >= m.height) return null;
@@ -326,7 +336,8 @@ export function layoutProblem(m: TileMap, checkDungeonReach = true): string | nu
     if (!ok({ x: s.x + step.x, y: s.y + step.y })) return `that cuts off a seat in ${r.name}`;
   }
   // you walk over to these to use them (the calendars and boards just open)
-  for (const o of m.objects) if ((o.use?.kind === 'take' || o.use?.kind === 'toggle' || o.use?.kind === 'arcade' || o.use?.kind === 'instrument' || o.use?.kind === 'toilet') && !besideObject(m, o).some(ok)) return `nobody could reach the ${objectName(o.type)}`;
+  for (const o of m.objects) if ((o.use?.kind === 'take' || o.use?.kind === 'toggle' || o.use?.kind === 'arcade' || o.use?.kind === 'instrument') && !besideObject(m, o).some(ok)) return `nobody could reach the ${objectName(o.type)}`;
+  for (const o of m.objects) if (o.use?.kind === 'toilet' && !ok(stallDoor(o))) return `nobody could get into the ${objectName(o.type)}`;
   return null;
 }
 

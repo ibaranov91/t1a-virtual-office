@@ -30,12 +30,17 @@ export const underground = (u: { instance: string | null }) => u.instance === DU
 
 export const ROOM_VOICE_MAX = 12;
 export const AFK_MS = 10 * 60_000;
-/** A toilet stall in Berghain: someone inside until `until`, and how many uses since it was last cleaned.
- *  At TOILET_FULL it overflows: nobody can use it until it drains (one level per TOILET_DRAIN_MS) or an admin plunges it. */
-export interface ToiletState { fill: number; by: string | null; until: number }
-export const TOILET_FULL = 3;
-export const TOILET_USE_MS = 20_000;
+/** A toilet stall in Berghain: up to TOILET_CAPACITY people inside (`in`), the rest line up outside (`queue`), and
+ *  how many visits since it was last cleaned. At TOILET_FULL it overflows: nobody gets in until it drains (one level per
+ *  TOILET_DRAIN_MS) or an admin plunges it. `shelf`: lines racked on its little shelf (cleared when it empties). */
+export interface ToiletState { fill: number; in: string[]; queue: string[]; shelf: number }
+export const TOILET_CAPACITY = 4;
+export const TOILET_FULL = 8;
+export const TOILET_USE_MS = 45_000;
 export const TOILET_DRAIN_MS = 3 * 60_000;
+export const TOILET_SHELF_MAX = 4;
+/** What racking a line on the shelf takes from your inventory (the inventory comes later). */
+export const TOILET_SHELF_ITEM = 'drugs';
 export const toiletFull = (s?: ToiletState) => !!s && s.fill >= TOILET_FULL;
 /** A toggle object's shared state. */
 export interface ObjectState { on: boolean }
@@ -184,7 +189,7 @@ export type ServerMsg =
   | { t: 'knock_reply'; knockId: string; fromId: string; toId: string; reply: 'accept' | 'later' | 'blocked'; link?: string; reason?: string; fallback?: boolean; cancelled?: boolean }
   // private settings, only to the user themselves. google: the connected Google account (null = not connected),
   // absent when this instance has no Google sign-in
-  | { t: 'me'; meetLink: string; email?: string; google?: string | null; calendar?: boolean; admin?: boolean } // calendar: Calendar access granted; admin: may rearrange the office
+  | { t: 'me'; meetLink: string; email?: string; google?: string | null; calendar?: boolean; admin?: boolean; items?: string[] } // items: what's in my inventory; calendar: Calendar access granted; admin: may rearrange the office
   | { t: 'google_auth'; url: string; calendar?: boolean } // open this to connect Google (in the system browser from the Mac app)
   | { t: 'calendar'; events?: CalEvent[]; error?: string } // my own events, only to me
   | { t: 'agenda'; items: AgendaItem[] } // my calendar meetings now and soon, only to me
@@ -260,4 +265,5 @@ export type ClientMsg =
   | { t: 'edit'; edit: LayoutEdit } // office admins only
   | { t: 'edit_reset' }              // office admins only: back to the generated layout
   | { t: 'toilet_plunge'; objectId: string } // office admins only: a full stall is clean again
+  | { t: 'toilet_shelf'; objectId: string }  // inside with company and the item in your inventory: rack a line
   | { t: 'look'; look: Look };

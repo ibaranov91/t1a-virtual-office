@@ -7,7 +7,7 @@ import { lockedDoors, roomDoors, type RoomDoor } from './doors';
 import type { Assets, Frame } from './assets';
 import { drawText, textWidth } from './font';
 import { TRACK } from '../../shared/music';
-import { toiletFull, underground, MEETING_ROOM_ID, PLANT_REVEAL, PLANT_STAGES, plantDead, plantName, type LayoutEdit } from '../../shared/protocol';
+import { TOILET_CAPACITY, toiletFull, underground, MEETING_ROOM_ID, PLANT_REVEAL, PLANT_STAGES, plantDead, plantName, type LayoutEdit } from '../../shared/protocol';
 import { ITEMS, MAP, type ClientUser, type Pose, type Store, type DungeonFx } from './net';
 
 const TS = MAP.tileSize;
@@ -517,6 +517,7 @@ export class Engine {
   /** In a meeting's own room you see only its people; in the office, nobody who's in one. */
   private visible(u: ClientUser | undefined) {
     if (!u || u.presence === 'offline' || u.instance !== this.myInstance()) return false;
+    if (!this.areaDown && this.inStall(u.id) && !this.store.pose(u).walking) return false; // behind the stall door (their head peeks over it)
     return !this.areaDown || u.id === this.store.me || !!this.store.dungeon && this.dungeonView.canSee(this.store.pose(u).tile);
   }
   private myInstance() { return this.falling() ? null : this.store.users.get(this.store.me)?.instance ?? null; }
@@ -844,6 +845,7 @@ export class Engine {
       while (di < ds.length && ds[di].base <= f.base) drawD(ds[di++]);
       this.blit(ctx, f.o.type === 'arcade' && this.store.cabinets.some(c => c.cabinet === f.o.id) ? `arcade_on_${1 + Math.floor(ms / 320) % 2}` : f.o.use?.kind === 'toilet' ? this.toiletFrame(f.o.id)
         : f.o.type === 'server_rack' && Math.floor(ms / 500 + f.o.x * 3 + f.o.y) % 2 ? 'server_rack_1' : f.off && !this.isOn(f.o) ? `${f.o.type}_off` : f.o.type, f.x, f.y);
+      if (f.o.use?.kind === 'toilet') this.drawStall(ctx, f.o, f.x, f.y);
     }
     while (di < ds.length) drawD(ds[di++]);
 
@@ -1157,12 +1159,29 @@ export class Engine {
   private toiletTip(id: string) {
     const s = this.store.toilets[id];
     if (toiletFull(s)) return this.store.admin ? 'Toilet · full 🤢 · click to plunge' : 'Toilet · out of order 🤢';
-    if (s?.by) return `Toilet · ${s.by === this.store.me ? "you're in here" : `occupied by ${this.store.name(s.by).split(' ')[0]}`}`;
+    const names = (ids: string[]) => ids.map(id => this.store.name(id).split(' ')[0]).join(', ');
+    const line = s?.queue.length ? ` · ${s.queue.length} in line` : '';
+    if (s?.in.includes(this.store.me)) return `Toilet · you're in here${s.in.length > 1 ? ` with ${names(s.in.filter(id => id !== this.store.me))}` : ''}`;
+    if (s?.in.length) return `Toilet · ${s.in.length}/${TOILET_CAPACITY} inside (${names(s.in)})${line}`;
     return `Toilet · ${s?.fill ? `used ${s.fill}× · ` : ''}click to use`;
   }
   private toiletFrame(id: string) {
     const s = this.store.toilets[id];
-    return toiletFull(s) ? 'toilet_full' : s?.by ? 'toilet_busy' : 'toilet';
+    return toiletFull(s) ? 'toilet_full' : s?.in.length ? 'toilet_busy' : 'toilet';
+  }
+  private inStall(id: string) { for (const s of Object.values(this.store.toilets)) if (s.in.includes(id)) return true; return false; }
+  /** Over a stall's sprite: the lines and the card on its shelf, and the heads of whoever's inside, over the half door. */
+  private drawStall(ctx: CanvasRenderingContext2D, o: MapObject, x: number, y: number) {
+    const s = this.store.toilets[o.id]; if (!s) return;
+    for (let i = 0; i < s.shelf; i++) { ctx.fillStyle = '#f4f2f8'; ctx.fillRect(x + 18, y + 6 + i, 5, 1); }
+    if (s.shelf) { ctx.fillStyle = '#e8c840'; ctx.fillRect(x + 24, y + 7, 4, 2); ctx.fillStyle = '#8a6a20'; ctx.fillRect(x + 24, y + 8, 4, 1); }
+    s.in.forEach((id, i) => {
+      const u = this.store.users.get(id); if (!u || (this.store.pose(u).walking)) return;
+      const hx = x + 4 + i * 6, hy = y + 11;
+      ctx.fillStyle = u.look.skin; ctx.fillRect(hx, hy + 1, 5, 4);
+      ctx.fillStyle = u.look.hair; ctx.fillRect(hx, hy, 5, 2); ctx.fillRect(hx, hy + 2, 1, 2);
+      ctx.fillStyle = '#2a2433'; ctx.fillRect(hx + 1, hy + 3, 1, 1); ctx.fillRect(hx + 3, hy + 3, 1, 1);
+    });
   }
   /** Berghain: slow neon washes and a strobe now and then, over the club's own floor. */
   private drawClub(ctx: CanvasRenderingContext2D, ms: number) {
