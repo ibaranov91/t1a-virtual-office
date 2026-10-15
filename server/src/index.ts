@@ -116,9 +116,8 @@ echo "✓ ${m.app} is installed in $dest and running in your menu bar (the littl
 // ---------- static client (production: client/dist) ----------
 const STATIC_DIR = fileURLToPath(new URL('../../client/dist/', import.meta.url));
 const STATIC = existsSync(join(STATIC_DIR, 'index.html'));
-// The build id vite wrote beside the bundle (the bundle carries the same one); older builds: a hash of index.html.
-if (STATIC) world.build = existsSync(join(STATIC_DIR, 'build.txt')) ? readFileSync(join(STATIC_DIR, 'build.txt'), 'utf8').trim()
-  : createHash('sha1').update(readFileSync(join(STATIC_DIR, 'index.html'))).digest('hex').slice(0, 12);
+// index.html names the hashed bundles, so its hash changes whenever the client does.
+if (STATIC) world.build = createHash('sha1').update(readFileSync(join(STATIC_DIR, 'index.html'))).digest('hex').slice(0, 12);
 // ---------- NetBird trust gate ----------
 const ip4 = (ip: string) => {
   const m = ip.replace(/^::ffff:/, '').match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/);
