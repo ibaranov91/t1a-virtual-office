@@ -162,7 +162,6 @@ for (const wx of [3, 9, 29, 36]) obj('window', wx, 1, 2, 2, { wall: true });
 obj('whiteboard', 18, 1, 3, 2, { wall: true });
 obj('painting', 23, 1, 1, 2, { wall: true });
 obj('noticeboard', 2, 12, 2, 1, { wall: true, use: { kind: 'achievements', label: 'achievements' } });
-obj('clock', 25, 12, 1, 1, { wall: true, use: { kind: 'clock', label: 'clock' } }); // the Lobby clock: the time where our people are
 obj('painting_small', 10, 12, 1, 1, { wall: true });
 
 // Focus: desks with monitors, chairs, a lamp, bookshelf
@@ -201,6 +200,10 @@ obj('plant', 14, 13, 1, 1);
 obj('sofa', 5, 21, 3, 1, { sit: true, dir: 'down' });
 obj('table_round', 6, 19, 1, 1);
 obj('reception', 10, 14, 3, 1);
+// Co-working's world clocks: real time with moving hands; clicking one opens the list of our cities
+obj('clock_nyc', 24, 12, 1, 1, { wall: true, use: { kind: 'clock', label: 'NYC', city: 'New York', tz: 'America/New_York' } });
+obj('clock_berlin', 26, 12, 1, 1, { wall: true, use: { kind: 'clock', label: 'BERLIN', city: 'Berlin', tz: 'Europe/Berlin' } });
+obj('clock_moscow', 28, 12, 1, 1, { wall: true, use: { kind: 'clock', label: 'MOSCOW', city: 'Moscow', tz: 'Europe/Moscow' } });
 obj('safe', 8, 12, 2, 1, { wall: true, use: { kind: 'link', label: 'vault', url: 'https://vault13.t1a.cloud/' } }); // Vault 13's door, set in the wall by reception
 obj('plant', 1, 22, 1, 1);
 obj('bookshelf', 12, 21, 2, 1);
