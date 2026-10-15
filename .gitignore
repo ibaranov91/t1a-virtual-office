@@ -7,3 +7,4 @@ data/
 macos/.build/
 macos/build/
 macos/dist/
+.env

@@ -187,8 +187,8 @@ function TopBar({ store, roomName, onToggleRooms, onToggleMeet, onLogout, onZoom
         <button onClick={() => onZoom(-1)} title="Zoom out">−</button>
         <button onClick={() => onZoom(1)} title="Zoom in">+</button>
       </div>
-      <button onClick={onToggleMeet} className={`meet-btn${store.meetLink === '' ? ' unset' : ''}`}
-        title={store.meetLink ? `Your Meet room: ${store.meetLink}` : 'Set your Google Meet link'}>Meet</button>
+      <button onClick={onToggleMeet} className={`meet-btn${store.meetLink === '' && !store.google ? ' unset' : ''}`}
+        title={store.google ? `Google connected: ${store.google}` : store.meetLink ? `Your Meet room: ${store.meetLink}` : 'Set up Google Meet'}>Meet</button>
       <UnreadButton store={store} />
       <SoundToggle />
       <MacAppButton />
@@ -246,6 +246,8 @@ function MeetSetup({ store, onClose }: { store: Store; onClose: () => void }) {
   const done = (action: 'saved' | 'skip' | 'cancel') => { if (knockTo) store.finishKnockSetup(action); onClose(); };
   const save = (link: string) => { store.setMeetLink(link); done('saved'); };
   const pasteFromClipboard = async () => { try { setValue(await navigator.clipboard.readText()); } catch { /* not allowed: user pastes by hand */ } };
+  const google = store.google;
+  useEffect(() => { if (google === null) store.prepareGoogle(); }, [store, google]);
   return (
     <div className={knockTo ? 'modal-backdrop' : ''} onClick={e => { if (knockTo && e.target === e.currentTarget) done('cancel'); }}>
       <form className={`meet-panel${knockTo ? ' guided' : ''}`} onSubmit={e => { e.preventDefault(); if (parsed) save(parsed); }}>
@@ -253,13 +255,23 @@ function MeetSetup({ store, onClose }: { store: Store; onClose: () => void }) {
           <span>{knockTo ? `Before you knock on ${knockTo.name.split(' ')[0]}…` : 'Your Google Meet room'}</span>
           <button type="button" className="ghost" onClick={() => done('cancel')}>×</button>
         </div>
+        {google !== undefined && <div className="google-row">
+          {google
+            ? <><span>Google: <b>{google}</b>. Calls you start get their own Meet room.</span>
+                <button type="button" className="ghost" onClick={() => store.disconnectGoogle()}>Disconnect</button></>
+            : <><span>Connect Google and every call you start gets its own Meet room. Anyone at T1A joins without asking.</span>
+                {store.googleAuthUrl
+                  ? <ExternalLink href={store.googleAuthUrl} onOpen={() => store.prepareGoogle()}>Connect Google</ExternalLink>
+                  : <span className="muted small">…</span>}</>}
+        </div>}
+        {google !== undefined && <p className="muted small">{google ? 'Your own room below is used when Google can\'t make one.' : 'Or use your own reusable room:'}</p>}
         <p className="muted">
           {knockTo ? 'Set up your own Meet room once. When someone accepts your knock, you both join it — no more two separate calls.'
             : 'When you knock and they accept, you both join this room.'}
         </p>
         <ol className="steps">
-          <li>Open <ExternalLink href={meetAs('https://meet.google.com/', store.email)}>meet.google.com</ExternalLink> (opens a new tab)
-            {store.email && <> as <b>{store.email}</b></>}</li>
+          <li>Open <ExternalLink href={meetAs('https://meet.google.com/', store.meetAccount)}>meet.google.com</ExternalLink> (opens a new tab)
+            {store.meetAccount && <> as <b>{store.meetAccount}</b></>}</li>
           <li>Click <b>New meeting</b> → <b>Create a meeting for later</b></li>
           <li>Copy the link and paste it here — it's yours to reuse</li>
         </ol>
@@ -439,7 +451,7 @@ function CallChip({ store, voice }: { store: Store; voice: Voice | null }) {
     <span className={`dot ${state === 'live' ? 'live' : ''}`} />
     <span>Talking with {store.names(peers)} <small>· {state}</small></span>
     <VoiceControls store={store} voice={voice} />
-    {meet && <ExternalLink href={meetAs(meet, store.email)} onOpen={() => store.moveToMeet()}>Move to Meet</ExternalLink>}
+    {meet && <ExternalLink href={meetAs(meet, store.meetAccount)} onOpen={() => store.moveToMeet()}>Move to Meet</ExternalLink>}
     {peers.some(u => !u.bot) && <details className="knock-people"><summary>People</summary><div className="voice-people">{peers.filter(u => !u.bot).map(u => <VolumeRow key={u.id} store={store} id={u.id} label={u.name} user={u} />)}</div></details>}
   </div>;
 }
@@ -477,7 +489,7 @@ function Toasts({ store }: { store: Store }) {
             {t.text.startsWith('Missed') ? 'Knock back' : 'Knock again'}
           </button>}
           {t.kind === 'chat' && t.userId && <button onClick={() => store.openChat(t.userId!)}>Reply</button>}
-          {t.kind === 'link' && t.link && <ExternalLink href={meetAs(t.link, store.email)} onOpen={() => store.dismiss(t.id)}>Join Meet</ExternalLink>}
+          {t.kind === 'link' && t.link && <ExternalLink href={meetAs(t.link, store.meetAccount)} onOpen={() => store.dismiss(t.id)}>Join Meet</ExternalLink>}
           {t.kind !== 'knock_in' && t.kind !== 'knock_out' && <button className="ghost x" onClick={() => store.dismiss(t.id)}>×</button>}
         </div>
       ))}

@@ -44,6 +44,8 @@ export class Store {
   soundscape?: Soundscape;
   meetLink: string | null = null; // null = not loaded yet, '' = not set
   email: string | null = null;    // my sign-in (NetBird) email; Meet links open as this Google account
+  google: string | null | undefined; // my connected Google account; null = not connected, undefined = no Google here
+  googleAuthUrl: string | null = null; // ready before the click, so the sign-in opens straight from it (no popup blocker)
   build: string | undefined;  // the server's client build when this page loaded
   staleBuild = false;         // server now serves a newer build; reload when not in a call
   objects: Record<string, ObjectState> = {};
@@ -124,6 +126,10 @@ export class Store {
   setStatus(status: string) { this.send({ t: 'status', status }); }
   setPresence(presence: 'online' | 'away' | 'in_call') { this.send({ t: 'presence', presence }); }
   setMeetLink(link: string) { this.send({ t: 'meet_link', link }); }
+  /** The Google account Meet links should open as. */
+  get meetAccount() { return this.email ?? this.google ?? null; }
+  prepareGoogle() { this.googleAuthUrl = null; if (this.google === null) this.send({ t: 'google_connect' }); }
+  disconnectGoogle() { this.send({ t: 'google_disconnect' }); }
   claimDesk() { this.send({ t: 'claim_desk' }); }
   releaseDesk() { this.send({ t: 'release_desk' }); }
   leaveRoom() { this.send({ t: 'leave_room' }); }
@@ -256,7 +262,13 @@ export class Store {
       }
       case 'chat_history': this.chats.set(msg.withId, msg.messages); break;
       case 'move': { const u = this.users.get(msg.userId); if (u) this.applyMove(u, msg); break; }
-      case 'me': this.meetLink = msg.meetLink; this.email = msg.email ?? null; break;
+      case 'me': {
+        if (this.google === null && msg.google) this.toast({ kind: 'info', text: `Google connected as ${msg.google}`, hint: 'Calls you start now get their own Meet room', expires: 6000 });
+        this.meetLink = msg.meetLink; this.email = msg.email ?? null; this.google = msg.google;
+        if (msg.google !== null) this.googleAuthUrl = null;
+        break;
+      }
+      case 'google_auth': this.googleAuthUrl = msg.url; break;
       case 'desk': { const u = this.users.get(msg.userId); if (u) u.homeDesk = msg.desk; break; }
       case 'to_meet': {
         if (!this.callLink) break;

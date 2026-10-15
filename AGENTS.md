@@ -46,8 +46,16 @@ npm run typecheck    # run before every commit or deploy
   so stale offers or answers are dropped and reloads reconnect. If you touch this, re-test: two tabs, call, Leave,
   call again (must connect), and reload each side mid-call.
 - **Talking bubbles** come from real mic activity (`speaking` messages). Bots fake turn-taking.
-- **Private data never gets broadcast.** `email` and `meetLink` are stripped in `World.toPublic`. A Meet link
+- **Private data never gets broadcast.** `email`, `meetLink` and `google` are stripped in `World.toPublic`. A Meet link
   goes only to the people in that knock or call.
+- **Connect Google** (`server/src/google.ts`, **prod only**): OAuth with offline access, so a new knock call gets
+  its own Meet room (Meet REST `spaces.create`, `accessType: TRUSTED`: anyone at t1a.com joins without asking).
+  The call starts on the old link, and the new room arrives a moment later in a `call` message. The OAuth `state` says
+  who started the sign-in, with no cookie needed, so the Mac app opens it in the system browser and its page hears
+  back over the WebSocket. The Google account must match the NetBird email. Refresh tokens are AES-GCM encrypted with
+  `GOOGLE_TOKEN_KEY` in `state.json`. Config lives only in `/etc/the-deck.env` (`GOOGLE_CLIENT_ID`,
+  `GOOGLE_CLIENT_SECRET`, `GOOGLE_TOKEN_KEY`, `GOOGLE_HD`; redirect `<DECK_PUBLIC_URL>/api/google/callback`). Copies are
+  in 1Password, never in git. Without these vars (dev, test instances) the button is hidden and calls work as before.
 - **Room behavior is data.** Knock rules, meeting links and home-desk rooms live in `tilemap.json`
   (from `gen-map.mjs`), not in code.
 

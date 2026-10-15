@@ -9,6 +9,7 @@ import type { TileMap } from '../../shared/map';
 import type { ClientMsg } from '../../shared/protocol';
 import { World } from './world';
 import { startBots } from './bots';
+import { finish as finishGoogle, googleEnabled, revoke as revokeGoogle } from './google';
 
 const PORT = Number(process.env.DECK_PORT ?? 8787);
 const TOKEN = process.env.DECK_TOKEN ?? 'deck'; // shared dev token
@@ -194,6 +195,30 @@ const server = createServer(async (req, res) => {
       } catch { json(res, 400, { error: 'bad json' }); }
     });
     return;
+  }
+  // Connect Google: Google sends the browser back here. `state` says who started it (no cookie needed), so this
+  // also works when the Mac app opened the sign-in in the system browser; the app's page hears about it over its socket.
+  if (req.method === 'GET' && req.url?.startsWith('/api/google/callback')) {
+    const q = new URL(req.url, 'http://x').searchParams;
+    const page = (title: string, text: string) => {
+      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
+      const esc = (t: string) => t.replace(/[&<>"]/g, c => `&#${c.charCodeAt(0)};`);
+      res.end(`<!doctype html><meta name=viewport content="width=device-width"><title>The Deck</title><body style="font:16px system-ui;max-width:28em;margin:20vh auto;padding:0 16px;text-align:center"><h2>${esc(title)}</h2><p>${esc(text)}</p>`);
+    };
+    if (!googleEnabled) return page('Google isn\'t set up here', 'This instance has no Google sign-in.');
+    if (q.get('error')) return page('Not connected', q.get('error') === 'access_denied' ? 'You cancelled. Nothing changed.' : `Google said: ${q.get('error')}`);
+    try {
+      const { userId, link } = await finishGoogle(q.get('state') ?? '', q.get('code') ?? '');
+      const user = world.users.get(userId);
+      if (!user) throw new Error('Unknown Deck user.');
+      // signed in through NetBird: the Google account must be the same person
+      if (user.email && user.email !== link.email) {
+        void revokeGoogle(userId, link);
+        throw new Error(`You're ${user.email} in The Deck. Pick that Google account.`);
+      }
+      world.setGoogle(user, link);
+      return page(`Connected as ${link.email}`, 'Calls you start now get their own Meet room. You can close this tab.');
+    } catch (e) { return page('Not connected', (e as Error).message); }
   }
   if (req.method === 'GET' && req.url?.startsWith('/api/mac')) {
     const origin = originOf(req);
