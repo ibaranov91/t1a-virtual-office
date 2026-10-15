@@ -149,6 +149,7 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
       if (use?.kind === 'records') { setPick(null); return store.openRecords(); }
       if (use?.kind === 'jukebox' && p) { setPick(null); return store.openJukebox(p.id); }
       if (use?.kind === 'calendar') { setPick(null); return store.openCalendar(); }
+      if (use?.kind === 'clock') { setPick(null); return store.openClock(); }
       if (use?.kind === 'meetings') { setPick(null); return store.openMeetings(); }
       if (use?.kind === 'achievements') { setPick(null); return store.openAchievements(); }
       if (use?.kind === 'link') { setPick(null); return store.openLink(use); } // a panel, like the calendar: its link is a real tap
@@ -188,6 +189,7 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
         {store.jukeboxOpen && <JukeboxPanel key={store.jukeboxOpen} store={store} id={store.jukeboxOpen} />}
         {store.recordsOpen && <RecordsPopover store={store} />}
         {store.linkOpen && <LinkPanel store={store} />}
+        {store.clockOpen && <ClockPanel store={store} />}
         {store.achievementsOpen && me && <AchievementsPanel store={store} me={me} assets={assets} />}
         {(showMeet || store.pendingKnock) && <MeetSetup key={store.pendingKnock ?? 'panel'} store={store} onClose={() => setShowMeet(false)} />}
         {showAppearance && me && <AppearanceMenu key={me.id} look={me.look} assets={assets} firstTime={!me.lookSet}
@@ -207,7 +209,7 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
         </div>
         {personMenu && <PersonMenu key={personMenu.id} store={store} at={personMenu} onClose={() => setPersonMenu(null)} />}
         {store.seat && <InstrumentPanel key={store.seat} store={store} id={store.seat}
-          dialogOpen={!!(showAppearance || showMeet || store.pendingKnock || store.calendarOpen || store.meetingsOpen || store.jukeboxOpen || store.achievementsOpen || store.chatWith || personMenu || pick)} />}
+          dialogOpen={!!(showAppearance || showMeet || store.pendingKnock || store.calendarOpen || store.meetingsOpen || store.clockOpen || store.jukeboxOpen || store.achievementsOpen || store.chatWith || personMenu || pick)} />}
         <Dock store={store} engine={engine} roomsOpen={showRooms} onRooms={() => setShowRooms(s => !s)} />
       </div>
       </div>
@@ -814,6 +816,52 @@ function MeetingsPanel({ store }: { store: Store }) {
   );
 }
 
+/** Where our people are: [region, [city, IANA zone][]]. Edit here; daylight saving comes from the zone names. */
+const CLOCK_REGIONS: [string, [string, string][]][] = [
+  ['USA', [['New York', 'America/New_York'], ['Chicago', 'America/Chicago'], ['Denver', 'America/Denver'], ['Los Angeles', 'America/Los_Angeles']]],
+  ['Canada', [['Toronto', 'America/Toronto'], ['Vancouver', 'America/Vancouver']]],
+  ['West Europe', [['London', 'Europe/London'], ['Paris', 'Europe/Paris'], ['Madrid', 'Europe/Madrid']]],
+  ['East Europe', [['Warsaw', 'Europe/Warsaw'], ['Kyiv', 'Europe/Kyiv'], ['Bucharest', 'Europe/Bucharest']]],
+];
+
+/** The Lobby clock: the time in each city, a day marker when it isn't your date, your own zone highlighted. */
+function ClockPanel({ store }: { store: Store }) {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => { const i = setInterval(() => setNow(new Date()), 10_000); return () => clearInterval(i); }, []);
+  const mine = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const day = (tz: string) => new Intl.DateTimeFormat('en-CA', { timeZone: tz }).format(now); // yyyy-mm-dd
+  const myDay = day(mine);
+  const offset = (tz: string) => offsetOf(tz, mine, now);
+  return (
+    <div className="modal-backdrop" {...backdropClose(() => store.closeClock())}>
+      <div className="meet-panel guided">
+        <div className="rooms-head"><span>🕰️ Our time zones</span><button type="button" className="ghost" onClick={() => store.closeClock()}>×</button></div>
+        {CLOCK_REGIONS.map(([region, cities]) => (
+          <div key={region}>
+            <p className="small muted"><b>{region}</b></p>
+            <ul className="meeting-list">
+              {cities.map(([city, tz]) => {
+                const d = day(tz), here = offset(tz) === 0;
+                return (
+                  <li key={tz} style={here ? { fontWeight: 600 } : undefined}>
+                    <span>{city}{here && <small className="muted"> · your time</small>}</span>
+                    <span>{new Intl.DateTimeFormat([], { timeZone: tz, hour: '2-digit', minute: '2-digit' }).format(now)}{d !== myDay && <small className="muted"> · {d > myDay ? 'tomorrow' : 'yesterday'}</small>}</span>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+/** Minutes by which `tz` is ahead of `base` right now. */
+function offsetOf(tz: string, base: string, at: Date) {
+  const wall = (z: string) => { const p = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: z, hourCycle: 'h23', year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric' }).formatToParts(at).map(x => [x.type, +x.value])); return Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute) / 60_000; };
+  return wall(tz) - wall(base);
+}
+
 /** The vault door: where the team's vault lives, and a link that opens it in a new tab. */
 function LinkPanel({ store }: { store: Store }) {
   const { label, url } = store.linkOpen!;
@@ -943,11 +991,11 @@ function MacAppButton() {
 
 /** Props for a modal backdrop that closes on a tap on the backdrop itself: one that both started and ended there.
  *  A click that only *ends* on it (iOS sends a compatibility click after the canvas tap that opened the panel) is ignored. */
+let backdropArmed = false; // outside the closure: a re-render between pointerdown and click (the store ticks) mustn't lose it
 function backdropClose(close: () => void) {
-  let armed = false;
   return {
-    onPointerDown: (e: React.PointerEvent) => { armed = e.target === e.currentTarget; },
-    onClick: (e: React.MouseEvent) => { if (armed && e.target === e.currentTarget) close(); armed = false; },
+    onPointerDown: (e: React.PointerEvent) => { backdropArmed = e.target === e.currentTarget; },
+    onClick: (e: React.MouseEvent) => { if (backdropArmed && e.target === e.currentTarget) close(); backdropArmed = false; },
   };
 }
 
@@ -1172,7 +1220,7 @@ function ActionWheel({ store, engine, pick, onPerson, onClose }: { store: Store;
     }
   } else {
     const o = MAP.objects.find(o => o.id === pick.id);
-    if (!o?.use || o.use.kind === 'instrument' || o.use.kind === 'calendar' || o.use.kind === 'meetings' || o.use.kind === 'achievements' || o.use.kind === 'link' || o.use.kind === 'jukebox' || o.use.kind === 'arcade' || o.use.kind === 'records') return null;
+    if (!o?.use || o.use.kind === 'instrument' || o.use.kind === 'calendar' || o.use.kind === 'meetings' || o.use.kind === 'achievements' || o.use.kind === 'link' || o.use.kind === 'clock' || o.use.kind === 'jukebox' || o.use.kind === 'arcade' || o.use.kind === 'records') return null;
     if (o.use.kind === 'toggle') {
       const on = store.objects[o.id]?.on ?? o.on ?? true;
       title = o.use.label[0].toUpperCase() + o.use.label.slice(1);

@@ -288,6 +288,9 @@ export class Store {
   setDeafen(on: boolean) { this.send({ t: 'deafen', on }); }
   claimVoice() { this.send({ t: 'voice_claim' }); }
   /** The vault door: a panel with the link, which works from a tap anywhere (a tap on the floor can't open a tab on a phone). */
+  clockOpen = false;
+  openClock() { this.clockOpen = true; this.emit(); }
+  closeClock() { this.clockOpen = false; this.emit(); }
   linkOpen: { label: string; url: string } | null = null;
   openLink(use: { label: string; url: string }) { this.linkOpen = use; this.emit(); }
   closeLink() { this.linkOpen = null; this.emit(); }
