@@ -11,7 +11,7 @@ function level(id: number, name: string, width: number, runs: [number, number, s
 }
 export const LEVELS: LevelDef[] = [
   level(0, 'Lobby', 20, [[1, 10, 'S']], {
-    lobby: { start: { x: 8, y: 11, w: 4, h: 1 }, selectors: [
+    lobby: { start: { x: 8, y: 11, w: 4, h: 1 }, exit: { x: 19, y: 9, w: 1, h: 2 }, selectors: [
       { x: 5, y: 7, w: 2, h: 1, delta: -1 }, { x: 13, y: 7, w: 2, h: 1, delta: 1 },
     ] },
   }),

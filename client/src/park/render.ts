@@ -96,6 +96,10 @@ export function renderPark(ctx: CanvasRenderingContext2D, assets: Assets, runner
     ctx.fillStyle = '#3a2329'; ctx.fillRect(start.x * 16, start.y * 16 - 5, start.w * 16, 3);
     ctx.fillStyle = '#8cc864'; ctx.fillRect(start.x * 16, start.y * 16 - 5, start.w * 16 * Math.min(60, state.startHold) / 60, 3);
     selectors.forEach(r => { for (let x = 0; x < r.w; x++) blit(`park_select_${r.delta < 0 ? 'left' : 'right'}`, (r.x + x) * 16, r.y * 16); });
+    const exit = level.lobby.exit, hold = Math.max(0, ...state.players.map(p => p.present ? p.exitHold : 0));
+    blit('park_door_open', exit.x * 16, exit.y * 16);
+    text('EXIT', exit.x * 16 + 8, exit.y * 16 - 8, '#f2b45a', true);
+    if (hold) { ctx.fillStyle = '#3a2329'; ctx.fillRect(exit.x * 16, exit.y * 16 - 2, 16, 2); ctx.fillStyle = '#f2b45a'; ctx.fillRect(exit.x * 16, exit.y * 16 - 2, 16 * Math.min(30, hold) / 30, 2); }
     const selected = LEVELS[state.selected], team = session.players.length as 1 | 2 | 3 | 4;
     const record = store.arcadeRecords[state.selected]?.[team];
     text(`${selected.id}. ${selected.name}`, 160, 48, '#f2b45a', true);
@@ -115,8 +119,10 @@ export function renderPark(ctx: CanvasRenderingContext2D, assets: Assets, runner
   ctx.restore();
   ctx.fillStyle = '#29202b'; ctx.fillRect(0, 24, 320, 11);
   text(level.name, 4, 27, '#f2b45a');
-  text(parkTime(state.cleared ? state.clearedAt : state.frame), 224, 27);
-  text(`${state.coins} COINS`, 274, 27);
+  if (!level.lobby) { // the lobby has no clock and no coins
+    text(parkTime(state.cleared ? state.clearedAt : state.frame), 224, 27);
+    text(`${state.coins} COINS`, 274, 27);
+  }
   if (view.countdown) banner([String(view.countdown)]);
   if (view.clear) banner(['CLEAR!', `${parkTime(view.clear.frames)} · ${view.clear.coins} coins`, ...(view.clear.record ? ['New record!'] : [])]);
 }

@@ -402,3 +402,17 @@ for (let team = 1; team <= 4; team++) test(`park lobby recording: both selectors
   assert.ok(selected.has(8) && selected.has(1)); assert.ok(s.startReady); assert.equal(s.startHold, 60);
   const old = structuredClone(s); step(s, LEVELS[0], 10); assert.deepEqual({ ...s, frame: old.frame, fx: old.fx }, old);
 });
+
+test('lobby EXIT door: half a second standing in it takes the player out; stepping out resets the hold', () => {
+  const l = LEVELS[0], s = parkInit(l), exit = l.lobby!.exit;
+  parkStep(s, l, [[0, 0, 1, 0], [0, 1, 1, 0]]);
+  for (const [slot, x] of [[0, exit.x * 16 + 3], [1, 40]] as const) Object.assign(s.players[slot], { x: x * SUB, y: (exit.y + exit.h) * TILE - PLAYER_H, vx: 0, vy: 0 });
+  for (let i = 0; i < 29; i++) parkStep(s, l, []);
+  assert.equal(s.players[0].entered, false); assert.equal(s.players[0].exitHold, 29);
+  s.players[0].x -= 3 * TILE; parkStep(s, l, []);
+  assert.equal(s.players[0].exitHold, 0);
+  s.players[0].x += 3 * TILE;
+  for (let i = 0; i < 30; i++) parkStep(s, l, []);
+  assert.equal(s.players[0].entered, true); assert.equal(s.players[1].entered, false);
+  assert.equal(s.startReady, false);
+});

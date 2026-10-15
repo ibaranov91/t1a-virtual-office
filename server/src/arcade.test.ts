@@ -366,3 +366,15 @@ for (const [level, team] of [[1, 2], [3, 3], [6, 2]] as const) test(`arcade netc
   assert.ok(resets > 0, 'owner/reconnect neutral reset'); assert.ok(syncRequests > 0, '>300 frame stall requested sync');
   assert.equal(peers.get('watch')!.u.game?.role, 'spectator');
 });
+
+test('arcade lobby EXIT door: the server lets the player go, and the last one out closes the session', () => {
+  const { a, add, tick, now } = setup(), x = add('x'), y = add('y');
+  const s = a.sessions.get('one')!, exit = LEVELS[0].lobby!.exit;
+  tick(now() + 500);
+  Object.assign(s.sim.players[0], { x: (exit.x * 16 + 3) * 16, y: (exit.y + exit.h) * TILE - PLAYER_H, vx: 0, vy: 0 });
+  tick(now() + 1000);
+  assert.equal(x.game, null); assert.equal(y.game?.role, 'player'); assert.deepEqual(s.players.map(p => p.userId), ['y']);
+  Object.assign(s.sim.players[1], { x: (exit.x * 16 + 3) * 16, y: (exit.y + exit.h) * TILE - PLAYER_H, vx: 0, vy: 0 });
+  tick(now() + 1000);
+  assert.equal(y.game, null); assert.equal(a.sessions.size, 0);
+});

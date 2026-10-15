@@ -74,7 +74,7 @@ export function ArcadeOverlay({ store, assets, voice }: { store: Store; assets: 
       <button disabled={!owner || !voice} aria-pressed={voice?.deafened ?? prefs.deafened} aria-label={voice?.deafened ? 'Undeafen' : 'Deafen'}
         className={voice?.deafened ? 'muted-btn' : 'ghost'} onClick={() => voice?.toggleDeafen()}>🎧</button>
       <button className="ghost" aria-expanded={menu} aria-label="Game menu" onClick={toggleMenu}>⏸</button>
-      <button className="ghost" aria-label="Leave game" onClick={leave}>✕</button>
+      <button className="ghost park-leave" aria-label="Leave game" title="Leave the game (Esc for the menu)" onClick={leave}>✕ Leave</button>
     </header>
     <div className="park-area" ref={area} onPointerDown={e => { if (e.target === e.currentTarget || e.target === canvas.current) root.current?.focus(); }}>
       <div className="park-cabinet"><canvas ref={canvas} width={320} height={216} style={{ width: 320 * scale, height: 216 * scale }} aria-label="Deck Park game. Move with arrows or A/D. Jump with Up, W, Z or Space." /></div>

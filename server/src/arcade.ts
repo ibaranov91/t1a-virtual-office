@@ -145,6 +145,10 @@ export class Arcade {
         parkStep(s.sim, LEVELS[s.level], s.events.filter(e => e[0] === s.sim.frame));
         s.events = s.events.filter(e => e[0] >= s.sim.frame);
         if (s.sim.frame % 60 === 0) this.send(s, { t: 'game_check', epoch, frame: s.sim.frame, hash: hashState(s.sim), serverNow: now });
+        if (s.phase === 'lobby') for (const p of [...s.players]) if (s.sim.players[p.slot]?.entered) {
+          const u = this.api.user(p.userId); if (u) this.leave(u); // walked out through the lobby's EXIT door
+        }
+        if (!this.sessions.has(s.cabinet)) break;
         if (s.phase === 'lobby' && s.sim.startReady) this.startEpoch(s, s.sim.selected, now + 3000);
         else if (s.phase === 'level' && s.sim.cleared) {
           s.phase = 'clear'; s.clearAt = now;

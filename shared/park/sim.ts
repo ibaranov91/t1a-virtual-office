@@ -5,7 +5,7 @@ export type { GameEvent } from './types';
 export const SUB = 16, TILE = 16 * SUB, PLAYER_W = 10 * SUB, PLAYER_H = 20 * SUB, VIEW_W = 320 * SUB;
 export const RUN_MAX = 32, ACCEL_GROUND = 4, ACCEL_AIR = 3, FRICTION = 6, JUMP_V = 92;
 export const GRAVITY_HELD = 6, GRAVITY = 10, MAX_FALL = 88, BOX_MAX_FALL = 64;
-export const COYOTE = 6, JUMP_BUFFER = 6, CORNER = 4 * SUB, RESPAWN = 45;
+export const COYOTE = 6, JUMP_BUFFER = 6, CORNER = 4 * SUB, RESPAWN = 45, EXIT_HOLD = 30;
 export interface Point { x: number; y: number }
 export interface Rect extends Point { w: number; h: number }
 export interface Need { need: number | 'all' }
@@ -15,7 +15,7 @@ export interface LevelMeta {
   buttons?: Partial<Record<'1' | '2' | '3' | '4', Need & { latch?: boolean; latchSolo?: boolean }>>;
   lifts?: (Need & { dy: number; speed: number })[];
   movers?: { dx: number; dy: number; period: number }[];
-  lobby?: { start: Rect; selectors: (Rect & { delta: number })[] }; // tile coordinates
+  lobby?: { start: Rect; exit: Rect; selectors: (Rect & { delta: number })[] }; // tile coordinates
 }
 export interface LevelDef extends LevelMeta {
   width: number; spawn: Point; key: Point; door: Rect;
@@ -29,6 +29,7 @@ export interface Player {
   present: boolean; x: number; y: number; vx: number; vy: number; bits: number; prevBits: number;
   grounded: boolean; coyote: number; buffer: number; jumpHeld: boolean; facing: number;
   dead: boolean; respawnIn: number; entered: boolean;
+  exitHold: number; // lobby: frames standing in the EXIT door
 }
 export type FxKind = 'jump' | 'coin' | 'key' | 'door' | 'button' | 'stomp' | 'death' | 'respawn' | 'clear' | 'select';
 export interface ParkFx { frame: number; kind: FxKind; slot: number }
@@ -87,7 +88,7 @@ export function parseLevel(meta: LevelMeta): LevelDef {
 }
 const freshPlayer = (l: LevelDef, slot: number): Player => ({ present: false, x: l.spawn.x + slot * 12 * SUB, y: l.spawn.y,
   vx: 0, vy: 0, bits: 0, prevBits: 0, grounded: false, coyote: 0, buffer: 0, jumpHeld: false, facing: 1,
-  dead: false, respawnIn: 0, entered: false });
+  dead: false, respawnIn: 0, entered: false, exitHold: 0 });
 export function parkInit(l: LevelDef, selected = 1): ParkState {
   return { frame: 0, players: Array.from({ length: 4 }, (_, slot) => freshPlayer(l, slot)),
     key: { ...l.key, homeX: l.key.x, homeY: l.key.y, carrier: -1 }, doorOpen: false,
@@ -327,6 +328,13 @@ export function parkStep(s: ParkState, l: LevelDef, events: GameEvent[]): void {
     const ready = count > 0 && s.players.filter(p => p.present).every(p => alive(p) && p.grounded && p.y + PLAYER_H === pad.y && p.x < pad.x + pad.w && p.x + PLAYER_W > pad.x);
     s.startHold = ready ? s.startHold + 1 : 0;
     if (s.startHold >= 60) s.startReady = true;
+    // standing in the EXIT door for half a second takes you out of the game (the server sees `entered` and lets you go)
+    const exit = tileRect(l.lobby.exit.x, l.lobby.exit.y, l.lobby.exit.w, l.lobby.exit.h);
+    s.players.forEach((p, slot) => {
+      if (!alive(p)) return;
+      p.exitHold = p.grounded && overlaps(playerRect(p), exit) ? p.exitHold + 1 : 0;
+      if (p.exitHold >= EXIT_HOLD) { p.entered = true; p.bits = 0; p.vx = 0; effect(s, 'door', slot); }
+    });
   } else if (count > 0 && s.players.filter(p => p.present).every(p => p.entered)) {
     s.cleared = true; s.clearedAt = s.frame; effect(s, 'clear', -1);
   }
@@ -337,7 +345,7 @@ export function hashState(s: ParkState): number {
   let h = 2166136261;
   const n = (v: number | boolean) => { let k = Number(v) | 0; for (let i = 0; i < 4; i++) { h = Math.imul(h ^ (k & 255), 16777619) >>> 0; k >>>= 8; } };
   n(s.frame);
-  for (const p of s.players) for (const k of ['present', 'x', 'y', 'vx', 'vy', 'bits', 'prevBits', 'grounded', 'coyote', 'buffer', 'jumpHeld', 'facing', 'dead', 'respawnIn', 'entered'] as const) n(p[k]);
+  for (const p of s.players) for (const k of ['present', 'x', 'y', 'vx', 'vy', 'bits', 'prevBits', 'grounded', 'coyote', 'buffer', 'jumpHeld', 'facing', 'dead', 'respawnIn', 'entered', 'exitHold'] as const) n(p[k]);
   for (const k of ['x', 'y', 'homeX', 'homeY', 'carrier'] as const) n(s.key[k]); n(s.doorOpen);
   n(s.buttons.length); for (const b of s.buttons) { n(b.pressed); n(b.latched); }
   n(s.gates.length); for (const g of s.gates) n(g.open);
