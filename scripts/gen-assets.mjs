@@ -447,6 +447,13 @@ for (const n of [1, 2]) {
   const t = new Img(16, 16); // clock
   t.ellipse(8, 7, 5, 5, '#f8f4ec'); t.vline(8, 4, 4, OUT); t.hline(8, 7, 3, OUT);
   frames.clock = t.outline();
+  // the world clocks: a coloured rim, no hands (the engine draws those from the real time)
+  for (const [city, rim] of [['nyc', '#d8584a'], ['berlin', '#e8c040'], ['moscow', '#4a88d8']]) {
+    const w = new Img(16, 16);
+    w.ellipse(8, 7, 6, 6, rim); w.ellipse(8, 7, 5, 5, '#f8f4ec');
+    for (const [x, y] of [[8, 3], [8, 11], [4, 7], [12, 7]]) w.px(x, y, '#a89a8c');
+    frames[`clock_${city}`] = w.outline();
+  }
 }
 {
   const t = new Img(16, 16); // wall calendar: red header with rings, a month of days, today marked

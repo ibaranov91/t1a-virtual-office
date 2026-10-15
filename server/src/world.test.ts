@@ -367,6 +367,17 @@ test('a saved layout is brought up to date with the vault door: added, moved int
   assert.equal(objects.some(o => o.type === 'safe'), false);
   assert.equal(objects.find(o => o.id === painting.id)!.x, safe.x);
 });
+test('a saved layout with plain world clocks gets their zones, where the admin left them', t => {
+  const { w } = setup(t), clocks = map.objects.filter(o => o.type.startsWith('clock_'));
+  assert.deepEqual(clocks.map(o => o.use?.kind === 'clock' && o.use.tz), ['America/New_York', 'Europe/Berlin', 'Europe/Moscow']);
+  const r = new World(structuredClone(map));
+  const objects = map.objects.map(o => (o.type === 'clock_berlin' ? { id: 'old', type: o.type, x: 30, y: o.y, w: 1, h: 1, wall: true } : o.type.startsWith('clock_') ? null : o)).filter((o): o is typeof map.objects[number] => !!o);
+  r.load({ ...w.dump(), layout: structuredClone({ objects, rugs: map.rugs }) });
+  const got = r.map.objects.filter(o => o.type.startsWith('clock_'));
+  assert.equal(got.length, 3); // the missing ones come back at their generated spots
+  const berlin = got.find(o => o.type === 'clock_berlin')!;
+  assert.deepEqual([berlin.id, berlin.x, berlin.use], ['old', 30, clocks[1].use]);
+});
 // gen-map.mjs numbers objects in order, so a build that adds one shifts every id after it (the safe took o57 from a plant)
 const olderBuild = (objects: TileMap['objects']) => objects.map(o => ({ ...structuredClone(o), id: `o${Number(o.id.slice(1)) + 1}` }));
 const loadLayout = (w: World, objects: TileMap['objects']) => {
