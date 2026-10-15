@@ -416,6 +416,9 @@ export class Engine {
     return best;
   }
   private onDown = (e: PointerEvent) => {
+    // A cancelled pointerdown means no compatibility mouse events after a touch: iOS would otherwise send a click
+    // at the same spot a moment later, landing on whatever the tap just opened (a panel's backdrop closes on it).
+    if (e.pointerType === 'touch') e.preventDefault();
     try { this.canvas.setPointerCapture(e.pointerId); } catch { /* synthetic pointer (tests) */ }
     this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (this.pointers.size === 2) { // second finger: a pinch, never a tap or a drag
