@@ -5,7 +5,7 @@ import {
 } from '../../shared/map';
 import {
   NOTE_RATE, NOTE_BURST, NOTE_HELD_MAX, SEAT_CHANGES_PER_10S, DUNGEON_INSTANCE, underground, MAX_CALL_SIZE, MEETING_ROOM_ID, MAX_CHAT_LEN, normalizeMeetLink, REACTIONS, ROOM_VOICE_MAX,
-  dayNumber, plantDead, BOTANIST_KINDS, PLANT_KINDS, PLANT_STAGES, type Plant,
+  dayNumber, isTimeZone, plantDead, BOTANIST_KINDS, PLANT_KINDS, PLANT_STAGES, type Plant,
   type ChatMsg, type ClientMsg, type Door, type Knock, type LayoutEdit, type Look, type Presence, type PublicUser, type Reaction, type ServerMsg,
 } from '../../shared/protocol';
 import { INSTRUMENTS, validNote } from '../../shared/instruments';
@@ -1168,6 +1168,13 @@ export class World {
         break;
       }
       case 'status': this.setStatus(u, String(msg.status ?? '')); break;
+      case 'tz': {
+        const tz = isTimeZone(msg.tz) ? msg.tz : undefined;
+        if (tz === u.tz || (msg.tz != null && !tz)) break;
+        if (tz) u.tz = tz; else delete u.tz;
+        this.broadcast({ t: 'tz', userId: u.id, tz: tz ?? null });
+        break;
+      }
       case 'look': {
         const color = (v: unknown, fallback: string) => typeof v === 'string' && /^#[0-9a-f]{6}$/i.test(v) ? v : fallback;
         const int = (v: unknown, max: number) => Math.max(0, Math.min(max, Number.isInteger(v) ? Number(v) : 0));

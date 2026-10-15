@@ -1023,3 +1023,15 @@ test('note bucket permits the burst then only the sustained rate, including afte
   for (let i = 0; i < 41; i++) { note(a); note(a, { on: false }); }
   assert.equal(notes(b.messages).length, 144); // 40 ons + 40 offs
 });
+
+test('a shared time zone reaches everyone, is validated, can be hidden, and is never saved', t => {
+  const { w, add } = setup(t), a = add('A'), b = add('B');
+  w.handle(a.u, { t: 'tz', tz: 'Europe/Warsaw' }, a.socket);
+  assert.deepEqual(b.messages.filter(m => m.t === 'tz'), [{ t: 'tz', userId: a.u.id, tz: 'Europe/Warsaw' }]);
+  assert.equal((w.snapshot() as Extract<ServerMsg, { t: 'state' }>).users.find(u => u.id === a.u.id)!.tz, 'Europe/Warsaw');
+  w.handle(a.u, { t: 'tz', tz: '<b>hi</b>' }, a.socket); assert.equal(a.u.tz, 'Europe/Warsaw'); // junk is ignored
+  assert.equal(JSON.stringify(w.dump()).includes('Warsaw'), false);
+  w.handle(a.u, { t: 'tz', tz: null }, a.socket);
+  assert.equal(a.u.tz, undefined);
+  assert.deepEqual(b.messages.filter(m => m.t === 'tz').pop(), { t: 'tz', userId: a.u.id, tz: null });
+});

@@ -190,7 +190,7 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
         {store.linkOpen && <LinkPanel store={store} />}
         {store.achievementsOpen && me && <AchievementsPanel store={store} me={me} assets={assets} />}
         {(showMeet || store.pendingKnock) && <MeetSetup key={store.pendingKnock ?? 'panel'} store={store} onClose={() => setShowMeet(false)} />}
-        {showAppearance && me && <AppearanceMenu key={me.id} look={me.look} assets={assets} firstTime={!me.lookSet}
+        {showAppearance && me && <AppearanceMenu key={me.id} look={me.look} assets={assets} firstTime={!me.lookSet} shareTz={store.shareTz} onShareTz={on => store.setShareTz(on)}
           onSave={(look) => { store.setLook(look); setShowAppearance(false); }} onClose={() => setShowAppearance(false)} />}
         <div className="chips">
           <MeetingChip store={store} />
@@ -367,8 +367,8 @@ const LOOK_COLORS = {
   hatColor: ['#3e5a8a', '#b4534a', '#3a5a4a', '#282832', '#d0a040', '#e8e0d0', '#6b3e26'],
 };
 
-function AppearanceMenu({ look, assets, firstTime, onSave, onClose }: {
-  look: PublicLook; assets: Assets | null; firstTime: boolean; onSave: (look: PublicLook) => void; onClose: () => void;
+function AppearanceMenu({ look, assets, firstTime, shareTz, onShareTz, onSave, onClose }: {
+  look: PublicLook; assets: Assets | null; firstTime: boolean; shareTz: boolean; onShareTz: (on: boolean) => void; onSave: (look: PublicLook) => void; onClose: () => void;
 }) {
   const [draft, setDraft] = useState(look);
   const [tab, setTab] = useState<'body' | 'clothes'>('body');
@@ -420,6 +420,7 @@ function AppearanceMenu({ look, assets, firstTime, onSave, onClose }: {
           </>}
         </div>
         <footer className="appearance-actions">
+          <label className="small muted" title="Colleagues see your local time when they hover over you. Only the time zone is shared, not your location."><input type="checkbox" checked={shareTz} onChange={e => onShareTz(e.target.checked)} /> Show my local time</label>
           {!firstTime && <button className="ghost" onClick={onClose}>Cancel</button>}
           <button onClick={() => onSave(draft)}>{firstTime ? 'Save & enter office' : 'Save changes'}</button>
         </footer>
