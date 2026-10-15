@@ -10,13 +10,14 @@ cd "$(dirname "$0")"
 swift build -c release
 APP="build/The Deck.app"
 rm -rf "$APP"
-mkdir -p "$APP/Contents/MacOS"
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+cp AppIcon.icns "$APP/Contents/Resources/AppIcon.icns" # from make-icon.swift
 cp "$(swift build -c release --show-bin-path)/Deck" "$APP/Contents/MacOS/Deck"
 cp Info.plist "$APP/Contents/Info.plist"
 
 # DeckBuild: changes only when the app's sources do, so a deploy without native changes doesn't
 # offer an update. CFBundleVersion is just for people reading "About".
-BUILD=$(cat Package.swift Info.plist Sources/Deck/*.swift | shasum -a 256 | cut -c1-12)
+BUILD=$(cat Package.swift Info.plist AppIcon.icns Sources/Deck/*.swift | shasum -a 256 | cut -c1-12)
 plutil -replace DeckBuild -string "$BUILD" "$APP/Contents/Info.plist"
 plutil -replace CFBundleVersion -string "$(git rev-list --count HEAD 2>/dev/null || echo 1)" "$APP/Contents/Info.plist"
 [ "${1:-}" = --dist ] || plutil -replace DeckDev -bool YES "$APP/Contents/Info.plist" # local builds never self-update

@@ -66,6 +66,9 @@ defaults write io.t1a.deck url "http://localhost:5173/?as=Mac"   # or pick an in
 - Not a WidgetKit widget on purpose: widgets can't run a web view, refresh at most every few minutes,
   and can't use the mic.
 - Web Inspector: Safari ▸ Develop ▸ The Deck.
+- The app icon (a pixel door) comes from `swift macos/make-icon.swift` → `macos/AppIcon.icns` (committed). The menu bar
+  icon is a pixel person drawn in code (`Person.swift`): orange on a knock, green with waves in a call.
+- The app sits in the Dock only while its window is open; closing the window leaves it in the menu bar.
 
 **Distribution.** Every deploy from a Mac builds the app (`macos/build.sh --dist` → `macos/dist/`) and the
 instance serves it. People install with one command, shown under "Mac app" in the top bar:
