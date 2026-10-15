@@ -1258,6 +1258,45 @@ for (const open of [false, true]) {
   }
 }
 
+// ---------- the dining terrace: picnic table, food cart, plates (no shared random calls: existing art stays unchanged) ----------
+{
+  const t = new Img(48, 24); // picnic table (3x1): planks on top, a bench-board along each side, A-frame legs
+  t.rect(1, 6, 46, 9, '#c8874a'); t.hline(1, 6, 46, '#e0a468');
+  for (const y of [9, 12]) t.hline(2, y, 44, '#a86c3a');
+  for (const x of [15, 31]) t.vline(x, 7, 8, '#a86c3a');
+  t.rect(1, 15, 46, 2, '#8a5232'); t.hline(1, 16, 46, '#6a3c22');
+  for (const x of [5, 40]) { t.rect(x, 17, 2, 5, '#6a3c22'); t.px(x + 2, 21, '#6a3c22'); t.px(x - 1, 21, '#6a3c22'); }
+  t.rect(10, 4, 4, 2, '#f4f0e6'); t.hline(10, 4, 4, '#d84a3a'); // a napkin holder
+  frames.table_picnic = t.outline();
+}
+{
+  const t = new Img(32, 32); // food cart (2x1): striped awning, a counter with a pot and a pizza box, two wheels
+  for (let x = 1; x < 31; x++) t.rect(x, 2, 1, 7, (x >> 2) % 2 ? '#f4f0e6' : '#d84a3a');
+  t.hline(1, 9, 30, '#8a2a22');
+  for (let x = 1; x < 31; x += 4) t.rect(x, 9, 4, 1, (x >> 2) % 2 ? '#d0c8b8' : '#8a2a22');
+  t.rect(3, 10, 2, 14, '#6a3c22'); t.rect(27, 10, 2, 14, '#6a3c22');
+  t.rect(2, 16, 28, 9, '#4a88b0'); t.hline(2, 16, 28, '#7ab4d8'); t.hline(2, 24, 28, '#2e5a78');
+  t.rect(2, 14, 28, 2, '#c8874a'); t.hline(2, 14, 28, '#e0a468'); // counter top
+  t.rect(6, 11, 6, 3, '#5a5a66'); t.hline(6, 11, 6, '#8a8a96'); t.px(8, 10, '#f4f0e6'); t.px(10, 9, '#f4f0e6'); // a steaming pot
+  t.rect(19, 12, 7, 2, '#e8b860'); t.hline(19, 12, 7, '#f4d890'); // a pizza box
+  t.rect(7, 18, 18, 4, '#f4f0e6'); t.hline(9, 19, 14, '#d84a3a'); t.hline(9, 21, 10, '#d84a3a'); // the menu
+  for (const x of [8, 23]) { t.ellipse(x, 27, 4, 4, '#2a2a30'); t.ellipse(x, 27, 2, 2, '#8a8a96'); }
+  frames.food_cart = t.outline();
+}
+// a plate of each food on the table, and what's left of it (crumbs) when lunch is over
+for (const [k, draw] of Object.entries({
+  sandwich: t => { t.rect(1, 1, 6, 3, '#e8c878'); t.hline(1, 2, 6, '#7ab05a'); t.hline(1, 3, 6, '#d84a3a'); },
+  ramen: t => { t.rect(1, 1, 6, 3, '#f0d48a'); t.hline(2, 1, 4, '#f8e8b0'); t.px(2, 2, '#d84a3a'); t.px(5, 2, '#7ab05a'); t.px(4, 3, '#a0603a'); },
+  salad: t => { t.rect(1, 1, 6, 3, '#7ab05a'); t.px(2, 1, '#d84a3a'); t.px(5, 2, '#e8c878'); t.px(3, 3, '#d84a3a'); t.hline(1, 1, 2, '#9ad070'); },
+  pizza: t => { t.rect(1, 1, 6, 3, '#e8b860'); t.px(2, 2, '#d84a3a'); t.px(5, 1, '#d84a3a'); t.px(4, 3, '#d84a3a'); t.hline(1, 1, 6, '#c8874a'); },
+  empty: t => { t.px(2, 2, '#c8a870'); t.px(5, 3, '#c8a870'); t.px(4, 1, '#8a6a40'); },
+})) {
+  const t = new Img(8, 6);
+  t.ellipse(4, 3, 4, 2.5, '#f4f0e8'); t.hline(1, 5, 6, '#c8c0b0');
+  draw(t);
+  frames[`plate_${k}`] = t.outline();
+}
+
 // ---------- the Admin room and Berghain (no shared random calls: existing art stays unchanged) ----------
 for (let v = 0; v < 3; v++) { // raised server-room floor: grey panels with perforations
   const t = new Img(16, 16);
