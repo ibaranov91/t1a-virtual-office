@@ -1,13 +1,14 @@
 import { randomUUID } from 'node:crypto';
 import {
-  applyEdit, applyLayout, besideObject, dirBetween, doorwayTiles, KEEP_TYPES, migrateEastWing, layoutProblem, objectName, voiceRooms, findPath, isWalkable, pathDuration, pathTo, roomAt, sampleMove, seatAt, uniqueIds, withLayout, WALK_MS_PER_TILE,
-  type Dir, type Layout, type Room, type Spot, type TileMap, type Tile,
+  applyEdit, applyLayout, besideObject, playSpots, dirBetween, doorwayTiles, KEEP_TYPES, migrateEastWing, layoutProblem, objectName, voiceRooms, findPath, isWalkable, pathDuration, pathTo, roomAt, sampleMove, seatAt, uniqueIds, withLayout, WALK_MS_PER_TILE,
+  type MapObject, type Dir, type Layout, type Room, type Spot, type TileMap, type Tile,
 } from '../../shared/map';
 import {
-  DUNGEON_INSTANCE, underground, MAX_CALL_SIZE, MEETING_ROOM_ID, MAX_CHAT_LEN, normalizeMeetLink, REACTIONS, ROOM_VOICE_MAX,
+  NOTE_RATE, NOTE_BURST, NOTE_HELD_MAX, SEAT_CHANGES_PER_10S, DUNGEON_INSTANCE, underground, MAX_CALL_SIZE, MEETING_ROOM_ID, MAX_CHAT_LEN, normalizeMeetLink, REACTIONS, ROOM_VOICE_MAX,
   dayNumber, plantDead, BOTANIST_KINDS, PLANT_KINDS, PLANT_STAGES, type Plant,
   type ChatMsg, type ClientMsg, type Door, type Knock, type LayoutEdit, type Look, type Presence, type PublicUser, type Reaction, type ServerMsg,
 } from '../../shared/protocol';
+import { INSTRUMENTS, validNote } from '../../shared/instruments';
 import { TRACKS } from '../../shared/music';
 import { Arcade } from './arcade';
 import { Jukebox } from './jukebox';
@@ -61,6 +62,7 @@ const goingOut = (u: User) => u.door === 'thinking' || u.door === 'leaving';
 const FOLLOW_LAG_MS = 300;   // followers set off a beat after the person they follow
 const HOLD_MS = 3 * 60_000;  // a coffee lasts this long
 const USE_MS = { take: 1200, toggle: 150 }; // brewing a coffee vs flicking a switch
+const ARRIVAL_SLACK_MS = 50; // timers can fire a millisecond before the walk is over
 
 /** Office admins rearrange the furniture: NetBird emails, or (only for name logins, so dev) plain names. */
 const ADMINS = (process.env.DECK_ADMINS ?? 'ivan.baranov@t1a.com').split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
@@ -79,6 +81,10 @@ export class World {
   private callTimers = new Map<string, NodeJS.Timeout>(); // per member: when they hang up
   private holdTimers = new Map<string, NodeJS.Timeout>(); // per person: when the coffee's finished
   private errands = new Map<string, NodeJS.Timeout>();    // per person: walking over to use an object
+  private seats = new Map<string, { user: string; socket: string; held: Set<number> }>();
+  private pendingSeat = new Map<string, { objectId: string; socket: string; spot: Spot; timer: NodeJS.Timeout }>();
+  private noteBuckets = new Map<string, { tokens: number; at: number }>();
+  private seatChanges = new Map<string, number[]>();
   private jukeboxes = new Map<string, Jukebox>();
   private objectOn = new Map<string, boolean>();          // toggle objects (lamps)
   private chats = new Map<string, ChatMsg[]>();           // per pair of people, oldest first
@@ -97,7 +103,7 @@ export class World {
     this.baseLayout = structuredClone({ objects: map.objects, rugs: map.rugs });
     for (const o of map.objects) if (o.use?.kind === 'toggle') this.objectOn.set(o.id, o.on ?? true);
     this.syncJukeboxes();
-    setInterval(() => { const now = Date.now(); this.voiceTick(now); this.jukeboxTick(now); }, 250).unref();
+    setInterval(() => { const now = Date.now(); this.voiceTick(now); this.jukeboxTick(now); this.instrumentTick(now); }, 250).unref();
   }
 
   // ---------- transport ----------
@@ -114,6 +120,7 @@ export class World {
   snapshot(): ServerMsg {
     const objects = Object.fromEntries([...this.objectOn.keys()].map(id => [id, this.objectState(id)]));
     return { t: 'state', serverTime: Date.now(), users: [...this.users.values()].map(this.toPublic), objects,
+      instruments: Object.fromEntries(this.map.objects.filter(o => o.use?.kind === 'instrument').map(o => [o.id, this.seats.get(o.id)?.user ?? null])),
       jukebox: Object.fromEntries([...this.jukeboxes].map(([id, j]) => [id, j.state])) };
   }
   private toPublic = (u: User): PublicUser => {
@@ -148,6 +155,8 @@ export class World {
     return { socket, close: () => {
       this.listeners.delete(send);
       const set = this.sockets.get(userId)!; if (!set.delete(socket)) return;
+      if (this.pendingSeat.get(userId)?.socket === socket) this.cancelSeatWalk(userId);
+      for (const [id, seat] of this.seats) if (seat.socket === socket) this.endSeat(id);
       if (this.owners.get(userId) === socket) this.setOwner(userId, [...set.keys()].at(-1));
       if (set.size === 0 && !u.bot) { this.setWaiting(u, null); this.startLeaving(u); }
     } };
@@ -263,6 +272,7 @@ export class World {
     const from = pos.next;
     const path = pathTo(this.map, from, to); // also sits down onto a sofa
     if (!path.length) return null; // nothing changes: the current walk (and its dungeon timers) goes on
+    if (path.length > 1) for (const [id, seat] of this.seats) if (seat.user === u.id) this.endSeat(id);
     // A due pickup belongs to the old walk even if its callback hasn't run yet.
     const keyTimer = u.dungeonTimers?.key;
     if (underground(u) && keyTimer && keyTimer.at <= now) keyTimer.run();
@@ -338,11 +348,126 @@ export class World {
     for (const [id, j] of this.jukeboxes) if (j.advance(now)) this.broadcast({ t: 'jukebox', id, state: j.state });
   }
 
+  // ---------- instruments ----------
+  private cancelSeatWalk(user: string) {
+    const pending = this.pendingSeat.get(user);
+    if (pending) { clearTimeout(pending.timer); this.pendingSeat.delete(user); }
+  }
+  private instrumentEligible(u: User) {
+    return !u.bot && u.presence !== 'offline' && !goingOut(u) && !u.instance && !!this.sockets.get(u.id)?.size;
+  }
+  private atInstrument(u: User, o: MapObject, now: number) {
+    return (!u.move || !u.path || now >= u.move.startedAt + pathDuration(u.path)) &&
+      besideObject(this.map, o).some(s => s.x === u.tile.x && s.y === u.tile.y);
+  }
+  private recentSeatChanges(user: string, now: number) {
+    const changes = (this.seatChanges.get(user) ?? []).filter(at => at > now - 10000);
+    this.seatChanges.set(user, changes);
+    return changes;
+  }
+  private takeSeat(u: User, o: MapObject, socket: string) {
+    this.seats.set(o.id, { user: u.id, socket, held: new Set() });
+    this.recentSeatChanges(u.id, Date.now()).push(Date.now());
+    this.broadcast({ t: 'instrument', id: o.id, player: u.id });
+    this.sockets.get(u.id)?.get(socket)?.({ t: 'seat', id: o.id });
+  }
+  private endSeat(id: string) {
+    const seat = this.seats.get(id); if (!seat) return;
+    this.seats.delete(id);
+    this.recentSeatChanges(seat.user, Date.now()).push(Date.now());
+    this.broadcast({ t: 'instrument', id, player: null });
+    this.sockets.get(seat.user)?.get(seat.socket)?.({ t: 'seat', id: null });
+  }
+  private instrumentTick(now: number) {
+    for (const [id, seat] of this.seats) {
+      const u = this.users.get(seat.user), o = this.map.objects.find(o => o.id === id);
+      if (!u || !this.instrumentEligible(u) || !this.sockets.get(seat.user)?.has(seat.socket) ||
+          o?.use?.kind !== 'instrument' || !this.atInstrument(u, o, now)) this.endSeat(id);
+    }
+  }
+  private seatTaken(u: User, o: MapObject) {
+    const seat = this.seats.get(o.id);
+    if (!seat || seat.user === u.id || o.use?.kind !== 'instrument') return false; // their own other tab hands it over
+    const name = this.users.get(seat.user)?.name.split(/\s+/)[0] ?? 'Someone';
+    this.sendTo(u.id, { t: 'notice', text: `${name} is playing the ${o.use.label}` });
+    return true;
+  }
+  private instrument(u: User, msg: Extract<ClientMsg, { t: 'instrument' }>, socket: string) {
+    if (typeof msg.objectId !== 'string' || (msg.action !== 'play' && msg.action !== 'leave')) return;
+    const o = this.map.objects.find(o => o.id === msg.objectId);
+    if (o?.use?.kind !== 'instrument') return;
+    const seat = this.seats.get(o.id);
+    if (msg.action === 'leave') { if (seat?.socket === socket) this.endSeat(o.id); return; }
+    if (!this.instrumentEligible(u) || seat?.socket === socket) return;
+    if (this.recentSeatChanges(u.id, Date.now()).length > SEAT_CHANGES_PER_10S) return;
+    if (this.seatTaken(u, o)) return;
+    for (const [id, held] of this.seats) if (held.user === u.id) this.endSeat(id);
+    if (this.atInstrument(u, o, Date.now())) { this.takeSeat(u, o, socket); return; }
+    this.setFollowing(u, null);
+    clearTimeout(this.errands.get(u.id)); this.errands.delete(u.id);
+    const here = this.position(u).next, occ = this.occupied();
+    const spots = playSpots(this.map, o);
+    let best: { spot: Spot; len: number } | null = null;
+    for (const group of [spots.filter(s => s.dir === 'down'), spots.filter(s => s.dir !== 'down')]) {
+      for (const spot of group) {
+        const mine = spot.x === here.x && spot.y === here.y;
+        if (!mine && occ.has(`${spot.x},${spot.y}`)) continue;
+        const len = mine ? 0 : findPath(this.map, here, spot).length;
+        if (!mine && !len) continue;
+        if (!best || len < best.len) best = { spot, len };
+      }
+      if (best) break;
+    }
+    if (!best) { this.sendTo(u.id, { t: 'notice', text: `No room at the ${o.use.label}` }); return; }
+    const spot = best.spot, at = this.walk(u, spot, spot.dir);
+    if (at === null) return;
+    const pending = { objectId: o.id, socket, spot, timer: setTimeout(() => {
+      if (this.pendingSeat.get(u.id) !== pending) return;
+      this.pendingSeat.delete(u.id);
+      const current = this.map.objects.find(o => o.id === pending.objectId);
+      if (!this.sockets.get(u.id)?.has(socket) || current?.use?.kind !== 'instrument' ||
+          !this.instrumentEligible(u) || !this.atInstrument(u, current, Date.now())) return;
+      if (this.seatTaken(u, current)) return;
+      for (const [id, held] of this.seats) if (held.user === u.id) this.endSeat(id);
+      this.takeSeat(u, current, socket);
+    }, Math.max(0, at - Date.now()) + ARRIVAL_SLACK_MS) };
+    this.pendingSeat.set(u.id, pending);
+  }
+  private note(u: User, msg: Extract<ClientMsg, { t: 'note' }>, socket: string) {
+    if (typeof msg.objectId !== 'string' || !Number.isInteger(msg.note) || !Number.isInteger(msg.vel) ||
+        !Number.isInteger(msg.preset) || typeof msg.on !== 'boolean' || !Number.isFinite(msg.at)) return;
+    const seat = this.seats.get(msg.objectId), o = this.map.objects.find(o => o.id === msg.objectId);
+    const now = Date.now();
+    if (!seat || seat.socket !== socket || o?.use?.kind !== 'instrument' || !this.atInstrument(u, o, now)) return;
+    const kind = o.use.instrument;
+    if (!validNote(kind, msg.note)) return;
+    if (msg.on) {
+      if (msg.vel < 1 || msg.vel > 127 || msg.preset < 0 || msg.preset >= INSTRUMENTS[kind].presets.length) return;
+      if (kind !== 'drums' && (seat.held.has(msg.note) || seat.held.size >= NOTE_HELD_MAX)) return;
+      const bucket = this.noteBuckets.get(u.id) ?? { tokens: NOTE_BURST, at: now };
+      bucket.tokens = Math.min(NOTE_BURST, bucket.tokens + (now - bucket.at) * NOTE_RATE / 1000); bucket.at = now;
+      this.noteBuckets.set(u.id, bucket);
+      if (bucket.tokens < 1) return;
+      bucket.tokens--;
+      if (kind !== 'drums') seat.held.add(msg.note);
+    } else {
+      if (kind === 'drums' || !seat.held.delete(msg.note)) return;
+    }
+    const relay: ServerMsg = { t: 'note', id: o.id, by: u.id, note: msg.note, on: msg.on,
+      vel: msg.on ? msg.vel : 0, preset: msg.on ? msg.preset : 0, at: Math.max(now - 2000, Math.min(now + 500, msg.at)) };
+    for (const [id, sockets] of this.sockets) {
+      const listener = this.users.get(id);
+      if (!listener || listener.bot || listener.instance) continue;
+      for (const [key, send] of sockets) if (key !== seat.socket) send(relay);
+    }
+  }
+
   // ---------- objects ----------
   /** Walk over to an object and use it: take something from it, or flip it on/off. */
   use(u: User, objectId: string, itemId?: string) {
+    this.cancelSeatWalk(u.id);
     const o = this.map.objects.find(o => o.id === objectId);
-    if (!o?.use || o.use.kind === 'calendar' || o.use.kind === 'meetings' || o.use.kind === 'achievements' || o.use.kind === 'link' || o.use.kind === 'jukebox' || o.use.kind === 'records' || goingOut(u) || u.instance || u.presence === 'offline' || (o.use.kind === 'arcade' && u.bot)) return;
+    if (!o?.use || o.use.kind === 'instrument' || o.use.kind === 'calendar' || o.use.kind === 'meetings' || o.use.kind === 'achievements' || o.use.kind === 'link' || o.use.kind === 'jukebox' || o.use.kind === 'records' || goingOut(u) || u.instance || u.presence === 'offline' || (o.use.kind === 'arcade' && u.bot)) return;
     const item = o.use.kind === 'take' ? o.use.items.find(i => i.id === itemId) ?? o.use.items[0] : null;
     this.setFollowing(u, null);
     clearTimeout(this.errands.get(u.id));
@@ -866,7 +991,12 @@ export class World {
     if (problem) { this.sendTo(by.id, { t: 'notice', text: `Can't: ${problem}` }); return false; }
     const chairAt = (t: Tile) => this.map.objects.find(o => o.type === 'chair' && o.x === t.x && o.y === t.y)?.id;
     const deskChairs = [...this.users.values()].filter(o => o.homeDesk).map(o => ({ o, id: chairAt(o.homeDesk!) }));
+    for (const [user, pending] of this.pendingSeat) {
+      const before = this.map.objects.find(o => o.id === pending.objectId), after = next.objects.find(o => o.id === pending.objectId);
+      if (!after || after.use?.kind !== 'instrument' || before?.x !== after.x || before?.y !== after.y) this.cancelSeatWalk(user);
+    }
     applyLayout(this.map, next);
+    this.instrumentTick(Date.now());
     this.syncToggles(); this.syncJukeboxes(true);
     this.layoutEdited = true;
     this.broadcast({ t: 'layout', layout: this.layout(), by: by.id, added });
@@ -1012,6 +1142,7 @@ export class World {
   // ---------- client messages ----------
   handle(u: User, msg: ClientMsg, socket: string) {
     if (!this.sockets.get(u.id)?.has(socket)) return;
+    if (['move', 'use', 'follow', 'instrument'].includes(msg.t)) this.cancelSeatWalk(u.id);
     if (msg.t === 'voice_claim') { this.setOwner(u.id, socket); return; }
     if (typeof msg.t === 'string' && msg.t.startsWith('game_')) {
       if (this.owners.get(u.id) === socket) this.arcade.handle(u, msg);
@@ -1019,6 +1150,8 @@ export class World {
     }
     if (['rtc', 'speaking', 'mute', 'deafen', 'hand'].includes(msg.t) && this.owners.get(u.id) !== socket) return;
     switch (msg.t) {
+      case 'instrument': this.instrument(u, msg, socket); break;
+      case 'note': this.note(u, msg, socket); break;
       case 'move': {
         u.afk = false;
         for (const k of this.knocks.values()) if (k.fromId === u.id && k.state === 'walking') this.closeKnock(k, 'later', 'Knock cancelled', true);

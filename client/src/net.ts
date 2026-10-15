@@ -63,6 +63,9 @@ export class Store {
   staleBuild = false;         // the server serves another build than this page: reload when not in a call
   objects: Record<string, ObjectState> = {};
   jukebox: Record<string, JukeboxState> = {};
+  instruments: Record<string, string | null> = {};
+  seat: string | null = null;
+  lastNote: Record<string, number> = {};
   jukeboxOpen: string | null = null;
   private jukeboxReady = false;
   park: ParkLoop | null = null;
@@ -106,14 +109,30 @@ export class Store {
     ws.onopen = () => { this.connected = true; this.emit(); };
     ws.onmessage = (e) => this.onMessage(JSON.parse(e.data));
     ws.onclose = (e) => {
-      this.park?.runner.setLocalBits(0); this.cabinets = []; this.connected = false; this.voiceOwner = false; this.jukebox = {}; this.jukeboxReady = false; this.soundscape?.resetCrossings(); this.emit();
+      this.clearInstruments(); this.park?.runner.setLocalBits(0); this.cabinets = []; this.connected = false; this.voiceOwner = false; this.jukebox = {}; this.jukeboxReady = false; this.soundscape?.resetCrossings(); this.emit();
       if (e.code === 4001) return this.onUnauthorized();
       if (!this.closed) setTimeout(() => this.connect(), 1500);
     };
   }
-  close() { this.closed = true; this.park?.runner.setLocalBits(0); this.cabinets = []; this.connected = false; this.voiceOwner = false; this.jukebox = {}; this.jukeboxReady = false; this.soundscape?.resetCrossings(); this.emit(); this.ws?.close(); }
+  close() { this.closed = true; this.clearInstruments(); this.park?.runner.setLocalBits(0); this.cabinets = []; this.connected = false; this.voiceOwner = false; this.jukebox = {}; this.jukeboxReady = false; this.soundscape?.resetCrossings(); this.emit(); this.ws?.close(); }
   send(msg: ClientMsg) { if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(msg)); }
 
+  private clearInstruments() {
+    for (const id of Object.keys(this.instruments)) this.soundscape?.allOff(id);
+    this.instruments = {}; this.seat = null; this.lastNote = {};
+  }
+  private setInstruments(next: Record<string, string | null>) {
+    for (const [id, player] of Object.entries(this.instruments)) if (player && next[id] !== player) this.soundscape?.allOff(id, player);
+    this.instruments = next;
+  }
+  playInstrument(id: string) { if (this.seat !== id) this.send({ t: 'instrument', objectId: id, action: 'play' }); }
+  leaveInstrument() { if (this.seat) this.send({ t: 'instrument', objectId: this.seat, action: 'leave' }); }
+  sendNote(note: number, on: boolean, vel = 0, preset = 0) {
+    if (!this.seat) return;
+    const at = this.now();
+    this.soundscape?.playNote(this.seat, this.me, note, on, vel, preset, at);
+    this.send({ t: 'note', objectId: this.seat, note, on, vel, preset, at });
+  }
   // ---------- actions ----------
   openRecords(open = true) { this.recordsOpen = open; this.emit(); }
   gamePlay() { const s = this.park?.runner.session; if (s) this.send({ t: 'game_play', epoch: s.epoch }); }
@@ -387,6 +406,7 @@ export class Store {
           next.set(p.id, u);
         }
         this.users = next;
+        this.setInstruments(msg.instruments ?? {});
         this.objects = msg.objects ?? {};
         this.jukebox = msg.jukebox ?? {}; this.jukeboxReady = true;
         this.soundscape?.resetCrossings();
@@ -403,6 +423,9 @@ export class Store {
         }
         break;
       }
+      case 'instrument': this.setInstruments({ ...this.instruments, [msg.id]: msg.player }); break;
+      case 'seat': this.seat = msg.id; break;
+      case 'note': this.soundscape?.receiveNote(msg.id, msg.by, msg.note, msg.on, msg.vel, msg.preset, msg.at); return;
       case 'jukebox': if (this.jukeboxReady) this.jukebox = { ...this.jukebox, [msg.id]: msg.state }; break;
       case 'object': this.objects = { ...this.objects, [msg.id]: { on: msg.on } }; break;
       case 'react':

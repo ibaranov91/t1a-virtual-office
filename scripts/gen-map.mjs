@@ -280,6 +280,11 @@ obj('bench', 21, 26, 3, 1, { sit: true, dir: 'down' });
 obj('bench', 47, 26, 3, 1, { sit: true, dir: 'down' });
 obj('bench', 34, 31, 3, 1, { sit: true, dir: 'down' });
 
+// Music room stage, appended to preserve existing object ids.
+obj('keyboard', 55, 4, 2, 1, { use: { kind: 'instrument', instrument: 'keys', label: 'keys' } });
+obj('drum_kit', 58, 4, 2, 2, { use: { kind: 'instrument', instrument: 'drums', label: 'drums' } });
+obj('bass_amp', 61, 4, 1, 1, { use: { kind: 'instrument', instrument: 'bass', label: 'bass' } });
+
 // ---- standing spots (seats follow the furniture: applyLayout in shared/map.ts) ----
 for (const r of rooms) r.stand = [];
 const stand = (id, list) => rooms.find(r => r.id === id).stand.push(...list.map(([x, y, dir]) => ({ x, y, dir })));

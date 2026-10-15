@@ -108,3 +108,19 @@ test('the jukebox fills Music and nothing outside it, not even at the door; knoc
     gain: 1, cutoff: 20000, pan: 0, send: 0, apparent: { x: 37.5, y: 9.5 },
   });
 });
+
+test('each instrument fills Music and is silent outside it, the Desks door included (sealed rooms)', () => {
+  const instruments = map.objects.filter(o => o.use?.kind === 'instrument'); assert.equal(instruments.length, 3);
+  for (const o of instruments) {
+    const src = pose(o.x, o.y);
+    for (const id of ['music', 'lobby', 'studio']) {
+      const r = map.rooms.find(r => r.id === id)!.rect;
+      for (let y = r.y; y < r.y + r.h; y++) for (let x = r.x; x < r.x + r.w; x++) {
+        const gain = model(pose(x, y), src).gain;
+        if (id === 'music') assert.ok(gain >= .4 - 1e-9, `${o.type} at ${x},${y}: ${gain}`);
+        else assert.equal(gain, 0, `${o.type} in ${id} at ${x},${y}`);
+      }
+    }
+  }
+  for (const o of instruments) for (const [x, y] of [[53, 17], [53, 18], [52, 17]]) assert.equal(model(pose(x, y), pose(o.x, o.y)).gain, 0);
+});

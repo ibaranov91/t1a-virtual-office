@@ -2,7 +2,7 @@ import { test, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { World } from './world';
-import { isWalkable, layoutProblem, roomAt, seatAt, type TileMap, type Tile } from '../../shared/map';
+import { besideObject, playSpots, isWalkable, layoutProblem, roomAt, seatAt, type TileMap, type Tile } from '../../shared/map';
 import type { ServerMsg } from '../../shared/protocol';
 const base: TileMap = JSON.parse(readFileSync(new URL('../../shared/tilemap.json', import.meta.url), 'utf8'));
 
@@ -131,4 +131,28 @@ test('a saved radio layout with a blocked jukebox spot finds another spot in Mus
   assert.ok(o.x !== jukebox.x || o.y !== jukebox.y);
   assert.equal(layoutProblem(map2), null);
   assert.ok(map2.objects.some(o => o.id === blocker.id));
+});
+test('instruments move but cannot be added or removed; play spots put the behind row first', t => {
+  const { map, w, add } = setup(t), admin = add('Ivan', { x: 4, y: 17 }, 'ivan.baranov@t1a.com');
+  for (const o of map.objects.filter(o => o.use?.kind === 'instrument')) {
+    const beside = besideObject(map, o);
+    assert.deepEqual(playSpots(map, o), [...beside.filter(s => s.dir === 'down'), ...beside.filter(s => s.dir !== 'down')]);
+    w.edit(admin.u, { op: 'move', id: o.id, x: o.x, y: o.y + 2 });
+    assert.equal(map.objects.find(p => p.id === o.id)!.y, o.y + 2, notices(admin.messages).join('; '));
+    const before = JSON.stringify(map.objects);
+    w.edit(admin.u, { op: 'remove', id: o.id });
+    w.edit(admin.u, { op: 'add', type: o.type, x: o.x, y: o.y });
+    assert.equal(JSON.stringify(map.objects), before);
+  }
+  assert.equal(notices(admin.messages).length, 6);
+});
+test('an edit cutting off the last reachable spot at an instrument is refused', t => {
+  const { map, w, add } = setup(t), admin = add('Ivan', { x: 4, y: 17 }, 'ivan.baranov@t1a.com');
+  const keys = map.objects.find(o => o.type === 'keyboard')!, spots = besideObject(map, keys);
+  for (const s of spots.slice(0, -1)) w.edit(admin.u, { op: 'add', type: 'plant', x: s.x, y: s.y });
+  assert.deepEqual(notices(admin.messages), []);
+  const before = JSON.stringify(map.objects), last = spots.at(-1)!;
+  w.edit(admin.u, { op: 'add', type: 'plant', x: last.x, y: last.y });
+  assert.equal(JSON.stringify(map.objects), before);
+  assert.ok(notices(admin.messages).includes("Can't: nobody could reach the keyboard"));
 });

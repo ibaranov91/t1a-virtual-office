@@ -366,6 +366,35 @@ button:focus-visible, summary:focus-visible, input[type="range"]:focus-visible {
 .palette canvas { width: 32px; height: 32px; image-rendering: pixelated; }
 .edit-panel .reset { align-self: start; font-size: 12px; }
 
+/* Musical typing is a display of the physical keyboard, never a touch piano. */
+.instrument-panel { position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%); z-index: 6;
+  width: min(540px, calc(100% - 16px)); max-height: calc(100% - 24px); overflow: auto; padding: 10px 12px;
+  background: var(--panel); border: 2px solid var(--wood); border-radius: 10px; box-shadow: 0 8px 30px rgba(0,0,0,.5); }
+.instrument-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.instrument-head strong { color: var(--accent); }
+.instrument-head button { font-size: 12px; }
+.instrument-presets { display: flex; flex-wrap: wrap; gap: 4px; margin: 8px 0; }
+.instrument-presets button { font-size: 12px; }
+.instrument-presets .on { background: var(--accent); color: #2a1a10; }
+.instrument-settings { display: flex; flex-wrap: wrap; gap: 6px 18px; color: var(--muted); font-size: 12px; margin-bottom: 8px; }
+.typing-keyboard { position: relative; height: 110px; user-select: none; }
+.typing-whites { display: flex; height: 100%; gap: 2px; }
+.typing-key { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; gap: 4px; padding-bottom: 8px;
+  background: #efe2c6; color: #3a2329; border-radius: 0 0 4px 4px; font-size: 13px; }
+.typing-key small { font-size: 10px; }
+.typing-key.black { position: absolute; top: 0; width: 6%; height: 62%; transform: translateX(-50%); background: #3d3a52; color: #f0e6d2; border: 1px solid #8a929a; }
+.typing-key.held, .drum-pad.held { background: var(--accent); color: #2a1a10; }
+.drum-pads { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 5px; user-select: none; }
+.drum-pad { display: grid; align-content: center; justify-items: center; gap: 4px; min-height: 52px; padding: 4px; background: var(--panel2); border: 1px solid var(--wood); border-radius: 5px; }
+.drum-pad span { text-align: center; font-size: 10px; }
+.instrument-touch-hint { display: none; margin: 8px 0 0; color: var(--muted); font-size: 12px; }
+@media (hover: none) and (pointer: coarse) { .instrument-touch-hint { display: block; } }
+@media (max-width: 560px), (max-height: 500px) {
+  .instrument-panel { bottom: calc(66px + env(safe-area-inset-bottom)); max-height: calc(100% - 78px - env(safe-area-inset-bottom)); padding: 8px; }
+  .typing-keyboard { height: 90px; }
+  .typing-key small { font-size: 9px; }
+  .drum-pads { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
 /* Deck Park keeps the office mounted; only the cabinet owns input while it is open. */
 .office-chrome { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .park-overlay { position: fixed; inset: 0; z-index: 100; display: flex; flex-direction: column; min-width: 0;

@@ -1,3 +1,4 @@
+import type { InstrumentKind } from './instruments';
 import type { LayoutEdit } from './protocol';
 
 // Shared floor logic: used by the server AND every client, so paths are identical everywhere.
@@ -22,6 +23,7 @@ export interface Room {
 export interface UseItem { id: string; label: string; icon: string }
 /** What clicking an object offers: take something from it, flip it on/off, or look at your calendar on it. */
 export type ObjectUse = { kind: 'take'; items: UseItem[] } | { kind: 'toggle'; label: string } | { kind: 'calendar'; label: string }
+  | { kind: 'instrument'; instrument: InstrumentKind; label: string }
   | { kind: 'jukebox'; label: string }
   | { kind: 'arcade'; label: string; game: 'park' } | { kind: 'records'; label: string }
   | { kind: 'meetings'; label: string } // the board by the Meeting room: which calendar meetings are on
@@ -312,7 +314,7 @@ export function layoutProblem(m: TileMap, checkDungeonReach = true): string | nu
     if (!ok({ x: s.x + step.x, y: s.y + step.y })) return `that cuts off a seat in ${r.name}`;
   }
   // you walk over to these to use them (the calendars and boards just open)
-  for (const o of m.objects) if ((o.use?.kind === 'take' || o.use?.kind === 'toggle' || o.use?.kind === 'arcade') && !besideObject(m, o).some(ok)) return `nobody could reach the ${objectName(o.type)}`;
+  for (const o of m.objects) if ((o.use?.kind === 'take' || o.use?.kind === 'toggle' || o.use?.kind === 'arcade' || o.use?.kind === 'instrument') && !besideObject(m, o).some(ok)) return `nobody could reach the ${objectName(o.type)}`;
   return null;
 }
 
@@ -321,7 +323,7 @@ export const objectName = (type: string) => ({ table_long: 'long table', table_b
   painting_small: 'small painting', coffee_machine: 'coffee machine', meetings_board: 'meetings board', noticeboard: 'notice board', exit_door: 'exit door' } as Record<string, string>)[type] ?? type.replace(/_/g, ' ');
 
 /** Types that are one of a kind (the way out, the coffee machine…): they can be moved but not removed. */
-export const KEEP_TYPES = new Set(['exit_door', 'coffee_machine', 'fridge', 'jukebox', 'arcade', 'records', 'meetings_board', 'noticeboard', 'safe']);
+export const KEEP_TYPES = new Set(['exit_door', 'coffee_machine', 'fridge', 'jukebox', 'arcade', 'records', 'meetings_board', 'noticeboard', 'safe', 'keyboard', 'drum_kit', 'bass_amp']);
 /** Types that stay exactly where they are. */
 export const FIXED_TYPES = new Set(['exit_door']);
 export const RUG_MIN = 2, RUG_MAX = 24;
@@ -375,6 +377,12 @@ export function withLayout(m: TileMap, l: Layout): TileMap {
   const copy: TileMap = { ...m, layers: { ...m.layers }, rooms: m.rooms.map(r => ({ ...r })) };
   applyLayout(copy, structuredClone(l));
   return copy;
+}
+
+/** Behind the instrument first; preserve besideObject order within each group. */
+export function playSpots(m: TileMap, o: MapObject): Spot[] {
+  const spots = besideObject(m, o);
+  return [...spots.filter(s => s.dir === 'down'), ...spots.filter(s => s.dir !== 'down')];
 }
 
 /** Replace the old east wing once, including its one-of-a-kind fixtures an admin moved out of it. The saved ids come from
