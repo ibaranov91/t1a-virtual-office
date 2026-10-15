@@ -657,15 +657,19 @@ export class World {
     if (typeof next === 'string') return this.sendTo(u.id, { t: 'notice', text: `Can't: ${next}` });
     this.setLayout(next, u, edit.op === 'add' || edit.op === 'rug_add' ? added : undefined);
   }
-  /** A saved layout plus any one-of-a-kind object a newer build added to the floor (a release puts a safe in the
-   *  Lobby; an office rearranged before that still gets one), at its generated spot when that's still free. */
+  /** A saved layout brought up to date with this build's one-of-a-kind objects: a new one (a release puts a vault
+   *  door in the Lobby) goes at its generated spot when that's still free; one the admin already placed keeps its
+   *  spot but takes the build's definition (a new link, say), unless its shape changed (the safe moved into the
+   *  wall), when it goes back to the generated spot too. */
   private withNewFixtures(saved: Layout): Layout {
     const out = { objects: [...saved.objects], rugs: saved.rugs };
     for (const o of this.baseLayout.objects) {
-      if (!KEEP_TYPES.has(o.type) || out.objects.some(s => s.type === o.type)) continue;
-      const next = { ...out, objects: [...out.objects, structuredClone(o)] };
+      if (!KEEP_TYPES.has(o.type)) continue;
+      const i = out.objects.findIndex(s => s.type === o.type), have = i >= 0 ? out.objects[i] : undefined;
+      if (have && !!have.wall === !!o.wall && have.w === o.w && have.h === o.h) { out.objects[i] = { ...structuredClone(o), id: have.id, x: have.x, y: have.y }; continue; }
+      const next = { ...out, objects: [...out.objects.filter((_, j) => j !== i), structuredClone(o)] };
       const problem = layoutProblem(withLayout(this.map, next));
-      if (problem) console.warn(`new ${objectName(o.type)} not added to the saved layout: ${problem}`);
+      if (problem) console.warn(`${have ? 'reshaped' : 'new'} ${objectName(o.type)} not placed in the saved layout: ${problem}`);
       else out.objects = next.objects;
     }
     return out;
