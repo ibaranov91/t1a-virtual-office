@@ -188,6 +188,25 @@ const W1 = '#c8874a', W1L = '#dba066', W1D = '#9c5f30', W1DD = '#7d4a26';
   t.rect(3, 5, 10, 7, '#b4534a'); t.hline(4, 5, 8, '#d0756a'); t.hline(3, 11, 10, '#843a35');
   t.vline(3, 12, 2, W1DD); t.vline(12, 12, 2, W1DD);
   frames.chair = t.outline();
+  frames.chair_down = frames.chair; // sitter faces down: backrest behind them
+}
+{
+  // sitter faces up (toward a desk): seat here, backrest drawn OVER the sitter as a separate frame
+  const seat = new Img(16, 16);
+  seat.rect(3, 3, 10, 7, '#b4534a'); seat.hline(4, 3, 8, '#d0756a'); seat.hline(3, 9, 10, '#843a35');
+  seat.vline(3, 10, 4, W1DD); seat.vline(12, 10, 4, W1DD);
+  frames.chair_up = seat.outline();
+  const back = new Img(16, 16);
+  back.rect(3, 9, 10, 4, W1D); back.hline(3, 9, 10, W1); back.hline(3, 12, 10, W1DD);
+  back.vline(3, 13, 2, W1DD); back.vline(12, 13, 2, W1DD);
+  frames.chair_up_back = back.outline();
+  // sitter faces right: backrest on the left
+  const r = new Img(16, 16);
+  r.rect(2, 1, 3, 12, W1D); r.vline(2, 1, 12, W1);
+  r.rect(5, 5, 8, 7, '#b4534a'); r.hline(5, 5, 8, '#d0756a'); r.hline(5, 11, 8, '#843a35');
+  r.vline(2, 13, 1, W1DD); r.vline(12, 12, 2, W1DD);
+  frames.chair_right = r.outline();
+  frames.chair_left = r.mirror();
 }
 {
   const t = new Img(16, 16); // stool
@@ -422,14 +441,17 @@ const DIRS = ['down', 'left', 'right', 'up'];
 
 function drawChar(style, dir, f) {
   const t = new Img(16, 24);
-  const bob = f === 2 || f === 4 ? -1 : 0;
+  const sit = f === 5; // seated: body drops 2px, legs fold forward
+  const bob = sit ? 2 : f === 2 || f === 4 ? -1 : 0;
   const stepA = f === 1, stepB = f === 3;
   if (dir === 'down' || dir === 'up') {
     // legs + shoes (grounded, no bob)
-    const lh = stepA ? 4 : stepB ? 2 : 3, rh = stepB ? 4 : stepA ? 2 : 3;
-    t.rect(5, 19, 3, lh, K.pants); t.vline(5, 19, lh, K.pantsShade);
-    t.rect(8, 19, 3, rh, K.pants); t.vline(10, 19, rh, K.pantsShade);
-    t.rect(5, 19 + lh, 3, 1, SHOE); t.rect(8, 19 + rh, 3, 1, SHOE);
+    if (!sit) {
+      const lh = stepA ? 4 : stepB ? 2 : 3, rh = stepB ? 4 : stepA ? 2 : 3;
+      t.rect(5, 19, 3, lh, K.pants); t.vline(5, 19, lh, K.pantsShade);
+      t.rect(8, 19, 3, rh, K.pants); t.vline(10, 19, rh, K.pantsShade);
+      t.rect(5, 19 + lh, 3, 1, SHOE); t.rect(8, 19 + rh, 3, 1, SHOE);
+    }
     // torso
     t.rect(4, 13 + bob, 8, 7, K.shirt); t.vline(4, 13 + bob, 7, K.shirtShade); t.vline(11, 13 + bob, 7, K.shirtShade);
     t.hline(4, 19 + bob, 8, K.shirtShade);
@@ -438,6 +460,10 @@ function drawChar(style, dir, f) {
     t.rect(3, 13 + bob, 1, 4 + la, K.shirtShade); t.px(3, 17 + bob + la, K.skin);
     t.rect(12, 13 + bob, 1, 4 + ra, K.shirtShade); t.px(12, 17 + bob + ra, K.skin);
     if (dir === 'down') { t.hline(7, 13 + bob, 2, K.skin); }
+    if (sit && dir === 'down') { // lap toward the viewer, feet dangling
+      t.rect(4, 20, 8, 2, K.pants); t.hline(4, 21, 8, K.pantsShade); t.vline(8, 20, 2, K.pantsShade);
+      t.rect(5, 22, 2, 1, SHOE); t.rect(9, 22, 2, 1, SHOE);
+    }
     // head
     const hy = 2 + bob;
     t.rect(3, hy + 2, 10, 9, K.skin); t.hline(4, hy + 1, 8, K.skin); t.hline(4, hy + 11, 8, K.skinShade);
@@ -464,13 +490,14 @@ function drawChar(style, dir, f) {
   } else { // left (right is mirrored)
     const front = stepA ? -2 : stepB ? 1 : 0, back = stepA ? 2 : stepB ? -1 : 0;
     // back leg
-    t.rect(8 + back, 19, 2, 3, K.pantsShade); t.rect(7 + back, 22, 3, 1, SHOE);
+    if (!sit) { t.rect(8 + back, 19, 2, 3, K.pantsShade); t.rect(7 + back, 22, 3, 1, SHOE); }
     // torso
     t.rect(5, 13 + bob, 6, 7, K.shirt); t.vline(10, 13 + bob, 7, K.shirtShade); t.hline(5, 19 + bob, 6, K.shirtShade);
-    // front leg
-    t.rect(6 + front, 19, 2, 3, K.pants); t.rect(5 + front, 22, 3, 1, SHOE);
+    // front leg (seated: thigh forward, shin down)
+    if (sit) { t.rect(3, 19, 7, 2, K.pants); t.hline(3, 20, 7, K.pantsShade); t.rect(3, 21, 2, 1, K.pants); t.rect(2, 22, 3, 1, SHOE); }
+    else { t.rect(6 + front, 19, 2, 3, K.pants); t.rect(5 + front, 22, 3, 1, SHOE); }
     // arm
-    const ax = stepA ? 9 : stepB ? 6 : 7;
+    const ax = sit ? 6 : stepA ? 9 : stepB ? 6 : 7;
     t.rect(ax, 14 + bob, 2, 3, K.shirtShade); t.hline(ax, 17 + bob, 2, K.skin);
     // head (profile facing left)
     const hy = 2 + bob;
@@ -486,7 +513,7 @@ function drawChar(style, dir, f) {
   return t.outline();
 }
 
-const CW = 16, CH = 24, FPD = 5;
+const CW = 16, CH = 24, FPD = 6; // idle, 4 walk, sit
 const chars = new Img(CW * FPD, CH * DIRS.length * STYLES.length);
 STYLES.forEach((style, si) => DIRS.forEach((dir, di) => {
   for (let f = 0; f < FPD; f++) {

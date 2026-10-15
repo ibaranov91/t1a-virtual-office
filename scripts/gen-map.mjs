@@ -22,7 +22,7 @@ const EXIT = { x: 12, y: 13 };
 // ---- rooms (floor rectangles, walls excluded) ----
 const rooms = [
   { id: 'focus', name: 'Focus', type: 'focus', rect: { x: 1, y: 3, w: 12, h: 8 }, capacity: 6,
-    floor: 'wood_dark', rug: 'green',
+    floor: 'wood_dark', rug: 'green', homeDesks: true,
     rules: { knock: 'disabled', label: 'quiet — no knocking' },
     meeting: { provider: 'meet', url: 'https://meet.google.com/new' } },
   { id: 'meeting', name: 'Meeting', type: 'meeting', rect: { x: 14, y: 3, w: 12, h: 8 }, capacity: 8,
@@ -38,7 +38,7 @@ const rooms = [
     rules: { knock: 'allow', label: 'say hi' },
     meeting: { provider: 'meet', url: 'https://meet.google.com/new' } },
   { id: 'cowork', name: 'Co-working', type: 'cowork', rect: { x: 16, y: 13, w: 23, h: 10 }, capacity: 16,
-    floor: 'wood', rug: 'teal',
+    floor: 'wood', rug: 'teal', homeDesks: true,
     rules: { knock: 'allow', label: 'open mic' },
     meeting: { provider: 'meet', url: 'https://meet.google.com/new' } },
 ];
@@ -107,7 +107,6 @@ obj('painting', 23, 1, 1, 2, { wall: true });
 obj('noticeboard', 2, 12, 2, 1, { wall: true });
 obj('clock', 25, 12, 1, 1, { wall: true });
 obj('painting_small', 10, 12, 1, 1, { wall: true });
-obj('exit_door', EXIT.x, 12, 1, 1, { wall: true });
 
 // Focus: desks with monitors, chairs, a lamp, bookshelf
 for (const [dx, dy] of [[2, 4], [5, 4], [8, 4], [2, 8], [9, 8]]) {
@@ -158,6 +157,9 @@ obj('plant', 38, 13, 1, 1);
 obj('plant', 16, 22, 1, 1);
 obj('lamp', 38, 22, 1, 1, { light: true });
 
+// Lobby exit door (last, so earlier object ids stay put)
+obj('exit_door', EXIT.x, 12, 1, 1, { wall: true });
+
 // ---- walkable mask ----
 const walkable = grid(1);
 for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (walls[y][x]) walkable[y][x] = 0;
@@ -181,7 +183,8 @@ for (const r of rooms) r.spots = [];
 for (const o of objects) {
   if (o.type !== 'chair' && o.type !== 'stool') continue;
   const r = roomOf(o.x, o.y);
-  if (r) r.spots.push({ x: o.x, y: o.y, dir: seatDir(o) });
+  o.dir = seatDir(o);
+  if (r) r.spots.push({ x: o.x, y: o.y, dir: o.dir });
 }
 const stand = (id, list) => rooms.find(r => r.id === id).spots.push(...list.map(([x, y, dir]) => ({ x, y, dir })));
 stand('coffee', [[30, 8, 'down'], [31, 8, 'down'], [33, 5, 'up'], [29, 4, 'up'], [37, 7, 'left']]);

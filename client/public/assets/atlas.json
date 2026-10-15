@@ -448,81 +448,111 @@
    "w": 16,
    "h": 16
   },
-  "stool": {
+  "chair_down": {
    "x": 0,
    "y": 142,
    "w": 16,
    "h": 16
   },
-  "painting_small": {
+  "chair_up": {
    "x": 17,
    "y": 142,
    "w": 16,
    "h": 16
   },
-  "clock": {
+  "chair_up_back": {
    "x": 34,
    "y": 142,
    "w": 16,
    "h": 16
   },
-  "exit_door": {
+  "chair_right": {
    "x": 51,
    "y": 142,
    "w": 16,
    "h": 16
   },
-  "doormat": {
+  "chair_left": {
    "x": 68,
    "y": 142,
    "w": 16,
    "h": 16
   },
-  "bubble_zzz": {
+  "stool": {
    "x": 85,
+   "y": 142,
+   "w": 16,
+   "h": 16
+  },
+  "painting_small": {
+   "x": 102,
+   "y": 142,
+   "w": 16,
+   "h": 16
+  },
+  "clock": {
+   "x": 119,
+   "y": 142,
+   "w": 16,
+   "h": 16
+  },
+  "exit_door": {
+   "x": 136,
+   "y": 142,
+   "w": 16,
+   "h": 16
+  },
+  "doormat": {
+   "x": 153,
+   "y": 142,
+   "w": 16,
+   "h": 16
+  },
+  "bubble_zzz": {
+   "x": 170,
    "y": 142,
    "w": 14,
    "h": 14
   },
   "bubble_headset": {
-   "x": 100,
+   "x": 185,
    "y": 142,
    "w": 14,
    "h": 14
   },
   "bubble_bang": {
-   "x": 115,
+   "x": 200,
    "y": 142,
    "w": 14,
    "h": 14
   },
   "bubble_dots": {
-   "x": 130,
+   "x": 215,
    "y": 142,
    "w": 14,
    "h": 14
   },
   "bubble_think": {
-   "x": 145,
+   "x": 230,
    "y": 142,
    "w": 14,
    "h": 14
   },
   "bubble_meeting": {
-   "x": 160,
-   "y": 142,
+   "x": 0,
+   "y": 159,
    "w": 14,
    "h": 14
   },
   "bag": {
-   "x": 175,
-   "y": 142,
+   "x": 15,
+   "y": 159,
    "w": 10,
    "h": 10
   },
   "marker": {
-   "x": 186,
-   "y": 142,
+   "x": 26,
+   "y": 159,
    "w": 10,
    "h": 8
   }
@@ -531,7 +561,7 @@
   "image": "characters.png",
   "frameW": 16,
   "frameH": 24,
-  "framesPerDir": 5,
+  "framesPerDir": 6,
   "dirs": [
    "down",
    "left",

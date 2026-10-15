@@ -38,6 +38,7 @@ export function startBots(world: World, count = 4) {
 
   const goSomewhere = (b: User, preferRoom?: string) => {
     const occ = world.occupied();
+    for (const d of world.claimedDesks()) occ.add(d); // never sit at someone's home desk
     const room = preferRoom ? map.rooms.find(r => r.id === preferRoom)! : pickWeighted(map.rooms, r => ROOM_WEIGHT[r.id] ?? 1);
     const free = room.spots.filter(s => !occ.has(`${s.x},${s.y}`));
     if (free.length) {

@@ -1,14 +1,19 @@
 import { randomUUID } from 'node:crypto';
 import {
-  findPath, isWalkable, pathDuration, roomAt, sampleMove, WALK_MS_PER_TILE,
+  findPath, isWalkable, pathDuration, roomAt, sampleMove, seatAt, WALK_MS_PER_TILE,
   type Dir, type TileMap, type Tile,
 } from '../../shared/map';
-import type { ClientMsg, Door, Knock, Look, Presence, PublicUser, ServerMsg } from '../../shared/protocol';
+import { normalizeMeetLink, type ClientMsg, type Door, type Knock, type Look, type Presence, type PublicUser, type ServerMsg } from '../../shared/protocol';
 
 export interface User extends PublicUser {
   path: Tile[] | null; // path of the current move (server-side bookkeeping)
   email?: string;       // identity from NetBird; never broadcast
+  meetLink?: string;    // personal reusable Google Meet room; only shared with knock partners
+  offlineAt?: number;   // when they walked out the door (not persisted)
+  lastSpot?: Tile;      // where they were before heading out (not persisted)
 }
+
+const WALK_HOME_AFTER_MS = 5 * 60_000; // back within this: return to where you were, else your home desk
 
 const SKINS = ['#f8dcc0', '#f2c79b', '#e2ad7f', '#c98d5e', '#a46a43', '#7c4f32'];
 const HAIRS = ['#2b1d1f', '#4f2b1a', '#6b3e26', '#a0603a', '#d8a050', '#ecd59a', '#b4473a', '#8c8a98', '#3e5a8a', '#c8789a'];
@@ -47,7 +52,7 @@ export class World {
     return { t: 'state', serverTime: Date.now(), users: [...this.users.values()].map(this.toPublic) };
   }
   private toPublic = (u: User): PublicUser => {
-    const { path: _p, email: _e, ...pub } = u;
+    const { path: _p, email: _e, meetLink: _m, ...pub } = u;
     return pub;
   };
 
@@ -61,6 +66,7 @@ export class World {
     this.stayAfterAll(u);
     if (u.presence === 'offline') this.comeIn(u);
     send(this.snapshot());
+    send({ t: 'me', meetLink: u.meetLink ?? '' });
     return () => {
       this.listeners.delete(send);
       const set = this.sockets.get(userId)!; set.delete(send);
@@ -69,20 +75,27 @@ export class World {
   }
 
   // ---------- arriving & leaving ----------
-  /** Back from offline: step in through the exit door, bag in hand, and walk to the lobby. */
+  /** Back from offline: step in through the exit door, bag in hand, and walk to their spot. */
   private comeIn(u: User) {
-    const to = this.freeLobbyTile(); // before going online, so their own old tile doesn't count as taken
+    const to = this.arrivalSpot(u); // before going online, so their own old tile doesn't count as taken
     u.tile = { ...this.map.exit }; u.move = null; u.path = null; u.dir = 'down';
     this.setDoor(u, 'arriving');
     this.setPresence(u, 'online');
     const at = this.walk(u, to) ?? Date.now();
     this.doorTimer(u, () => this.setDoor(u, null), Math.max(0, at - Date.now()));
   }
+  /** Where you were if you're back soon, else your home desk, else a free Lobby tile — whichever is free. */
+  private arrivalSpot(u: User): Tile {
+    const occ = this.occupied();
+    const free = (t?: Tile | null) => (t && !occ.has(`${t.x},${t.y}`) ? t : null);
+    const recent = u.offlineAt !== undefined && Date.now() - u.offlineAt < WALK_HOME_AFTER_MS;
+    return (recent && free(u.lastSpot)) || free(u.homeDesk) || this.freeLobbyTile(occ);
+  }
   /** A random free Lobby tile, kept clear of the doorway; the spawn point if the Lobby is packed. */
-  private freeLobbyTile(): Tile {
+  private freeLobbyTile(occ: Set<string>): Tile {
     const lobby = this.map.rooms.find(r => r.id === 'lobby');
     if (!lobby) return this.map.spawn;
-    const occ = this.occupied(), { exit } = this.map, { x: rx, y: ry, w, h } = lobby.rect;
+    const { exit } = this.map, { x: rx, y: ry, w, h } = lobby.rect;
     const free: Tile[] = [];
     for (let y = ry; y < ry + h; y++) for (let x = rx; x < rx + w; x++) {
       if (!isWalkable(this.map, x, y) || occ.has(`${x},${y}`)) continue;
@@ -97,9 +110,11 @@ export class World {
     this.doorTimer(u, () => {
       for (const k of this.knocks.values()) if (k.fromId === u.id && (k.state === 'walking' || k.state === 'pending')) this.closeKnock(k, 'later', 'Knock cancelled');
       this.setDoor(u, 'leaving');
+      u.lastSpot = this.position(u).dest;
       const at = this.walk(u, this.map.exit, 'up') ?? Date.now();
       this.doorTimer(u, () => {
         this.setDoor(u, null);
+        u.offlineAt = Date.now();
         this.setPresence(u, 'offline');
       }, Math.max(0, at - Date.now()) + DOOR_PAUSE_MS);
     }, LEAVE_GRACE_MS);
@@ -128,7 +143,7 @@ export class World {
     const u: User = {
       email,
       id: randomUUID().slice(0, 8), name, look: lookFor(name), tile: tile ?? { ...this.map.spawn }, dir: 'down',
-      move: null, path: null, presence: bot ? 'online' : 'offline', status: '', emote: null, bot, door: null,
+      move: null, path: null, presence: bot ? 'online' : 'offline', status: '', emote: null, bot, homeDesk: null, door: null,
     };
     this.users.set(u.id, u);
     this.broadcast(this.snapshot());
@@ -155,12 +170,31 @@ export class World {
     const path = findPath(this.map, from, to);
     if (!path.length) return null;
     const startedAt = Math.round(now + pos.remainingMs);
+    face ??= seatAt(this.map, to.x, to.y)?.dir; // sit facing the desk/table
     u.move = { from, to, startedAt, face }; u.path = path; u.tile = to;
     if (face) u.dir = face;
     else if (path.length > 1) { const a = path[path.length - 2], b = path[path.length - 1]; u.dir = b.x > a.x ? 'right' : b.x < a.x ? 'left' : b.y > a.y ? 'down' : 'up'; }
     this.broadcast({ t: 'move', userId: u.id, from, to, startedAt, face });
     return startedAt + pathDuration(path);
   }
+
+  // ---------- home desks ----------
+  deskOwner(t: Tile) { return [...this.users.values()].find(o => o.homeDesk?.x === t.x && o.homeDesk?.y === t.y); }
+  claimedDesks() { const s = new Set<string>(); for (const o of this.users.values()) if (o.homeDesk) s.add(`${o.homeDesk.x},${o.homeDesk.y}`); return s; }
+  private setDesk(u: User, desk: Tile | null) {
+    u.homeDesk = desk;
+    this.broadcast({ t: 'desk', userId: u.id, desk });
+  }
+  claimDesk(u: User) {
+    const p = this.position(u);
+    if (p.remainingMs > 0 || p.dest.x !== p.tile.x || p.dest.y !== p.tile.y) return; // must be sitting, not walking
+    const seat = seatAt(this.map, p.tile.x, p.tile.y);
+    if (!seat?.homeDesk) return;
+    const owner = this.deskOwner(seat);
+    if (owner && owner.id !== u.id) return;
+    this.setDesk(u, { x: seat.x, y: seat.y });
+  }
+  releaseDesk(u: User) { if (u.homeDesk) this.setDesk(u, null); }
 
   setStatus(u: User, status: string) {
     u.status = status.slice(0, 80);
@@ -244,12 +278,18 @@ export class World {
     k.state = reply;
     const to = this.users.get(k.toId);
     if (to && wasPending && to.emote === 'knock') this.setEmote(to, null);
-    let link: string | undefined;
+    const base = { t: 'knock_reply', knockId: k.id, fromId: k.fromId, toId: k.toId, reply, reason } as const;
     if (reply === 'accept' && to) {
+      // the knocker's own Meet room, so both land in the same call; else the room's generic link
+      const from = this.users.get(k.fromId);
       const room = this.roomOf(to) ?? this.map.rooms.find(r => r.id === 'lobby')!;
-      link = room.meeting.url;
-    }
-    this.broadcast({ t: 'knock_reply', knockId: k.id, fromId: k.fromId, toId: k.toId, reply, link, reason });
+      const link = from?.meetLink ?? room.meeting.url;
+      const fallback = !from?.meetLink;
+      // the link goes only to the two people involved; everyone else just learns the knock is over
+      const pair = new Set([k.fromId, k.toId]);
+      for (const id of pair) this.sendTo(id, { ...base, link, fallback });
+      for (const [id] of this.sockets) if (!pair.has(id)) this.sendTo(id, base);
+    } else this.broadcast(base);
     setTimeout(() => this.knocks.delete(k.id), 60_000);
   }
 
@@ -263,6 +303,16 @@ export class World {
         break;
       }
       case 'status': this.setStatus(u, String(msg.status ?? '')); break;
+      case 'claim_desk': this.claimDesk(u); break;
+      case 'release_desk': this.releaseDesk(u); break;
+      case 'meet_link': {
+        const raw = String(msg.link ?? '');
+        const link = raw.trim() ? normalizeMeetLink(raw) : '';
+        if (link === null) break; // invalid: ignore, the client validates too
+        u.meetLink = link || undefined;
+        this.sendTo(u.id, { t: 'me', meetLink: link });
+        break;
+      }
       case 'presence': if (['online', 'away', 'in_call'].includes(msg.presence)) this.setPresence(u, msg.presence); break;
       case 'knock': { const to = this.users.get(msg.targetId); if (to) this.knock(u, to); break; }
       case 'knock_reply': this.reply(u, msg.knockId, msg.reply === 'accept' ? 'accept' : 'later'); break;
@@ -274,14 +324,14 @@ export class World {
     return {
       users: [...this.users.values()].map(u => {
         const p = this.position(u).dest;
-        return { id: u.id, name: u.name, email: u.email, look: u.look, tile: p, dir: u.dir, status: u.status, presence: u.presence, bot: u.bot };
+        return { id: u.id, name: u.name, email: u.email, meetLink: u.meetLink, homeDesk: u.homeDesk, look: u.look, tile: p, dir: u.dir, status: u.status, presence: u.presence, bot: u.bot };
       }),
     };
   }
   load(data: ReturnType<World['dump']>) {
     for (const d of data.users ?? []) {
       const tile = isWalkable(this.map, d.tile.x, d.tile.y) ? d.tile : { ...this.map.spawn };
-      this.users.set(d.id, { ...d, tile, move: null, path: null, emote: null, door: null, presence: d.bot ? d.presence : 'offline' });
+      this.users.set(d.id, { ...d, homeDesk: d.homeDesk ?? null, tile, move: null, path: null, emote: null, door: null, presence: d.bot ? d.presence : 'offline' });
     }
   }
 }
