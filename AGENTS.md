@@ -55,9 +55,9 @@ A menu bar app that hosts the normal web client in one WKWebView. Click the icon
 right-click for the menu: pin to desktop (a borderless window just above the desktop icons), arrange it,
 pick the instance, pop up on knock. The web view moves between the window and the desktop, so it's one
 page and one WebSocket. `client/src/native.ts` tells the app about knocks and calls and exposes
-`window.__deckNative` (reply, mute, leave); it does nothing in a normal browser. A knock shows a small native
-card under the icon (Accept / Later, then a mini call bar). When you're away or already in a call it only
-flaps the icon orange.
+`window.__deckNative.reply`; it does nothing in a normal browser. A knock shows a small native card under the
+icon (Open / Later). You accept inside The Deck on purpose, so voice starts from a click in the page. When
+you're away or already in a call a knock only flaps the icon orange.
 ```bash
 macos/build.sh                    # → macos/build/The Deck.app (Command Line Tools are enough, no Xcode)
 defaults write io.t1a.deck url "http://localhost:5173/?as=Mac"   # or pick an instance from the menu

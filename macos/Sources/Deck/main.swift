@@ -31,7 +31,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
   var state = DeckState()
   let card = KnockCard()
   var ringing: Timer?
-  var joining = false // accepted from the card; the call hasn't shown up yet
 
   var url: String {
     get { defaults.string(forKey: "url") ?? instances[0].url }
@@ -87,17 +86,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
     status.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
     renderIcon()
 
-    card.onReply = { [weak self] id, reply in
-      guard let self else { return }
-      self.js("__deckNative.reply(\(json(id)), \(json(reply)))")
-      guard reply == "accept", let b = self.status.button else { return self.card.close() }
-      self.joining = true
-      self.card.show(.call, self.state, from: b)
-      DispatchQueue.main.asyncAfter(deadline: .now() + 8) { if self.joining { self.joining = false; self.card.close() } }
-    }
-    card.onMute = { [weak self] in self?.js("__deckNative.toggleMute()") }
-    card.onLeave = { [weak self] in self?.js("__deckNative.leave()"); self?.card.close() }
-    card.onOpen = { [weak self] in self?.card.close(); self?.showPopover() }
+    card.onLater = { [weak self] id in self?.js("__deckNative.reply(\(json(id)), 'later')") }
+    card.onOpen = { [weak self] in self?.showPopover() }
 
     load()
     placeWeb()
@@ -285,31 +275,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
     guard let m = message.body as? [String: Any], m["type"] as? String == "state" else { return }
     let old = state
     state = DeckState(connected: m["connected"] as? Bool ?? false, inCall: m["inCall"] as? Bool ?? false,
-                      muted: m["muted"] as? Bool ?? false, busy: m["busy"] as? Bool ?? false,
-                      callWith: m["callWith"] as? String ?? "",
+                      busy: m["busy"] as? Bool ?? false,
                       knocks: (m["knocks"] as? [[String: Any]] ?? []).compactMap { k in
                         (k["id"] as? String).map { ($0, k["text"] as? String ?? "Someone is knocking") } })
     renderIcon()
     updateCard(old)
   }
 
-  /// Knock card: new knock → card (or just a ringing icon when busy / the Deck is already in front);
-  /// knock answered → call bar if we're now in the call, else gone; call over → gone.
+  /// New knock → card under the icon (or just a ringing icon when busy / the Deck is already in front).
+  /// Answering happens in the page, so the call (and voice) starts from a click there.
   func updateCard(_ old: DeckState) {
     let fresh = state.knocks.filter { k in !old.knocks.contains { $0.id == k.id } }
     let deckInFront = popover.isShown || (window.isVisible && NSApp.isActive)
     if let k = fresh.last {
       ring()
-      if popOnKnock && !state.busy && !deckInFront, let b = status.button { return card.show(.knock(id: k.id, text: k.text), state, from: b) }
+      if popOnKnock && !state.busy && !deckInFront, let b = status.button { return card.show(id: k.id, text: k.text, from: b) }
     }
-    switch card.mode {
-    case .knock(let id, _) where !state.knocks.contains(where: { $0.id == id }):
-      card.close() // answered elsewhere, or expired
-    case .call:
-      if state.inCall { joining = false; if let b = status.button { card.show(.call, state, from: b) } }
-      else if !joining { card.close() }
-    default: break
-    }
+    if let id = card.knockId, !state.knocks.contains(where: { $0.id == id }) { card.close() } // answered elsewhere, or expired
   }
 
   // MARK: web view plumbing
