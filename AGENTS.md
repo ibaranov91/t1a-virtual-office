@@ -66,7 +66,8 @@ npm run typecheck    # run before every commit or deploy
   heads-up a minute before with **Go** and the event's own call link. Go puts you in the meeting's **instance**: a copy
   of the Meeting room (same tiles), where only people with the same `instance` see each other; the office sees them on
   the board by the Meeting room and under "In meetings". No voice inside. Leave, or the meeting's end, puts you back
-  where you were. Instances live in memory only.
+  where you were, still in the meeting (busy). The chip then offers **Rejoin** or **Leave meeting** (`meeting_out`): no longer
+  busy, knocks come through again, Go puts you back in. Instances and who left live in memory only.
 - **Zoom** is whole device pixels per art pixel (crisp; on Retina that includes 1.5×, 2.5×), glides 140 ms between levels
   and is remembered per device (`deck.zoom`). The lowest level fits the whole floor: the overview, with room tags and a
   "You" pin; when it's small, a tap zooms in instead of walking. Pinch, ⌘/ctrl-scroll, `+ − 0`, `M`. Phones and short
@@ -76,7 +77,9 @@ npm run typecheck    # run before every commit or deploy
   Playback is server state timed by the server clock; anyone standing in the room queues, pauses and skips (controls
   name the current `playId`, so stale clicks do nothing). Clients stream a track through one `<audio>` element into
   the soundscape and only while it's audible, so nobody outside the room downloads music. Static files support HTTP
-  Range (`server/src/static.ts`), which media seeking needs.
+  Range (`server/src/static.ts`), which media seeking needs. `npm run gen:music -- --force`
+  re-encodes everything, and new content hashes add ~35 MB to git history each time, so use it only when the
+  pipeline itself changes.
 - **Edit mode** (pencil in the top bar, admins only: `DECK_ADMINS`, emails, default `ivan.baranov@t1a.com`; `npm run dev`
   adds the name `dev`, and names only count for logins without an email). Admins drag furniture and rugs, add from the
   catalog (one of each generated type), recolor/resize rugs, Reset. Walls, floors and rooms stay as generated; the
@@ -85,6 +88,10 @@ npm run typecheck    # run before every commit or deploy
   refuses anything that blocks a doorway, the way in, a seat or a coffee machine/lamp (the client runs the same check for
   the red/green ghost). Home desks follow their chair; people under new furniture step aside. A saved layout overrides
   `gen-map.mjs`'s furniture, so after changing the generator, Reset (or drop `layout` from `state.json`) to see it.
+- **Dungeon:** one grid has two unconnected areas; `MAP.office` bounds the office camera, overview and edit mode.
+  Only a human's own `move` ending on the garden hole can fall into `instance: 'dungeon'`; `walkSeq` cancels stale
+  fall/key/door timers on any later walk or placement. The server owns key state and sends it only to its owner;
+  client discovery resets per visit. Neither is persisted.
 - **Room behavior is data.** Knock rules, meeting links and home-desk rooms live in `tilemap.json`
   (from `gen-map.mjs`), not in code.
 
@@ -118,8 +125,11 @@ page answers curl with 401); deploy.sh sets `DECK_PUBLIC_URL` / `DECK_INSTALL_UR
   The build id is a hash of the app's sources, so deploys without native changes don't update anything.
 - **Signing:** `macos/make-cert.sh` creates the self-signed "T1A Deck" identity in `~/.deck-signing` (its own
   keychain). A stable signer keeps the mic permission across updates and lets updates verify the signer.
-  **Everyone who deploys must use the same identity** (`make-cert.sh import <p12>`), or installed apps
-  refuse the update. Without it, builds are ad-hoc and every update re-asks for the mic.
+  **Everyone who deploys must use the same identity** (`make-cert.sh import <p12>`, never a new one), or
+  installed apps refuse the update. Without it, or if the Mac build fails, deploy.sh keeps the signed app the
+  instance already serves as long as the app's sources haven't changed (same build id), and stops if they have
+  (`DECK_ALLOW_ADHOC=1` ships ad-hoc anyway). An instance serving an ad-hoc app (or none) just gets an ad-hoc
+  build, and every update re-asks for the mic.
 - Only a Mac can build the app; deploying from elsewhere ships the instance without it.
 - **One app per instance.** prod's app is "The Deck" (`io.t1a.deck`); every other instance builds its own,
   e.g. "The Deck (iva)" (`io.t1a.deck.iva`), with its own settings and login and a small purple mark on its

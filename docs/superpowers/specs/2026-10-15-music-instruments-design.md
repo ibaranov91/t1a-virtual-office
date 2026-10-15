@@ -13,9 +13,9 @@ Owner: Andrii Butko · 2026-10-15 · status: v2, after a Codex spec review · bu
 - You click an instrument, walk over, stand behind it and play with the computer keyboard (GarageBand's "musical
   typing"). Esc or any step away stands you up.
 - Everyone else hears you **in near real time through the soundscape**: the notes sound at the instrument and fill
-  the Music room with its echo (gain ≥ 0.4 anywhere inside); outside they die out fast — the stage is at the far end,
-  so only the keys reach the Desks door, faintly (0.10 at (53,17), 0 at (50,17)). The personal **Music** slider and
-  deafen apply. No microphone, no WebRTC.
+  the Music room with its echo (gain ≥ 0.4 anywhere inside). Since sound v3 rooms are sealed, so nobody outside Music
+  hears it, the Desks door included: you walk in to listen. The personal **Music** slider and deafen apply. No
+  microphone, no WebRTC.
 - All sound is **synthesized** in the browser (no audio files, no licenses). Keys and bass have several sounds.
 - While anyone plays, the jukebox in that room **ducks** for everyone and comes back when they stop.
 
@@ -133,11 +133,10 @@ Row 3 stays reachable through the gaps at x = 57, 60 and 62.
 
 Regenerate `shared/tilemap.json`; the generator's assertions must pass.
 
-**Saved layouts** (andr and prod may have one, which overrides the generator's furniture): in `World.load`, after the
-jukebox migration, every instrument kind of the generated layout that the saved layout lacks is added: at its generated
-position, with its generated id (a fresh `e…` id if another object already has it); if that position makes
-`layoutProblem` fail, at the first position, scanning its generated room row by row, where it doesn't; if none, it's
-left out with a `console.warn`. Then the existing whole-layout check runs as today.
+**Saved layouts** (andr and prod may have one, which overrides the generator's furniture): the instruments are
+`KEEP_TYPES`, so main's `World.withNewFixtures` brings missing ones in on load — at the generated position, else the
+nearest free one in its room, else left out with a `console.warn`. One addition: a fixture whose generated id is
+already taken in the saved layout gets a fresh `e…` id.
 
 ## 4. Protocol (`shared/protocol.ts`)
 
@@ -344,8 +343,8 @@ on each side), `bass_amp` 16×24 (a small combo amp with a bass guitar leaning o
   `instruments`; `World.use()` ignores instruments; layout migration adds missing instruments (also with an id clash
   and a blocked position).
 - **layout.test.ts**: instruments can be moved but not removed or added; one placed so nobody can reach it is refused.
-- **acoustics.test.ts**: from each instrument's tile the gain is ≥ 0.4 everywhere in Music and 0 in the Lobby and
-  the Studio; the keys are > 0 at (53,17) and 0 at (50,17).
+- **acoustics.test.ts**: from each instrument's tile the gain is ≥ 0.4 everywhere in Music and 0 in the Lobby, the
+  Studio and at the Desks door (sealed rooms).
 - `npm run typecheck`, `npm run build -w client`.
 
 Browser (headless Playwright Chromium with `--mute-audio`, never the app pane: tests make no sound, audio is checked by
@@ -365,8 +364,8 @@ numbers only; dev server on free ports started with Bash; `?as=A` and `?as=B`, a
 10. A second tab of A (same `?as=A`) gets no panel, hears A's notes, and its tooltip says "playing in another tab".
 11. Holding K at octave 4, pressing X then A (both C5): one voice, released only after both keys are up.
 
-Safari by hand on `andr` (Andrii): sit, play, a second browser hears it from inside the room and faintly from the
-Desks door; the Mac app's WKWebView.
+Safari by hand on `andr` (Andrii): sit, play, a second browser hears it inside the room and not at the Desks door;
+the Mac app's WKWebView.
 
 ## 9. Code map
 

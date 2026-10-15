@@ -17,10 +17,10 @@ export type JukeboxAction =
   | { action: 'queue'; track: string }
   | { action: 'unqueue'; entry: string }
   | { action: 'pause' | 'play' | 'skip'; playId: string };
+export const DUNGEON_INSTANCE = 'dungeon';
+export const underground = (u: { instance: string | null }) => u.instance === DUNGEON_INSTANCE;
 
 export const ROOM_VOICE_MAX = 12;
-export const ZONE_IN_TILES = 6;
-export const ZONE_OUT_TILES = 7;
 export const AFK_MS = 10 * 60_000;
 /** A toggle object's shared state. */
 export interface ObjectState { on: boolean }
@@ -72,12 +72,13 @@ export const plantDead = (p: Plant, now: number) => dayNumber(now) - p.care >= P
 
 /** Badges, shown on the Achievements board. Earned ones are kept per person with when they were earned.
  *  soon: announced but not earnable yet. */
-export interface Achievement { id: string; icon: string; title: string; how: string; goal?: number; soon?: boolean }
+export interface Achievement { id: string; icon: string; title: string; how: string; goal?: number; soon?: boolean; secret?: string }
 export const BOTANIST_KINDS = 3;
 export const ACHIEVEMENTS: Achievement[] = [
   { id: 'tended', icon: '💧', title: 'Green fingers', how: 'Set a status on a new day. Each day you do, your plant grows one stage.' },
   { id: 'bloom', icon: '🌸', title: 'In bloom', how: `Grow your plant all the way: set a status on ${PLANT_STAGES.length - 1} more days, never ${PLANT_DIES_DAYS} days apart.` },
   { id: 'botanist', icon: '🌻', title: 'Botanist', how: `Bloom ${BOTANIST_KINDS} different flowers. A plant that withers is replanted as a new, random one.`, goal: BOTANIST_KINDS },
+  { id: 'escape', icon: '🗝️', title: 'Escape artist', how: 'Found the way out of the place under the garden.', secret: 'Something about a corner of the garden isn\'t quite right.' },
   { id: 'event', icon: '🎉', title: 'Party person', how: 'Be in the office during an office event.', soon: true },
 ];
 
@@ -95,7 +96,7 @@ export interface PublicUser {
   following: string | null; // walks along with this person
   holding: string | null;   // a UseItem id (coffee, snack…) in hand for a while
   meeting: number | null;   // in a calendar meeting until then (ms); knocks go to Later
-  instance: string | null;  // inside a meeting's own room: only people in the same one see each other
+  instance: string | null;  // meeting room or dungeon: only people in the same instance see each other
   plant: Plant | null;      // on their home desk, or in the Orangery if they have none
   bloomed: string[];        // plant kinds they've grown to full bloom
   achievements: Record<string, number>; // achievement id → when it was earned (ms)
@@ -109,7 +110,7 @@ export type Reaction = typeof REACTIONS[number];
 export interface CalEvent { id: string; title: string; start: string; end: string; allDay: boolean; link: string; meet?: string; declined?: boolean }
 
 /** A calendar meeting with other people, now or within the hour. Sent only to its attendees (the title is theirs). */
-export interface AgendaItem { key: string; instance: string; title: string; start: number; end: number; link?: string }
+export interface AgendaItem { key: string; instance: string; title: string; start: number; end: number; link?: string; left?: boolean } // left: I left it for good (not busy, no heads-up)
 /** A meeting room in use, for everyone: who's in it and until when, no title. */
 export interface MeetingRoomInfo { id: string; until: number; members: string[] }
 /** Meeting rooms are copies of this room on the map. */
@@ -152,7 +153,7 @@ export type ServerMsg =
   // the furniture and rugs: on connect, and to everyone after each admin edit. by: who made it; added: a new thing's id
   | { t: 'layout'; layout: Layout; by?: string; added?: string }
   | { t: 'hello'; you: string; serverTime: number; build?: string } // build: the client bundle the server serves (absent in dev)
-  | { t: 'state'; users: PublicUser[]; objects: Record<string, ObjectState>; jukebox: Record<string, JukeboxState>; instruments: Record<string, string | null>; serverTime: number }
+  | { t: 'state'; users: PublicUser[]; objects: Record<string, ObjectState>; jukebox?: Record<string, JukeboxState>; instruments?: Record<string, string | null>; serverTime: number }
   | { t: 'move'; userId: string; from: Tile; to: Tile; startedAt: number; path?: Tile[]; face?: Dir }
   | { t: 'status'; userId: string; status: string }
   | { t: 'presence'; userId: string; presence: Presence }
@@ -166,12 +167,14 @@ export type ServerMsg =
   | { t: 'google_auth'; url: string; calendar?: boolean } // open this to connect Google (in the system browser from the Mac app)
   | { t: 'calendar'; events?: CalEvent[]; error?: string } // my own events, only to me
   | { t: 'agenda'; items: AgendaItem[] } // my calendar meetings now and soon, only to me
+  | { t: 'dungeon'; key: Tile | null; hasKey: boolean; event?: 'fell' | 'key' | 'locked' | 'opening' | 'escaped' | 'gave_up' }
   | { t: 'meeting'; userId: string; until: number | null }
-  | { t: 'instance'; userId: string; instance: string | null; tile: Tile; dir: Dir } // stepped into (or out of) a meeting room
+  | { t: 'instance'; userId: string; instance: string | null; tile: Tile; dir: Dir } // stepped into (or out of) a meeting room or the dungeon
   | { t: 'meetings'; rooms: MeetingRoomInfo[] } // running meeting rooms, for the board
   | { t: 'desk'; userId: string; desk: Tile | null }
   | { t: 'plant'; userId: string; plant: Plant | null; bloomed: string[]; achievements: Record<string, number> }
   | { t: 'call'; userId: string; callId: string | null; link?: string } // link: the call's Meet room, only to members
+  | { t: 'call_moved'; userId: string; roomId: string }
   | { t: 'rtc'; from: string; signal: RtcSignal }
   | { t: 'speaking'; userId: string; on: boolean }
   | { t: 'mute'; userId: string; muted: boolean }
@@ -205,7 +208,9 @@ export type ClientMsg =
   | { t: 'google_connect'; calendar?: boolean } // asks for a google_auth URL; calendar: also ask for Calendar access
   | { t: 'calendar'; from: string } // my events for a week from `from` (ISO, the start of my local day)
   | { t: 'meeting_go'; key: string } // one click: into that meeting's room
-  | { t: 'meeting_leave' }           // back to the office
+  | { t: 'dungeon_leave' }
+  | { t: 'meeting_leave' }           // back to the office (still in the meeting: busy, knocks go to Later)
+  | { t: 'meeting_out'; key: string } // leave the meeting for good: not busy any more, knocks come through again
   | { t: 'google_disconnect' }
   | { t: 'claim_desk' }   // the seat you're sitting on becomes your home desk
   | { t: 'release_desk' }

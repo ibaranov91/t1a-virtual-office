@@ -1,8 +1,8 @@
 // WebSocket client + the client-side mirror of server state.
 import mapJson from '../../shared/tilemap.json';
-import { applyLayout, besideObject, pathTo, roomAt, sampleMove, type Dir, type Tile, type TileMap } from '../../shared/map';
-import { ACHIEVEMENTS, PLANT_STAGES, plantName, ROOM_VOICE_MAX, type JukeboxState, type JukeboxAction, type AgendaItem, type LayoutEdit, type CalEvent, type MeetingRoomInfo, type ChatMsg, type ObjectState, type ClientMsg, type PublicUser, type Reaction, type RtcSignal, type ServerMsg } from '../../shared/protocol';
-import { playHand, playKnock, playPop } from './sounds';
+import { applyLayout, besideObject, doorwayTiles, isWalkable, pathTo, roomAt, sampleMove, type Dir, type Tile, type TileMap } from '../../shared/map';
+import { ACHIEVEMENTS, underground, DUNGEON_INSTANCE, PLANT_STAGES, plantName, ROOM_VOICE_MAX, type JukeboxState, type JukeboxAction, type AgendaItem, type LayoutEdit, type CalEvent, type MeetingRoomInfo, type ChatMsg, type ObjectState, type ClientMsg, type PublicUser, type Reaction, type RtcSignal, type ServerMsg } from '../../shared/protocol';
+import { playHand, playKnock, playPop, playDungeon } from './sounds';
 import type { Soundscape } from './soundscape';
 
 export const MAP = mapJson as unknown as TileMap;
@@ -16,8 +16,9 @@ export interface ClientUser extends PublicUser {
 
 export interface Toast {
   // knock_out: my knock is waiting (Cancel); knock_again: it didn't land, or I missed one (Knock again / back)
-  id: number; kind: 'knock_in' | 'knock_out' | 'knock_again' | 'chat' | 'info' | 'link' | 'meeting';
+  id: number; kind: 'knock_in' | 'knock_out' | 'knock_again' | 'chat' | 'info' | 'link' | 'meeting' | 'call_moved';
   text: string; link?: string; knockId?: string; expires?: number; hint?: string;
+  roomId?: string;
   meetingKey?: string; // meeting: one-click Go into its room
   userId?: string; // the other person, for knock_again and chat
 }
@@ -28,9 +29,12 @@ export interface Flying { fromId: string; toId: string; emoji: string; at: numbe
 /** Item id -> what it looks like, from whatever the map's objects hand out. */
 export const ITEMS = new Map(MAP.objects.flatMap(o => (o.use?.kind === 'take' ? o.use.items : [])).map(i => [i.id, i]));
 
+export interface DungeonFx { kind: 'fall' | 'land' | 'climb'; user: ClientUser; tile: Tile; at: number }
+
 export interface Pose { x: number; y: number; dir: Dir; walking: boolean; tile: Tile }
 
 type Listener = () => void;
+const SCENE_ONLY = new Set<ServerMsg['t']>(['move', 'speaking', 'emote', 'react']);
 
 export class Store {
   users = new Map<string, ClientUser>();
@@ -54,8 +58,7 @@ export class Store {
   meetingRooms: MeetingRoomInfo[] = [];    // meeting rooms in use (the board)
   meetingsOpen = false;
   private headsUp = new Set<string>();     // meetings I've had a heads-up for
-  build: string | undefined;  // the server's client build when this page loaded
-  staleBuild = false;         // server now serves a newer build; reload when not in a call
+  staleBuild = false;         // the server serves another build than this page: reload when not in a call
   objects: Record<string, ObjectState> = {};
   jukebox: Record<string, JukeboxState> = {};
   instruments: Record<string, string | null> = {};
@@ -68,7 +71,11 @@ export class Store {
   chatWith: string | null = null;       // open conversation
   reactions: Flying[] = [];             // the engine draws and prunes these
   objectFx: { objectId: string; at: number }[] = []; // someone just used it (coffee steam)
-  version = 0;
+  dungeon: { key: Tile | null; hasKey: boolean; seen: Set<number> } | null = null;
+  dungeonOpening = false;
+  dungeonFx: DungeonFx[] = [];
+  version = 0;    // bumps on any change, including scene-only ones (the engine reads the store every frame)
+  uiVersion = 0;  // bumps only when React chrome has something new to show
   admin = false;      // may rearrange the office
   layoutVersion = 0;  // bumps whenever the furniture changes; the engine redraws the floor
   added: string | null = null; // the thing I just added, to select it
@@ -81,8 +88,8 @@ export class Store {
 
   now() { return Date.now() + this.offset; }
   subscribe = (l: Listener) => { this.listeners.add(l); return () => { this.listeners.delete(l); }; };
-  getVersion = () => this.version;
-  private emit() { this.version++; for (const l of this.listeners) l(); }
+  getVersion = () => this.uiVersion;
+  private emit() { this.version++; this.uiVersion++; for (const l of this.listeners) l(); }
   /** Re-render after state that lives outside the store changed (e.g. voice). */
   changed() { this.emit(); }
   onRtc?: (from: string, signal: RtcSignal) => void;
@@ -94,12 +101,12 @@ export class Store {
     ws.onopen = () => { this.connected = true; this.emit(); };
     ws.onmessage = (e) => this.onMessage(JSON.parse(e.data));
     ws.onclose = (e) => {
-      this.clearInstruments(); this.connected = false; this.voiceOwner = false; this.jukebox = {}; this.jukeboxReady = false; this.emit();
+      this.clearInstruments(); this.connected = false; this.voiceOwner = false; this.jukebox = {}; this.jukeboxReady = false; this.soundscape?.resetCrossings(); this.emit();
       if (e.code === 4001) return this.onUnauthorized();
       if (!this.closed) setTimeout(() => this.connect(), 1500);
     };
   }
-  close() { this.closed = true; this.clearInstruments(); this.connected = false; this.voiceOwner = false; this.jukebox = {}; this.jukeboxReady = false; this.emit(); this.ws?.close(); }
+  close() { this.closed = true; this.clearInstruments(); this.connected = false; this.voiceOwner = false; this.jukebox = {}; this.jukeboxReady = false; this.soundscape?.resetCrossings(); this.emit(); this.ws?.close(); }
   send(msg: ClientMsg) { if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(msg)); }
 
   private clearInstruments() {
@@ -120,6 +127,22 @@ export class Store {
   }
   // ---------- actions ----------
   moveTo(to: Tile) { this.send({ t: 'move', to }); }
+  joinRoom(roomId: string) {
+    const me = this.users.get(this.me), room = MAP.rooms.find(r => r.id === roomId);
+    if (!me || me.instance || !room) return;
+    const pose = this.pose(me), doors = doorwayTiles(MAP, room);
+    const distance = (t: Tile, p: Tile) => Math.abs(t.x - p.x) + Math.abs(t.y - p.y);
+    const door = doors.slice().sort((a, b) => Math.min(...a.map(t => distance(t, pose))) - Math.min(...b.map(t => distance(t, pose))))[0];
+    if (!door) return;
+    const occupied = new Set([...this.users.values()].filter(u => u.id !== me.id && u.presence !== 'offline' && u.instance === me.instance)
+      .map(u => { const t = u.move?.to ?? u.tile; return `${t.x},${t.y}`; }));
+    const tiles: Tile[] = [], { x, y, w, h } = room.rect;
+    for (let yy = y; yy < y + h; yy++) for (let xx = x; xx < x + w; xx++)
+      if (isWalkable(MAP, xx, yy) && !occupied.has(`${xx},${yy}`)) tiles.push({ x: xx, y: yy });
+    tiles.sort((a, b) => Math.min(...door.map(t => distance(a, t))) - Math.min(...door.map(t => distance(b, t))) || distance(a, pose) - distance(b, pose));
+    const tile = tiles.find(t => pathTo(MAP, pose.tile, t).length);
+    if (tile) this.moveTo(tile);
+  }
   knock(targetId: string) { this.send({ t: 'knock', targetId }); }
   /** Knock, but first walk the user through setting up their Meet room if they have none. */
   pendingKnock: string | null = null;
@@ -204,7 +227,12 @@ export class Store {
     this.send({ t: 'meeting_go', key });
     this.toasts = this.toasts.filter(t => t.meetingKey !== key); this.meetingsOpen = false; this.emit();
   }
+  dungeonLeave() { this.send({ t: 'dungeon_leave' }); }
   leaveMeeting() { this.send({ t: 'meeting_leave' }); }
+  /** Out of the meeting for good: not busy, knocks come through again (Go puts you back in). */
+  leaveMeetingForGood(key: string) { this.send({ t: 'meeting_out', key }); this.toasts = this.toasts.filter(t => t.meetingKey !== key); this.emit(); }
+  /** The calendar meeting I'm in right now while out of its room (busy: knocks go to Later). */
+  get myBusyMeeting() { const now = this.now(); return this.agenda.find(a => a.start <= now && a.end > now && !a.left) ?? null; }
   /** A server timestamp as local "10:30". */
   clock(serverMs: number) { return new Date(serverMs - this.offset).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); }
   /** The calendar meeting whose room I'm in. */
@@ -213,7 +241,7 @@ export class Store {
   checkAgenda() {
     const now = this.now(), mine = this.users.get(this.me)?.instance;
     for (const a of this.agenda) {
-      if (this.headsUp.has(a.key) || now < a.start - 60_000 || now >= a.end || a.instance === mine) continue;
+      if (a.left || this.headsUp.has(a.key) || now < a.start - 60_000 || now >= a.end || a.instance === mine) continue;
       this.headsUp.add(a.key);
       const soon = a.start > now ? `starts at ${this.clock(a.start)}` : 'is on now';
       this.toast({ kind: 'meeting', meetingKey: a.key, link: a.link, text: `📅 ${a.title} ${soon}`, hint: 'Go: step into its room with the others', expires: a.end - now });
@@ -232,6 +260,10 @@ export class Store {
   setHand(up: boolean) { this.send({ t: 'hand', up }); }
   setDeafen(on: boolean) { this.send({ t: 'deafen', on }); }
   claimVoice() { this.send({ t: 'voice_claim' }); }
+  /** The vault door: a panel with the link, which works from a tap anywhere (a tap on the floor can't open a tab on a phone). */
+  linkOpen: { label: string; url: string } | null = null;
+  openLink(use: { label: string; url: string }) { this.linkOpen = use; this.emit(); }
+  closeLink() { this.linkOpen = null; this.emit(); }
   roomCallOf(u?: ClientUser) {
     return u?.callId?.startsWith('room:') ? MAP.rooms.find(r => r.id === u.callId!.slice(5)) : undefined;
   }
@@ -239,8 +271,15 @@ export class Store {
     const me = this.users.get(this.me);
     return !!this.roomCallOf(me) && me?.callId === u.callId;
   }
+  dungeonReason(u?: ClientUser) {
+    if (u && underground(u)) return `${u.name} is somewhere underground 🕳`;
+    const me = this.users.get(this.me);
+    return me && underground(me) ? "You're underground — find the way out first" : null;
+  }
   knockReason(u: ClientUser) {
     const me = this.users.get(this.me), room = this.roomOf(u), hall = this.roomCallOf(u), mine = this.roomCallOf(me);
+    const dungeon = this.dungeonReason(u);
+    if (dungeon) return dungeon;
     if (u.id === this.me) return 'This is you';
     if (u.presence === 'offline') return 'Offline';
     if (me?.callId && me.callId === u.callId) return 'Already talking';
@@ -302,8 +341,11 @@ export class Store {
     switch (msg.t) {
       case 'hello':
         this.me = msg.you; this.offset = msg.serverTime - Date.now();
-        if (msg.build && this.build && msg.build !== this.build) this.staleBuild = true;
-        this.build ??= msg.build;
+        // compared with this bundle's own id, so a page served from a stale cache fixes itself on its first connect
+        if (msg.build && __DECK_BUILD__ !== 'dev' && msg.build !== __DECK_BUILD__) this.staleBuild = true;
+        break;
+      case 'call_moved':
+        this.toast({ kind: 'call_moved', roomId: msg.roomId, text: `${this.name(msg.userId).split(' ')[0]} went into ${MAP.rooms.find(r => r.id === msg.roomId)?.name ?? msg.roomId}`, expires: 15000 });
         break;
       case 'state': {
         this.offset = msg.serverTime - Date.now();
@@ -315,10 +357,10 @@ export class Store {
           next.set(p.id, u);
         }
         this.users = next;
-        this.setInstruments(msg.instruments);
+        this.setInstruments(msg.instruments ?? {});
         this.objects = msg.objects ?? {};
-        this.jukebox = msg.jukebox; this.jukeboxReady = true;
-        this.soundscape?.resetAdmitted();
+        this.jukebox = msg.jukebox ?? {}; this.jukeboxReady = true;
+        this.soundscape?.resetCrossings();
         break;
       }
       case 'follow': { const u = this.users.get(msg.userId); if (u) u.following = msg.targetId; break; }
@@ -354,7 +396,11 @@ export class Store {
         break;
       }
       case 'chat_history': this.chats.set(msg.withId, msg.messages); break;
-      case 'move': { const u = this.users.get(msg.userId); if (u) this.applyMove(u, msg); break; }
+      case 'move': {
+        const u = this.users.get(msg.userId); if (u) this.applyMove(u, msg);
+        if (msg.userId === this.me) this.dungeonOpening = false;
+        break;
+      }
       case 'layout':
         applyLayout(MAP, msg.layout); this.layoutVersion++;
         if (msg.by === this.me && msg.added) this.added = msg.added;
@@ -378,9 +424,33 @@ export class Store {
       }
       case 'meeting': { const u = this.users.get(msg.userId); if (u) u.meeting = msg.until; break; }
       case 'meetings': this.meetingRooms = msg.rooms; break;
+      case 'dungeon': {
+        const me = this.users.get(this.me);
+        if (me && underground(me)) {
+          this.dungeon = { key: msg.key, hasKey: msg.hasKey, seen: msg.event === 'fell' ? new Set() : this.dungeon?.seen ?? new Set() };
+          if (!msg.event || msg.event === 'fell') this.dungeonOpening = false;
+          if (msg.event === 'opening') this.dungeonOpening = true;
+        }
+        const text = msg.event === 'fell' ? '🕳 You fell through! Find the key and the way out.'
+          : msg.event === 'key' ? '🗝️ You found a key!'
+          : msg.event === 'locked' ? '🔒 Locked. There must be a key somewhere down here.'
+          : msg.event === 'escaped' ? '☀️ You made it out!' : null;
+        if (text) this.toast({ kind: 'info', text, expires: 6000 });
+        if (msg.event && msg.event !== 'gave_up') playDungeon(msg.event);
+        break;
+      }
       case 'instance': {
         const u = this.users.get(msg.userId);
+        if (u && underground(u) !== (msg.instance === DUNGEON_INSTANCE)) {
+          const at = performance.now(), user = { ...u }, fell = msg.instance === DUNGEON_INSTANCE;
+          this.dungeonFx = this.dungeonFx.filter(f => at - f.at < 2200);
+          if (fell) {
+            this.dungeonFx.push({ kind: 'fall', user, tile: { ...this.pose(u).tile }, at });
+            this.dungeonFx.push({ kind: 'land', user, tile: msg.tile, at: at + (u.id === this.me ? 900 : 0) });
+          } else if (msg.instance === null) this.dungeonFx.push({ kind: 'climb', user, tile: msg.tile, at });
+        }
         if (u) { u.instance = msg.instance; u.tile = msg.tile; u.dir = msg.dir; u.move = null; u.path = null; u.prev = null; u.faceOverride = null; }
+        this.soundscape?.resetCrossings(msg.userId === this.me ? undefined : msg.userId);
         if (msg.userId === this.me && msg.instance) this.toasts = this.toasts.filter(t => !(t.kind === 'meeting' && this.agenda.find(a => a.key === t.meetingKey)?.instance === msg.instance));
         break;
       }
@@ -396,9 +466,9 @@ export class Store {
         const u = this.users.get(msg.userId); if (!u) break;
         const was = u.plant, earned = u.achievements;
         u.plant = msg.plant; u.bloomed = msg.bloomed; u.achievements = msg.achievements;
-        if (u.id !== this.me || !msg.plant) break;
+        if (u.id !== this.me) break;
         const p = msg.plant;
-        if (was) this.toast({ kind: 'info', expires: 5000,
+        if (p && was && (p.stage !== was.stage || p.kind !== was.kind || p.care !== was.care)) this.toast({ kind: 'info', expires: 5000,
           text: p.stage === 0 ? '🌱 You planted a new seedling' : `🌱 Your ${plantName(p)} grew: ${PLANT_STAGES[p.stage]}`,
           hint: p.stage === 0 ? 'The old one withered after a week without a status' : 'It grows once a day you set a status' });
         for (const a of ACHIEVEMENTS) if (msg.achievements[a.id] && !earned[a.id]) {
@@ -473,8 +543,15 @@ export class Store {
         break;
       }
     }
-    this.emit();
+    const me = this.users.get(this.me);
+    if (!me || !underground(me)) { this.dungeon = null; this.dungeonOpening = false; }
+    // Walking, talking and emotes only move pixels on the canvas; the React chrome needn't re-render for them.
+    // (The People list follows walkers on its own 1 s tick.)
+    if (SCENE_ONLY.has(msg.t)) this.version++; else this.emit();
     // A deploy happened while this page was open: reload into the new build, but never mid-call.
-    if (this.staleBuild && !this.users.get(this.me)?.callId) location.reload();
+    if (this.staleBuild && !this.users.get(this.me)?.callId) { // a fresh URL: a plain reload can come back from the cache (iOS)
+      const u = new URL(location.href); u.searchParams.set('v', String(Date.now().toString(36)));
+      location.replace(u.href);
+    }
   }
 }
