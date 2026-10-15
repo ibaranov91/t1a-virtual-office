@@ -9,7 +9,7 @@ import { needsGesture, resume } from './audio';
 import { prefs, savePrefs, type Category } from './prefs';
 import { ITEMS, MAP, Store, type ClientUser } from './net';
 import { inNativeApp, syncNative } from './native';
-import { ACHIEVEMENTS, underground, dayNumber, JUKEBOX_PER_PERSON, JUKEBOX_QUEUE_MAX, MAX_CHAT_LEN, MEET_LINK_RE, meetAs, normalizeMeetLink, kindName, PLANT_DIES_DAYS, PLANT_KINDS, PLANT_REVEAL, PLANT_STAGES, plantDead, plantName, REACTIONS, type JukeboxState, type Plant } from '../../shared/protocol';
+import { ACHIEVEMENTS, underground, dayNumber, JUKEBOX_PER_PERSON, JUKEBOX_QUEUE_MAX, MAX_CHAT_LEN, MEET_LINK_RE, meetAs, normalizeMeetLink, kindName, PLANT_DIES_DAYS, PLANT_KINDS, PLANT_REVEAL, PLANT_STAGES, plantDead, plantName, REACTIONS, TOILET_USE_MS, toiletFull, type JukeboxState, type Plant } from '../../shared/protocol';
 import { GENRES, jukeboxPosition, TRACK, TRACKS } from '../../shared/music';
 import { FIXED_TYPES, KEEP_TYPES, objectName, RUG_COLORS, RUG_MAX, RUG_MIN, seatAt } from '../../shared/map';
 
@@ -1174,7 +1174,12 @@ function ActionWheel({ store, engine, pick, onPerson, onClose }: { store: Store;
   } else {
     const o = MAP.objects.find(o => o.id === pick.id);
     if (!o?.use || o.use.kind === 'instrument' || o.use.kind === 'calendar' || o.use.kind === 'meetings' || o.use.kind === 'achievements' || o.use.kind === 'link' || o.use.kind === 'jukebox' || o.use.kind === 'arcade' || o.use.kind === 'records') return null;
-    if (o.use.kind === 'toggle') {
+    if (o.use.kind === 'toilet') {
+      const s = store.toilets[o.id], full = toiletFull(s), busy = !!s?.by && s.by !== store.me;
+      title = full ? 'Toilet · out of order' : busy ? 'Toilet · occupied' : 'Toilet';
+      items = [{ icon: '🚽', label: 'Use', disabled: full || busy, title: full ? 'Full — it drains in a few minutes' : busy ? 'Someone is in there' : `Go in for ${TOILET_USE_MS / 1000} s`, onClick: act(() => store.use(o.id)) }];
+      if (store.admin) items.push({ icon: '🪠', label: 'Plunge', disabled: !s?.fill, title: 'Admins: clean it right away', onClick: act(() => store.plunge(o.id)) });
+    } else if (o.use.kind === 'toggle') {
       const on = store.objects[o.id]?.on ?? o.on ?? true;
       title = o.use.label[0].toUpperCase() + o.use.label.slice(1);
       items = [{ icon: on ? '🌑' : '💡', label: on ? 'Turn off' : 'Turn on', onClick: act(() => store.use(o.id)) }];

@@ -30,6 +30,13 @@ export const underground = (u: { instance: string | null }) => u.instance === DU
 
 export const ROOM_VOICE_MAX = 12;
 export const AFK_MS = 10 * 60_000;
+/** A toilet stall in Berghain: someone inside until `until`, and how many uses since it was last cleaned.
+ *  At TOILET_FULL it overflows: nobody can use it until it drains (one level per TOILET_DRAIN_MS) or an admin plunges it. */
+export interface ToiletState { fill: number; by: string | null; until: number }
+export const TOILET_FULL = 3;
+export const TOILET_USE_MS = 20_000;
+export const TOILET_DRAIN_MS = 3 * 60_000;
+export const toiletFull = (s?: ToiletState) => !!s && s.fill >= TOILET_FULL;
 /** A toggle object's shared state. */
 export interface ObjectState { on: boolean }
 
@@ -167,7 +174,7 @@ export type ServerMsg =
   // the furniture and rugs: on connect, and to everyone after each admin edit. by: who made it; added: a new thing's id
   | { t: 'layout'; layout: Layout; by?: string; added?: string }
   | { t: 'hello'; you: string; serverTime: number; build?: string } // build: the client bundle the server serves (absent in dev)
-  | { t: 'state'; users: PublicUser[]; objects: Record<string, ObjectState>; jukebox?: Record<string, JukeboxState>; instruments?: Record<string, string | null>; serverTime: number }
+  | { t: 'state'; users: PublicUser[]; objects: Record<string, ObjectState>; toilets?: Record<string, ToiletState>; jukebox?: Record<string, JukeboxState>; instruments?: Record<string, string | null>; serverTime: number }
   | { t: 'move'; userId: string; from: Tile; to: Tile; startedAt: number; path?: Tile[]; face?: Dir }
   | { t: 'status'; userId: string; status: string }
   | { t: 'presence'; userId: string; presence: Presence }
@@ -197,6 +204,7 @@ export type ServerMsg =
   | { t: 'holding'; userId: string; item: string | null; objectId?: string; fromId?: string } // objectId: just taken; fromId: handed over
   | { t: 'jukebox'; id: string; state: JukeboxState }
   | { t: 'object'; id: string; on: boolean; by: string }
+  | { t: 'toilet'; id: string; state: ToiletState }
   | { t: 'react'; fromId: string; toId: string; emoji: Reaction }
   | { t: 'chat'; msg: ChatMsg }
   | { t: 'chat_history'; withId: string; messages: ChatMsg[] }
@@ -251,4 +259,5 @@ export type ClientMsg =
   | { t: 'voice_claim' }
   | { t: 'edit'; edit: LayoutEdit } // office admins only
   | { t: 'edit_reset' }              // office admins only: back to the generated layout
+  | { t: 'toilet_plunge'; objectId: string } // office admins only: a full stall is clean again
   | { t: 'look'; look: Look };

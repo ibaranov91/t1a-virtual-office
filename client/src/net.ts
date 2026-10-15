@@ -1,7 +1,7 @@
 // WebSocket client + the client-side mirror of server state.
 import mapJson from '../../shared/tilemap.json';
 import { applyLayout, besideObject, doorwayTiles, isWalkable, pathTo, roomAt, sampleMove, type Dir, type Tile, type TileMap } from '../../shared/map';
-import { ACHIEVEMENTS, underground, DUNGEON_INSTANCE, PLANT_STAGES, plantName, ROOM_VOICE_MAX, type JukeboxState, type JukeboxAction, type AgendaItem, type LayoutEdit, type CalEvent, type MeetingRoomInfo, type ChatMsg, type ObjectState, type ClientMsg, type PublicUser, type Reaction, type RtcSignal, type ServerMsg } from '../../shared/protocol';
+import { ACHIEVEMENTS, underground, DUNGEON_INSTANCE, PLANT_STAGES, plantName, ROOM_VOICE_MAX, type JukeboxState, type JukeboxAction, type AgendaItem, type LayoutEdit, type CalEvent, type MeetingRoomInfo, type ChatMsg, type ObjectState, type ToiletState, type ClientMsg, type PublicUser, type Reaction, type RtcSignal, type ServerMsg } from '../../shared/protocol';
 import { ParkLoop } from './park/loop';
 import type { CabinetSummary, ParkRecords } from '../../shared/protocol';
 import { playPark, playHand, playKnock, playPop, playDungeon } from './sounds';
@@ -62,6 +62,7 @@ export class Store {
   private headsUp = new Set<string>();     // meetings I've had a heads-up for
   staleBuild = false;         // the server serves another build than this page: reload when not in a call
   objects: Record<string, ObjectState> = {};
+  toilets: Record<string, ToiletState> = {}; // Berghain's stalls
   jukebox: Record<string, JukeboxState> = {};
   instruments: Record<string, string | null> = {};
   seat: string | null = null;
@@ -189,6 +190,7 @@ export class Store {
   follow(targetId: string | null) { this.send({ t: 'follow', targetId }); }
   react(targetId: string, emoji: Reaction) { this.send({ t: 'react', targetId, emoji }); }
   use(objectId: string, item?: string) { this.send({ t: 'use', objectId, item }); }
+  plunge(objectId: string) { this.send({ t: 'toilet_plunge', objectId }); }
   drop() { this.send({ t: 'drop' }); }
   give(targetId: string) { this.send({ t: 'give', targetId }); }
   openChat(withId: string) {
@@ -408,6 +410,7 @@ export class Store {
         this.users = next;
         this.setInstruments(msg.instruments ?? {});
         this.objects = msg.objects ?? {};
+        this.toilets = msg.toilets ?? {};
         this.jukebox = msg.jukebox ?? {}; this.jukeboxReady = true;
         this.soundscape?.resetCrossings();
         break;
@@ -428,6 +431,7 @@ export class Store {
       case 'note': this.soundscape?.receiveNote(msg.id, msg.by, msg.note, msg.on, msg.vel, msg.preset, msg.at); return;
       case 'jukebox': if (this.jukeboxReady) this.jukebox = { ...this.jukebox, [msg.id]: msg.state }; break;
       case 'object': this.objects = { ...this.objects, [msg.id]: { on: msg.on } }; break;
+      case 'toilet': this.toilets = { ...this.toilets, [msg.id]: msg.state }; break;
       case 'react':
         this.reactions.push({ fromId: msg.fromId, toId: msg.toId, emoji: msg.emoji, at: performance.now() });
         if (msg.toId === this.me && msg.fromId !== this.me) playPop();

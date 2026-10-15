@@ -4,7 +4,7 @@
 import { writeFileSync } from 'node:fs';
 import { applyLayout, besideObject, findPath, isWalkable, layoutProblem, roomAt } from '../shared/map.ts';
 
-const W = 65, OFFICE_H = 34;
+const W = 75, OFFICE_H = 34; // x 65-73: the Admin room over Berghain, added beside the Music room and the Arcade
 const dungeonRect = { x: 17, y: OFFICE_H + 2, w: 31, h: 19 };
 const H = dungeonRect.y + dungeonRect.h;
 const SOUTH = 23; // the old outer wall: now the building's back wall, the Orangery and the Garden lie beyond it
@@ -72,6 +72,15 @@ const rooms = [
     floor: 'grass', rug: 'green',
     rules: { knock: 'allow', label: 'outside · knock to talk' },
     meeting: { provider: 'meet', url: 'https://meet.google.com/new' } },
+  // the far east column: the servers, reached through the club (only admins get past its door), and the club itself
+  { id: 'admin', name: 'Admin', type: 'admin', rect: { x: 65, y: 3, w: 9, h: 8 }, capacity: 4,
+    floor: 'raised', rug: 'blue',
+    rules: { knock: 'allow', access: 'admins', label: 'admins only · knock to talk' },
+    meeting: { provider: 'meet', url: 'https://meet.google.com/new' } },
+  { id: 'berghain', name: 'Berghain', type: 'club', rect: { x: 65, y: 13, w: 9, h: 10 }, capacity: 20,
+    floor: 'club', rug: 'red',
+    rules: { knock: 'allow', label: 'club · knock to talk' },
+    meeting: { provider: 'meet', url: 'https://meet.google.com/new' } },
 ];
 
 // ---- base floor everywhere inside the outer walls ----
@@ -94,7 +103,7 @@ for (let y = 0; y < OFFICE_H; y++) { setWall(0, y, CAP); setWall(W - 1, y, CAP);
 // tall back wall (2 rows of face)
 for (let x = 1; x < W - 1; x++) { setWall(x, 1, 'wall_face_top'); setWall(x, 2, 'wall_face_bottom'); }
 // horizontal divider: cap row 11, short face row 12, with doors
-const hDoors = [6, 7, 19, 20, 32, 33, 46, 47, 58, 59];
+const hDoors = [6, 7, 19, 20, 32, 33, 46, 47, 58, 59, 72, 73];
 for (let x = 1; x < W - 1; x++) {
   if (hDoors.includes(x)) continue;
   setWall(x, 11, CAP); setWall(x, 12, 'wall_face_short');
@@ -109,6 +118,8 @@ for (let y = 12; y <= 22; y++) { if (y === 17 || y === 18) continue; setWall(15,
 for (let y = 1; y <= 22; y++) { if (y === 17 || y === 18) continue; setWall(39, y, CAP); }
 // music room divider: closed to the Studio, a door from Desks
 for (let y = 1; y <= 22; y++) { if (y === 17 || y === 18) continue; setWall(53, y, CAP); }
+// the old east wall: closed to the Music room, the club's door from the Arcade
+for (let y = 1; y <= 22; y++) { if (y === 17 || y === 18) continue; setWall(64, y, CAP); }
 // the building's back wall (row SOUTH) with doors out; brick outside over the garden, wallpaper in the glasshouse
 const sDoors = [9, 10, 27, 28, 44, 45, 58, 59];
 for (let x = 1; x < W - 1; x++) {
@@ -118,11 +129,13 @@ for (let x = 1; x < W - 1; x++) {
 for (let y = SOUTH; y < OFFICE_H; y++) { if (y === 31 || y === 32) continue; setWall(15, y, CAP); } // Orangery | Garden
 // the garden's edge is a hedge, not a wall
 for (let x = 16; x < W; x++) setWall(x, OFFICE_H - 1, 'hedge');
-for (let y = SOUTH + 2; y < OFFICE_H; y++) setWall(W - 1, y, 'hedge');
+for (let y = SOUTH + 2; y < OFFICE_H; y++) { setWall(64, y, 'hedge'); setWall(W - 1, y, 'hedge'); } // x 64: the hole keeps its corner
+// behind the hedge, under the club: a patch of grass nobody walks on
+for (let y = SOUTH + 2; y < OFFICE_H - 1; y++) for (let x = 65; x < W - 1; x++) floor[y][x] = tid(`grass_${hash(x, y) % 3}`);
 // door thresholds get plain wood
 for (const x of hDoors) for (const y of [11, 12]) floor[y][x] = tid('door_floor');
 for (const vx of [13, 26]) for (const y of [6, 7]) floor[y][vx] = tid('door_floor');
-for (const y of [17, 18]) for (const x of [15, 39, 53]) floor[y][x] = tid('door_floor');
+for (const y of [17, 18]) for (const x of [15, 39, 53, 64]) floor[y][x] = tid('door_floor');
 for (const x of sDoors) for (const y of [SOUTH, SOUTH + 1]) floor[y][x] = tid('door_floor');
 for (const y of [31, 32]) floor[y][15] = tid('door_floor');
 // garden paths: one along the middle, one from each door down to it, one to the Orangery
@@ -285,6 +298,19 @@ obj('keyboard', 55, 4, 2, 1, { use: { kind: 'instrument', instrument: 'keys', la
 obj('drum_kit', 58, 4, 2, 2, { use: { kind: 'instrument', instrument: 'drums', label: 'drums' } });
 obj('bass_amp', 61, 4, 1, 1, { use: { kind: 'instrument', instrument: 'bass', label: 'bass' } });
 
+// the Admin room and Berghain (last, so earlier object ids stay put)
+obj('window', 71, 1, 2, 2, { wall: true });
+for (const y of [3, 7]) for (let x = 65; x <= 69; x++) obj('server_rack', x, y);
+obj('desk', 71, 4, 2, 1);
+obj('chair', 71, 5, 1, 1, { walkable: true });
+obj('plant', 73, 7);
+obj('neon_sign', 67, 12, 2, 1, { wall: true });
+obj('dj_booth', 67, 13, 3, 1);
+obj('bouncer', 65, 16); // right by the door from the Arcade
+obj('lamp', 65, 13, 1, 1, LAMP);
+for (const x of [70, 71, 72]) obj('toilet', x, 21, 1, 2, { use: { kind: 'toilet', label: 'toilet' } });
+for (const [x, y] of [[67, 26], [70, 31], [72, 27]]) obj('tree', x, y, 1, 1); // the patch behind the hedge
+
 // ---- standing spots (seats follow the furniture: applyLayout in shared/map.ts) ----
 for (const r of rooms) r.stand = [];
 const stand = (id, list) => rooms.find(r => r.id === id).stand.push(...list.map(([x, y, dir]) => ({ x, y, dir })));
@@ -298,6 +324,8 @@ stand('desks', [[42, 17, 'right'], [50, 18, 'left']]);
 stand('music', [[57, 7, 'up'], [60, 8, 'up'], [58, 10, 'up']]);
 stand('arcade', [[55, 16, 'up'], [61, 16, 'up'], [58, 19, 'up']]);
 stand('orangery', [[7, 27, 'down'], [8, 29, 'down'], [7, 31, 'down']]);
+stand('admin', [[70, 9, 'left']]);
+stand('berghain', [[68, 17, 'down'], [70, 18, 'left'], [67, 19, 'right']]);
 stand('garden', [[42, 29, 'down'], [43, 29, 'down'], [31, 27, 'left'], [56, 28, 'down'], [20, 28, 'down']]);
 
 // ---- a separate, deterministic maze under the garden (never furniture) ----
@@ -404,5 +432,9 @@ const problem = layoutProblem(map);
 if (problem) throw new Error(problem);
 for (const o of objects) if (o.use?.kind === 'arcade' && !besideObject(map, o).some(t => findPath(map, map.spawn, t).length)) throw new Error(`unreachable cabinet ${o.id}`);
 for (const x of [58, 59]) if (!findPath(map, map.spawn, { x, y: 11 }).length) throw new Error('Music door is unreachable');
+const admin = rooms.find(r => r.id === 'admin').rect;
+if (!findPath(map, map.spawn, { x: admin.x + 7, y: admin.y + 7 }).length) throw new Error('Admin room is unreachable');
+if (findPath(map, map.spawn, { x: admin.x + 7, y: admin.y + 7 }, true).length) throw new Error('non-admins can walk into the Admin room');
+for (const r of rooms) if (r.id !== 'admin' && r.stand.some(s => !findPath(map, map.spawn, s, true).length)) throw new Error(`${r.name} is only reachable through the Admin room`);
 writeFileSync(new URL('../shared/tilemap.json', import.meta.url), JSON.stringify(map));
 console.log(`tilemap: ${W}x${H}, ${tiles.length - 1} tile kinds, ${objects.length} objects, ${rugs.length} rugs, ${rooms.reduce((n, r) => n + r.spots.length, 0)} spots`);

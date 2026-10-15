@@ -745,7 +745,7 @@ test('edits cannot leave the office, cover either entrance (even walkable object
     assert.ok(admin.messages.some(m => m.t === 'notice' && m.text.includes(reason)), JSON.stringify(admin.messages));
   };
   refused({ op: 'add', type: 'plant', ...w.map.dungeon!.landing }, 'outside the office');
-  refused({ op: 'rug_add', x: 64, y: 32, w: 2, h: 2 }, 'outside the office');
+  refused({ op: 'rug_add', x: w.map.office.w - 1, y: 32, w: 2, h: 2 }, 'outside the office');
   for (const name of ['hole', 'hatch'] as const) {
     const p = w.map.dungeon![name];
     refused({ op: 'add', type: 'plant', ...p }, `covers the ${name}`);

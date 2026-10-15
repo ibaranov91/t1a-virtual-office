@@ -96,6 +96,10 @@ npm run typecheck    # run before every commit or deploy
   Only a human's own `move` ending on the garden hole can fall into `instance: 'dungeon'`; `walkSeq` cancels stale
   fall/key/door timers on any later walk or placement. The server owns key state and sends it only to its owner;
   client discovery resets per visit. Neither is persisted.
+- **Admin room & Berghain** (east column, x 65-73): a room with `rules.access: 'admins'` is walkable only for admins
+  (`findPath`/`pathTo` take `keepOut`; the server sends non-admins' paths in `move` so clients match). Berghain's
+  `use.kind: 'toilet'` stalls live in `server/src/toilets.ts` (in memory): 20 s per visit, full at `TOILET_FULL`,
+  drain over time or an admin plunges; knocks on someone inside go to Later.
 - **Room behavior is data.** Knock rules, meeting links and home-desk rooms live in `tilemap.json`
   (from `gen-map.mjs`), not in code.
 

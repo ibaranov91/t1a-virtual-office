@@ -1,13 +1,13 @@
 import { INSTRUMENTS } from '../../shared/instruments';
 // The floor: one <canvas>, one requestAnimationFrame loop.
 // Order: static tilemap → y-sorted furniture + sprites → nameplates & bubbles → ambient tint → UI hints.
-import { applyEdit, FIXED_TYPES, findPath, pathTo, sampleMove, pathDuration, WALK_MS_PER_TILE, isWalkable, layoutProblem, objectById, objectName, roomAt, seatAt, withLayout, type MapObject, type Rect, type Rug, type Tile } from '../../shared/map';
+import { adminOnly, applyEdit, FIXED_TYPES, findPath, pathTo, sampleMove, pathDuration, WALK_MS_PER_TILE, isWalkable, layoutProblem, objectById, objectName, roomAt, seatAt, withLayout, type MapObject, type Rect, type Rug, type Tile } from '../../shared/map';
 import { DungeonView } from './dungeon';
-import { roomDoors, type RoomDoor } from './doors';
+import { lockedDoors, roomDoors, type RoomDoor } from './doors';
 import type { Assets, Frame } from './assets';
 import { drawText, textWidth } from './font';
 import { TRACK } from '../../shared/music';
-import { underground, MEETING_ROOM_ID, PLANT_REVEAL, PLANT_STAGES, plantDead, plantName, type LayoutEdit } from '../../shared/protocol';
+import { toiletFull, underground, MEETING_ROOM_ID, PLANT_REVEAL, PLANT_STAGES, plantDead, plantName, type LayoutEdit } from '../../shared/protocol';
 import { ITEMS, MAP, type ClientUser, type Pose, type Store, type DungeonFx } from './net';
 
 const TS = MAP.tileSize;
@@ -93,6 +93,7 @@ export class Engine {
   private slots: Tile[] = [];
   private layoutSeen = -1;
   private doors: RoomDoor[] = [];
+  private deniedAt = new Map<string, number>(); // room id → when a locked door last turned someone away (it shakes)
   // ---- edit mode (office admins) ----
   editing = false;
   /** Selected furniture or rug. */
@@ -164,6 +165,7 @@ export class Engine {
     const r = MAP.rooms.find(r => r.id === id), me = this.store.users.get(this.store.me); if (!r || !me) return;
     if (underground(me)) return this.blockDungeon();
     if (me.instance || roomAt(MAP, me.tile.x, me.tile.y)?.id === id) return this.focusRoom(id); // a meeting's room has no way out but Leave
+    if (r.rules.access && !this.store.admin) { this.focusRoom(id); return this.denyDoor(r.rect.x, r.rect.y); }
     const { x, y, w, h } = r.rect, cx = x + (w - 1) / 2, cy = y + (h - 1) / 2, taken = this.taken();
     let best: { t: Tile; score: number } | null = null;
     for (let ty = y; ty < y + h; ty++) for (let tx = x; tx < x + w; tx++) {
@@ -261,7 +263,7 @@ export class Engine {
   /** The furniture changed (an admin moved something): redraw the floor and re-sort what's where. */
   private refreshLayout() {
     this.layoutSeen = this.store.layoutVersion;
-    this.doors = roomDoors(MAP);
+    this.doors = [...roomDoors(MAP), ...lockedDoors(MAP)];
     this.staticLayer = this.buildStatic();
     this.furniture = MAP.objects.filter(o => !o.wall && !o.walkable && this.f(o.type)).map(o => {
       const fr = this.f(o.type);
@@ -445,6 +447,7 @@ export class Engine {
   }
   private canWalk(t: Tile) {
     if (this.falling() || !this.inArea(t) || !isWalkable(MAP, t.x, t.y)) return false;
+    if (!this.store.admin && adminOnly(MAP, t.x, t.y)) return false; // the server would refuse it too
     if (!this.areaDown) return !this.myInstance() || inMeetingRoom(t.x, t.y);
     const me = this.store.users.get(this.store.me), seen = this.store.dungeon?.seen;
     if (!me || !seen) return false;
@@ -712,7 +715,14 @@ export class Engine {
     const tx = Math.floor(w.x / TS), ty = Math.floor(w.y / TS);
     const target = this.clickTarget({ x: tx, y: ty });
     if (target) this.walkTo(target);
+    else if (!this.store.admin && !this.areaDown && adminOnly(MAP, tx, ty)) this.denyDoor(tx, ty);
   };
+  /** A locked room turned me away: its door shakes and says why. */
+  private denyDoor(tx: number, ty: number) {
+    const room = roomAt(MAP, tx, ty); if (!room) return;
+    this.deniedAt.set(room.id, performance.now());
+    this.store.toast({ kind: 'info', text: `🔒 ${room.name}: admins only`, expires: 3000 });
+  }
 
   /** Plants stand on their owner's home desk, or on an Orangery shelf if they have none. On the desk it goes to the
    *  far end from the chair along the edge you sit at (a desk's other end, a shared table's back corner on your side),
@@ -819,10 +829,12 @@ export class Engine {
         const fx = this.store.dungeonFx.find(f => f.user.id === d.u!.id && f.kind !== 'fall' && ms >= f.at && ms - f.at < 650 && (this.areaDown === (f.kind === 'land')));
         return fx ? this.drawDungeonFx(fx, ms) : this.drawSprite(d.u, d.p!, ms);
       }
-      if (d.door) { // open while someone stands in or right next to the doorway
+      if (d.door) { // open while someone stands in or right next to the doorway; a locked one stays shut for non-admins
         const door = d.door, open = [...poses.values()].some(p => door.tiles.some(t => Math.abs(t.x - p.tile.x) + Math.abs(t.y - p.tile.y) <= 1));
-        const name = `door_${door.horizontal ? 'h' : 'v'}_${open ? 'open' : 'closed'}`, fr = this.f(name);
-        return void (fr && this.blit(ctx, name, door.x * TS + (door.w * TS - fr.w) / 2, (door.y + door.h) * TS - fr.h));
+        const locked = door.locked && !this.store.admin, age = ms - (this.deniedAt.get(door.room.id) ?? -1e9);
+        const shake = locked && age < 450 ? Math.round(Math.sin(age / 22) * 2) : 0;
+        const name = `door_${door.horizontal ? 'h' : 'v'}_${locked ? 'locked' : open ? 'open' : 'closed'}`, fr = this.f(name);
+        return void (fr && this.blit(ctx, name, door.x * TS + (door.w * TS - fr.w) / 2 + shake, (door.y + door.h) * TS - fr.h));
       }
       const p = d.plant!, pl = p.u.plant!, kinded = pl.kind && pl.stage >= PLANT_REVEAL;
       this.blit(ctx, plantDead(pl, t) ? 'pot_dead' : kinded ? `pot_${pl.kind}_${pl.stage}` : `pot_${pl.stage}`, p.x - 6, p.y - 20);
@@ -830,7 +842,8 @@ export class Engine {
     let di = 0;
     for (const f of this.areaDown ? [] : this.furniture) {
       while (di < ds.length && ds[di].base <= f.base) drawD(ds[di++]);
-      this.blit(ctx, f.o.type === 'arcade' && this.store.cabinets.some(c => c.cabinet === f.o.id) ? `arcade_on_${1 + Math.floor(ms / 320) % 2}` : f.off && !this.isOn(f.o) ? `${f.o.type}_off` : f.o.type, f.x, f.y);
+      this.blit(ctx, f.o.type === 'arcade' && this.store.cabinets.some(c => c.cabinet === f.o.id) ? `arcade_on_${1 + Math.floor(ms / 320) % 2}` : f.o.use?.kind === 'toilet' ? this.toiletFrame(f.o.id)
+        : f.o.type === 'server_rack' && Math.floor(ms / 500 + f.o.x * 3 + f.o.y) % 2 ? 'server_rack_1' : f.off && !this.isOn(f.o) ? `${f.o.type}_off` : f.o.type, f.x, f.y);
     }
     while (di < ds.length) drawD(ds[di++]);
 
@@ -882,6 +895,7 @@ export class Engine {
     for (const u of sorted) this.drawOverlay(u, poses.get(u.id)!, ms);
     this.drawReactions(poses, ms);
 
+    if (!this.areaDown && !me?.instance) this.drawClub(ctx, ms);
     if (!this.areaDown) this.drawAmbient(ctx, camX, camY);
     if (this.editing) this.drawEdit(ctx, camX, camY, ms);
     if (this.overview && !me?.instance) this.drawRoomTags(users, poses, camX, camY);
@@ -903,7 +917,7 @@ export class Engine {
       const player = this.store.instruments[o.id];
       const instrumentTip = o.use?.kind === 'instrument' ? `${INSTRUMENTS[o.use.instrument].name} · ${this.store.seat === o.id ? "you're playing · Esc to stand up" : player === this.store.me ? "you're playing in another tab" : player ? `${this.store.name(player).split(' ')[0]} is playing` : 'click to play'}` : '';
       const what = instrumentTip || (o.use?.kind === 'arcade' ? this.store.gameDescription(o.id) : o.use?.kind === 'records' ? 'Deck Park · team records' : o.use?.kind === 'jukebox' ? !jukebox ? 'Jukebox · Reconnecting…' : jukebox.pausedAt !== null ? 'Jukebox · paused' : `Jukebox · ♪ ${track?.title ?? jukebox.track} — ${track?.artist ?? ''}` : o.sound ? 'Radio · music volume in ⚙' : o.use?.kind === 'toggle' ? `${o.use.label[0].toUpperCase()}${o.use.label.slice(1)} · ${this.isOn(o) ? 'on' : 'off'}`
-        : o.use?.kind === 'calendar' ? 'Calendar · your week' : o.use?.kind === 'achievements' ? 'Notice board · your plant and achievements' : o.use?.kind === 'link' ? `Vault 13 · click to open the ${o.use.label}` : o.use?.kind === 'meetings' ? `Meetings · ${this.store.meetingRooms.length || 'none'} on now` : o.sit ? `${o.type === 'bench' ? 'Bench' : 'Sofa'} · click to sit` : o.type === 'coffee_machine' ? 'Coffee machine' : o.type === 'fridge' ? 'Fridge' : o.type);
+        : o.use?.kind === 'calendar' ? 'Calendar · your week' : o.use?.kind === 'achievements' ? 'Notice board · your plant and achievements' : o.use?.kind === 'link' ? `Vault 13 · click to open the ${o.use.label}` : o.use?.kind === 'meetings' ? `Meetings · ${this.store.meetingRooms.length || 'none'} on now` : o.sit ? `${o.type === 'bench' ? 'Bench' : 'Sofa'} · click to sit` : o.type === 'coffee_machine' ? 'Coffee machine' : o.type === 'fridge' ? 'Fridge' : o.use?.kind === 'toilet' ? this.toiletTip(o.id) : objectName(o.type));
       this.drawLabel(what, (o.x + o.w / 2) * TS, (o.y + o.h) * TS - fr.h + 4, camX, camY);
     }
     else if (this.hoverPlant) {
@@ -1140,6 +1154,34 @@ export class Engine {
     else if (hover) this.drawLabel(hover.type ? objectName(hover.type) : 'rug', (hover.x + hover.w / 2) * TS, hover.y * TS, camX, camY);
   }
 
+  private toiletTip(id: string) {
+    const s = this.store.toilets[id];
+    if (toiletFull(s)) return this.store.admin ? 'Toilet · full 🤢 · click to plunge' : 'Toilet · out of order 🤢';
+    if (s?.by) return `Toilet · ${s.by === this.store.me ? "you're in here" : `occupied by ${this.store.name(s.by).split(' ')[0]}`}`;
+    return `Toilet · ${s?.fill ? `used ${s.fill}× · ` : ''}click to use`;
+  }
+  private toiletFrame(id: string) {
+    const s = this.store.toilets[id];
+    return toiletFull(s) ? 'toilet_full' : s?.by ? 'toilet_busy' : 'toilet';
+  }
+  /** Berghain: slow neon washes and a strobe now and then, over the club's own floor. */
+  private drawClub(ctx: CanvasRenderingContext2D, ms: number) {
+    for (const r of MAP.rooms) {
+      if (r.type !== 'club') continue;
+      const x = r.rect.x * TS, y = (r.rect.y - 1) * TS, w = r.rect.w * TS, h = (r.rect.h + 1) * TS;
+      ctx.save(); ctx.beginPath(); ctx.rect(x, y, w, h); ctx.clip();
+      ctx.globalCompositeOperation = 'lighter';
+      for (let i = 0; i < 3; i++) { // three coloured spots drifting around the room
+        const a = ms / (2600 + i * 700) + i * 2.1, cx = x + w / 2 + Math.cos(a) * w * 0.32, cy = y + h / 2 + Math.sin(a * 1.3) * h * 0.3;
+        const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, 40);
+        g.addColorStop(0, ['rgba(255,60,200,0.28)', 'rgba(60,220,255,0.24)', 'rgba(150,80,255,0.26)'][i]); g.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = g; ctx.fillRect(x, y, w, h);
+      }
+      const beat = ms % 2400; // a quick double flash every couple of seconds
+      if (beat < 60 || (beat > 140 && beat < 190)) { ctx.fillStyle = 'rgba(255,255,255,0.18)'; ctx.fillRect(x, y, w, h); }
+      ctx.restore();
+    }
+  }
   private drawAmbient(ctx: CanvasRenderingContext2D, camX: number, camY: number) {
     const now = new Date(); const h = now.getHours() + now.getMinutes() / 60;
     // [hour, r,g,b, alpha] keyframes for a multiply tint
