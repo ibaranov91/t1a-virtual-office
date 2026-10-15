@@ -106,10 +106,11 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
   const [, tick] = useState(0);
 
   useEffect(() => { store.connect(); return () => store.close(); }, [store]);
-  useEffect(() => syncNative(store), [store]);
-  useEffect(() => syncNative(store), [store]);
   // built-in voice for knock calls
   const [voice, setVoice] = useState<Voice | null>(null);
+  const voiceRef = useRef<Voice | null>(null);
+  voiceRef.current = voice;
+  useEffect(() => syncNative(store, () => voiceRef.current), [store]);
   useEffect(() => {
     let v: Voice | null = null, unsub = () => {};
     fetch('/api/config').then(r => r.json()).then(c => {

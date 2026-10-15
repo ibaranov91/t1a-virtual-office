@@ -28,7 +28,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
   var window: NSWindow!      // separate window, opened from the popover
   var desk: DeskWindow!      // pinned to the desktop
   var arranging = false
-  var state: (connected: Bool, inCall: Bool, knocks: [String]) = (false, false, [])
+  var state = DeckState()
+  let card = KnockCard()
+  var ringing: Timer?
+  var joining = false // accepted from the card; the call hasn't shown up yet
 
   var url: String {
     get { defaults.string(forKey: "url") ?? instances[0].url }
@@ -83,6 +86,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
     status.button?.action = #selector(statusClicked)
     status.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
     renderIcon()
+
+    card.onReply = { [weak self] id, reply in
+      guard let self else { return }
+      self.js("__deckNative.reply(\(json(id)), \(json(reply)))")
+      guard reply == "accept", let b = self.status.button else { return self.card.close() }
+      self.joining = true
+      self.card.show(.call, self.state, from: b)
+      DispatchQueue.main.asyncAfter(deadline: .now() + 8) { if self.joining { self.joining = false; self.card.close() } }
+    }
+    card.onMute = { [weak self] in self?.js("__deckNative.toggleMute()") }
+    card.onLeave = { [weak self] in self?.js("__deckNative.leave()"); self?.card.close() }
+    card.onOpen = { [weak self] in self?.card.close(); self?.showPopover() }
 
     load()
     placeWeb()
@@ -141,6 +156,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
   }
 
   func showPopover() {
+    card.close()
     if window.isVisible { return showWindow() } // it's in the window right now; just bring that forward
     guard let b = status.button else { return }
     popover.show(relativeTo: b.bounds, of: b, preferredEdge: .minY)
@@ -173,6 +189,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
   // MARK: menu bar
 
   @objc func statusClicked() {
+    card.close()
     if NSApp.currentEvent?.type == .rightMouseUp { return showMenu() }
     if popover.isShown { popover.performClose(nil) } else { showPopover() }
   }
@@ -194,12 +211,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
       let i = NSMenuItem(title: title, action: sel, keyEquivalent: key); i.target = self; i.state = on ? .on : .off; return i
     }
     m.addItem(withTitle: state.connected ? (state.inCall ? "In a call" : "Connected") : "Not connected", action: nil, keyEquivalent: "")
-    for k in state.knocks { m.addItem(withTitle: "🚪 \(k)", action: nil, keyEquivalent: "") }
+    for k in state.knocks { m.addItem(withTitle: "🚪 \(k.text)", action: nil, keyEquivalent: "") }
+    if state.busy { m.addItem(withTitle: "Quiet: away or in a call, knocks only light the icon", action: nil, keyEquivalent: "") }
     m.addItem(.separator())
     m.addItem(item("Open in a separate window", #selector(openClicked)))
     m.addItem(item("Pin to desktop", #selector(togglePinned), on: pinned))
     if pinned { m.addItem(item(arranging ? "Done arranging" : "Arrange desktop window…", #selector(toggleArranging))) }
-    m.addItem(item("Pop up on knock", #selector(togglePop), on: popOnKnock))
+    m.addItem(item("Knock card under the icon", #selector(togglePop), on: popOnKnock))
     m.addItem(.separator())
     let inst = NSMenuItem(title: "Instance", action: nil, keyEquivalent: ""), sub = NSMenu()
     for (n, u) in instances {
@@ -242,18 +260,56 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
     status.button?.image = state.knocks.isEmpty ? img
       : img?.withSymbolConfiguration(.init(paletteColors: [.systemOrange]))
     status.button?.appearsDisabled = !state.connected
-    status.button?.toolTip = state.knocks.first ?? (state.inCall ? "In a call" : "The Deck")
+    status.button?.toolTip = state.knocks.first?.text ?? (state.inCall ? "In a call" : "The Deck")
   }
+
+  /// A few quick door flaps on the icon so a knock is noticeable even in quiet mode.
+  func ring() {
+    ringing?.invalidate()
+    var n = 0
+    ringing = Timer.scheduledTimer(withTimeInterval: 0.18, repeats: true) { [weak self] t in
+      guard let self else { return t.invalidate() }
+      n += 1
+      let open = n % 2 == 1 || n >= 8
+      self.status.button?.image = NSImage(systemSymbolName: open ? "door.left.hand.open" : "door.left.hand.closed", accessibilityDescription: "The Deck")?
+        .withSymbolConfiguration(.init(paletteColors: [.systemOrange]))
+      if n >= 8 { t.invalidate(); self.renderIcon() }
+    }
+  }
+
+  func js(_ code: String) { web.evaluateJavaScript(code) }
 
   // MARK: page → app (client/src/native.ts)
 
   func userContentController(_ c: WKUserContentController, didReceive message: WKScriptMessage) {
     guard let m = message.body as? [String: Any], m["type"] as? String == "state" else { return }
-    let knocks = m["knocks"] as? [String] ?? []
-    let newKnock = knocks.count > state.knocks.count
-    state = (m["connected"] as? Bool ?? false, m["inCall"] as? Bool ?? false, knocks)
+    let old = state
+    state = DeckState(connected: m["connected"] as? Bool ?? false, inCall: m["inCall"] as? Bool ?? false,
+                      muted: m["muted"] as? Bool ?? false, busy: m["busy"] as? Bool ?? false,
+                      callWith: m["callWith"] as? String ?? "",
+                      knocks: (m["knocks"] as? [[String: Any]] ?? []).compactMap { k in
+                        (k["id"] as? String).map { ($0, k["text"] as? String ?? "Someone is knocking") } })
     renderIcon()
-    if newKnock && popOnKnock && !popover.isShown && !(window.isVisible && NSApp.isActive) { showPopover() }
+    updateCard(old)
+  }
+
+  /// Knock card: new knock → card (or just a ringing icon when busy / the Deck is already in front);
+  /// knock answered → call bar if we're now in the call, else gone; call over → gone.
+  func updateCard(_ old: DeckState) {
+    let fresh = state.knocks.filter { k in !old.knocks.contains { $0.id == k.id } }
+    let deckInFront = popover.isShown || (window.isVisible && NSApp.isActive)
+    if let k = fresh.last {
+      ring()
+      if popOnKnock && !state.busy && !deckInFront, let b = status.button { return card.show(.knock(id: k.id, text: k.text), state, from: b) }
+    }
+    switch card.mode {
+    case .knock(let id, _) where !state.knocks.contains(where: { $0.id == id }):
+      card.close() // answered elsewhere, or expired
+    case .call:
+      if state.inCall { joining = false; if let b = status.button { card.show(.call, state, from: b) } }
+      else if !joining { card.close() }
+    default: break
+    }
   }
 
   // MARK: web view plumbing
@@ -301,6 +357,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
     edit.submenu = m; main.addItem(edit)
     return main
   }
+}
+
+func json(_ s: String) -> String {
+  String(data: try! JSONEncoder().encode(s), encoding: .utf8)!
 }
 
 let app = NSApplication.shared
