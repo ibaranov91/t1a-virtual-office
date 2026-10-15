@@ -7,6 +7,7 @@
 #     prod   -> /opt/the-deck,   the-deck.service,   /etc/the-deck.env
 #     <name> -> /opt/deck-<name>, deck-<name>.service, /etc/deck-<name>.env
 #   DECK_SSH_HOST overrides the ssh host (default: Hetzner2-vOffice, as in ~/.ssh/config).
+#   DECK_ALLOW_ADHOC=1 lets a deploy replace the instance's signed Mac app anyway (see the Mac app step).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -34,9 +35,41 @@ esac
 echo "→ deploying '$NAME' ($OWNER, login: $LOGIN) to $HOST:$PORT  →  $URL"
 npm run build -w client
 # The Mac app ships with the instance (macos/dist). Only a Mac can build it; elsewhere, deploy without it.
+# Installed apps only take an update from their own signer, so a deploy must never swap a signed app for an
+# ad-hoc one (or none). Without the shared identity here, or if the build fails, keep the signed app the
+# instance serves when it was built from the same sources (same build id); if they changed, stop.
 rm -rf macos/dist
-if [ "$(uname)" = Darwin ]; then macos/build.sh --dist "$NAME" || echo "warning: Mac app build failed; deploying without it" >&2
-else echo "warning: not on macOS; deploying without the Mac app" >&2; fi
+KC="${DECK_SIGNING_DIR:-$HOME/.deck-signing}/deck.keychain-db"
+if [ "$(uname)" != Darwin ]; then echo "warning: not on macOS; deploying without the Mac app" >&2
+elif [ -f "$KC" ] && macos/build.sh --dist "$NAME"; then :
+else
+  if [ -f "$KC" ]; then WHY="the Mac app build failed"; FIX="fix the build (macos/build.sh --dist $NAME)"; ANYWAY="without a Mac app"
+  else WHY="this Mac has no T1A Deck signing identity"; ANYWAY="with an ad-hoc Mac app"
+    FIX="import the shared identity, not a new one: DECK_P12_PASSWORD=… macos/make-cert.sh import <p12>"; fi
+  SERVED=$(mktemp -d); trap 'rm -rf "$SERVED"' EXIT
+  SIGNED=false
+  if [ -n "$(ssh "$HOST" "cat $APP/macos/dist/manifest.json 2>/dev/null || true")" ]; then
+    rsync -az "$HOST:$APP/macos/dist/" "$SERVED/"
+    ditto -x -k "$SERVED/The-Deck.zip" "$SERVED/app" &&
+      grep -q '^Authority=' <<<"$(codesign -dvv "$SERVED/app/"*.app 2>&1 || true)" && SIGNED=true
+  fi
+  HAVE=$(sed -n 's/.*"build":"\([^"]*\)".*/\1/p' "$SERVED/manifest.json" 2>/dev/null || true)
+  WANT=$(macos/build.sh --build-id "$NAME")
+  if $SIGNED && [ "$HAVE" = "$WANT" ]; then
+    mkdir -p macos/dist && cp "$SERVED/manifest.json" "$SERVED/The-Deck.zip" macos/dist/
+    echo "→ $WHY, but the Mac app is unchanged (build $WANT): '$NAME' keeps the signed one it serves"
+  elif $SIGNED && [ "${DECK_ALLOW_ADHOC:-}" != 1 ]; then
+    echo "✗ not deploying '$NAME': its Mac app changed (build $HAVE → $WANT) and $WHY." >&2
+    echo "  Its signed app would be replaced, and installed apps refuse updates from another signer." >&2
+    echo "  Either $FIX," >&2
+    echo "  or deploy $ANYWAY: DECK_ALLOW_ADHOC=1 scripts/deploy.sh $NAME" >&2
+    exit 1
+  else
+    $SIGNED && echo "warning: DECK_ALLOW_ADHOC=1: replacing the signed Mac app '$NAME' serves; installed apps won't take it" >&2
+    if [ -f "$KC" ]; then echo "warning: Mac app build failed; deploying without it" >&2
+    else macos/build.sh --dist "$NAME" || echo "warning: Mac app build failed; deploying without it" >&2; fi
+  fi
+fi
 rsync -az --delete \
   --exclude node_modules --exclude data --exclude .claude --exclude '*.log' \
   --exclude macos/.build --exclude macos/build \
