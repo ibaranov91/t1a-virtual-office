@@ -20,6 +20,8 @@ final class Updater: NSObject, WKDownloadDelegate {
   var ownBuild: String? { Bundle.main.object(forInfoDictionaryKey: "DeckBuild") as? String }
 
   func offer(_ m: [String: Any]) {
+    // Local builds (macos/build.sh without --dist) would otherwise "update" to whatever the instance serves.
+    if Bundle.main.object(forInfoDictionaryKey: "DeckDev") as? Bool == true { return }
     guard let build = m["build"] as? String, let sha = m["sha256"] as? String, let own = ownBuild, build != own else {
       if available != nil { available = nil; onChange() }
       return
@@ -72,7 +74,7 @@ final class Updater: NSObject, WKDownloadDelegate {
     _ = try FileManager.default.replaceItemAt(dest, withItemAt: new)
     let relaunch = Process()
     relaunch.executableURL = URL(fileURLWithPath: "/bin/sh")
-    relaunch.arguments = ["-c", "sleep 1; /usr/bin/open \"$0\"", dest.path]
+    relaunch.arguments = ["-c", "sleep 1; /usr/bin/open \"$0\" --args --updated", dest.path] // --updated: don't pop open
     try relaunch.run()
     NSApp.terminate(nil)
   }
