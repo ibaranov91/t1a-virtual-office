@@ -1,3 +1,4 @@
+import { INSTRUMENTS, DRUM_PADS, VELOCITIES, VELOCITY_START, keyNote, noteName, type InstrumentKind } from '../../shared/instruments';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { loadAssets, type Assets } from './assets';
 import { Engine, type Pick } from './engine';
@@ -141,6 +142,7 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
     e.onPick = p => {
       // a wall calendar opens your calendar right away (nothing to walk over for)
       const use = p?.kind === 'object' ? MAP.objects.find(o => o.id === p.id)?.use : undefined;
+      if (use?.kind === 'instrument' && p) { setPick(null); return store.playInstrument(p.id); }
       if (use?.kind === 'jukebox' && p) { setPick(null); return store.openJukebox(p.id); }
       if (use?.kind === 'calendar') { setPick(null); return store.openCalendar(); }
       if (use?.kind === 'meetings') { setPick(null); return store.openMeetings(); }
@@ -194,10 +196,92 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
           <SelfPanel store={store} voice={voice} />
         </div>
         {personMenu && <PersonMenu key={personMenu.id} store={store} at={personMenu} onClose={() => setPersonMenu(null)} />}
+        {store.seat && <InstrumentPanel key={store.seat} store={store} id={store.seat}
+          dialogOpen={!!(showAppearance || showMeet || store.pendingKnock || store.calendarOpen || store.meetingsOpen || store.jukeboxOpen || store.achievementsOpen || store.chatWith || personMenu || pick)} />}
         <Dock store={store} engine={engine} roomsOpen={showRooms} onRooms={() => setShowRooms(s => !s)} />
       </div>
     </div>
   );
+}
+
+const instrumentIcon = (store: Store, user: string) => {
+  const o = MAP.objects.find(o => o.use?.kind === 'instrument' && store.instruments[o.id] === user);
+  return o?.use?.kind === 'instrument' ? ` ${INSTRUMENTS[o.use.instrument].icon}` : '';
+};
+
+function InstrumentPanel({ store, id, dialogOpen }: { store: Store; id: string; dialogOpen: boolean }) {
+  const object = MAP.objects.find(o => o.id === id);
+  const kind: InstrumentKind = object?.use?.kind === 'instrument' ? object.use.instrument : 'keys';
+  const info = INSTRUMENTS[kind];
+  const [settings, setSettings] = useState({ octave: info.octave?.start ?? 4, velocity: VELOCITY_START, preset: 0 });
+  const config = useRef(settings); config.current = settings;
+  const dialog = useRef(dialogOpen); dialog.current = dialogOpen;
+  const held = useRef(new Map<string, number>());
+  const [lit, setLit] = useState<string[]>([]);
+  const change = (next: typeof settings) => { config.current = next; setSettings(next); };
+  useEffect(() => {
+    const keys = held.current;
+    const releaseAll = () => {
+      if (kind !== 'drums') for (const pitch of new Set(keys.values())) {
+        if (store.seat === id) store.sendNote(pitch, false);
+        else store.soundscape?.allOff(id, store.me);
+      }
+      keys.clear(); setLit([]);
+    };
+    const down = (e: KeyboardEvent) => {
+      if (store.seat !== id || e.defaultPrevented || e.repeat || e.metaKey || e.ctrlKey || e.altKey ||
+        (e.target instanceof Element && e.target.closest('input, textarea, select, [contenteditable]'))) return;
+      if (e.code === 'Escape') {
+        if (!dialog.current && !document.querySelector('[role="dialog"], .modal-backdrop, .appearance-backdrop')) {
+          e.preventDefault(); releaseAll(); store.leaveInstrument();
+        }
+        return;
+      }
+      const current = config.current, pitch = keyNote(kind, e.code, current.octave);
+      if (pitch !== null) {
+        e.preventDefault(); if (keys.has(e.code)) return;
+        const already = [...keys.values()].includes(pitch);
+        keys.set(e.code, pitch); setLit([...keys.keys()]);
+        if (kind === 'drums' || !already) store.sendNote(pitch, true, VELOCITIES[current.velocity], current.preset);
+        return;
+      }
+      const next = { ...current };
+      if ((e.code === 'KeyZ' || e.code === 'KeyX') && info.octave) next.octave = Math.max(info.octave.min, Math.min(info.octave.max, current.octave + (e.code === 'KeyZ' ? -1 : 1)));
+      else if (e.code === 'KeyC' || e.code === 'KeyV') next.velocity = Math.max(0, Math.min(VELOCITIES.length - 1, current.velocity + (e.code === 'KeyC' ? -1 : 1)));
+      else if (/^Digit[1-3]$/.test(e.code) && Number(e.code.slice(5)) <= info.presets.length) next.preset = Number(e.code.slice(5)) - 1;
+      else return;
+      e.preventDefault(); config.current = next; setSettings(next);
+    };
+    const up = (e: KeyboardEvent) => {
+      const pitch = keys.get(e.code); if (pitch === undefined) return;
+      e.preventDefault(); keys.delete(e.code); setLit([...keys.keys()]);
+      if (kind !== 'drums' && ![...keys.values()].includes(pitch) && store.seat === id) store.sendNote(pitch, false);
+    };
+    const visibility = () => { if (document.hidden) releaseAll(); };
+    const unsubscribe = store.subscribe(() => { if (store.seat !== id) releaseAll(); });
+    window.addEventListener('keydown', down); window.addEventListener('keyup', up);
+    window.addEventListener('blur', releaseAll); document.addEventListener('visibilitychange', visibility);
+    return () => {
+      releaseAll(); unsubscribe(); window.removeEventListener('keydown', down); window.removeEventListener('keyup', up);
+      window.removeEventListener('blur', releaseAll); document.removeEventListener('visibilitychange', visibility);
+    };
+  }, [store, id, kind]);
+  const key = (code: string, label: string, black = false, position?: number) => <div key={code}
+    className={`typing-key${black ? ' black' : ''}${lit.includes(code) ? ' held' : ''}`}
+    style={position === undefined ? undefined : { left: `${position / 11 * 100}%` }}>
+    <b>{label}</b><small>{noteName(keyNote(kind, code, settings.octave)!)}</small>
+  </div>;
+  return <section className="instrument-panel" aria-label={`${info.name} musical typing`}>
+    <div className="instrument-head"><strong>{info.icon} {info.name}</strong>
+      <button className="ghost" onClick={() => store.leaveInstrument()}>Esc — stand up</button></div>
+    <div className="instrument-presets">{info.presets.map((preset, n) => <button key={preset} aria-pressed={settings.preset === n}
+      className={settings.preset === n ? 'on' : 'ghost'} onClick={() => change({ ...config.current, preset: n })}>{n + 1} {preset}</button>)}</div>
+    <div className="instrument-settings">{info.octave && <span>Octave {settings.octave} (Z X)</span>}<span>Velocity {VELOCITIES[settings.velocity]} (C V)</span></div>
+    {kind === 'drums' ? <div className="drum-pads">{Object.entries(DRUM_PADS).map(([code, pad]) => <div key={code} className={`drum-pad${lit.includes(code) ? ' held' : ''}`}><b>{code === 'Semicolon' ? ';' : code.slice(3)}</b><span>{pad.name}</span></div>)}</div>
+      : <div className="typing-keyboard"><div className="typing-whites">{['KeyA','KeyS','KeyD','KeyF','KeyG','KeyH','KeyJ','KeyK','KeyL','Semicolon','Quote'].map(code => key(code, code === 'Semicolon' ? ';' : code === 'Quote' ? "'" : code.slice(3)))}</div>
+        {([['KeyW',1],['KeyE',2],['KeyT',4],['KeyY',5],['KeyU',6],['KeyO',8],['KeyP',9]] as const).map(([code, pos]) => key(code, code.slice(3), true, pos))}</div>}
+    <p className="instrument-touch-hint">Plug in a keyboard to play</p>
+  </section>;
 }
 
 function TopBar({ store, roomName, onToggleRooms, onToggleMeet, onToggleAppearance, onLogout, engine, editing, onToggleEdit }: {
@@ -370,7 +454,7 @@ function RoomList({ store, onPick, onRoom, onPerson, onClose }: {
                 return (
                   <li key={id} onContextMenu={e => menu(u, e)} title={u.status || undefined}>
                     <i style={{ background: PRESENCE_COLOR[u.presence] }} />
-                    <button className={`ghost person-name${id === store.me ? ' me' : ''}`} onClick={() => onPick(id)} title={id === store.me ? 'Show me' : `Walk to ${u.name}`}>{u.name}{store.roomCallOf(u) ? ` 🎙${userIcons(u)}` : ''}</button>
+                    <button className={`ghost person-name${id === store.me ? ' me' : ''}`} onClick={() => onPick(id)} title={id === store.me ? 'Show me' : `Walk to ${u.name}`}>{u.name}{store.roomCallOf(u) ? ` 🎙${userIcons(u)}` : ''}{instrumentIcon(store, u.id)}</button>
                     {more(u)}
                     {!!store.unread.get(id) && <b className="unread" title="Unread messages" onClick={e => { e.stopPropagation(); store.openChat(id); }}>💬 {store.unread.get(id)}</b>}
                     {u.door ? <em>{{ arriving: 'just arrived', thinking: 'packing up…', leaving: 'heading out' }[u.door]}</em>

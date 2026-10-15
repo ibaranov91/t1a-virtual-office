@@ -1,3 +1,4 @@
+import { INSTRUMENTS } from '../../shared/instruments';
 // The floor: one <canvas>, one requestAnimationFrame loop.
 // Order: static tilemap → y-sorted furniture + sprites → nameplates & bubbles → ambient tint → UI hints.
 import { applyEdit, FIXED_TYPES, findPath, isWalkable, layoutProblem, objectName, roomAt, seatAt, withLayout, type MapObject, type Rug, type Tile } from '../../shared/map';
@@ -73,6 +74,8 @@ export class Engine {
   private dynamicObjects: MapObject[];
   private lights: MapObject[];
   private steamers: MapObject[];
+  private noteSeen = new Map<string, number>();
+  private instrumentNotes: { id: string; at: number }[] = [];
   private placedPlates: { x: number; y: number; w: number }[] = [];
   private snapped = false;
   private slots: Tile[] = [];
@@ -460,6 +463,7 @@ export class Engine {
     this.zoomTo(this.gesture.px * e.scale, this.devicePoint(e));
   };
   private onKey = (e: KeyboardEvent) => {
+    if (this.store.seat) return;
     const t = e.target;
     if (e.metaKey || e.ctrlKey || e.altKey || (t instanceof Element && t.closest('input, textarea, select, [contenteditable]'))) return;
     if (this.editing && this.onEditKey(e)) return e.preventDefault();
@@ -668,6 +672,17 @@ export class Engine {
       ctx.globalAlpha = 1 - phase;
       this.blit(ctx, i % 2 ? 'note_1' : 'note_2', (o.x + o.w / 2) * TS - 4 + Math.round(Math.sin(phase * 6 + i) * 4), o.y * TS - Math.round(phase * 18));
     }
+    for (const [id, at] of Object.entries(this.store.lastNote)) {
+      const seen = this.noteSeen.get(id) ?? -Infinity;
+      if (at > seen && at - seen >= 150) { this.noteSeen.set(id, at); this.instrumentNotes.push({ id, at }); }
+    }
+    this.instrumentNotes = this.instrumentNotes.filter(n => ms - n.at < 1200);
+    for (const n of this.instrumentNotes) {
+      const o = MAP.objects.find(o => o.id === n.id); if (!o) continue;
+      const phase = (ms - n.at) / 1200;
+      ctx.globalAlpha = 1 - phase;
+      this.blit(ctx, 'note_1', (o.x + o.w / 2) * TS - 4 + Math.round(Math.sin(phase * 6) * 4), o.y * TS - Math.round(phase * 18));
+    }
     ctx.globalAlpha = 1;
 
     if (!me?.instance) this.drawBoardBadges(ctx, ms);
@@ -703,8 +718,10 @@ export class Engine {
     else if (this.hoverObject && !this.selected) {
       const o = this.hoverObject, fr = this.f(o.type)!;
       const jukebox = this.store.jukebox[o.id], track = jukebox && TRACK.get(jukebox.track);
-      const what = o.use?.kind === 'jukebox' ? !jukebox ? 'Jukebox · Reconnecting…' : jukebox.pausedAt !== null ? 'Jukebox · paused' : `Jukebox · ♪ ${track?.title ?? jukebox.track} — ${track?.artist ?? ''}` : o.sound ? 'Radio · music volume in ⚙' : o.use?.kind === 'toggle' ? `${o.use.label[0].toUpperCase()}${o.use.label.slice(1)} · ${this.isOn(o) ? 'on' : 'off'}`
-        : o.use?.kind === 'calendar' ? 'Calendar · your week' : o.use?.kind === 'achievements' ? 'Notice board · your plant and achievements' : o.use?.kind === 'meetings' ? `Meetings · ${this.store.meetingRooms.length || 'none'} on now` : o.sit ? `${o.type === 'bench' ? 'Bench' : 'Sofa'} · click to sit` : o.type === 'coffee_machine' ? 'Coffee machine' : o.type === 'fridge' ? 'Fridge' : o.type;
+      const player = this.store.instruments[o.id];
+      const instrumentTip = o.use?.kind === 'instrument' ? `${INSTRUMENTS[o.use.instrument].name} · ${this.store.seat === o.id ? "you're playing · Esc to stand up" : player === this.store.me ? "you're playing in another tab" : player ? `${this.store.name(player).split(' ')[0]} is playing` : 'click to play'}` : '';
+      const what = instrumentTip || (o.use?.kind === 'jukebox' ? !jukebox ? 'Jukebox · Reconnecting…' : jukebox.pausedAt !== null ? 'Jukebox · paused' : `Jukebox · ♪ ${track?.title ?? jukebox.track} — ${track?.artist ?? ''}` : o.sound ? 'Radio · music volume in ⚙' : o.use?.kind === 'toggle' ? `${o.use.label[0].toUpperCase()}${o.use.label.slice(1)} · ${this.isOn(o) ? 'on' : 'off'}`
+        : o.use?.kind === 'calendar' ? 'Calendar · your week' : o.use?.kind === 'achievements' ? 'Notice board · your plant and achievements' : o.use?.kind === 'meetings' ? `Meetings · ${this.store.meetingRooms.length || 'none'} on now` : o.sit ? `${o.type === 'bench' ? 'Bench' : 'Sofa'} · click to sit` : o.type === 'coffee_machine' ? 'Coffee machine' : o.type === 'fridge' ? 'Fridge' : o.type);
       this.drawLabel(what, (o.x + o.w / 2) * TS, (o.y + o.h) * TS - fr.h + 4, camX, camY);
     }
     else if (this.hoverPlant) {

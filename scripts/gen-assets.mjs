@@ -353,6 +353,40 @@ const counterSeg = (t, y0) => {
   t.rect(4, 30, 4, 1, '#4e2c1a'); t.rect(24, 30, 4, 1, '#4e2c1a');
   frames.jukebox = t.outline();
 }
+{
+  const t = new Img(32, 16);
+  // An X stand under a compact stage keyboard.
+  for (let y = 8; y < 15; y++) { t.rect(9 + y - 8, y, 2, 1, '#8a929a'); t.rect(21 - (y - 8), y, 2, 1, '#8a929a'); }
+  t.rect(2, 2, 28, 6, '#3d3a52'); t.hline(3, 2, 26, '#8a929a');
+  t.rect(4, 4, 23, 4, '#efe2c6');
+  for (let x = 6; x < 27; x += 3) t.vline(x, 5, 3, '#9c5f30');
+  for (const x of [5, 8, 14, 17, 20, 26]) t.rect(x, 4, 2, 2, '#3a2329');
+  t.px(28, 4, '#7cc87c'); frames.keyboard = t.outline();
+}
+{
+  const t = new Img(32, 32);
+  for (const x of [4, 27]) { t.vline(x, 7, 17, '#8a929a'); t.hline(x - 2, 24, 5, '#8a929a'); t.ellipse(x, 7, 4, 2, '#d8a040'); t.hline(x - 2, 6, 4, '#e8b860'); }
+  for (const [x, y, r] of [[10, 12, 4], [20, 12, 4], [7, 20, 4]]) {
+    t.rect(x - r, y, r * 2, 5, '#b4534a'); t.ellipse(x, y, r, 2.5, '#efe2c6'); t.hline(x - r + 1, y + 5, r * 2 - 2, '#8a929a');
+  }
+  t.ellipse(16, 23, 8, 8, '#b4534a'); t.ellipse(16, 23, 6.5, 6.5, '#efe2c6');
+  t.ellipse(16, 23, 5, 5, '#3d3a52');
+  t.hline(13, 21, 6, '#e8b860'); t.vline(16, 21, 5, '#e8b860');
+  t.rect(9, 29, 2, 2, '#8a929a'); t.rect(22, 29, 2, 2, '#8a929a');
+  frames.drum_kit = t.outline();
+}
+{
+  const t = new Img(16, 24);
+  t.rect(2, 9, 11, 13, '#3d3a52'); t.rect(3, 10, 9, 2, '#8a929a');
+  t.rect(3, 13, 9, 8, '#3a2329');
+  for (let y = 14; y < 21; y += 2) t.hline(4, y, 7, '#8a929a');
+  t.rect(5, 7, 5, 2, '#3d3a52'); t.px(4, 11, '#e8b860'); t.px(7, 11, '#7cc87c');
+  // Four-string bass leaning against the combo.
+  t.ellipse(11, 18, 3, 4, '#c8874a'); t.ellipse(10, 15, 2, 2, '#c8874a');
+  for (let y = 2; y < 18; y++) { const x = 13 - Math.floor(y / 7); t.rect(x, y, 2, 1, '#d8a050'); t.px(x, y, '#efe2c6'); }
+  t.rect(12, 1, 3, 3, '#c8874a'); t.rect(10, 19, 3, 1, '#3a2329');
+  frames.bass_amp = t.outline();
+}
 for (const n of [1, 2]) {
   const t = new Img(8, 9), c = '#f2b45a';
   t.vline(4, 1, 5, c); t.ellipse(3, 6, 2, 1.5, c);
