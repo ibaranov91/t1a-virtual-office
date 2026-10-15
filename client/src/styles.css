@@ -33,23 +33,39 @@ button.netbird { display: grid; gap: 2px; padding: 10px 12px; font-size: 15px; t
 button.netbird small { font-weight: 500; font-size: 11px; opacity: .75; }
 
 .office { height: 100%; display: flex; flex-direction: column; }
-.topbar { display: flex; align-items: center; gap: 8px; background: var(--panel); border-bottom: 2px solid var(--line); flex-wrap: wrap; position: relative; z-index: 9;
+.topbar { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 8px; background: var(--panel); border-bottom: 2px solid var(--line); position: relative; z-index: 9;
   padding: max(6px, env(safe-area-inset-top)) max(10px, env(safe-area-inset-right)) 6px max(10px, env(safe-area-inset-left)); }
+.top-left { grid-column: 1; display: flex; align-items: center; gap: 8px; min-width: 0; }
+.top-right { grid-column: 3; display: flex; align-items: center; gap: 6px; }
+.hangers { display: flex; align-items: center; gap: 4px; }
+/* every control in the bar (and the zoom cluster) is the same pill */
+.chip { box-sizing: border-box; height: 30px; min-height: 0; padding: 0 10px; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  background: var(--panel2); color: var(--text); border-radius: 6px; box-shadow: none; line-height: 1; white-space: nowrap; flex: none; }
+.chip.ghost { background: transparent; color: var(--muted); padding: 0 8px; }
 .top-more { display: contents; }
-.more-btn { display: none; font-size: 18px; line-height: 1; }
-.brand { font-weight: 800; color: var(--accent); letter-spacing: .5px; }
-.where { color: var(--muted); font-size: 12px; min-width: 70px; }
-.me-name { display: flex; align-items: center; gap: 6px; font-weight: 700; font-size: 13px; max-width: 160px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-.status-wrap { position: relative; flex: 1 1 auto; min-width: 0; display: flex; align-items: center; }
-.status-chip { display: flex; align-items: center; height: 30px; padding: 0 10px; max-width: 100%; background: var(--panel2); color: var(--text); font-weight: 600; box-shadow: none; }
-.status-chip span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-.status-chip .muted { color: var(--muted); }
+.more-btn { display: none; font-size: 18px; }
+.brand { font-weight: 800; color: var(--accent); letter-spacing: .5px; font-size: 12px; white-space: nowrap; }
+.id-wrap { position: relative; min-width: 0; display: flex; }
+.id-pill { padding: 0; gap: 0; min-width: 0; max-width: 100%; overflow: hidden; }
+.id-pill button { height: 100%; background: transparent; box-shadow: none; color: var(--text); border-radius: 0; }
+.id-dot { padding: 0 4px 0 10px; display: grid; place-items: center; }
+.id-pill .dot { width: 10px; height: 10px; border-radius: 3px; display: block; }
+.id-main { display: flex; align-items: center; gap: 5px; padding: 0 10px 0 4px; min-width: 0; font-weight: 600; font-size: 13px; }
+.id-main > * { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.id-main b { flex: 0 0 auto; max-width: 140px; }
+.id-room { color: var(--muted); font-weight: 500; flex: 0 2 auto; }
+.id-status { flex: 0 1 auto; }
+.id-status.muted { color: var(--muted); }
+.presence-pop { position: absolute; top: calc(100% + 6px); left: 0; z-index: 20; display: grid; gap: 4px; padding: 6px; min-width: 150px;
+  background: var(--panel); border: 2px solid var(--wood); border-radius: 8px; box-shadow: 0 6px 20px rgba(0,0,0,.45); }
+.presence-pop button { display: flex; align-items: center; gap: 8px; text-align: left; }
+.presence-pop button.on { background: var(--panel2); color: var(--text); box-shadow: none; }
 .status-pop { position: absolute; top: calc(100% + 6px); left: 0; z-index: 20; width: min(320px, calc(100vw - 16px)); display: grid; gap: 8px; padding: 10px;
   background: var(--panel); border: 2px solid var(--wood); border-radius: 8px; box-shadow: 0 6px 20px rgba(0,0,0,.45); }
 .status-pop input { width: 100%; }
 .status-row { display: flex; gap: 8px; justify-content: space-between; }
-.voice-icons { position: relative; display: flex; gap: 4px; margin-left: auto; }
-.vbtn { width: 34px; height: 30px; padding: 0; display: grid; place-items: center; background: var(--panel2); color: var(--text); line-height: 1; }
+.voice-icons { position: relative; display: flex; gap: 4px; }
+.vbtn { width: 34px; padding: 0; position: relative; }
 .vbtn svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .vbtn svg .slash { stroke-width: 2.2; }
 .vbtn svg .cog { fill: currentColor; stroke: none; }
@@ -58,11 +74,12 @@ button.netbird small { font-weight: 500; font-size: 11px; opacity: .75; }
 .vbtn.off { color: var(--muted); }
 .vbtn.err { background: var(--danger); color: #fff; }
 .vbtn[aria-pressed="true"].off { background: var(--panel2); }
+.vbtn.elsewhere { opacity: .6; }
+.vbadge { position: absolute; top: 2px; right: 2px; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 2px var(--panel); }
 .voice-icons .settings-pop { position: absolute; top: calc(100% + 6px); right: 0; z-index: 20; width: min(300px, calc(100vw - 16px)); }
-.settings-pop .warn { color: #ff9a8a; }
-.zoom { display: flex; gap: 2px; }
-.zoom button { padding: 4px 9px; background: var(--panel2); color: var(--text); min-width: 30px; }
-.zoom button.on { background: var(--accent); color: #2a1a10; }
+.zoom { position: absolute; right: 10px; bottom: 10px; z-index: 2; display: flex; gap: 2px; padding: 3px; background: var(--panel); border: 2px solid var(--line); border-radius: 8px; }
+.zoom .chip { min-width: 30px; padding: 0 8px; font-weight: 700; }
+.zoom .chip.on { background: var(--accent); color: #2a1a10; }
 .rooms h3 { cursor: pointer; }
 .rooms h3:hover { color: var(--accent); }
 
@@ -100,17 +117,18 @@ canvas { display: block; image-rendering: pixelated; touch-action: none; }
 .dock { display: none; }
 @media (max-width: 560px), (max-height: 500px) {
   .stage.editing .canvas-wrap { left: 0; } /* no room to dock: the catalog overlays as before */
-  .where, .brand, .zoom, .rooms-btn, .me-name, .topbar > .voice-icons { display: none; }
-  .topbar { gap: 6px; flex-wrap: nowrap; padding-top: max(4px, env(safe-area-inset-top)); padding-bottom: 4px; }
-  .topbar button, .topbar select, .topbar input { min-height: 40px; }
+  .brand, .zoom, .rooms-btn, .id-room, .topbar .voice-icons { display: none; }
+  .topbar { gap: 6px; padding-top: max(4px, env(safe-area-inset-top)); padding-bottom: 4px; }
+  .topbar .chip { height: 40px; }
+  .status-pop input { min-height: 40px; }
   .topbar select { max-width: 112px; }
-  .status-wrap { position: static; }
-  .status-pop { left: 8px; right: 8px; width: auto; }
-  .more-btn { display: block; min-width: 44px; }
+  .id-wrap { position: static; }
+  .status-pop, .presence-pop { left: 8px; right: 8px; width: auto; }
+  .more-btn { display: inline-flex; min-width: 44px; }
   .top-more { display: none; }
   .top-more.open { display: grid; gap: 6px; position: absolute; top: calc(100% + 4px); right: max(8px, env(safe-area-inset-right)); min-width: 180px;
     padding: 8px; background: var(--panel); border: 2px solid var(--wood); border-radius: 10px; box-shadow: 0 8px 30px rgba(0,0,0,.5); animation: pop .18s steps(2) both; }
-  .top-more.open > button, .top-more.open .mac-app > button { width: 100%; min-height: 44px; text-align: left; padding-left: 12px; }
+  .top-more.open > button, .top-more.open .mac-app > button { width: 100%; height: 44px; justify-content: flex-start; text-align: left; padding-left: 12px; }
   .top-more.open .mac-app-pop { position: fixed; top: 60px; left: 8px; right: auto; }
 
   .dock { display: flex; position: absolute; left: 50%; transform: translateX(-50%); bottom: calc(8px + env(safe-area-inset-bottom)); z-index: 6; gap: 4px; padding: 4px;
@@ -309,7 +327,7 @@ button:focus-visible, summary:focus-visible, input[type="range"]:focus-visible {
   .jukebox-chip .jukebox-chip-title { flex-basis: 100%; }
   .jukebox-chip > button:last-child { margin-left: auto; }
 }
-.hanger-btn { display: grid; place-items: center; width: 34px; height: 30px; padding: 4px; background: var(--panel2); color: var(--text); }
+.hanger-btn { width: 34px; padding: 0; }
 .hanger-btn svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 
 .appearance-backdrop { position: absolute; inset: 0; z-index: 10; display: grid; place-items: center; padding: 12px; background: rgba(20,12,16,.68); }

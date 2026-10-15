@@ -173,6 +173,13 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
   }, [assets, store]);
   useEffect(() => { const i = setInterval(() => { tick(n => n + 1); store.checkAgenda(); }, 1000); return () => clearInterval(i); }, [store]);
   useEffect(() => { if (engineRef.current) engineRef.current.selected = pick; }, [pick]);
+  useEffect(() => { // the browser hasn't unlocked audio yet: say so once (the settings popover keeps an Enable sound button)
+    const t = setTimeout(() => {
+      if (needsGesture()) store.toast({ kind: 'info', text: '🔈 Sound is off until you click', hint: 'Browsers wait for a click before playing audio', expires: 8000,
+        actions: [{ label: 'Enable sound', run: () => void resume() }] });
+    }, 2500);
+    return () => clearTimeout(t);
+  }, [store]);
   const me = store.users.get(store.me);
   const down = !!me && underground(me);
   useEffect(() => { engine?.setEditing(editing && store.admin && !down); }, [engine, editing, store.admin, down]);
@@ -184,11 +191,12 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
     <div className="office">
       <div className="office-chrome" ref={chromeRef}>
       <TopBar store={store} voice={voice} roomName={myRoom?.name} onToggleRooms={() => setShowRooms(s => !s)} onLogout={onLogout}
-        onToggleMeet={() => setShowMeet(s => !s)} onToggleAppearance={() => setShowAppearance(s => me?.lookSet ? !s : true)} engine={engine}
+        onToggleMeet={() => setShowMeet(s => !s)} onToggleAppearance={() => setShowAppearance(s => me?.lookSet ? !s : true)}
         editing={editing} onToggleEdit={() => setEditing(e => !e)} gmOpen={gmOpen} onToggleGm={() => setGmOpen(o => !o)}
         pocketsOpen={pocketsOpen} onTogglePockets={() => setPocketsOpen(o => !o)} />
       <div className={`stage${editing && store.admin && !down && engine ? ' editing' : ''}`}>
         <div className="canvas-wrap"><canvas ref={canvasRef} /></div>
+        {engine && <ZoomCluster engine={engine} />}
         {!assets && <div className="loading">Unlocking the door…</div>}
         {!store.connected && assets && <div className="loading small">Reconnecting…</div>}
         {store.presentation && store.inPresentationRoom() && !store.slidesHidden && <SlideOverlay store={store} />}
@@ -316,8 +324,8 @@ function InstrumentPanel({ store, id, dialogOpen }: { store: Store; id: string; 
   </section>;
 }
 
-function TopBar({ store, voice, roomName, onToggleRooms, onToggleMeet, onToggleAppearance, onLogout, engine, editing, onToggleEdit, gmOpen, onToggleGm, pocketsOpen, onTogglePockets }: {
-  store: Store; voice: Voice | null; roomName?: string; onToggleRooms: () => void; onToggleMeet: () => void; onToggleAppearance: () => void; onLogout: () => void; engine: Engine | null;
+function TopBar({ store, voice, roomName, onToggleRooms, onToggleMeet, onToggleAppearance, onLogout, editing, onToggleEdit, gmOpen, onToggleGm, pocketsOpen, onTogglePockets }: {
+  store: Store; voice: Voice | null; roomName?: string; onToggleRooms: () => void; onToggleMeet: () => void; onToggleAppearance: () => void; onLogout: () => void;
   editing: boolean; onToggleEdit: () => void; gmOpen: boolean; onToggleGm: () => void; pocketsOpen: boolean; onTogglePockets: () => void;
 }) {
   const me = store.users.get(store.me);
@@ -328,45 +336,42 @@ function TopBar({ store, voice, roomName, onToggleRooms, onToggleMeet, onToggleA
     window.addEventListener('pointerdown', off);
     return () => window.removeEventListener('pointerdown', off);
   }, [more]);
-  const z = engine?.zoom;
   return (
     <header className="topbar">
-      <span className="brand">The Deck</span>
-      <span className="where" title={earshotLine(store)}>{roomName ? `in ${roomName}` : me ? 'in the hallway' : ''}</span>
-      {me && <span className="me-name" title="You"><i className="dot" style={{ background: PRESENCE_COLOR[me.presence] }} />{me.name}</span>}
-      <StatusChip store={store} />
-      <div className="zoom">
-        <button onClick={() => engine?.zoomOut()} disabled={!z?.canOut} title="Zoom out (−, ⌘ scroll or pinch)" aria-label="Zoom out">−</button>
-        <button onClick={() => engine?.zoomIn()} disabled={!z?.canIn} title="Zoom in (+, ⌘ scroll or pinch)" aria-label="Zoom in">+</button>
-        <button onClick={() => engine?.toggleOverview()} className={z?.overview ? 'on' : ''} aria-pressed={!!z?.overview}
-          title={z?.overview ? 'Back to where you were (M)' : 'Whole floor (M)'}>⤢</button>
+      <div className="top-left">
+        <span className="brand">The Deck</span>
+        {me && <IdentityPill store={store} roomName={roomName} />}
       </div>
-      <UnreadButton store={store} />
-      <VoiceIcons store={store} voice={voice} />
-      <button className="ghost more-btn" aria-label="More" aria-expanded={more} onClick={() => setMore(m => !m)}>⋯</button>
-      <div className={`top-more${more ? ' open' : ''}`} onClick={e => { if (!(e.target as HTMLElement).closest('.mac-app')) setMore(false); }}>
-        <button onClick={onToggleMeet} className={`meet-btn${store.meetLink === '' && !store.google ? ' unset' : ''}`}
-          title={store.google ? `Google connected: ${store.google}` : store.meetLink ? `Your Meet room: ${store.meetLink}` : 'Set up Google Meet'}>Meet</button>
-        <MacAppButton />
-        <button onClick={onToggleRooms} title="Who's where: click a room or a person to walk there" className="rooms-btn">People</button>
-        <button onClick={onLogout} title="Sign out" className="ghost">Leave</button>
+      <div className="top-right">
+        <VoiceIcons store={store} voice={voice} />
+        <UnreadButton store={store} />
+        <button className="chip ghost more-btn" aria-label="More" aria-expanded={more} onClick={() => setMore(m => !m)}>⋯</button>
+        <div className={`top-more${more ? ' open' : ''}`} onClick={e => { if (!(e.target as HTMLElement).closest('.mac-app')) setMore(false); }}>
+          <button onClick={onToggleMeet} className={`chip meet-btn${store.meetLink === '' && !store.google ? ' unset' : ''}`}
+            title={store.google ? `Google connected: ${store.google}` : store.meetLink ? `Your Meet room: ${store.meetLink}` : 'Set up Google Meet'}>Meet</button>
+          <MacAppButton />
+          <button onClick={onToggleRooms} title="Who's where: click a room or a person to walk there" className="chip rooms-btn">People</button>
+          <button onClick={onLogout} title="Sign out" className="chip ghost">Leave</button>
+        </div>
+        <div className="hangers">
+          <button onClick={() => store.openAchievements(!store.achievementsOpen)} className="chip hanger-btn trophy-btn"
+            title={me?.plant && needsWater(me.plant, store.now()) ? 'Achievements · your plant needs a status today' : 'Achievements and your plant'} aria-label="Achievements and your plant">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 4h8v5a4 4 0 0 1-8 0V4ZM8 6H5v1a3 3 0 0 0 3 3M16 6h3v1a3 3 0 0 1-3 3M12 13v4M8 20h8M9 17h6" /></svg>
+            {me?.plant && needsWater(me.plant, store.now()) && <b className="dot" />}
+          </button>
+          {store.admin && me && !underground(me) && <button onClick={onToggleEdit} className={`chip hanger-btn${editing ? ' on' : ''}`} aria-pressed={editing}
+            title={editing ? 'Done rearranging' : 'Rearrange the office (admins)'} aria-label="Rearrange the office">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16v4ZM13 7l4 4" /></svg>
+          </button>}
+          {store.admin && me && <button onClick={onToggleGm} className={`chip hanger-btn gm-btn${gmOpen ? ' on' : ''}`} aria-pressed={gmOpen}
+            title="GM superpowers: buffs and debuffs (admins)" aria-label="GM superpowers">✨</button>}
+          <button onClick={onTogglePockets} className={`chip hanger-btn gm-btn${pocketsOpen ? ' on' : ''}`} aria-pressed={pocketsOpen}
+            title={`Pockets · ${store.items.length || 'nothing'} ${store.items.length === 1 ? 'thing' : 'things'}`} aria-label="Pockets">🎒</button>
+          <button onClick={onToggleAppearance} className="chip hanger-btn" title="Character appearance" aria-label="Character appearance">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a2 2 0 0 0-2 2c0 1 .7 1.6 1.6 2.4.6.5 1.1 1 1.1 1.8V11M12 9l-7 9h14l-7-9ZM3 21h18" /></svg>
+          </button>
+        </div>
       </div>
-      <button onClick={() => store.openAchievements(!store.achievementsOpen)} className="hanger-btn trophy-btn"
-        title={me?.plant && needsWater(me.plant, store.now()) ? 'Achievements · your plant needs a status today' : 'Achievements and your plant'} aria-label="Achievements and your plant">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 4h8v5a4 4 0 0 1-8 0V4ZM8 6H5v1a3 3 0 0 0 3 3M16 6h3v1a3 3 0 0 1-3 3M12 13v4M8 20h8M9 17h6" /></svg>
-        {me?.plant && needsWater(me.plant, store.now()) && <b className="dot" />}
-      </button>
-      {store.admin && me && !underground(me) && <button onClick={onToggleEdit} className={`hanger-btn${editing ? ' on' : ''}`} aria-pressed={editing}
-        title={editing ? 'Done rearranging' : 'Rearrange the office (admins)'} aria-label="Rearrange the office">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16v4ZM13 7l4 4" /></svg>
-      </button>}
-      {store.admin && me && <button onClick={onToggleGm} className={`hanger-btn gm-btn${gmOpen ? ' on' : ''}`} aria-pressed={gmOpen}
-        title="GM superpowers: buffs and debuffs (admins)" aria-label="GM superpowers">✨</button>}
-      <button onClick={onTogglePockets} className={`hanger-btn gm-btn${pocketsOpen ? ' on' : ''}`} aria-pressed={pocketsOpen}
-        title={`Pockets · ${store.items.length || 'nothing'} ${store.items.length === 1 ? 'thing' : 'things'}`} aria-label="Pockets">🎒</button>
-      <button onClick={onToggleAppearance} className="hanger-btn" title="Character appearance" aria-label="Character appearance">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a2 2 0 0 0-2 2c0 1 .7 1.6 1.6 2.4.6.5 1.1 1 1.1 1.8V11M12 9l-7 9h14l-7-9ZM3 21h18" /></svg>
-      </button>
     </header>
   );
 }
@@ -1066,7 +1071,7 @@ function UnreadButton({ store }: { store: Store }) {
   const total = [...store.unread.values()].reduce((a, b) => a + b, 0);
   if (!total) return null;
   return (
-    <button className="unread-btn" onClick={() => store.openChat(senders[0])}
+    <button className="chip unread-btn" onClick={() => store.openChat(senders[0])}
       title={`Unread from ${store.names(senders.map(id => store.users.get(id)!).filter(Boolean))}`}>💬 {total}</button>
   );
 }
@@ -1084,7 +1089,7 @@ function MacAppButton() {
   const copy = () => navigator.clipboard?.writeText(mac.install).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); });
   return (
     <div className="mac-app">
-      <button className="ghost" onClick={() => setOpen(!open)} title="Install The Deck in your menu bar">Mac app</button>
+      <button className="chip ghost" onClick={() => setOpen(!open)} title="Install The Deck in your menu bar">Mac app</button>
       {open && (
         <div className="mac-app-pop">
           <b>The Deck in your menu bar</b>
@@ -1173,42 +1178,65 @@ function earshotLine(store: Store) {
   return `In ${room.name} · ${near.length ? `within earshot: ${near.map(u => u.name.split(' ')[0]).join(', ')}` : 'nobody within earshot'}`;
 }
 
-/** The presence dot + status as one chip; the text, presence and Clear live in a small popover. */
-function StatusChip({ store }: { store: Store }) {
+/** −, + and ⤢ in the floor's bottom-right corner. */
+function ZoomCluster({ engine }: { engine: Engine }) {
+  const z = engine.zoom;
+  return <div className="zoom" role="group" aria-label="Zoom">
+    <button className="chip" onClick={() => engine.zoomOut()} disabled={!z.canOut} title="Zoom out (−, ⌘ scroll or pinch)" aria-label="Zoom out">−</button>
+    <button className="chip" onClick={() => engine.zoomIn()} disabled={!z.canIn} title="Zoom in (+, ⌘ scroll or pinch)" aria-label="Zoom in">+</button>
+    <button onClick={() => engine.toggleOverview()} className={`chip${z.overview ? ' on' : ''}`} aria-pressed={z.overview}
+      title={z.overview ? 'Back to where you were (M)' : 'Whole floor (M)'}>⤢</button>
+  </div>;
+}
+
+const PRESENCES = [['online', 'Online'], ['away', 'Away'], ['in_call', 'In a call']] as const;
+
+/** You, as one pill: presence dot (opens a presence menu), name, room (earshot tooltip) and status (opens the status popover). */
+function IdentityPill({ store, roomName }: { store: Store; roomName?: string }) {
   const me = store.users.get(store.me);
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState<'status' | 'presence' | null>(null);
   const [draft, setDraft] = useState<string | null>(null);
   const ref = useRef<HTMLDivElement>(null);
   const draftRef = useRef(draft); draftRef.current = draft;
   const close = (save: boolean) => {
     if (save && draftRef.current !== null) store.setStatus(draftRef.current);
-    setDraft(null); setOpen(false);
+    setDraft(null); setOpen(null);
   };
   useEffect(() => {
     if (!open) return;
     const outside = (e: PointerEvent) => { if (e.target instanceof Node && !ref.current?.contains(e.target)) close(true); };
-    window.addEventListener('pointerdown', outside);
-    return () => window.removeEventListener('pointerdown', outside);
+    const key = (e: KeyboardEvent) => { if (e.key === 'Escape') close(false); };
+    window.addEventListener('pointerdown', outside); window.addEventListener('keydown', key);
+    return () => { window.removeEventListener('pointerdown', outside); window.removeEventListener('keydown', key); };
   }, [open]);
-  const text = me?.status ?? '';
+  if (!me) return null;
+  const text = me.status ?? '';
   const shown = text.length > 24 ? `${text.slice(0, 23)}…` : text;
-  return <div className="status-wrap" ref={ref}>
-    <button className="status-chip" aria-expanded={open} aria-haspopup="dialog" title={text ? `${text} · click to change` : 'Set a status (waters your plant)'}
-      onClick={() => (open ? close(true) : setOpen(true))}>
-      <span className={text ? '' : 'muted'}>{shown || 'Set a status'}</span>
-    </button>
-    {open && <div className="status-pop" role="dialog" aria-label="Status">
+  const presence = me.presence === 'offline' ? 'online' : me.presence;
+  return <div className="id-wrap" ref={ref}>
+    <div className="chip id-pill">
+      <button className="id-dot" aria-label={`Presence: ${PRESENCES.find(p => p[0] === presence)?.[1]}`} aria-haspopup="menu" aria-expanded={open === 'presence'}
+        title="Change presence" onClick={() => (open === 'presence' ? close(true) : (close(true), setOpen('presence')))}>
+        <i className="dot" style={{ background: PRESENCE_COLOR[me.presence] }} />
+      </button>
+      <button className="id-main" aria-haspopup="dialog" aria-expanded={open === 'status'} aria-label={`Status: ${text || 'none'} · click to change`}
+        onClick={() => (open === 'status' ? close(true) : setOpen('status'))}>
+        <b>{me.name}</b>
+        <span className="id-room" title={earshotLine(store)}>· {roomName ? `in ${roomName}` : 'in the hallway'}</span>
+        <span className={`id-status${text ? '' : ' muted'}`} title={text ? `${text} · click to change` : 'Set a status (waters your plant)'}>· {shown || 'Set a status'}</span>
+      </button>
+    </div>
+    {open === 'presence' && <div className="presence-pop" role="menu" aria-label="Presence">
+      {PRESENCES.map(([id, label]) => <button key={id} role="menuitemradio" aria-checked={presence === id} className={presence === id ? 'on' : 'ghost'}
+        onClick={() => { store.setPresence(id); setOpen(null); }}>
+        <i className="dot" style={{ background: PRESENCE_COLOR[id] }} />{label}</button>)}
+    </div>}
+    {open === 'status' && <div className="status-pop" role="dialog" aria-label="Status">
       <form onSubmit={e => { e.preventDefault(); close(true); }}>
         <input autoFocus value={draft ?? text} maxLength={80} placeholder="What are you on? (waters your plant)" onChange={e => setDraft(e.target.value)}
           onKeyDown={e => { if (e.key === 'Escape') { e.stopPropagation(); close(false); } }} />
       </form>
       <div className="status-row">
-        <select value={me?.presence === 'offline' ? 'online' : me?.presence ?? 'online'}
-          onChange={e => store.setPresence(e.target.value as 'online' | 'away' | 'in_call')} aria-label="Presence">
-          <option value="online">● Online</option>
-          <option value="away">◐ Away</option>
-          <option value="in_call">🎧 In a call</option>
-        </select>
         <button className="ghost" disabled={!text && !draft} onClick={() => { store.setStatus(''); close(false); }}>Clear</button>
       </div>
     </div>}
@@ -1236,37 +1264,46 @@ function VIcon({ name, off }: { name: 'mic' | 'speaker' | 'hand' | 'gear' | 'swa
 
 /** Mic, deafen, hand and sound settings as icon buttons (top bar; the dock on phones). */
 function VoiceIcons({ store, voice, dock }: { store: Store; voice: Voice | null; dock?: boolean }) {
-  const [settings, setSettings] = useState(false);
+  const [pop, setPop] = useState<'settings' | 'claim' | null>(null);
+  const settings = pop === 'settings';
   const ref = useRef<HTMLDivElement>(null);
   const me = store.users.get(store.me), room = store.roomCallOf(me), owner = store.connected && store.voiceOwner;
+  const elsewhere = store.connected && !store.voiceOwner; // another tab has voice: same four slots, disabled, a badge on the mic
   useEffect(() => {
-    if (!settings) return;
-    const outside = (e: PointerEvent) => { if (e.target instanceof Node && !ref.current?.contains(e.target)) setSettings(false); };
-    const key = (e: KeyboardEvent) => { if (!store.gameOpen && e.key === 'Escape') setSettings(false); };
+    if (!pop) return;
+    const outside = (e: PointerEvent) => { if (e.target instanceof Node && !ref.current?.contains(e.target)) setPop(null); };
+    const key = (e: KeyboardEvent) => { if (!store.gameOpen && e.key === 'Escape') setPop(null); };
     window.addEventListener('pointerdown', outside); window.addEventListener('keydown', key);
     return () => { window.removeEventListener('pointerdown', outside); window.removeEventListener('keydown', key); };
-  }, [settings]);
+  }, [pop]);
+  useEffect(() => { if (!elsewhere && pop === 'claim') setPop(null); }, [elsewhere]);
   const err = voice?.micError ?? null;
   const muted = voice?.muted ?? prefs.muted, deaf = voice?.deafened ?? prefs.deafened, ptt = (voice?.mode ?? prefs.mode) === 'ptt';
-  const btn = (cls: string, icon: React.ReactNode, label: string, title: string, short: string, onClick: () => void, extra: { disabled?: boolean; pressed?: boolean } = {}) =>
-    <button className={`vbtn ${cls}`} disabled={extra.disabled} aria-label={label} aria-pressed={extra.pressed} title={title} onClick={onClick}>
-      {icon}{dock && <small>{short}</small>}</button>;
+  const btn = (cls: string, icon: React.ReactNode, label: string, title: string, short: string, onClick: () => void, extra: { disabled?: boolean; pressed?: boolean; badge?: boolean } = {}) =>
+    <button className={`vbtn chip ${cls}`} disabled={extra.disabled} aria-label={label} aria-pressed={extra.pressed} title={title} onClick={onClick}>
+      {icon}{extra.badge && <b className="vbadge" aria-hidden="true" />}{dock && <small>{short}</small>}</button>;
   const waiting = store.voiceWait ? `Waiting for a spot in ${MAP.rooms.find(r => r.id === store.voiceWait)?.name ?? 'room'} voice` : null;
+  const away = 'Voice is on in another tab';
   return <div className={`voice-icons${dock ? ' in-dock' : ''}`} ref={ref} role="group" aria-label="Your voice controls">
-    {store.connected && !owner
-      ? btn('off', <VIcon name="swap" />, 'Use voice here', 'Voice is on in another tab · click to use voice here', 'Voice', () => store.claimVoice())
-      : <>
-        {btn(err ? 'err' : muted ? 'off' : 'live', <VIcon name="mic" off={muted} />, muted ? 'Unmute' : 'Mute',
-          err ?? (muted ? 'Muted · click to unmute' : ptt ? 'Mic on · hold Space to talk (click to mute)' : 'Mic live · click to mute') + (ptt && muted ? ' · Space to talk once unmuted' : ''),
-          muted ? 'Unmute' : 'Mic', () => voice?.toggleMute(), { disabled: !owner || !voice, pressed: muted })}
-        {btn(deaf ? 'off' : 'live', <VIcon name="speaker" off={deaf} />, deaf ? 'Undeafen' : 'Deafen', deaf ? 'Deafened · click to hear again' : 'Hearing everyone · click to deafen',
-          deaf ? 'Deaf' : 'Hear', () => voice?.toggleDeafen(), { disabled: !owner || !voice, pressed: deaf })}
-        {room && btn(me?.hand ? 'live' : 'off', <VIcon name="hand" />, me?.hand ? 'Lower hand' : 'Raise hand', me?.hand ? 'Lower your hand' : 'Raise your hand',
-          'Hand', () => store.setHand(!me?.hand), { disabled: !owner, pressed: !!me?.hand })}
-      </>}
-    {btn(waiting || needsGesture() ? 'err' : 'off', <VIcon name="gear" />, 'Sound settings', 'Sound settings', 'Sound', () => setSettings(v => !v), { pressed: settings })}
+    {elsewhere
+      ? btn('off elsewhere', <VIcon name="mic" off={muted} />, 'Voice is in another tab', `${away} · click to use voice here`, 'Voice',
+        () => setPop(p => (p === 'claim' ? null : 'claim')), { pressed: pop === 'claim', badge: true })
+      : btn(err ? 'err' : muted ? 'off' : 'live', <VIcon name="mic" off={muted} />, muted ? 'Unmute' : 'Mute',
+        err ?? (muted ? 'Muted · click to unmute' : ptt ? 'Mic on · hold Space to talk (click to mute)' : 'Mic live · click to mute') + (ptt && muted ? ' · Space to talk once unmuted' : ''),
+        muted ? 'Unmute' : 'Mic', () => voice?.toggleMute(), { disabled: !owner || !voice, pressed: muted })}
+    {btn(elsewhere ? 'off' : deaf ? 'off' : 'live', <VIcon name="speaker" off={deaf} />, deaf ? 'Undeafen' : 'Deafen', elsewhere ? away : deaf ? 'Deafened · click to hear again' : 'Hearing everyone · click to deafen',
+      deaf ? 'Deaf' : 'Hear', () => voice?.toggleDeafen(), { disabled: !owner || !voice, pressed: deaf })}
+    {btn(me?.hand && room ? 'live' : 'off', <VIcon name="hand" />, me?.hand ? 'Lower hand' : 'Raise hand',
+      elsewhere ? away : !room ? 'Raise your hand (in a room call)' : me?.hand ? 'Lower your hand' : 'Raise your hand',
+      'Hand', () => store.setHand(!me?.hand), { disabled: !owner || !room, pressed: !!me?.hand && !!room })}
+    {btn(err ? 'err' : 'off', <VIcon name="gear" />, 'Sound settings', elsewhere ? away : 'Sound settings', 'Sound', () => setPop(p => (p === 'settings' ? null : 'settings')),
+      { pressed: settings, disabled: elsewhere })}
+    {pop === 'claim' && <div className="settings-pop" role="dialog" aria-label="Voice in another tab">
+      <small>{away}.</small>
+      <button onClick={() => { setPop(null); store.claimVoice(); }}>Use voice here</button>
+    </div>}
     {settings && <div className="settings-pop" role="dialog" aria-label="Sound settings">
-      <div className="rooms-head"><span>Sound settings</span><button className="ghost" aria-label="Close sound settings" onClick={() => setSettings(false)}>×</button></div>
+      <div className="rooms-head"><span>Sound settings</span><button className="ghost" aria-label="Close sound settings" onClick={() => setPop(null)}>×</button></div>
       {err && <small className="warn">{err}</small>}
       {waiting && <small>{waiting}</small>}
       <EnableSound />
