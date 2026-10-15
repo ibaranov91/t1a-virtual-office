@@ -37,6 +37,7 @@ export class Store {
   toasts: Toast[] = [];
   connected = false;
   meetLink: string | null = null; // null = not loaded yet, '' = not set
+  email: string | null = null;    // my sign-in (NetBird) email; Meet links open as this Google account
   build: string | undefined;  // the server's client build when this page loaded
   staleBuild = false;         // server now serves a newer build; reload when not in a call
   objects: Record<string, { on: boolean }> = {};
@@ -118,6 +119,7 @@ export class Store {
   claimDesk() { this.send({ t: 'claim_desk' }); }
   releaseDesk() { this.send({ t: 'release_desk' }); }
   endCall() { this.send({ t: 'end_call' }); }
+  moveToMeet() { this.send({ t: 'to_meet' }); }
   callLink: string | null = null; // the Meet link for the call I'm in
   /** Everyone else in this person's call, in a stable order. */
   callPeers(u: ClientUser) {
@@ -215,8 +217,15 @@ export class Store {
       }
       case 'chat_history': this.chats.set(msg.withId, msg.messages); break;
       case 'move': { const u = this.users.get(msg.userId); if (u) this.applyMove(u, msg); break; }
-      case 'me': this.meetLink = msg.meetLink; break;
+      case 'me': this.meetLink = msg.meetLink; this.email = msg.email ?? null; break;
       case 'desk': { const u = this.users.get(msg.userId); if (u) u.homeDesk = msg.desk; break; }
+      case 'to_meet': {
+        if (!this.callLink) break;
+        this.toasts = this.toasts.filter(t => t.kind !== 'link');
+        this.toast({ kind: 'link', link: this.callLink, text: `${this.name(msg.fromId).split(' ')[0]} moved to Meet`, hint: 'Join them in the call\'s Meet room', expires: 60000 });
+        playKnock();
+        break;
+      }
       case 'call': {
         const u = this.users.get(msg.userId); if (u) { u.callId = msg.callId; u.muted = false; u.speaking = false; }
         if (msg.userId === this.me) this.callLink = msg.callId ? msg.link ?? this.callLink : null;

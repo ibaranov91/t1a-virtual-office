@@ -5,7 +5,7 @@ import { Voice } from './voice';
 import { playKnock, setSoundsOn, soundsOn } from './sounds';
 import { ITEMS, MAP, Store } from './net';
 import { inNativeApp, syncNative } from './native';
-import { MAX_CHAT_LEN, MEET_LINK_RE, normalizeMeetLink, REACTIONS } from '../../shared/protocol';
+import { MAX_CHAT_LEN, MEET_LINK_RE, meetAs, normalizeMeetLink, REACTIONS } from '../../shared/protocol';
 import { seatAt } from '../../shared/map';
 
 // Dev server: sign in automatically as ?as=<name> (default "Dev"); each name keeps its own session,
@@ -252,7 +252,8 @@ function MeetSetup({ store, onClose }: { store: Store; onClose: () => void }) {
             : 'When you knock and they accept, you both join this room.'}
         </p>
         <ol className="steps">
-          <li>Open <ExternalLink href="https://meet.google.com/">meet.google.com</ExternalLink> (opens a new tab)</li>
+          <li>Open <ExternalLink href={meetAs('https://meet.google.com/', store.email)}>meet.google.com</ExternalLink> (opens a new tab)
+            {store.email && <> as <b>{store.email}</b></>}</li>
           <li>Click <b>New meeting</b> → <b>Create a meeting for later</b></li>
           <li>Copy the link and paste it here — it's yours to reuse</li>
         </ol>
@@ -345,7 +346,7 @@ function CallChip({ store, voice }: { store: Store; voice: Voice | null }) {
           {voice.muted ? '🔇 Unmute' : '🎙 Mute'}
         </button>
       )}
-      {meet && <ExternalLink href={meet}>Move to Meet</ExternalLink>}
+      {meet && <ExternalLink href={meetAs(meet, store.email)} onOpen={() => store.moveToMeet()}>Move to Meet</ExternalLink>}
       <button className="end" onClick={() => store.endCall()}>Leave</button>
     </div>
   );
@@ -384,7 +385,7 @@ function Toasts({ store }: { store: Store }) {
             {t.text.startsWith('Missed') ? 'Knock back' : 'Knock again'}
           </button>}
           {t.kind === 'chat' && t.userId && <button onClick={() => store.openChat(t.userId!)}>Reply</button>}
-          {t.kind === 'link' && t.link && <ExternalLink href={t.link} onOpen={() => store.dismiss(t.id)}>Join call</ExternalLink>}
+          {t.kind === 'link' && t.link && <ExternalLink href={meetAs(t.link, store.email)} onOpen={() => store.dismiss(t.id)}>Join Meet</ExternalLink>}
           {t.kind !== 'knock_in' && t.kind !== 'knock_out' && <button className="ghost x" onClick={() => store.dismiss(t.id)}>×</button>}
         </div>
       ))}
@@ -399,14 +400,11 @@ function ActionWheel({ store, engine, pick, onClose }: { store: Store; engine: E
   const ref = useRef<HTMLDivElement>(null);
   const isMe = pick.kind === 'user' && pick.id === store.me;
   const [emoji, setEmoji] = useState(isMe);
+  // the wheel stays where it opened (a moving target is hard to hit); the floor ring shows who it's for
+  const [at] = useState(() => engine.anchor(pick));
   useEffect(() => {
     let raf = 0;
-    const tick = () => {
-      const a = engine.anchor(pick);
-      if (!a) return onClose();
-      if (ref.current) ref.current.style.transform = `translate(${Math.round(a.x)}px, ${Math.round(a.y)}px)`;
-      raf = requestAnimationFrame(tick);
-    };
+    const tick = () => { if (!engine.anchor(pick)) return onClose(); raf = requestAnimationFrame(tick); };
     tick();
     const key = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', key);
@@ -455,11 +453,15 @@ function ActionWheel({ store, engine, pick, onClose }: { store: Store; engine: E
       items = o.use.items.map(i => ({ icon: i.icon, label: i.label, onClick: act(() => store.use(o.id, i.id)) }));
     }
   }
-  const R = items.length <= 2 ? 46 : items.length <= 4 ? 56 : 66;
+  if (!at) return null;
+  // buttons ring the sprite without covering it, at any zoom; the whole wheel stays on screen
+  const R = Math.max(items.length <= 2 ? 46 : items.length <= 4 ? 56 : 66, at.r + 30);
+  const x = Math.round(Math.min(Math.max(at.x, R + 28), window.innerWidth - R - 28));
+  const y = Math.round(Math.min(Math.max(at.y, R + 70), window.innerHeight - R - 30));
   // two items sit left/right; more start at the top and go clockwise
   const start = items.length === 2 ? Math.PI : -Math.PI / 2;
   return (
-    <div className="wheel" ref={ref}>
+    <div className="wheel" ref={ref} style={{ transform: `translate(${x}px, ${y}px)` }}>
       <div className="wheel-title" style={{ top: -R - 46 }}>{title}</div>
       {items.map((it, i) => {
         const a = start + (i * 2 * Math.PI) / items.length;

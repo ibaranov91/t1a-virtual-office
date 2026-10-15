@@ -89,7 +89,9 @@ export class World {
     this.stayAfterAll(u);
     if (u.presence === 'offline') this.comeIn(u);
     send(this.snapshot());
-    send({ t: 'me', meetLink: u.meetLink ?? '' });
+    send({ t: 'me', meetLink: u.meetLink ?? '', email: u.email });
+    const call = u.callId ? this.calls.get(u.callId) : undefined; // a reloaded page gets its call's Meet link back
+    if (call) send({ t: 'call', userId: u.id, callId: call.id, link: call.link });
     return () => {
       this.listeners.delete(send);
       const set = this.sockets.get(userId)!; set.delete(send);
@@ -349,9 +351,11 @@ export class World {
       for (const u of [from, to]) this.joinCall(u, existing);
       return existing;
     }
-    // new call: the knocker's own Meet room, so everyone lands in the same place; else the room's generic link
+    // new call: the knocker's own Meet room, else the other person's, so everyone lands in the same place;
+    // with neither, the room's generic link (and no Move to Meet button)
     const room = this.roomOf(to) ?? this.map.rooms.find(r => r.id === 'lobby')!;
-    const call: Call = { id: randomUUID().slice(0, 8), members: new Set(), link: from.meetLink ?? room.meeting.url, fallback: !from.meetLink };
+    const own = from.meetLink ?? to.meetLink;
+    const call: Call = { id: randomUUID().slice(0, 8), members: new Set(), link: own ?? room.meeting.url, fallback: !own };
     this.calls.set(call.id, call);
     for (const u of [from, to]) this.joinCall(u, call);
     return call;
@@ -481,7 +485,7 @@ export class World {
         const link = raw.trim() ? normalizeMeetLink(raw) : '';
         if (link === null) break; // invalid: ignore, the client validates too
         u.meetLink = link || undefined;
-        this.sendTo(u.id, { t: 'me', meetLink: link });
+        this.sendTo(u.id, { t: 'me', meetLink: link, email: u.email });
         break;
       }
       case 'presence': {
@@ -491,6 +495,11 @@ export class World {
         break;
       }
       case 'end_call': this.leaveCall(u); break;
+      case 'to_meet': {
+        const call = u.callId ? this.calls.get(u.callId) : undefined;
+        if (call && !call.fallback) for (const id of call.members) if (id !== u.id) this.sendTo(id, { t: 'to_meet', fromId: u.id });
+        break;
+      }
       // voice: relay WebRTC signaling only between members of the same call
       case 'rtc': {
         const to = this.users.get(String(msg.to));
