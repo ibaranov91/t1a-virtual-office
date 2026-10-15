@@ -13,7 +13,7 @@ const REPLIES = [
   'Can we sync after lunch?', 'Thanks!', 'Sounds good to me', 'Ooh, tell me more',
 ];
 // how much each room attracts wandering bots
-const ROOM_WEIGHT: Record<string, number> = { focus: 3, cowork: 4, coffee: 2.5, lobby: 1.2, meeting: 1.5 };
+const ROOM_WEIGHT: Record<string, number> = { focus: 3, cowork: 4, studio: 2, desks: 2.5, coffee: 2.5, lobby: 1.2, meeting: 1.5 };
 
 const pick = <T>(xs: T[]) => xs[Math.floor(Math.random() * xs.length)];
 const pickWeighted = <T>(xs: T[], w: (x: T) => number) => {

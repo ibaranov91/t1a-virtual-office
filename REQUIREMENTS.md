@@ -64,7 +64,7 @@ Cute, warm, cozy pixel art in the Stardew Valley interior style.
 - No clicking regions or abstract dashboard widgets; everything lives on the map.
 
 ## Not now (design for it, don't build it)
-Calendar integration (auto-move attendees into Meeting), Slack/Teams status sync,
+Slack/Teams status sync,
 built-in audio, custom floor editor, mobile, real away detection, magic-link auth,
 SQLite. Keep tilemap / room / spot / presence as data so these can be added
 without a rewrite.

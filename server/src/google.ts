@@ -1,6 +1,7 @@
 // "Connect Google": OAuth (authorization code + PKCE, offline) so the server can make Meet rooms for calls.
 // Refresh tokens stay on the server, encrypted with GOOGLE_TOKEN_KEY; access tokens live in memory only.
 // More scopes (Calendar…) are asked for later, incrementally, on the same client.
+import type { CalEvent } from '../../shared/protocol';
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
 
 const CLIENT_ID = process.env.GOOGLE_CLIENT_ID ?? '';
@@ -10,6 +11,7 @@ const HD = process.env.GOOGLE_HD?.toLowerCase();  // only accounts of this Works
 const REDIRECT = process.env.GOOGLE_REDIRECT_URI
   ?? (process.env.DECK_PUBLIC_URL ? `${process.env.DECK_PUBLIC_URL.replace(/\/+$/, '')}/api/google/callback` : '');
 export const MEET_SCOPE = 'https://www.googleapis.com/auth/meetings.space.created';
+export const CALENDAR_SCOPE = 'https://www.googleapis.com/auth/calendar.events.readonly'; // asked for only when someone opens a calendar
 const SCOPES = ['openid', 'email', MEET_SCOPE];
 
 export const googleEnabled = !!(CLIENT_ID && CLIENT_SECRET && KEY.length === 32 && REDIRECT);
@@ -35,13 +37,13 @@ const b64url = (b: Buffer) => b.toString('base64url');
 const pending = new Map<string, { userId: string; verifier: string; at: number }>();
 
 /** The Google consent URL for this user. */
-export const authUrl = (userId: string, loginHint?: string) => {
+export const authUrl = (userId: string, loginHint?: string, extra: string[] = []) => {
   const now = Date.now();
   for (const [s, p] of pending) if (now - p.at > 10 * 60_000) pending.delete(s);
   const state = b64url(randomBytes(24)), verifier = b64url(randomBytes(32));
   pending.set(state, { userId, verifier, at: now });
   const q = new URLSearchParams({
-    client_id: CLIENT_ID, redirect_uri: REDIRECT, response_type: 'code', scope: SCOPES.join(' '), state,
+    client_id: CLIENT_ID, redirect_uri: REDIRECT, response_type: 'code', scope: [...SCOPES, ...extra].join(' '), state,
     access_type: 'offline', prompt: 'consent', include_granted_scopes: 'true',
     code_challenge: b64url(createHash('sha256').update(verifier).digest()), code_challenge_method: 'S256',
   });
@@ -103,5 +105,54 @@ export const revoke = async (userId: string, link: GoogleLink) => {
   access.delete(userId);
   try { await fetch('https://oauth2.googleapis.com/revoke', { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ token: open(link.refresh) }) }); }
   catch (e) { console.warn('google revoke failed', e); }
+};
+/** Your own events for a week from `from`, from your primary calendar. */
+export const listEvents = async (userId: string, link: GoogleLink, from: Date): Promise<CalEvent[]> => {
+  const q = new URLSearchParams({
+    timeMin: from.toISOString(), timeMax: new Date(from.getTime() + 7 * 86_400_000).toISOString(),
+    singleEvents: 'true', orderBy: 'startTime', maxResults: '50',
+  });
+  const r = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events?${q}`, { headers: { authorization: `Bearer ${await token(userId, link)}` } });
+  const j = await r.json().catch(() => ({})) as { items?: GEvent[]; error?: { message?: string } };
+  if (!r.ok) throw Object.assign(new Error(`calendar: ${r.status} ${j.error?.message ?? ''}`), { status: r.status });
+  return (j.items ?? []).filter(e => e.status !== 'cancelled' && e.eventType !== 'workingLocation').map(e => ({
+    id: String(e.id), title: e.summary || '(no title)', link: String(e.htmlLink ?? ''),
+    start: e.start?.dateTime ?? e.start?.date ?? '', end: e.end?.dateTime ?? e.end?.date ?? '', allDay: !e.start?.dateTime,
+    meet: e.hangoutLink, declined: e.attendees?.some(a => a.self && a.responseStatus === 'declined'),
+  }));
+};
+interface GEvent {
+  id?: string; iCalUID?: string; status?: string; eventType?: string; transparency?: string; summary?: string; htmlLink?: string;
+  hangoutLink?: string; location?: string; conferenceData?: { entryPoints?: { entryPointType?: string; uri?: string }[] };
+  start?: { dateTime?: string; date?: string }; end?: { dateTime?: string; date?: string };
+  attendees?: { email?: string; self?: boolean; resource?: boolean; responseStatus?: string }[];
+}
+/** A meeting with other people as one calendar sees it. key is the same in every attendee's calendar. */
+export interface CalMeeting { key: string; title: string; start: number; end: number; link?: string; emails: string[] }
+/** Your meetings with others that are on now or start within `aheadMs`. Skips all-day, free, declined and solo events. */
+export const listMeetings = async (userId: string, link: GoogleLink, aheadMs: number): Promise<CalMeeting[]> => {
+  const now = Date.now();
+  const q = new URLSearchParams({
+    timeMin: new Date(now).toISOString(), timeMax: new Date(now + aheadMs).toISOString(), singleEvents: 'true', orderBy: 'startTime', maxResults: '20',
+    fields: 'items(id,iCalUID,status,eventType,transparency,summary,start,end,hangoutLink,location,conferenceData(entryPoints(entryPointType,uri)),attendees(email,self,resource,responseStatus))',
+  });
+  const r = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events?${q}`, { headers: { authorization: `Bearer ${await token(userId, link)}` } });
+  const j = await r.json().catch(() => ({})) as { items?: GEvent[]; error?: { message?: string } };
+  if (!r.ok) throw Object.assign(new Error(`calendar: ${r.status} ${j.error?.message ?? ''}`), { status: r.status });
+  const out: CalMeeting[] = [];
+  for (const e of j.items ?? []) {
+    if (e.status === 'cancelled' || e.eventType !== 'default' && e.eventType !== undefined || e.transparency === 'transparent') continue;
+    if (!e.start?.dateTime || !e.end?.dateTime) continue; // all-day
+    const people = (e.attendees ?? []).filter(a => !a.resource);
+    if (people.length < 2 || people.some(a => a.self && a.responseStatus === 'declined')) continue;
+    const start = Date.parse(e.start.dateTime), end = Date.parse(e.end.dateTime);
+    const video = e.conferenceData?.entryPoints?.find(p => p.entryPointType === 'video')?.uri;
+    const inLocation = e.location?.match(/https:\/\/\S+/)?.[0];
+    out.push({
+      key: `${e.iCalUID ?? e.id}|${start}`, title: e.summary || '(no title)', start, end, link: e.hangoutLink ?? video ?? inLocation,
+      emails: people.filter(a => a.responseStatus !== 'declined' && a.email).map(a => a.email!.toLowerCase()),
+    });
+  }
+  return out;
 };
 export const forgetAccess = (userId: string) => access.delete(userId);

@@ -96,6 +96,18 @@ canvas { display: block; image-rendering: pixelated; touch-action: none; }
 .google-row { display: flex; align-items: center; gap: 8px; font-size: 13px; padding: 6px 8px; border-radius: 6px; background: var(--panel2); }
 .google-row > span:first-child { flex: 1; }
 .google-row a { white-space: nowrap; font-weight: 600; }
+.calendar-panel { width: min(440px, calc(100% - 32px)); max-height: min(560px, calc(100% - 32px)); overflow-y: auto; }
+.cal-days { display: grid; gap: 10px; }
+.cal-days h4 { margin: 0 0 4px; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.cal-days ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.cal-days li { display: flex; align-items: baseline; gap: 8px; font-size: 13px; padding: 3px 6px; border-radius: 5px; }
+.cal-days li.live { background: var(--panel2); }
+.cal-days li.past { opacity: .55; }
+.cal-days li.declined > a:first-of-type { text-decoration: line-through; }
+.cal-days .when { flex: 0 0 auto; min-width: 88px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.cal-days li > a:first-of-type { flex: 1; color: var(--text); text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cal-days li > a:first-of-type:hover { text-decoration: underline; }
+.cal-days .now { font-size: 11px; color: var(--accent); }
 .paste-row input { flex: 1; }
 
 .chips { position: absolute; left: 8px; right: 8px; top: 10px; display: grid; gap: 6px; justify-items: center; pointer-events: none; }
@@ -192,3 +204,7 @@ button:focus-visible, summary:focus-visible, input[type="range"]:focus-visible {
   .toasts { bottom: auto; top: 8px; z-index: 8; }
   .rooms { bottom: 168px; z-index: 5; }
 }
+.meeting-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.meeting-list li { display: flex; align-items: center; gap: 10px; font-size: 13px; padding: 6px 8px; border-radius: 6px; background: var(--panel2); }
+.meeting-list li > span { flex: 1; }
+.meeting-chip b { color: var(--accent); }

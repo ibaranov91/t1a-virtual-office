@@ -46,11 +46,23 @@ export interface PublicUser {
   muted: boolean;        // mic muted in that call
   following: string | null; // walks along with this person
   holding: string | null;   // a UseItem id (coffee, snack…) in hand for a while
+  meeting: number | null;   // in a calendar meeting until then (ms); knocks go to Later
+  instance: string | null;  // inside a meeting's own room: only people in the same one see each other
 }
 
 /** Quick reactions you can toss at someone; they float up over their head for everyone to see. */
 export const REACTIONS = ['👋', '👍', '❤️', '😂', '🎉', '☕'] as const;
 export type Reaction = typeof REACTIONS[number];
+
+/** One event from your own Google Calendar. start/end: ISO date-time, or YYYY-MM-DD for all-day events. */
+export interface CalEvent { id: string; title: string; start: string; end: string; allDay: boolean; link: string; meet?: string; declined?: boolean }
+
+/** A calendar meeting with other people, now or within the hour. Sent only to its attendees (the title is theirs). */
+export interface AgendaItem { key: string; instance: string; title: string; start: number; end: number; link?: string }
+/** A meeting room in use, for everyone: who's in it and until when, no title. */
+export interface MeetingRoomInfo { id: string; until: number; members: string[] }
+/** Meeting rooms are copies of this room on the map. */
+export const MEETING_ROOM_ID = 'meeting';
 
 /** A direct message. Only ever sent to the two people in the conversation. */
 export interface ChatMsg { id: string; fromId: string; toId: string; text: string; at: number }
@@ -86,8 +98,13 @@ export type ServerMsg =
   | { t: 'knock_reply'; knockId: string; fromId: string; toId: string; reply: 'accept' | 'later' | 'blocked'; link?: string; reason?: string; fallback?: boolean; cancelled?: boolean }
   // private settings, only to the user themselves. google: the connected Google account (null = not connected),
   // absent when this instance has no Google sign-in
-  | { t: 'me'; meetLink: string; email?: string; google?: string | null }
-  | { t: 'google_auth'; url: string } // open this to connect Google (in the system browser from the Mac app)
+  | { t: 'me'; meetLink: string; email?: string; google?: string | null; calendar?: boolean } // calendar: Calendar access granted
+  | { t: 'google_auth'; url: string; calendar?: boolean } // open this to connect Google (in the system browser from the Mac app)
+  | { t: 'calendar'; events?: CalEvent[]; error?: string } // my own events, only to me
+  | { t: 'agenda'; items: AgendaItem[] } // my calendar meetings now and soon, only to me
+  | { t: 'meeting'; userId: string; until: number | null }
+  | { t: 'instance'; userId: string; instance: string | null; tile: Tile; dir: Dir } // stepped into (or out of) a meeting room
+  | { t: 'meetings'; rooms: MeetingRoomInfo[] } // running meeting rooms, for the board
   | { t: 'desk'; userId: string; desk: Tile | null }
   | { t: 'call'; userId: string; callId: string | null; link?: string } // link: the call's Meet room, only to members
   | { t: 'rtc'; from: string; signal: RtcSignal }
@@ -115,7 +132,10 @@ export type ClientMsg =
   | { t: 'knock_reply'; knockId: string; reply: 'accept' | 'later' }
   | { t: 'knock_cancel'; knockId: string } // the knocker calls it back: closes the prompt for both
   | { t: 'meet_link'; link: string }
-  | { t: 'google_connect' }    // asks for a google_auth URL
+  | { t: 'google_connect'; calendar?: boolean } // asks for a google_auth URL; calendar: also ask for Calendar access
+  | { t: 'calendar'; from: string } // my events for a week from `from` (ISO, the start of my local day)
+  | { t: 'meeting_go'; key: string } // one click: into that meeting's room
+  | { t: 'meeting_leave' }           // back to the office
   | { t: 'google_disconnect' }
   | { t: 'claim_desk' }   // the seat you're sitting on becomes your home desk
   | { t: 'release_desk' }

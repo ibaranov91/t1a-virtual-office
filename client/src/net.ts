@@ -1,7 +1,7 @@
 // WebSocket client + the client-side mirror of server state.
 import mapJson from '../../shared/tilemap.json';
-import { pathTo, roomAt, sampleMove, type Dir, type Tile, type TileMap } from '../../shared/map';
-import { ROOM_VOICE_MAX, type ChatMsg, type ObjectState, type ClientMsg, type PublicUser, type Reaction, type RtcSignal, type ServerMsg } from '../../shared/protocol';
+import { besideObject, pathTo, roomAt, sampleMove, type Dir, type Tile, type TileMap } from '../../shared/map';
+import { ROOM_VOICE_MAX, type AgendaItem, type CalEvent, type MeetingRoomInfo, type ChatMsg, type ObjectState, type ClientMsg, type PublicUser, type Reaction, type RtcSignal, type ServerMsg } from '../../shared/protocol';
 import { playHand, playKnock, playPop } from './sounds';
 import type { Soundscape } from './soundscape';
 
@@ -16,8 +16,9 @@ export interface ClientUser extends PublicUser {
 
 export interface Toast {
   // knock_out: my knock is waiting (Cancel); knock_again: it didn't land, or I missed one (Knock again / back)
-  id: number; kind: 'knock_in' | 'knock_out' | 'knock_again' | 'chat' | 'info' | 'link';
+  id: number; kind: 'knock_in' | 'knock_out' | 'knock_again' | 'chat' | 'info' | 'link' | 'meeting';
   text: string; link?: string; knockId?: string; expires?: number; hint?: string;
+  meetingKey?: string; // meeting: one-click Go into its room
   userId?: string; // the other person, for knock_again and chat
 }
 
@@ -44,6 +45,15 @@ export class Store {
   email: string | null = null;    // my sign-in (NetBird) email; Meet links open as this Google account
   google: string | null | undefined; // my connected Google account; null = not connected, undefined = no Google here
   googleAuthUrl: string | null = null; // ready before the click, so the sign-in opens straight from it (no popup blocker)
+  calendarAccess = false;               // Google Calendar access granted
+  calendarAuthUrl: string | null = null; // same, but also asking for Calendar
+  calendarOpen = false;
+  calendarEvents: CalEvent[] | null = null; // null = loading
+  calendarError: string | null = null;
+  agenda: AgendaItem[] = [];               // my calendar meetings now and soon
+  meetingRooms: MeetingRoomInfo[] = [];    // meeting rooms in use (the board)
+  meetingsOpen = false;
+  private headsUp = new Set<string>();     // meetings I've had a heads-up for
   build: string | undefined;  // the server's client build when this page loaded
   staleBuild = false;         // server now serves a newer build; reload when not in a call
   objects: Record<string, ObjectState> = {};
@@ -126,6 +136,42 @@ export class Store {
   get meetAccount() { return this.email ?? this.google ?? null; }
   prepareGoogle() { this.googleAuthUrl = null; if (this.google === null) this.send({ t: 'google_connect' }); }
   disconnectGoogle() { this.send({ t: 'google_disconnect' }); }
+  /** A wall calendar was clicked: show my week, or how to connect Calendar. */
+  openCalendar() {
+    this.calendarOpen = true;
+    if (this.calendarAccess) this.loadCalendar();
+    else this.prepareCalendarAuth();
+    this.emit();
+  }
+  closeCalendar() { this.calendarOpen = false; this.emit(); }
+  openMeetings() { this.meetingsOpen = true; this.emit(); }
+  closeMeetings() { this.meetingsOpen = false; this.emit(); }
+  goToMeeting(key: string) {
+    this.send({ t: 'meeting_go', key });
+    this.toasts = this.toasts.filter(t => t.meetingKey !== key); this.meetingsOpen = false; this.emit();
+  }
+  leaveMeeting() { this.send({ t: 'meeting_leave' }); }
+  /** A server timestamp as local "10:30". */
+  clock(serverMs: number) { return new Date(serverMs - this.offset).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); }
+  /** The calendar meeting whose room I'm in. */
+  get myMeeting() { const id = this.users.get(this.me)?.instance; return id ? this.agenda.find(a => a.instance === id) ?? null : null; }
+  /** A minute before a meeting (or on load, if it's already on): a heads-up with Go and the event's own link. */
+  checkAgenda() {
+    const now = this.now(), mine = this.users.get(this.me)?.instance;
+    for (const a of this.agenda) {
+      if (this.headsUp.has(a.key) || now < a.start - 60_000 || now >= a.end || a.instance === mine) continue;
+      this.headsUp.add(a.key);
+      const soon = a.start > now ? `starts at ${this.clock(a.start)}` : 'is on now';
+      this.toast({ kind: 'meeting', meetingKey: a.key, link: a.link, text: `📅 ${a.title} ${soon}`, hint: 'Go: step into its room with the others', expires: a.end - now });
+      playKnock();
+    }
+  }
+  prepareCalendarAuth() { this.calendarAuthUrl = null; if (this.google !== undefined) this.send({ t: 'google_connect', calendar: true }); }
+  loadCalendar() {
+    const from = new Date(); from.setHours(0, 0, 0, 0); // my local day, so "Today" starts at midnight here
+    this.calendarEvents = null; this.calendarError = null;
+    this.send({ t: 'calendar', from: from.toISOString() });
+  }
   claimDesk() { this.send({ t: 'claim_desk' }); }
   releaseDesk() { this.send({ t: 'release_desk' }); }
   leaveRoom() { this.send({ t: 'leave_room' }); }
@@ -251,11 +297,36 @@ export class Store {
       case 'move': { const u = this.users.get(msg.userId); if (u) this.applyMove(u, msg); break; }
       case 'me': {
         if (this.google === null && msg.google) this.toast({ kind: 'info', text: `Google connected as ${msg.google}`, hint: 'Calls you start now get their own Meet room', expires: 6000 });
-        this.meetLink = msg.meetLink; this.email = msg.email ?? null; this.google = msg.google;
+        if (!this.calendarAccess && msg.calendar && this.google) this.toast({ kind: 'info', text: 'Google Calendar connected', expires: 4000 });
+        const calendarNow = !!msg.calendar && !this.calendarAccess;
+        this.meetLink = msg.meetLink; this.email = msg.email ?? null; this.google = msg.google; this.calendarAccess = !!msg.calendar;
         if (msg.google !== null) this.googleAuthUrl = null;
+        if (this.calendarAccess) this.calendarAuthUrl = null;
+        if (calendarNow && this.calendarOpen) this.loadCalendar(); // just granted from the open panel
         break;
       }
-      case 'google_auth': this.googleAuthUrl = msg.url; break;
+      case 'agenda': {
+        this.agenda = msg.items;
+        const keys = new Set(msg.items.map(a => a.key)); // cancelled or declined: drop its heads-up
+        this.toasts = this.toasts.filter(t => !t.meetingKey || keys.has(t.meetingKey));
+        this.checkAgenda();
+        break;
+      }
+      case 'meeting': { const u = this.users.get(msg.userId); if (u) u.meeting = msg.until; break; }
+      case 'meetings': this.meetingRooms = msg.rooms; break;
+      case 'instance': {
+        const u = this.users.get(msg.userId);
+        if (u) { u.instance = msg.instance; u.tile = msg.tile; u.dir = msg.dir; u.move = null; u.path = null; u.prev = null; u.faceOverride = null; }
+        if (msg.userId === this.me && msg.instance) this.toasts = this.toasts.filter(t => !(t.kind === 'meeting' && this.agenda.find(a => a.key === t.meetingKey)?.instance === msg.instance));
+        break;
+      }
+      case 'google_auth': if (msg.calendar) this.calendarAuthUrl = msg.url; else this.googleAuthUrl = msg.url; break;
+      case 'calendar': {
+        this.calendarEvents = msg.events ?? [];
+        this.calendarError = msg.error ?? null;
+        if (msg.error === 'no_access') { this.calendarAccess = false; this.prepareCalendarAuth(); }
+        break;
+      }
       case 'desk': { const u = this.users.get(msg.userId); if (u) u.homeDesk = msg.desk; break; }
       case 'to_meet': {
         if (!this.callLink) break;

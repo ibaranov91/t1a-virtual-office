@@ -56,6 +56,16 @@ npm run typecheck    # run before every commit or deploy
   `GOOGLE_TOKEN_KEY` in `state.json`. Config lives only in `/etc/the-deck.env` (`GOOGLE_CLIENT_ID`,
   `GOOGLE_CLIENT_SECRET`, `GOOGLE_TOKEN_KEY`, `GOOGLE_HD`; redirect `<DECK_PUBLIC_URL>/api/google/callback`). Copies are
   in 1Password, never in git. Without these vars (dev, test instances) the button is hidden and calls work as before.
+- **Wall calendars** (Coffee, Co-working; `use.kind: 'calendar'` in `gen-map.mjs`): clicking one opens your own week
+  from Google Calendar (`calendar` message, only to you). Calendar access (`calendar.events.readonly`) is asked for
+  incrementally the first time, on the same sign-in. Never revoke a token when replacing it: that kills the whole grant.
+- **Calendar meetings** (`server/src/meetings.ts`): every 2 min the server reads connected calendars for meetings with
+  other people (now or within the hour) and merges them by event. One connected attendee is enough: everyone on the guest
+  list (by sign-in email) gets an `agenda` (titles only to attendees), shows `meeting` (busy: knocks go to Later) and a
+  heads-up a minute before with **Go** and the event's own call link. Go puts you in the meeting's **instance**: a copy
+  of the Meeting room (same tiles), where only people with the same `instance` see each other; the office sees them on
+  the board by the Meeting room and under "In meetings". No voice inside. Leave, or the meeting's end, puts you back
+  where you were. Instances live in memory only.
 - **Room behavior is data.** Knock rules, meeting links and home-desk rooms live in `tilemap.json`
   (from `gen-map.mjs`), not in code.
 
