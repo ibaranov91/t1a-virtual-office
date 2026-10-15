@@ -1,4 +1,4 @@
-import { EARSHOT_TILES } from './protocol';
+import { ZONE_OUT_TILES } from './protocol';
 
 // Shared floor logic: used by the server AND every client, so paths are identical everywhere.
 
@@ -150,24 +150,24 @@ export function seatAt(m: TileMap, x: number, y: number): (Spot & { homeDesk: bo
 }
 
 export const voiceRooms = (m: TileMap) => m.rooms.filter(r => r.rules.voice === 'open');
-const earshots = new WeakMap<TileMap, Map<Room, number[][]>>();
-export function earshotDistance(m: TileMap, room: Room, x: number, y: number): number {
-  let rooms = earshots.get(m);
-  if (!rooms) earshots.set(m, rooms = new Map());
+const halls = new WeakMap<TileMap, Map<Room, number[][]>>();
+export function hallDistance(m: TileMap, room: Room, x: number, y: number): number {
+  let rooms = halls.get(m);
+  if (!rooms) halls.set(m, rooms = new Map());
   let distances = rooms.get(room);
   if (!distances) {
     distances = Array.from({ length: m.height }, () => Array(m.width).fill(Infinity));
     const queue: Tile[] = [];
     const { x, y, w, h } = room.rect;
     for (let yy = y; yy < y + h; yy++) for (let xx = x; xx < x + w; xx++) {
-      if (isWalkable(m, xx, yy)) { distances[yy][xx] = 0; queue.push({ x: xx, y: yy }); }
+      if (isWalkable(m, xx, yy) || seatAt(m, xx, yy)) { distances[yy][xx] = 0; queue.push({ x: xx, y: yy }); }
     }
     for (let i = 0; i < queue.length; i++) {
       const p = queue[i], d = distances[p.y][p.x];
-      if (d === EARSHOT_TILES) continue;
+      if (d === ZONE_OUT_TILES) continue;
       for (const [dx, dy] of NEIGH) {
         const x = p.x + dx, y = p.y + dy;
-        if (isWalkable(m, x, y) && distances[y][x] === Infinity) {
+        if ((isWalkable(m, x, y) || seatAt(m, x, y)) && distances[y]?.[x] === Infinity) {
           distances[y][x] = d + 1; queue.push({ x, y });
         }
       }

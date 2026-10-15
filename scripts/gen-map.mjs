@@ -168,7 +168,7 @@ obj('lamp', 1, 14, 1, 1, LAMP);
 obj('lamp', 27, 10, 1, 1, LAMP);
 obj('lamp', 14, 10, 1, 1, LAMP);
 
-obj('radio', 13, 14, 1, 1, { sound: { clip: 'radio', gain: 0.8 }, use: { kind: 'toggle', label: 'radio' }, on: true });
+obj('radio', 13, 14, 1, 1, { sound: { clip: 'radio', gain: 0.8 } });
 
 // ---- walkable mask ----
 const walkable = grid(1);

@@ -59,7 +59,7 @@ export class Engine {
     this.dynamicObjects = MAP.objects.filter(o => !o.wall && !o.walkable);
     this.lights = MAP.objects.filter(o => o.light);
     this.steamers = MAP.objects.filter(o => o.steam);
-    this.interactive = MAP.objects.filter(o => o.use || o.sit);
+    this.interactive = MAP.objects.filter(o => o.use || o.sit || o.sound);
     this.ro = new ResizeObserver(() => this.resize());
     this.ro.observe(canvas.parentElement!);
     this.resize();
@@ -226,6 +226,7 @@ export class Engine {
     if (hit) return this.onPick?.({ kind: 'user', id: hit });
     const obj = this.objectAt(w.x, w.y);
     if (obj?.sit) { this.onPick?.(null); this.manualCam = false; return this.store.moveTo(this.freeSeat(obj, Math.floor(w.x / TS))); }
+    if (obj?.sound) return this.onPick?.(null);
     if (obj) return this.onPick?.({ kind: 'object', id: obj.id });
     this.onPick?.(null);
     const tx = Math.floor(w.x / TS), ty = Math.floor(w.y / TS);
@@ -304,7 +305,7 @@ export class Engine {
       if (o && !(coffeeBusy && o.steam)) this.drawSteam(o, ms);
     }
 
-    for (const o of MAP.objects.filter(o => o.sound && this.isOn(o))) for (let i = 0; i < 3; i++) {
+    for (const o of MAP.objects.filter(o => o.sound)) for (let i = 0; i < 3; i++) {
       const phase = (ms / 2200 + i / 3) % 1;
       ctx.globalAlpha = 1 - phase;
       this.blit(ctx, i % 2 ? 'note_1' : 'note_2', o.x * TS + 5 + Math.round(Math.sin(phase * 6 + i) * 4), o.y * TS - Math.round(phase * 18));
@@ -323,7 +324,7 @@ export class Engine {
     if (this.hoverUser) this.drawTooltip(this.hoverUser, poses, camX, camY);
     else if (this.hoverObject && !this.selected) {
       const o = this.hoverObject, fr = this.f(o.type)!;
-      const what = o.use?.kind === 'toggle' ? `${o.use.label[0].toUpperCase()}${o.use.label.slice(1)} · ${this.isOn(o) ? 'on' : 'off'}`
+      const what = o.sound ? 'Radio · music volume in ⚙' : o.use?.kind === 'toggle' ? `${o.use.label[0].toUpperCase()}${o.use.label.slice(1)} · ${this.isOn(o) ? 'on' : 'off'}`
         : o.sit ? 'Sofa · click to sit' : o.type === 'coffee_machine' ? 'Coffee machine' : o.type === 'fridge' ? 'Fridge' : o.type;
       this.drawLabel(what, (o.x + o.w / 2) * TS, (o.y + o.h) * TS - fr.h + 4, camX, camY);
     }
@@ -391,8 +392,7 @@ export class Engine {
     if (u.door === 'thinking') return 'bubble_think';
     if (u.door === 'leaving') return null;
     if (u.emote === 'knock') return 'bubble_bang';
-    if (u.callId && u.callRole === 'member') return u.deafened ? 'bubble_deaf' : 'bubble_talk';
-    if (u.callRole === 'listener') return null;
+    if (u.callId) return u.deafened ? 'bubble_deaf' : 'bubble_talk';
     if (u.presence === 'in_call') return 'bubble_headset';
     if (u.presence === 'away') return 'bubble_zzz';
     if (!p.walking && roomAt(MAP, p.tile.x, p.tile.y)?.rules.occupantLabel) return 'bubble_meeting';
@@ -448,7 +448,7 @@ export class Engine {
 
   /** Fake turn-taking for two people on a call, from server time so every viewer sees the same conversation. */
   private isSpeaking(u: ClientUser) {
-    if (!u.callId || u.muted || u.deafened || u.callRole !== 'member') return false;
+    if (!u.callId || u.muted || u.deafened) return false;
     if (!u.bot) return !!u.speaking; // real people: their actual mic activity (voice calls)
     const members = [u, ...this.store.callPeers(u)].map(m => m.id).sort();
     const turn = Math.floor(this.store.now() / 1800); // ~1.8 s turns
@@ -563,7 +563,7 @@ export class Engine {
     const dpr = window.devicePixelRatio || 1;
     const room = roomAt(MAP, p.tile.x, p.tile.y);
     const voiceRoom = this.store.roomCallOf(u);
-    const presence = voiceRoom ? u.callRole === 'member' ? `in ${voiceRoom.name} voice` : `passing ${voiceRoom.name}` : u.door === 'thinking' ? 'packing up…' : u.door === 'leaving' ? 'heading out' : u.door === 'arriving' ? 'just arrived'
+    const presence = voiceRoom ? `in ${voiceRoom.name} voice` : u.door === 'thinking' ? 'packing up…' : u.door === 'leaving' ? 'heading out' : u.door === 'arriving' ? 'just arrived'
       : u.callId ? `talking with ${this.store.names(this.store.callPeers(u))}` : u.presence === 'in_call' ? 'in a call' : u.presence === 'away' ? 'away' : room?.rules.occupantLabel ?? 'around';
     const lines = [`${u.name}${u.id === this.store.me ? ' (you)' : ''} · ${presence}`];
     if (u.status) lines.push(`“${u.status}”`);

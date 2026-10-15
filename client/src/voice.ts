@@ -1,6 +1,6 @@
 import { AFK_MS, type RtcSignal } from '../../shared/protocol';
 import { audio, forgetMedia, needsGesture, playMedia, resume, setAudioDeafened } from './audio';
-import { prefs, savePrefs } from './prefs';
+import { prefs, savePrefs, subscribePrefs } from './prefs';
 import type { ClientUser, Store } from './net';
 
 interface Peer {
@@ -18,7 +18,6 @@ export class Voice {
   spaceHeld = false;
   micError: string | null = null;
   private callId: string | null = null;
-  private role: string | null = null;
   private owner = false;
   private local: MediaStream | null = null;
   private peers = new Map<string, Peer>();
@@ -35,6 +34,7 @@ export class Voice {
   private afk: number;
   private inst = rid();
   private dead = false;
+  private unsub: () => void;
 
   constructor(private store: Store, private iceServers: RTCIceServer[]) {
     store.onRtc = (from, signal) => { void this.onSignal(from, signal); };
@@ -44,6 +44,16 @@ export class Voice {
     window.addEventListener('blur', this.releaseSpace);
     this.afk = window.setInterval(() => this.checkAfk(), 15000);
     setAudioDeafened(this.deafened);
+    this.unsub = subscribePrefs(() => {
+      const changed = this.muted !== prefs.muted || this.deafened !== prefs.deafened || this.mode !== prefs.mode;
+      this.muted = prefs.muted; this.deafened = prefs.deafened; this.mode = prefs.mode;
+      if (!changed) return;
+      this.spaceHeld = false; setAudioDeafened(this.deafened);
+      if (this.owner && this.callId) {
+        this.store.send({ t: 'mute', muted: this.muted }); this.store.setDeafen(this.deafened);
+      }
+      this.sendRule(); this.store.changed();
+    });
   }
   get needsGesture() { return needsGesture(); }
   resumeAudio() { void resume(); }
@@ -51,33 +61,26 @@ export class Voice {
   // Used for creation, incoming signals, pruning and both UI counts.
   private eligible(u: ClientUser) {
     const me = this.store.users.get(this.store.me);
-    return !!me && this.owner && this.store.connected && around(me) && around(u) && u.id !== me.id && !!me.callId && me.callId === u.callId
-      && (me.callRole === 'member' || u.callRole === 'member');
+    return !!me && this.owner && this.store.connected && around(me) && around(u) && u.id !== me.id && !!me.callId && me.callId === u.callId;
   }
   eligiblePeers() { return [...this.store.users.values()].filter(u => this.eligible(u)); }
   sync() {
     if (this.dead) return;
     const me = this.store.users.get(this.store.me), owner = this.store.connected && this.store.voiceOwner;
-    const callId = me?.callId ?? null, role = me?.callRole ?? null;
-    const newOwner = owner && !this.owner, newCall = callId !== this.callId, newRole = role !== this.role;
+    const callId = me?.callId ?? null;
+    const newOwner = owner && !this.owner, newCall = callId !== this.callId;
     const wasOwner = this.owner;
-    this.owner = owner; this.callId = callId; this.role = role;
+    this.owner = owner; this.callId = callId;
     if (!owner || newCall) this.stopVoice();
     if (newOwner) this.inst = rid();
-    if (owner && (newOwner || newCall || newRole)) {
-      if (newCall || newOwner) {
-        this.muted = this.store.roomCallOf(me) ? prefs.muted : false;
-        this.deafened = prefs.deafened;
-      }
-      if (role !== 'member') this.stopMic();
-      else this.lastActivity = Date.now();
+    if (owner && (newOwner || newCall)) {
+      this.muted = prefs.muted; this.deafened = prefs.deafened; this.mode = prefs.mode;
+      this.lastActivity = Date.now();
       if (callId) {
-        this.store.send({ t: 'mute', muted: this.muted });
-        this.store.setDeafen(this.deafened);
+        this.store.send({ t: 'mute', muted: this.muted }); this.store.setDeafen(this.deafened);
       }
     }
     if (wasOwner && !owner) this.spaceHeld = false;
-    setAudioDeafened(this.deafened);
     const ids = new Set(this.eligiblePeers().map(u => u.id));
     for (const id of [...this.peers.keys()]) if (!ids.has(id)) this.closePeer(id);
     for (const id of ids) if (!this.peers.has(id)) {
@@ -86,11 +89,11 @@ export class Voice {
       else this.signal(id, { kind: 'hello', inst: this.inst });
     }
     this.sendRule();
-    if (owner && role === 'member' && callId && !this.local && !this.micAttempted) void this.requestMic(callId);
+    if (owner && callId && !this.local && !this.micAttempted) void this.requestMic(callId);
   }
   private sendRule() {
-    const track = this.owner && this.role === 'member' ? this.local?.getAudioTracks()[0] ?? null : null;
-    const enabled = this.owner && this.role === 'member' && !this.muted && !this.deafened && (this.mode === 'voice' || this.spaceHeld);
+    const track = this.owner && this.callId ? this.local?.getAudioTracks()[0] ?? null : null;
+    const enabled = this.owner && !!this.callId && !!this.local && !this.muted && !this.deafened && (this.mode === 'voice' || this.spaceHeld);
     for (const t of this.local?.getAudioTracks() ?? []) t.enabled = enabled;
     if (!enabled) { this.loudTicks = 0; this.quietTicks = 0; this.handSince = 0; this.setSpeaking(false); }
     for (const p of this.peers.values()) {
@@ -112,7 +115,7 @@ export class Voice {
     } catch (e) {
       error = (e as Error)?.name === 'NotAllowedError' ? 'Microphone blocked: you can listen but not talk' : 'No microphone: listen-only';
     }
-    if (token !== this.micRequest || !this.owner || this.role !== 'member' || this.callId !== callId || this.dead) {
+    if (token !== this.micRequest || !this.owner || this.callId !== callId || this.dead) {
       for (const t of local?.getTracks() ?? []) t.stop(); return;
     }
     this.local = local; this.micError = error;
@@ -122,33 +125,35 @@ export class Voice {
     this.store.changed();
   }
   toggleMute() {
+    if (!this.store.voiceOwner || !this.store.connected) return;
     this.muted = !this.muted; prefs.muted = this.muted; savePrefs();
     this.store.send({ t: 'mute', muted: this.muted }); this.sendRule(); this.store.changed();
   }
   toggleDeafen() {
+    if (!this.store.voiceOwner || !this.store.connected) return;
     this.deafened = !this.deafened; prefs.deafened = this.deafened; savePrefs();
     setAudioDeafened(this.deafened); this.store.setDeafen(this.deafened); this.sendRule(); this.store.changed();
   }
   toggleMode() {
+    if (!this.store.voiceOwner || !this.store.connected) return;
     this.mode = this.mode === 'voice' ? 'ptt' : 'voice'; prefs.mode = this.mode; savePrefs();
     this.releaseSpace(); this.sendRule(); this.store.changed();
   }
   private stopMic() {
-    ++this.micRequest; this.micAttempted = false;
+    ++this.micRequest; if (!this.micError) this.micAttempted = false;
     for (const t of this.local?.getTracks() ?? []) t.stop(); this.local = null;
     clearInterval(this.meter); this.meter = undefined;
     this.meterSource?.disconnect(); this.analyser?.disconnect(); this.meterSource = null; this.analyser = null;
-    this.setSpeaking(false); this.loudTicks = 0; this.quietTicks = 0; this.handSince = 0; this.micError = null;
+    this.setSpeaking(false); this.loudTicks = 0; this.quietTicks = 0; this.handSince = 0;
   }
   private stopVoice() {
     this.stopMic();
     for (const id of [...this.peers.keys()]) this.closePeer(id);
   }
   destroy() {
-    this.dead = true; this.stopVoice(); clearInterval(this.afk); this.store.onRtc = undefined;
+    this.dead = true; this.unsub(); this.stopVoice(); clearInterval(this.afk); this.store.onRtc = undefined;
     for (const event of ['pointerdown', 'pointermove', 'keydown', 'wheel'] as const) window.removeEventListener(event, this.activity);
     window.removeEventListener('keydown', this.keyDown); window.removeEventListener('keyup', this.keyUp); window.removeEventListener('blur', this.releaseSpace);
-    setAudioDeafened(false);
   }
 
   private createPeer(id: string): Peer {
@@ -252,7 +257,7 @@ export class Voice {
 
   private activity = () => { this.lastActivity = Date.now(); };
   private keyDown = (e: KeyboardEvent) => {
-    if (e.code !== 'Space' || e.repeat || this.mode !== 'ptt' || !this.owner || this.role !== 'member') return;
+    if (e.code !== 'Space' || e.repeat || this.mode !== 'ptt' || !this.owner || !this.callId) return;
     const target = e.target instanceof Element ? e.target : null;
     if (target?.closest('input, textarea, select, [contenteditable]')) return;
     e.preventDefault(); this.spaceHeld = true; this.sendRule(); this.store.changed();
@@ -261,7 +266,7 @@ export class Voice {
   private releaseSpace = () => { if (this.spaceHeld) { this.spaceHeld = false; this.sendRule(); this.store.changed(); } };
   private checkAfk() {
     const me = this.store.users.get(this.store.me), room = this.store.roomCallOf(me);
-    if (!this.owner || me?.callRole !== 'member' || !room || Date.now() - this.lastActivity < AFK_MS) return;
+    if (!this.owner || !room || Date.now() - this.lastActivity < AFK_MS) return;
     this.lastActivity = Date.now(); this.store.leaveRoom();
     this.store.toast({ kind: 'info', text: `Left ${room.name} after 10 minutes of silence`, expires: 6000 });
   }

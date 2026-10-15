@@ -1,11 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import {
-  besideObject, dirBetween, earshotDistance, voiceRooms, findPath, isWalkable, pathDuration, pathTo, roomAt, sampleMove, seatAt, WALK_MS_PER_TILE,
+  besideObject, dirBetween, hallDistance, voiceRooms, findPath, isWalkable, pathDuration, pathTo, roomAt, sampleMove, seatAt, WALK_MS_PER_TILE,
   type Dir, type Room, type Spot, type TileMap, type Tile,
 } from '../../shared/map';
 import {
-  EARSHOT_TILES, MAX_CALL_SIZE, MAX_CHAT_LEN, normalizeMeetLink, REACTIONS, ROOM_VOICE_MAX,
-  type CallRole, type ChatMsg, type ClientMsg, type Door, type Knock, type Look, type Presence, type PublicUser, type Reaction, type ServerMsg,
+  ZONE_IN_TILES, ZONE_OUT_TILES, MAX_CALL_SIZE, MAX_CHAT_LEN, normalizeMeetLink, REACTIONS, ROOM_VOICE_MAX,
+  type ChatMsg, type ClientMsg, type Door, type Knock, type Look, type Presence, type PublicUser, type Reaction, type ServerMsg,
 } from '../../shared/protocol';
 import { authUrl, createSpace, forgetAccess, googleEnabled, revoke, type GoogleLink } from './google';
 
@@ -17,7 +17,8 @@ export interface User extends PublicUser {
   offlineAt?: number;   // when they walked out the door (not persisted)
   lastSpot?: Tile;      // where they were before heading out (not persisted)
   presenceBeforeCall?: Presence;
-  presencePicked?: boolean;
+  prev?: { path: Tile[]; startedAt: number };
+  afk?: boolean;
 }
 
 interface Call { id: string; members: Set<string>; link?: string; fallback: boolean; room?: Room }
@@ -57,15 +58,12 @@ export class World {
   private sockets = new Map<string, Map<string, Send>>();
   private owners = new Map<string, string>();
   private waiting = new Map<string, string>();
-  private voiceTimers = new Map<string, NodeJS.Timeout>();
-  private voiceGeneration = new Map<string, number>();
   private listeners = new Set<Send>();
   private doorTimers = new Map<string, NodeJS.Timeout>();
   private callTimers = new Map<string, NodeJS.Timeout>(); // per member: when they hang up
   private holdTimers = new Map<string, NodeJS.Timeout>(); // per person: when the coffee's finished
   private errands = new Map<string, NodeJS.Timeout>();    // per person: walking over to use an object
   private objectOn = new Map<string, boolean>();          // toggle objects (lamps)
-  private objectVolume = new Map<string, number>();      // sound objects (the radio): one shared knob
   private chats = new Map<string, ChatMsg[]>();           // per pair of people, oldest first
   private lastReact = new Map<string, number>();
   botHooks?: BotHooks;
@@ -73,7 +71,7 @@ export class World {
   build?: string; // sent in hello so open pages reload after a deploy
   constructor(public map: TileMap) {
     for (const o of map.objects) if (o.use?.kind === 'toggle') this.objectOn.set(o.id, o.on ?? true);
-    for (const o of map.objects) if (o.sound) this.objectVolume.set(o.id, o.sound.gain);
+    setInterval(() => this.voiceTick(), 250).unref();
   }
 
   // ---------- transport ----------
@@ -82,11 +80,11 @@ export class World {
   me(u: User): ServerMsg { return { t: 'me', meetLink: u.meetLink ?? '', email: u.email, google: googleEnabled ? u.google?.email ?? null : undefined }; }
   sendTo(userId: string, msg: ServerMsg) { for (const s of this.sockets.get(userId)?.values() ?? []) s(msg); }
   snapshot(): ServerMsg {
-    const objects = Object.fromEntries([...new Set([...this.objectOn.keys(), ...this.objectVolume.keys()])].map(id => [id, this.objectState(id)]));
+    const objects = Object.fromEntries([...this.objectOn.keys()].map(id => [id, this.objectState(id)]));
     return { t: 'state', serverTime: Date.now(), users: [...this.users.values()].map(this.toPublic), objects };
   }
   private toPublic = (u: User): PublicUser => {
-    const { path: _p, email: _e, meetLink: _m, google: _g, offlineAt: _o, lastSpot: _l, presenceBeforeCall: _b, presencePicked: _c, ...pub } = u;
+    const { path: _p, email: _e, meetLink: _m, google: _g, offlineAt: _o, lastSpot: _l, presenceBeforeCall: _b, prev: _v, afk: _a, ...pub } = u;
     return pub;
   };
 
@@ -104,7 +102,7 @@ export class World {
     send(this.me(u));
     send({ t: 'voice_wait', roomId: this.waiting.get(userId) ?? null });
     const call = u.callId ? this.calls.get(u.callId) : undefined; // a reloaded page gets its call's Meet link back
-    if (call) send({ t: 'call', userId: u.id, callId: call.id, role: u.callRole ?? undefined, link: call.link });
+    if (call) send({ t: 'call', userId: u.id, callId: call.id, link: call.link });
     this.setOwner(userId, socket);
     return { socket, close: () => {
       this.listeners.delete(send);
@@ -190,7 +188,7 @@ export class World {
     const u: User = {
       email,
       id: randomUUID().slice(0, 8), name, look: lookFor(name), tile: tile ?? { ...this.map.spawn }, dir: 'down',
-      move: null, path: null, presence: bot ? 'online' : 'offline', status: '', emote: null, bot, homeDesk: null, door: null, callId: null, callRole: null, deafened: false, hand: false, muted: false,
+      move: null, path: null, presence: bot ? 'online' : 'offline', status: '', emote: null, bot, homeDesk: null, door: null, callId: null, deafened: false, hand: false, muted: false,
       following: null, holding: null,
     };
     this.users.set(u.id, u);
@@ -203,9 +201,10 @@ export class World {
   /** Where the user is right now (tile they occupy / are entering) and where they're going. */
   position(u: User, now = Date.now()) {
     if (!u.move || !u.path) return { tile: u.tile, next: u.tile, remainingMs: 0, dest: u.tile };
-    const s = sampleMove(u.path, u.move.startedAt, now)!;
+    const move = u.prev && now < u.move.startedAt ? u.prev : { path: u.path, startedAt: u.move.startedAt };
+    const s = sampleMove(move.path, move.startedAt, now)!;
     if (s.done) return { tile: s.tile, next: s.tile, remainingMs: 0, dest: s.tile };
-    const seg = Math.max(0, now - u.move.startedAt) / WALK_MS_PER_TILE;
+    const seg = Math.max(0, now - move.startedAt) / WALK_MS_PER_TILE;
     return { tile: s.tile, next: s.next, remainingMs: (Math.ceil(seg) - seg) * WALK_MS_PER_TILE, dest: u.move.to };
   }
   roomOf(u: User) { const p = this.position(u); return roomAt(this.map, p.tile.x, p.tile.y); }
@@ -218,10 +217,10 @@ export class World {
     if (!path.length) return null;
     const startedAt = Math.round(now + pos.remainingMs);
     face ??= seatAt(this.map, to.x, to.y)?.dir; // sit facing the desk/table
+    u.prev = u.move && u.path && now < u.move.startedAt + pathDuration(u.path) ? { path: u.path, startedAt: u.move.startedAt } : undefined;
     u.move = { from, to, startedAt, face }; u.path = path; u.tile = to;
     if (face) u.dir = face;
     else if (path.length > 1) { const a = path[path.length - 2], b = path[path.length - 1]; u.dir = b.x > a.x ? 'right' : b.x < a.x ? 'left' : b.y > a.y ? 'down' : 'up'; }
-    if (!u.bot && !goingOut(u)) this.walkVoice(u, path, startedAt);
     this.broadcast({ t: 'move', userId: u.id, from, to, startedAt, face });
     for (const f of this.users.values()) if (f.following === u.id) this.trail(f, to, startedAt + FOLLOW_LAG_MS);
     return startedAt + pathDuration(path);
@@ -291,22 +290,10 @@ export class World {
       else if (item) this.setHolding(u, item.id, o.id);
     }, Math.max(0, at - Date.now()) + USE_MS[o.use.kind]));
   }
-  private objectState(id: string) { return { on: this.objectOn.get(id) ?? true, volume: this.objectVolume.get(id) }; }
+  private objectState(id: string) { return { on: this.objectOn.get(id) ?? true }; }
   private setObject(id: string, on: boolean, by: User) {
     this.objectOn.set(id, on);
     this.broadcast({ t: 'object', id, ...this.objectState(id), by: by.id });
-  }
-  /** Turn a sound object's shared volume knob; everyone hears the change. Like a real radio: only standing next to it. */
-  setObjectVolume(u: User, id: string, raw: number) {
-    const o = this.map.objects.find(o => o.id === id);
-    if (!o || !this.objectVolume.has(id) || !Number.isFinite(raw)) return;
-    const p = this.position(u);
-    if (p.remainingMs > 0 || p.dest.x !== p.tile.x || p.dest.y !== p.tile.y) return; // still walking
-    if (!besideObject(this.map, o).some(s => s.x === p.tile.x && s.y === p.tile.y)) return;
-    const volume = Math.round(Math.max(0, Math.min(1, raw)) * 20) / 20;
-    if (this.objectVolume.get(id) === volume) return;
-    this.objectVolume.set(id, volume);
-    this.broadcast({ t: 'object', id, ...this.objectState(id), by: u.id });
   }
   give(u: User, to: User) {
     if (!u.holding || to.id === u.id || to.holding || to.presence === 'offline' || goingOut(to)) return;
@@ -406,7 +393,7 @@ export class World {
       call.link = uri; call.fallback = false;
       for (const id of call.members) {
         const m = this.users.get(id);
-        if (m?.callId === call.id) this.sendTo(id, { t: 'call', userId: id, callId: call.id, role: m.callRole ?? undefined, link: uri });
+        if (m?.callId === call.id) this.sendTo(id, { t: 'call', userId: id, callId: call.id, link: uri });
       }
     }).catch(e => {
       console.warn(`google: no Meet room for ${host.name}:`, e.message);
@@ -421,13 +408,6 @@ export class World {
     u.google = link;
     this.sendTo(u.id, this.me(u));
   }
-  private clearVoiceTimer(u: User) {
-    clearTimeout(this.voiceTimers.get(u.id)); this.voiceTimers.delete(u.id);
-  }
-  private changeVoice(u: User) {
-    this.clearVoiceTimer(u);
-    this.voiceGeneration.set(u.id, (this.voiceGeneration.get(u.id) ?? 0) + 1);
-  }
   private setWaiting(u: User, roomId: string | null) {
     if ((this.waiting.get(u.id) ?? null) === roomId) return;
     if (roomId) this.waiting.set(u.id, roomId); else this.waiting.delete(u.id);
@@ -437,108 +417,105 @@ export class World {
     if (!u.hand) return;
     u.hand = false; this.broadcast({ t: 'hand', userId: u.id, up: false });
   }
-  private stopMember(u: User) {
-    this.broadcast({ t: 'speaking', userId: u.id, on: false }); this.lowerHand(u);
-    if (!u.presencePicked) this.setPresence(u, u.presenceBeforeCall ?? 'online');
-    u.presenceBeforeCall = undefined; u.presencePicked = undefined;
-  }
-  private joinCall(u: User, call: Call, role: CallRole = 'member') {
-    if (u.callId === call.id && u.callRole === role) return;
-    if (u.callId !== call.id) this.leaveCall(u);
-    else if (u.callRole === 'member') {
-      if (call.room && role === 'listener' && this.memberCount(call) === 1) {
-        this.maintainRoom(call);
-        if (this.memberCount(call) === 1) { this.leaveCall(u); return; }
-      }
-      this.stopMember(u);
-    }
-    this.changeVoice(u);
-    call.members.add(u.id);
-    u.callId = call.id; u.callRole = role;
-    if (!call.room) u.muted = false;
-    if (role === 'member') {
+  private joinCall(u: User, call: Call) {
+    this.setWaiting(u, null);
+    if (u.callId === call.id) return;
+    this.leaveCall(u);
+    call.members.add(u.id); u.callId = call.id;
+    if (!call.room) {
       u.presenceBeforeCall = u.presence === 'in_call' ? 'online' : u.presence;
-      u.presencePicked = false; this.setPresence(u, 'in_call');
-      if (call.room) {
-        this.setWaiting(u, null);
-        for (const k of this.knocks.values()) if ((k.fromId === u.id || k.toId === u.id) && (k.state === 'walking' || k.state === 'pending'))
-          this.closeKnock(k, 'later', `Knock cancelled — ${u.name} walked into ${call.room.name}`);
-      }
+      this.setPresence(u, 'in_call');
+    } else {
+      for (const k of this.knocks.values()) if ((k.fromId === u.id || k.toId === u.id) && (k.state === 'walking' || k.state === 'pending'))
+        this.closeKnock(k, 'later', `Knock cancelled — ${u.name} walked into ${call.room.name}`);
     }
-    for (const [id] of this.sockets) this.sendTo(id, { t: 'call', userId: u.id, callId: call.id, role, link: call.members.has(id) ? call.link : undefined });
-    if (call.room) { this.maintainRoom(call); return; }
+    for (const [id] of this.sockets) this.sendTo(id, { t: 'call', userId: u.id, callId: call.id, link: call.members.has(id) ? call.link : undefined });
+    if (call.room) return;
     const humansThere = [...call.members].some(id => !this.users.get(id)?.bot);
     const ms = !u.bot ? 2 * 60 * 60_000 : humansThere ? 120_000 + Math.random() * 180_000 : 30_000 + Math.random() * 60_000;
     this.callTimers.set(u.id, setTimeout(() => this.leaveCall(u), ms));
   }
-  private memberCount(call: Call) { return [...call.members].filter(id => this.users.get(id)?.callRole === 'member').length; }
-  private maintainRoom(call: Call) {
+  private hallEligible(u: User, room: Room, now: number) {
+    if (u.bot || u.afk || u.presence === 'offline' || goingOut(u) || !this.sockets.get(u.id)?.size) return false;
+    if (u.callId && !this.calls.get(u.callId)?.room) return false;
+    const t = this.position(u, now).tile;
+    return hallDistance(this.map, room, t.x, t.y) <= (u.callId === `room:${room.id}` ? ZONE_OUT_TILES : ZONE_IN_TILES);
+  }
+  private maintainRoom(call: Call, now = Date.now()) {
     for (const [id, roomId] of this.waiting) {
-      if (roomId !== call.room!.id || this.memberCount(call) >= ROOM_VOICE_MAX) continue;
+      if (roomId !== call.room!.id) continue;
       const u = this.users.get(id);
-      if (!u || u.bot || !this.sockets.get(id)?.size || goingOut(u)) continue;
-      const dest = this.position(u).dest;
-      if (roomAt(this.map, dest.x, dest.y)?.id !== roomId) continue;
-      this.setWaiting(u, null); this.joinCall(u, call);
+      if (!u) { this.waiting.delete(id); continue; }
+      if (!this.hallEligible(u, call.room!, now)) continue;
+      if (call.members.size < ROOM_VOICE_MAX) this.joinCall(u, call);
     }
-    if (this.memberCount(call)) return;
-    this.calls.delete(call.id);
-    for (const id of [...call.members]) { const u = this.users.get(id); if (u) this.leaveCall(u); }
+    if (!call.members.size) this.calls.delete(call.id);
+  }
+  voiceTick(now = Date.now()) {
+    const rooms = voiceRooms(this.map);
+    for (const u of this.users.values()) {
+      if (u.bot || u.afk || u.presence === 'offline' || goingOut(u) || !this.sockets.get(u.id)?.size) { this.setWaiting(u, null); continue; }
+      const t = this.position(u, now).tile;
+      const inside = rooms.find(r => t.x >= r.rect.x && t.x < r.rect.x + r.rect.w && t.y >= r.rect.y && t.y < r.rect.y + r.rect.h);
+      const call = u.callId ? this.calls.get(u.callId) : undefined;
+      if (call && !call.room) {
+        this.setWaiting(u, null);
+        if (!inside) continue;
+        this.leaveCall(u, now);
+      }
+      const room = rooms.find(r => this.hallEligible(u, r, now));
+      if (!room) {
+        this.setWaiting(u, null);
+        if (u.callId) this.leaveCall(u, now);
+        continue;
+      }
+      const id = `room:${room.id}`;
+      if (u.callId === id) { this.setWaiting(u, null); continue; }
+      if (u.callId) this.leaveCall(u, now);
+      let hall = this.calls.get(id);
+      if (hall) this.maintainRoom(hall, now);
+      if (u.callId === id) continue;
+      if (hall && hall.members.size >= ROOM_VOICE_MAX) { this.setWaiting(u, room.id); continue; }
+      if (!hall) hall = { id, members: new Set(), fallback: false, room };
+      this.calls.set(id, hall); this.joinCall(u, hall);
+    }
   }
   callFull(u: User) { const c = u.callId ? this.calls.get(u.callId) : undefined; return !!c && !c.room && c.members.size >= MAX_CALL_SIZE; }
-  leaveCall(u: User) {
+  leaveCall(u: User, now = Date.now()) {
     const call = u.callId ? this.calls.get(u.callId) : undefined;
-    this.changeVoice(u);
     clearTimeout(this.callTimers.get(u.id)); this.callTimers.delete(u.id);
     if (!u.callId) return;
-    if (u.callRole === 'member') this.stopMember(u);
-    u.callId = null; u.callRole = null; u.muted = false; this.lowerHand(u);
+    this.broadcast({ t: 'speaking', userId: u.id, on: false }); this.lowerHand(u);
+    if (call && !call.room) {
+      this.setPresence(u, u.presenceBeforeCall ?? 'online'); u.presenceBeforeCall = undefined;
+    }
+    u.callId = null;
     call?.members.delete(u.id);
     this.broadcast({ t: 'call', userId: u.id, callId: null });
     if (!call || !this.calls.has(call.id)) return;
-    if (call.room) this.maintainRoom(call);
+    if (call.room) this.maintainRoom(call, now);
     else if (call.members.size < 2) {
       this.calls.delete(call.id);
-      for (const id of [...call.members]) { const m = this.users.get(id); if (m) this.leaveCall(m); }
+      for (const id of [...call.members]) { const m = this.users.get(id); if (m) this.leaveCall(m, now); }
     }
-  }
-  private walkVoice(u: User, path: Tile[], startedAt: number) {
-    this.clearVoiceTimer(u); this.setWaiting(u, null);
-    const dest = path[path.length - 1], rooms = voiceRooms(this.map);
-    const room = rooms.find(r => roomAt(this.map, dest.x, dest.y)?.id === r.id);
-    if (room) {
-      const id = `room:${room.id}`;
-      if (u.callId === id && u.callRole === 'member') return;
-      if (u.callId !== id) this.leaveCall(u);
-      let call = this.calls.get(id);
-      if (call && this.memberCount(call) >= ROOM_VOICE_MAX) { this.setWaiting(u, room.id); return; }
-      if (!call) { call = { id, members: new Set(), fallback: false, room }; this.calls.set(id, call); }
-      this.joinCall(u, call); return;
-    }
-    if (u.callId && !this.calls.get(u.callId)?.room) return;
-    for (const r of rooms) {
-      const call = this.calls.get(`room:${r.id}`);
-      if (!call) continue;
-      let i = -1;
-      for (let j = 0; j < path.length; j++) if (earshotDistance(this.map, r, path[j].x, path[j].y) <= EARSHOT_TILES) i = j;
-      if (i < 0) continue;
-      this.joinCall(u, call, 'listener');
-      if (u.callId !== call.id) return; // demoting the last member deletes the call
-      const generation = this.voiceGeneration.get(u.id);
-      const at = startedAt + (i === path.length - 1 ? pathDuration(path) : (i + .5) * WALK_MS_PER_TILE);
-      if (at <= Date.now()) { this.leaveCall(u); return; }
-      this.voiceTimers.set(u.id, setTimeout(() => {
-        if (this.voiceGeneration.get(u.id) === generation && u.callId === call.id && u.callRole === 'listener') this.leaveCall(u);
-      }, at - Date.now()));
-      return;
-    }
-    this.leaveCall(u);
   }
   private leaveRoom(u: User) {
-    this.setWaiting(u, null);
+    this.setWaiting(u, null); this.setFollowing(u, null);
+    u.afk = true; this.leaveCall(u);
     const occ = this.occupied(), home = u.homeDesk;
-    const to = home && !occ.has(`${home.x},${home.y}`) ? home : this.freeLobbyTile(occ);
-    if (this.walk(u, to) === null) this.leaveCall(u);
+    const outside = (t: Tile) => voiceRooms(this.map).every(r => hallDistance(this.map, r, t.x, t.y) > ZONE_OUT_TILES);
+    const free = (t: Tile) => !occ.has(`${t.x},${t.y}`) && outside(t);
+    let to = home && free(home) ? home : undefined;
+    if (!to) {
+      const lobby = this.map.rooms.find(r => r.id === 'lobby');
+      if (lobby) {
+        const { x, y, w, h } = lobby.rect, tiles: Tile[] = [];
+        for (let yy = y; yy < y + h; yy++) for (let xx = x; xx < x + w; xx++)
+          if (isWalkable(this.map, xx, yy) && free({ x: xx, y: yy })) tiles.push({ x: xx, y: yy });
+        to = tiles.length ? tiles[Math.floor(Math.random() * tiles.length)] : undefined;
+      }
+    }
+    if (to) this.walk(u, to);
   }
 
   setEmote(u: User, emote: User['emote']) {
@@ -557,8 +534,10 @@ export class World {
   private knockBlock(from: User, to: User) {
     const dest = this.position(to).dest, target = roomAt(this.map, dest.x, dest.y);
     if (target?.rules.voice === 'open') return `${to.name} is in ${target.name} — just walk in`;
+    const hall = to.callId ? this.calls.get(to.callId)?.room : undefined;
+    if (hall) return `${to.name} is in ${hall.name} — just walk in`;
     const room = from.callId ? this.calls.get(from.callId)?.room : undefined;
-    if (room && from.callRole === 'member') return `You're in ${room.name} voice — step out to knock`;
+    if (room) return `You're in ${room.name} voice — step out to knock`;
   }
   knock(from: User, to: User) {
     if (from.id === to.id || to.presence === 'offline' || goingOut(from)) return;
@@ -641,6 +620,7 @@ export class World {
     if (['rtc', 'speaking', 'mute', 'deafen', 'hand'].includes(msg.t) && this.owners.get(u.id) !== socket) return;
     switch (msg.t) {
       case 'move': {
+        u.afk = false;
         for (const k of this.knocks.values()) if (k.fromId === u.id && k.state === 'walking') this.closeKnock(k, 'later', 'Knock cancelled', true);
         if (u.door === 'arriving') { this.doorTimer(u, null); this.setDoor(u, null); } // off on their own way: bag's put away
         this.setFollowing(u, null);
@@ -662,15 +642,14 @@ export class World {
       case 'google_disconnect': this.setGoogle(u, undefined); break;
       case 'presence': {
         if (!['online', 'away', 'in_call'].includes(msg.presence)) break;
-        if (u.callId && this.calls.get(u.callId)?.room) u.presencePicked = true;
-        else if (msg.presence !== 'in_call') this.leaveCall(u); // switching away from "in a call" hangs up
+        if (!(u.callId && this.calls.get(u.callId)?.room) && msg.presence !== 'in_call') this.leaveCall(u); // switching away from "in a call" hangs up
         this.setPresence(u, msg.presence);
         break;
       }
       case 'leave_room': if ((u.callId && this.calls.get(u.callId)?.room) || this.waiting.has(u.id)) this.leaveRoom(u); break; // a stale AFK/Leave mustn't walk anyone else home
       case 'end_call': if (u.callId && this.calls.get(u.callId)?.room) this.leaveRoom(u); else this.leaveCall(u); break;
       case 'deafen': if (u.callId) { u.deafened = !!msg.on; this.broadcast({ t: 'deafen', userId: u.id, on: u.deafened }); } break;
-      case 'hand': if (u.callRole === 'member' && u.callId && this.calls.get(u.callId)?.room) { u.hand = !!msg.up; this.broadcast({ t: 'hand', userId: u.id, up: u.hand }); } break;
+      case 'hand': if (u.callId && this.calls.get(u.callId)?.room) { u.hand = !!msg.up; this.broadcast({ t: 'hand', userId: u.id, up: u.hand }); } break;
       case 'to_meet': {
         const call = u.callId ? this.calls.get(u.callId) : undefined;
         if (call && !call.fallback && !call.room) for (const id of call.members) if (id !== u.id) this.sendTo(id, { t: 'to_meet', fromId: u.id });
@@ -679,13 +658,13 @@ export class World {
       // voice: relay WebRTC signaling only between members of the same call
       case 'rtc': {
         const to = this.users.get(String(msg.to));
-        if (u.callId && to?.callId === u.callId && to.id !== u.id && !u.bot && !to.bot && !goingOut(u) && !goingOut(to) && u.presence !== 'offline' && to.presence !== 'offline' && (u.callRole === 'member' || to.callRole === 'member')) {
+        if (u.callId && to?.callId === u.callId && to.id !== u.id && !u.bot && !to.bot && !goingOut(u) && !goingOut(to) && u.presence !== 'offline' && to.presence !== 'offline') {
           const owner = this.owners.get(to.id);
           if (owner) this.sockets.get(to.id)?.get(owner)?.({ t: 'rtc', from: u.id, signal: msg.signal });
         }
         break;
       }
-      case 'speaking': if (u.callRole === 'member') this.broadcast({ t: 'speaking', userId: u.id, on: !!msg.on }); break;
+      case 'speaking': if (u.callId) this.broadcast({ t: 'speaking', userId: u.id, on: !!msg.on }); break;
       case 'mute': if (u.callId) { u.muted = !!msg.muted; this.broadcast({ t: 'mute', userId: u.id, muted: u.muted }); } break;
       case 'knock': { const to = this.users.get(msg.targetId); if (to) this.knock(u, to); break; }
       case 'knock_reply': this.reply(u, msg.knockId, msg.reply === 'accept' ? 'accept' : 'later'); break;
@@ -702,7 +681,6 @@ export class World {
       case 'react': { const to = this.users.get(String(msg.targetId)); if (to) this.react(u, to, String(msg.emoji)); break; }
       case 'chat': { const to = this.users.get(String(msg.toId)); if (to) this.chat(u, to, String(msg.text ?? '')); break; }
       case 'chat_history': this.chatHistory(u, String(msg.withId)); break;
-      case 'object_volume': this.setObjectVolume(u, String(msg.id), Number(msg.volume)); break;
       case 'use': this.use(u, String(msg.objectId), msg.item === undefined ? undefined : String(msg.item)); break;
       case 'drop': if (u.holding) this.setHolding(u, null); break;
       case 'give': { const to = this.users.get(String(msg.targetId)); if (to) this.give(u, to); break; }
@@ -717,17 +695,15 @@ export class World {
         return { id: u.id, name: u.name, email: u.email, meetLink: u.meetLink, google: u.google, homeDesk: u.homeDesk, look: u.look, tile: p, dir: u.dir, status: u.status, presence: u.presence, bot: u.bot };
       }),
       objects: Object.fromEntries(this.objectOn),
-      objectVolumes: Object.fromEntries(this.objectVolume),
       chats: Object.fromEntries(this.chats),
     };
   }
   load(data: ReturnType<World['dump']>) {
     for (const d of data.users ?? []) {
       const tile = isWalkable(this.map, d.tile.x, d.tile.y) || seatAt(this.map, d.tile.x, d.tile.y) ? d.tile : { ...this.map.spawn };
-      this.users.set(d.id, { ...d, homeDesk: d.homeDesk ?? null, tile, move: null, path: null, emote: null, door: null, callId: null, callRole: null, deafened: false, hand: false, muted: false, following: null, holding: null, presence: d.bot ? d.presence : 'offline' });
+      this.users.set(d.id, { ...d, homeDesk: d.homeDesk ?? null, tile, move: null, path: null, emote: null, door: null, callId: null, deafened: false, hand: false, muted: false, following: null, holding: null, presence: d.bot ? d.presence : 'offline' });
     }
     for (const [id, on] of Object.entries(data.objects ?? {})) if (this.objectOn.has(id)) this.objectOn.set(id, !!on);
-    for (const [id, v] of Object.entries(data.objectVolumes ?? {})) if (this.objectVolume.has(id) && Number.isFinite(v)) this.objectVolume.set(id, Math.max(0, Math.min(1, v)));
     for (const [key, msgs] of Object.entries(data.chats ?? {})) this.chats.set(key, msgs);
   }
 }

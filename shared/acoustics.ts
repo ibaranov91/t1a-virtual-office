@@ -1,5 +1,5 @@
-import { earshotDistance, roomAt, type Room, type Tile, type TileMap } from './map';
-import { EARSHOT_TILES } from './protocol';
+import { hallDistance, roomAt, type Room, type Tile, type TileMap } from './map';
+import { ZONE_IN_TILES } from './protocol';
 
 export const SOUND_REF_TILES = 3;   // full volume this close
 export const SOUND_ROLLOFF = .6;     // inverse-distance rolloff past REF (1 = physical; lower = gentler)
@@ -32,11 +32,28 @@ export function field(m: TileMap, listener: Tile): number[][] {
   }
   return out;
 }
-export const zoneGain = (d: number) => d >= 0 && d <= EARSHOT_TILES ? 1 - d / (EARSHOT_TILES + 1) : 0;
 export interface SoundPose extends Tile { tile: Tile }
-export interface SoundFlags { room?: Room; sourceMember?: boolean; listener?: boolean; knock?: boolean }
-const fadeOf = (flags: SoundFlags, m: TileMap, me: SoundPose) =>
-  flags.listener && flags.sourceMember && flags.room ? zoneGain(earshotDistance(m, flags.room, me.tile.x, me.tile.y)) : 1;
+export interface SoundFlags { room?: Room; sourceMember?: boolean; knock?: boolean }
+export function hallLevel(m: TileMap, room: Room, tile: Tile) {
+  const d = hallDistance(m, room, tile.x, tile.y);
+  return d === 0 ? 1 : Math.max(0, 1 - d / ZONE_IN_TILES);
+}
+const inside = (room: Room, t: Tile) => t.x >= room.rect.x && t.x < room.rect.x + room.rect.w && t.y >= room.rect.y && t.y < room.rect.y + room.rect.h;
+function occluded(m: TileMap, me: SoundPose, source: SoundPose) {
+  const steps = Math.ceil(Math.hypot(source.x - me.x, source.y - me.y) / .2);
+  for (let i = 0; i <= steps; i++) {
+    const f = steps ? i / steps : 0;
+    const x = Math.floor(me.x + .5 + (source.x - me.x) * f), y = Math.floor(me.y + .5 + (source.y - me.y) * f);
+    if (m.layers.walls[y]?.[x] !== 0) return true;
+  }
+  return false;
+}
+export function hallVoiceGain(m: TileMap, room: Room, me: SoundPose, source: SoundPose) {
+  if (inside(room, me.tile) && inside(room, source.tile)) return 1;
+  // Sample in one direction so floating-point rounding at wall corners stays symmetric.
+  const [a, b] = me.x < source.x || (me.x === source.x && me.y <= source.y) ? [me, source] : [source, me];
+  return hallLevel(m, room, me.tile) * hallLevel(m, room, source.tile) * (occluded(m, a, b) ? .8 : 1);
+}
 export function soundModel(m: TileMap, distances: number[][], me: SoundPose, source: SoundPose, flags: SoundFlags = {}) {
   const centre = { x: source.x + .5, y: source.y + .5 };
   const myRoom = roomAt(m, me.tile.x, me.tile.y), sourceRoom = roomAt(m, source.tile.x, source.tile.y);
@@ -49,14 +66,8 @@ export function soundModel(m: TileMap, distances: number[][], me: SoundPose, sou
   const direct = Math.hypot(source.x - me.x, source.y - me.y);
   const g = sameRoom ? Math.max(ROOM_FILL, distanceGain(d)) : distanceGain(d);
   // beyond the field but in the same room: rooms have no inner walls, so it's a clear line
-  if (d === Infinity) return { gain: g * fadeOf(flags, m, me), cutoff: 20000, pan: clamp((centre.x - (me.x + .5)) / 10, -.35, .35), send: .12 * g * fadeOf(flags, m, me), apparent: centre };
-  let occluded = false;
-  const steps = Math.ceil(direct / .2);
-  for (let i = 0; i <= steps; i++) {
-    const f = steps ? i / steps : 0;
-    const x = Math.floor(me.x + .5 + (source.x - me.x) * f), y = Math.floor(me.y + .5 + (source.y - me.y) * f);
-    if (m.layers.walls[y]?.[x] !== 0) { occluded = true; break; }
-  }
+  if (d === Infinity) return { gain: g, cutoff: 20000, pan: clamp((centre.x - (me.x + .5)) / 10, -.35, .35), send: .12 * g, apparent: centre };
+  const blocked = occluded(m, me, source);
   let apparent = centre, portal = 1;
   if (!sameRoom) {
     // rooms and portals: rebuild the shortest path (listener first) and see which doorways it goes through
@@ -69,12 +80,11 @@ export function soundModel(m: TileMap, distances: number[][], me: SoundPose, sou
     const inDoor = route.map(t => !roomAt(m, t.x, t.y));
     const first = inDoor.indexOf(true), doors = inDoor.filter((v, i) => v && !inDoor[i - 1]).length;
     if (first >= 0) portal = doorSpread(first) * PORTAL_LOSS ** Math.max(0, doors - 1);
-    const door = occluded ? route.slice(1).find((_, i) => inDoor[i + 1]) : undefined;
+    const door = blocked ? route.slice(1).find((_, i) => inDoor[i + 1]) : undefined;
     if (door) apparent = { x: door.x + .5, y: door.y + .5 };
   }
-  const fade = fadeOf(flags, m, me);
-  return { gain: g * portal * (occluded ? OCCLUDED_GAIN : 1) * fade, cutoff: occluded ? clamp(3000 - 200 * (d - direct), 900, 3000) : 20000,
-    pan: clamp((apparent.x - (me.x + .5)) / 10, -.35, .35), send: (sameRoom ? .12 : .35) * g * portal * fade, apparent };
+  return { gain: g * portal * (blocked ? OCCLUDED_GAIN : 1), cutoff: blocked ? clamp(3000 - 200 * (d - direct), 900, 3000) : 20000,
+    pan: clamp((apparent.x - (me.x + .5)) / 10, -.35, .35), send: (sameRoom ? .12 : .35) * g * portal, apparent };
 }
 export function reverbImpulse(room: Room | null, sampleRate: number): [Float32Array, Float32Array] {
   const material = room?.floor === 'tile_check' ? 1.3 : room?.floor === 'wood_dark' ? .7 : 1;
