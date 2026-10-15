@@ -296,7 +296,7 @@ function MeetSetup({ store, onClose }: { store: Store; onClose: () => void }) {
     <div className={knockTo ? 'modal-backdrop' : ''} onClick={e => { if (knockTo && e.target === e.currentTarget) done('cancel'); }}>
       <form className={`meet-panel${knockTo ? ' guided' : ''}`} onSubmit={e => { e.preventDefault(); if (parsed) save(parsed); }}>
         <div className="rooms-head">
-          <span>{knockTo ? `Before you knock on ${knockTo.name.split(' ')[0]}…` : 'Your Google Meet room'}</span>
+          <span>{knockTo ? `Before you knock on ${knockTo.name.split(' ')[0]}…` : google ? 'Google Meet' : 'Your Google Meet room'}</span>
           <button type="button" className="ghost" onClick={() => done('cancel')}>×</button>
         </div>
         {google !== undefined && <div className="google-row">
@@ -308,7 +308,9 @@ function MeetSetup({ store, onClose }: { store: Store; onClose: () => void }) {
                   ? <ExternalLink href={store.googleAuthUrl} onOpen={() => store.prepareGoogle()}>Connect Google</ExternalLink>
                   : <span className="muted small">…</span>}</>}
         </div>}
-        {google !== undefined && <p className="muted small">{google ? 'Your own room below is used when Google can\'t make one.' : 'Or use your own reusable room:'}</p>}
+        {/* with Google connected every call gets its own room, so there's nothing to set up by hand */}
+        {!google && <>
+        {google !== undefined && <p className="muted small">Or use your own reusable room:</p>}
         <p className="muted">
           {knockTo ? 'Set up your own Meet room once. When someone accepts your knock, you both join it — no more two separate calls.'
             : 'When you knock and they accept, you both join this room.'}
@@ -329,6 +331,7 @@ function MeetSetup({ store, onClose }: { store: Store; onClose: () => void }) {
           {!knockTo && store.meetLink && <button type="button" className="ghost" onClick={() => save('')}>Clear</button>}
           <button disabled={!parsed || parsed === store.meetLink}>{knockTo ? `Save & knock` : 'Save'}</button>
         </div>
+        </>}
       </form>
     </div>
   );

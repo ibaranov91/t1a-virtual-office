@@ -582,7 +582,7 @@ export class Engine {
     if (u.callId) return u.deafened ? 'bubble_deaf' : 'bubble_talk';
     if (u.presence === 'in_call') return 'bubble_headset';
     if (u.presence === 'away') return 'bubble_zzz';
-    if (!p.walking && roomAt(MAP, p.tile.x, p.tile.y)?.rules.occupantLabel) return 'bubble_meeting';
+    if (u.instance || u.meeting) return 'bubble_meeting'; // a real calendar meeting, not just standing in the Meeting room
     if (u.status) return 'bubble_dots';
     return null;
   }
