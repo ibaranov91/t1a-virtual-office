@@ -23,16 +23,23 @@ fi
 if [ "$NAME" = prod ]; then APP=/opt/the-deck; SVC=the-deck; ENVF=/etc/the-deck.env
 else APP=/opt/deck-$NAME; SVC=deck-$NAME; ENVF=/etc/deck-$NAME.env; fi
 SRC=/tmp/deck-src-$NAME
+# INSTALL_URL: where `curl … | bash` can fetch the Mac app. The PIN page blocks curl, so PIN instances
+# hand out their NetBird address instead (works for anyone on NetBird).
 case "$LOGIN" in
-  sso) NETBIRD_AUTH=true;  OPEN_LOGIN=false ;; # "Continue as <you>" via NetBird sign-in
-  pin) NETBIRD_AUTH=false; OPEN_LOGIN=true ;;  # any name, no password: the PIN on the proxy is the gate
+  sso) NETBIRD_AUTH=true;  OPEN_LOGIN=false; INSTALL_URL=$URL ;; # "Continue as <you>" via NetBird sign-in
+  pin) NETBIRD_AUTH=false; OPEN_LOGIN=true;  INSTALL_URL=http://$BIND:$PORT ;; # any name, no password: the PIN on the proxy is the gate
   *) echo "instance '$NAME': login must be sso or pin, got '$LOGIN'" >&2; exit 1 ;;
 esac
 
 echo "→ deploying '$NAME' ($OWNER, login: $LOGIN) to $HOST:$PORT  →  $URL"
 npm run build -w client
+# The Mac app ships with the instance (macos/dist). Only a Mac can build it; elsewhere, deploy without it.
+rm -rf macos/dist
+if [ "$(uname)" = Darwin ]; then macos/build.sh --dist || echo "warning: Mac app build failed; deploying without it" >&2
+else echo "warning: not on macOS; deploying without the Mac app" >&2; fi
 rsync -az --delete \
   --exclude node_modules --exclude data --exclude .claude --exclude '*.log' \
+  --exclude macos/.build --exclude macos/build \
   ./ "$HOST:$SRC/"
 
 ssh "$HOST" bash -s <<EOF
@@ -61,6 +68,8 @@ fi
 setenv() { if sudo grep -q "^\$1=" $ENVF; then sudo sed -i "s|^\$1=.*|\$1=\$2|" $ENVF; else echo "\$1=\$2" | sudo tee -a $ENVF >/dev/null; fi; }
 setenv NETBIRD_AUTH $NETBIRD_AUTH
 setenv OPEN_LOGIN $OPEN_LOGIN
+setenv DECK_PUBLIC_URL $URL
+setenv DECK_INSTALL_URL $INSTALL_URL
 sudo sed -i '/^TOKEN_LOGIN=/d' $ENVF
 
 sudo tee /etc/systemd/system/$SVC.service >/dev/null <<UNIT

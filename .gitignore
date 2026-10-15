@@ -6,3 +6,4 @@ data/
 .claude/worktrees/
 macos/.build/
 macos/build/
+macos/dist/

@@ -12,8 +12,14 @@ export const inNativeApp = () => !!handler();
 export function syncNative(store: Store) {
   if (!handler()) return () => {};
   Object.assign(window, { __deckNative: { reply: (knockId: string, reply: 'accept' | 'later') => store.replyKnock(knockId, reply) } });
-  let last = '';
+  // The app compares this with its own build and updates itself. Asked on every (re)connect: a deploy
+  // that only changes the Mac app restarts the server without reloading this page.
+  const checkMacApp = () => fetch('/api/mac').then(r => (r.ok ? r.json() : null))
+    .then(m => m && handler()?.postMessage({ type: 'macApp', ...m })).catch(() => {});
+  let last = '', wasConnected = false;
   return store.subscribe(() => {
+    if (store.connected && !wasConnected) void checkMacApp();
+    wasConnected = store.connected;
     const me = store.users.get(store.me);
     const state = {
       type: 'state', connected: store.connected,

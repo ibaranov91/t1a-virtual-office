@@ -51,10 +51,10 @@ npm run typecheck    # run before every commit or deploy
   (from `gen-map.mjs`), not in code.
 
 ## macOS app
-A menu bar app that hosts the normal web client in one WKWebView. Click the icon to open the window,
-right-click for the menu: pin to desktop (a borderless window just above the desktop icons), arrange it,
-pick the instance, pop up on knock. The web view moves between the window and the desktop, so it's one
-page and one WebSocket. `client/src/native.ts` tells the app about knocks and calls and exposes
+A menu bar app that hosts the normal web client in one WKWebView. Click the icon for a popover (with
+"open in a separate window"), right-click for the menu: pin to desktop (a borderless window just above the
+desktop icons), arrange it, pick the instance. The web view moves between popover, window and desktop, so
+it's one page and one WebSocket. `client/src/native.ts` tells the app about knocks and calls and exposes
 `window.__deckNative.reply`; it does nothing in a normal browser. A knock shows a small native card under the
 icon (Open / Later). You accept inside The Deck on purpose, so voice starts from a click in the page. When
 you're away or already in a call a knock only flaps the icon orange.
@@ -64,7 +64,22 @@ defaults write io.t1a.deck url "http://localhost:5173/?as=Mac"   # or pick an in
 ```
 - Not a WidgetKit widget on purpose: widgets can't run a web view, refresh at most every few minutes,
   and can't use the mic.
-- Ad-hoc signed, so on another Mac it needs right-click → Open the first time. Web Inspector: Safari ▸ Develop.
+- Web Inspector: Safari ▸ Develop ▸ The Deck.
+
+**Distribution.** Every deploy from a Mac builds the app (`macos/build.sh --dist` → `macos/dist/`) and the
+instance serves it. People install with one command, shown under "Mac app" in the top bar:
+`curl -fsSL <instance>/api/mac/install.sh | bash`. curl doesn't quarantine downloads, so Gatekeeper never
+blocks it. The command uses the public URL for `sso` instances and the NetBird address for `pin` ones (the PIN
+page answers curl with 401); deploy.sh sets `DECK_PUBLIC_URL` / `DECK_INSTALL_URL` for that.
+- **Updates:** the page passes `/api/mac` (build id + sha256) to the app on every connect. A different build
+  installs itself when you're idle (not in a call, The Deck not in front), otherwise via the Update button.
+  The app checks the sha256 and that the new app has the same signer, swaps itself and relaunches.
+  The build id is a hash of the app's sources, so deploys without native changes don't update anything.
+- **Signing:** `macos/make-cert.sh` creates the self-signed "T1A Deck" identity in `~/.deck-signing` (its own
+  keychain). A stable signer keeps the mic permission across updates and lets updates verify the signer.
+  **Everyone who deploys must use the same identity** (`make-cert.sh import <p12>`), or installed apps
+  refuse the update. Without it, builds are ad-hoc and every update re-asks for the mic.
+- Only a Mac can build the app; deploying from elsewhere ships the instance without it.
 
 ## Testing tips and limits
 - The Claude app's browser pane **blocks the microphone** and won't open self-signed HTTPS. It can still verify

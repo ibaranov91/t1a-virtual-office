@@ -43,7 +43,7 @@ export default defineConfig({
     strictPort: true,
     fs: { allow: ['..'] },
     proxy: {
-      '/api': `http://${api}`,
+      '/api': { target: `http://${api}`, xfwd: true }, // x-forwarded-host: the Mac install command names this origin
       '/ws': { target: `ws://${api}`, ws: true },
     },
   },

@@ -4,7 +4,7 @@ import { Engine, type Pick } from './engine';
 import { Voice } from './voice';
 import { playKnock, setSoundsOn, soundsOn } from './sounds';
 import { ITEMS, MAP, Store } from './net';
-import { syncNative } from './native';
+import { inNativeApp, syncNative } from './native';
 import { MAX_CHAT_LEN, MEET_LINK_RE, normalizeMeetLink, REACTIONS } from '../../shared/protocol';
 import { seatAt } from '../../shared/map';
 
@@ -185,6 +185,7 @@ function TopBar({ store, roomName, onToggleRooms, onToggleMeet, onLogout, onZoom
       <button onClick={onToggleMeet} className={`meet-btn${store.meetLink === '' ? ' unset' : ''}`}
         title={store.meetLink ? `Your Meet room: ${store.meetLink}` : 'Set your Google Meet link'}>Meet</button>
       <SoundToggle />
+      <MacAppButton />
       <button onClick={onToggleRooms} title="Rooms">Rooms</button>
       <button onClick={onLogout} title="Sign out" className="ghost">Leave</button>
     </header>
@@ -271,6 +272,32 @@ function MeetSetup({ store, onClose }: { store: Store; onClose: () => void }) {
 }
 
 /** Knock sound on/off, remembered per browser. Turning it on plays a sample. */
+/** "Mac app" in the top bar (on a Mac, outside the app): the one-line install command to copy. */
+function MacAppButton() {
+  const [mac, setMac] = useState<{ install: string } | null>(null);
+  const [open, setOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
+  useEffect(() => {
+    if (inNativeApp() || !/Mac/.test(navigator.platform)) return;
+    fetch('/api/mac').then(r => (r.ok ? r.json() : null)).then(setMac).catch(() => {});
+  }, []);
+  if (!mac) return null;
+  const copy = () => navigator.clipboard?.writeText(mac.install).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); });
+  return (
+    <div className="mac-app">
+      <button className="ghost" onClick={() => setOpen(!open)} title="Install The Deck in your menu bar">Mac app</button>
+      {open && (
+        <div className="mac-app-pop">
+          <b>The Deck in your menu bar</b>
+          <p className="muted">Paste this into Terminal. It installs the app and keeps it up to date.</p>
+          <code onClick={copy}>{mac.install}</code>
+          <button onClick={copy}>{copied ? 'Copied ✓' : 'Copy command'}</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function SoundToggle() {
   const [on, setOn] = useState(soundsOn);
   return (
