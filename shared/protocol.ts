@@ -101,6 +101,8 @@ export const ACHIEVEMENTS: Achievement[] = [
   { id: 'botanist', icon: '🌻', title: 'Botanist', how: `Bloom ${BOTANIST_KINDS} different flowers. A plant that withers is replanted as a new, random one.`, goal: BOTANIST_KINDS },
   { id: 'escape', icon: '🗝️', title: 'Escape artist', how: 'Found the way out of the place under the garden.', secret: 'Something about a corner of the garden isn\'t quite right.' },
   { id: 'raver', icon: '🪩', title: 'Raver', how: 'Dance for 30 minutes in total on the Berghain floor.' },
+  { id: 'whisperer', icon: '🐾', title: 'Animal whisperer', how: 'Pet both the office cat and the office dog on the same day.' },
+  { id: 'batcatcher', icon: '🦇', title: 'Bat catcher', how: 'Catch the October bat while it hangs about. Click it from right beneath: it gets away more often than not.', secret: 'Something flutters in the rafters in October.' },
   { id: 'event', icon: '🎉', title: 'Party person', how: 'Be in the office during an office event.', soon: true },
 ];
 
@@ -133,7 +135,7 @@ export interface PublicUser {
 /** Office animals and helpers. Not people: never in the user list, never knock, never counted.
  *  ms: milliseconds per tile of the current walk (they amble, fly or drift at their own pace). */
 export type CreatureKind = 'cat' | 'dog' | 'bat' | 'cleaner';
-export type CreaturePose = 'idle' | 'sit' | 'nap' | 'clean' | 'hang';
+export type CreaturePose = 'idle' | 'sit' | 'nap' | 'clean' | 'hang' | 'pet';
 export interface Creature {
   id: string; kind: CreatureKind; name: string;
   tile: Tile; dir: Dir; pose: CreaturePose;
@@ -266,6 +268,8 @@ export type ServerMsg =
 export type ClientMsg =
   | ParkOutgoing
   | { t: 'cup_put'; tile: Tile } // put the coffee or tea you're holding down on this table tile
+  | { t: 'pet'; creatureId: string } // pet the cat or dog, or try to catch the hanging bat (walks you over first)
+  | { t: 'dev_bat' } // dev only (BAT=1): bring the bat out now
   | { t: 'game_play'; epoch: number }
   | { t: 'game_leave' }
   | { t: 'game_menu'; epoch: number; op: 'lobby' | 'restart' }
