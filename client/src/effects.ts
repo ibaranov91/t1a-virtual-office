@@ -3,7 +3,7 @@
 // back: drawn before the body (auras, capes); front: after it (hats, particles, critters).
 import type { Effect, Look } from '../../shared/protocol';
 import type { Pose } from './net';
-import { danceBeat, isJudgeHat } from '../../shared/effects';
+import { SPECIAL_HATS, danceBeat } from '../../shared/effects';
 
 export interface FxCtx {
   ctx: CanvasRenderingContext2D;
@@ -62,7 +62,7 @@ export const EFFECT_DRAW: Record<string, FxDraw> = {
       if (!c.has(name)) return;
       const h = HAT_H[style] ?? 10;
       c.blit(name, c.x, c.top + 4 - h);
-      if (style === 'judge' || isJudgeHat(style)) for (let i = 0; i < 4; i++) { // a ring of twinkles around the hat
+      if ((SPECIAL_HATS as readonly string[]).includes(style)) for (let i = 0; i < 4; i++) { // a ring of twinkles around the hat
         const k = ((c.ms / 1600 + i / 4) % 1) * Math.PI * 2;
         c.ctx.globalAlpha = 0.6 + 0.4 * Math.sin(c.ms / 150 + i);
         c.blit(`sparkle_${flip(c.ms, 220, i)}`, c.x + 6 + Math.round(Math.cos(k) * 10), c.top - 4 - h / 2 + Math.round(Math.sin(k) * 5));

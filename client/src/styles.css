@@ -394,15 +394,6 @@ button:focus-visible, summary:focus-visible, input[type="range"]:focus-visible {
 .edit-panel .hint { margin: 0; color: var(--muted); font-size: 12px; }
 .gm-panel { bottom: auto; max-height: calc(100% - 16px); }
 .gm-panel .gm-icon { font-size: 18px; line-height: 1; }
-.judge-row { display: flex; align-items: center; gap: 6px; }
-.judge-who { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
-.judge-who small { display: block; color: var(--muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; }
-.judge-hats { display: flex; gap: 2px; }
-.judge-hats button { padding: 2px; opacity: .4; background: transparent; }
-.judge-hats button:hover { opacity: .75; }
-.judge-hats button.on { opacity: 1; outline: 2px solid var(--accent, #e8b830); }
-.judge-add { display: flex; gap: 6px; }
-.judge-add input { flex: 1; min-width: 0; }
 .hat-sprite { image-rendering: pixelated; display: block; }
 .wheel-item .ic .hat-sprite { width: 16px; height: 14px; }
 .edit-panel h3 { margin: 4px 0 0; font-size: 13px; }

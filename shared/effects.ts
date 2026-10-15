@@ -8,14 +8,11 @@ export type EffectWho = 'self' | 'gm' | 'server';
 export interface EffectRule { who: EffectWho; label: string; icon: string; ms?: number; styles?: readonly string[] }
 
 export const HAT_STYLES = ['top', 'party', 'wizard', 'cowboy', 'crown'] as const; // on the Lobby hat stand
-export const JUDGE_HAT = 'judge'; // the one shared judge hat of the first hackathon; no longer handed out, kept so old saves still draw
-/** Each judge gets one of these, assigned by an admin (Odyssey style): the server puts it in their pockets. */
-export const JUDGE_HATS = ['laurel', 'winged', 'crested'] as const;
-export type JudgeHat = (typeof JUDGE_HATS)[number];
-export const isJudgeHat = (s: unknown): s is JudgeHat => (JUDGE_HATS as readonly unknown[]).includes(s);
-export const ADMIN_HAT = 'admin'; // and this one in an office admin's
+/** Special hats: nobody finds them, an admin gifts them to a person (the GM panel). Odyssey-style, plus the old judge hat. */
+export const SPECIAL_HATS = ['judge', 'laurel', 'winged', 'crested'] as const;
+export const ADMIN_HAT = 'admin'; // the server puts this one in an office admin's pockets
 export const BAT_HAT = 'bat';     // from catching the October bat
-export const ALL_HATS = [...HAT_STYLES, JUDGE_HAT, ...JUDGE_HATS, ADMIN_HAT, BAT_HAT] as const;
+export const ALL_HATS = [...HAT_STYLES, ...SPECIAL_HATS, ADMIN_HAT, BAT_HAT] as const;
 export const HAT_NAMES: Record<string, string> = { top: 'Top hat', party: 'Party hat', wizard: 'Wizard hat', cowboy: 'Cowboy hat', crown: 'Crown', judge: "Judge's hat", laurel: 'Laurel wreath', winged: 'Winged helmet', crested: 'Crested helmet', admin: 'Admin cap', bat: 'Bat hat' };
 /** Hats are inventory items: `hat:<style>`. You wear one of the hats in your pockets. */
 export const hatItem = (style: string) => `hat:${style}`;
