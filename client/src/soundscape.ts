@@ -2,9 +2,10 @@ import { NoteClock, type InstrumentKind } from '../../shared/instruments';
 import { startVoice, type SynthVoice } from './synth';
 import { field, hallVoiceGain, reverbImpulse, soundModel } from '../../shared/acoustics';
 import { roomAt, type Room, type Tile } from '../../shared/map';
-import { audio, categoryOutput, forgetMedia, playMedia, rms, subscribeAudio, unlockOnGesture } from './audio';
-import { jukeboxPosition, TRACK, trackUrl } from '../../shared/music';
-import { canTeachLead, learnLead, playbackRateFor, seekTarget } from './jukeboxSync';
+import { audio, categoryOutput, rms, subscribeAudio } from './audio';
+import { TRACK } from '../../shared/music';
+import { currentPlay } from './jukeboxSync';
+import { JukeboxPlayer } from './jukeboxPlayer';
 import { MAP, type Store } from './net';
 import { prefs, subscribePrefs, volumeFor, type Category } from './prefs';
 import { playDoorOpen, playDoorClose } from './sounds';
@@ -12,13 +13,8 @@ import { roomDoors, type RoomDoor } from './doors';
 
 type Level = { id: string; gain: number; pan: number; cutoff: number; send: number };
 type Clip = { buffer: AudioBuffer };
-type Jukebox = {
-  el: HTMLAudioElement; loadedUrl: string | null; playId: string | null; gen: number;
-  heardAt: number; heard: boolean; checkAt: number; pending: boolean; blocked: boolean; error: boolean; errorAt: number;
-  lead: number; seekedAt: number; // how far ahead to aim a seek (this browser's seek latency, learned), when we last did
-  firstSeek: boolean; teachLead: boolean;
-  metadata?: () => void; analyser?: AnalyserNode; duck: GainNode;
-};
+type Jukebox = { player: JukeboxPlayer; duck: GainNode; heard: boolean; heardAt: number; warmAt: number; analyser?: AnalyserNode };
+const WARM_TILES = 4; // walking this close to the jukebox room's door starts loading it (silently)
 type PlayingVoice = { by: string; note: number; voice: SynthVoice; at: number };
 type Instrument = { kind: InstrumentKind; voices: PlayingVoice[]; held: Map<string, { by: string; until: number }>; lastNoteAt: number; lastActivity: number; analyser?: AnalyserNode };
 interface Source {
@@ -65,10 +61,7 @@ export class Soundscape {
       const running = audio().state === 'running';
       if (running && !this.running) this.restartLoops();
       this.running = running;
-      for (const s of this.sources.values()) if (s.kind === 'jukebox') {
-        const j = s.jukebox!; j.checkAt = -Infinity;
-        if (j.blocked && !j.el.paused) { j.blocked = false; j.playId = null; }
-      }
+      for (const s of this.sources.values()) s.jukebox?.player.audioChanged();
       this.update(); store.changed();
     });
     this.unsubPrefs = subscribePrefs(() => { this.update(); store.changed(); });
@@ -83,8 +76,7 @@ export class Soundscape {
     return [...this.sources.values()].filter(s => s.kind === 'jukebox').map(s => {
       const id = s.level.id.slice(4), desired = this.store.jukebox[id], j = s.jukebox!;
       return { id, track: desired?.track ?? null, playId: desired?.playId ?? null,
-        duck: s.duck ?? 1, active: j.loadedUrl !== null, paused: j.el.paused, currentTime: j.el.currentTime,
-        expected: this.expected(id), src: j.el.getAttribute('src'), rms: j.analyser ? rms(j.analyser) : 0, lead: j.lead, rate: j.el.playbackRate };
+        duck: s.duck ?? 1, ...j.player.debug(), rms: j.analyser ? rms(j.analyser) : 0 };
     });
   }
   instruments() {
@@ -144,7 +136,7 @@ export class Soundscape {
     const s = this.sources.get(id); if (!s) return;
     s.loop?.stop(); s.loop?.disconnect();
     if (s.instrument) { this.allOff(id.slice(4)); s.instrument.analyser?.disconnect(); }
-    if (s.kind === 'jukebox') { this.stopJukebox(s.jukebox!, true); s.jukebox!.analyser?.disconnect(); }
+    if (s.kind === 'jukebox') { s.jukebox!.player.destroy(); s.jukebox!.analyser?.disconnect(); }
     s.input.disconnect(); s.low.disconnect(); s.dry.disconnect(); s.pan.disconnect(); s.send.disconnect();
     this.sources.delete(id);
   }
@@ -185,69 +177,6 @@ export class Soundscape {
     loop.start(0, ((this.store.now() / 1000) % duration + duration) % duration); s.loop = loop;
   }
   private restartLoops() { for (const s of this.sources.values()) if (s.kind === 'clip') this.startLoop(s); }
-  private expected(id: string) {
-    const desired = this.store.jukebox[id], track = desired && TRACK.get(desired.track);
-    return desired && track ? jukeboxPosition(desired, track.duration, this.store.now()) / 1000 : 0;
-  }
-  private stopJukebox(j: Jukebox, unload: boolean) {
-    if (!j.el.paused || j.pending || j.blocked || j.metadata || (unload && j.loadedUrl !== null)) j.gen++;
-    if (j.metadata) { j.el.removeEventListener('loadedmetadata', j.metadata); j.metadata = undefined; }
-    j.el.pause(); forgetMedia(j.el); j.pending = false; j.blocked = false; j.playId = null;
-    if (unload && j.loadedUrl !== null) {
-      j.el.removeAttribute('src'); j.el.load(); j.loadedUrl = null; j.error = false;
-    }
-  }
-  private reconcile(s: Source, now: number) {
-    const j = s.jukebox!, id = s.level.id.slice(4), desired = this.store.connected ? this.store.jukebox[id] : undefined;
-    const track = desired && TRACK.get(desired.track), recent = now - j.heardAt < 3000;
-    if (!desired || desired.pausedAt !== null || !recent || !track) {
-      this.stopJukebox(j, !desired || !recent || !track); return;
-    }
-    if (this.expected(id) >= track.duration / 1000) { this.stopJukebox(j, false); return; }
-    if (j.el.ended && j.playId === desired.playId) return;
-    const url = trackUrl(track);
-    if (j.error && now - j.errorAt > 5000) this.stopJukebox(j, true); // a failed load or play: start over
-    if (j.loadedUrl !== url) {
-      this.stopJukebox(j, true);
-      const gen = ++j.gen;
-      j.metadata = () => {
-        if (this.dead || gen !== j.gen) return;
-        j.metadata = undefined; this.update();
-      };
-      j.el.addEventListener('loadedmetadata', j.metadata, { once: true });
-      j.loadedUrl = url; j.error = false; j.firstSeek = true; j.seekedAt = 0; j.el.src = url;
-      return;
-    }
-    if (j.el.readyState < HTMLMediaElement.HAVE_METADATA || j.pending || j.error) return;
-    if (j.el.paused || j.playId !== desired.playId) {
-      if (j.blocked) return;
-      this.seek(j, id, now); j.playId = desired.playId;
-      const gen = j.gen; j.pending = true;
-      void playMedia(j.el, () => !this.dead && gen === j.gen).then(result => {
-        if (this.dead || gen !== j.gen) return;
-        j.pending = false; j.blocked = result === 'blocked'; j.error = result === 'error'; j.errorAt = performance.now();
-        this.update();
-      });
-    } else if (now - j.checkAt >= 500 && !j.el.seeking && j.el.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA) {
-      j.checkAt = now;
-      const drift = j.el.currentTime - this.expected(id);
-      if (j.seekedAt) { // first look after a seek: Safari lands ~0.3 s behind, so aim that much ahead next time
-        if (now - j.seekedAt < 1000) return;
-        if (j.teachLead) j.lead = learnLead(j.lead, drift);
-        j.seekedAt = 0;
-      }
-      if (Math.abs(drift) > .3) this.seek(j, id, now);
-      // close the rest by playing a touch faster or slower (seeks are audible)
-      else j.el.playbackRate = playbackRateFor(drift);
-    }
-  }
-  private seek(j: Jukebox, id: string, now: number) {
-    const track = TRACK.get(this.store.jukebox[id]?.track ?? '');
-    const target = seekTarget(this.expected(id), j.lead, (track?.duration ?? 0) / 1000, j.el.duration);
-    const ranges: [number, number][] = Array.from({ length: j.el.buffered.length }, (_, i) => [j.el.buffered.start(i), j.el.buffered.end(i)]);
-    j.teachLead = !j.firstSeek && canTeachLead(ranges, target); j.firstSeek = false;
-    j.el.playbackRate = 1; j.el.currentTime = target; j.seekedAt = now; j.checkAt = now;
-  }
   private emitters() {
     // the jukebox can be moved (edit mode): follow it, and drop one that's gone
     for (const [id, s] of this.sources) if (s.kind === 'jukebox' || s.kind === 'instrument') {
@@ -255,12 +184,9 @@ export class Soundscape {
       if (!o) this.remove(id); else if (s.tile!.x !== o.x || s.tile!.y !== o.y) s.tile = { x: o.x, y: o.y };
     }
     for (const o of MAP.objects) if (o.use?.kind === 'jukebox' && !this.sources.has(`obj:${o.id}`)) {
-      const el = new Audio(); el.preload = 'auto'; unlockOnGesture(el);
-      const duck = audio().createGain(); audio().createMediaElementSource(el).connect(duck); // ducked while someone plays
+      const duck = audio().createGain(); // ducked while someone plays
       const s = this.add(`obj:${o.id}`, 'jukebox', duck, o.sound?.gain ?? 1, { x: o.x, y: o.y });
-      const j: Jukebox = { el, duck, loadedUrl: null, playId: null, gen: 0, heardAt: -Infinity, heard: false,
-        checkAt: -Infinity, pending: false, blocked: false, error: false, errorAt: 0, lead: 0, seekedAt: 0, firstSeek: true, teachLead: false };
-      el.addEventListener('error', () => { if (j.loadedUrl && el.getAttribute('src') === j.loadedUrl) { j.error = true; j.errorAt = performance.now(); } });
+      const j: Jukebox = { player: new JukeboxPlayer(duck, () => this.update()), duck, heard: false, heardAt: -Infinity, warmAt: -Infinity };
       if (import.meta.env.DEV) { j.analyser = audio().createAnalyser(); j.analyser.fftSize = 2048; s.low.connect(j.analyser); }
       s.jukebox = j;
     }
@@ -299,7 +225,7 @@ export class Soundscape {
     if (this.offset !== this.store.offset) {
       if (Math.abs(this.offset - this.store.offset) > 250) this.restartLoops();
       this.offset = this.store.offset;
-      for (const s of this.sources.values()) if (s.kind === 'jukebox') s.jukebox!.checkAt = -Infinity;
+      for (const s of this.sources.values()) s.jukebox?.player.resync();
     }
     const now = performance.now();
     for (const s of this.sources.values()) if (s.instrument) {
@@ -311,7 +237,7 @@ export class Soundscape {
     }
     const me = this.store.users.get(this.store.me);
     if (!me) {
-      for (const s of this.sources.values()) if (s.kind === 'jukebox') this.stopJukebox(s.jukebox!, true);
+      for (const s of this.sources.values()) s.jukebox?.player.update({ state: undefined, now: this.store.now(), perf: now, warm: false, heard: false });
       if (this.audible) { this.audible = false; this.store.changed(); }
       return;
     }
@@ -341,11 +267,20 @@ export class Soundscape {
       s.pan.pan.setTargetAtTime(model.pan, c.currentTime, .08);
       s.low.frequency.setTargetAtTime(model.cutoff, c.currentTime, .08);
       if (s.kind === 'jukebox') {
-        const j = s.jukebox!, desired = this.store.jukebox[id.slice(4)], track = desired && TRACK.get(desired.track);
+        const j = s.jukebox!, state = this.store.connected ? this.store.jukebox[id.slice(4)] : undefined;
         j.heard = gain > 0 && !me.instance;
-        if (j.heard) j.heardAt = performance.now();
-        this.reconcile(s, performance.now());
-        if (j.heard && this.store.connected && desired?.pausedAt === null && track && this.expected(id.slice(4)) < track.duration / 1000) audible = true;
+        if (j.heard) j.heardAt = now;
+        // load ahead, silently, for someone on their way in: walking to a spot in the room, or walking right by its door
+        const near = !!sourceRoom && pose.walking && this.doors.some(door => door.room.id === sourceRoom.id &&
+          door.tiles.some(tile => (distances[tile.y]?.[tile.x] ?? Infinity) <= WARM_TILES));
+        const destination = me.path?.[me.path.length - 1];
+        const heading = !!sourceRoom && pose.walking && !!destination && roomAt(MAP, destination.x, destination.y)?.id === sourceRoom.id;
+        const warmNow = this.store.connected && !me.instance && (j.heard || near || heading);
+        if (warmNow) j.warmAt = now;
+        const serverNow = this.store.now();
+        j.player.update({ state, now: serverNow, perf: now, warm: now - j.warmAt < 3000, heard: j.heard });
+        const play = currentPlay(state, id => TRACK.get(id)?.duration, serverNow);
+        if (j.heard && play && !play.paused && serverNow < play.endsAt) audible = true;
       } else if (gain > 0) audible = true;
     }
     for (const b of this.buses.values()) {

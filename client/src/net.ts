@@ -397,7 +397,9 @@ export class Store {
         this.toast({ kind: 'call_moved', roomId: msg.roomId, text: `${this.name(msg.userId).split(' ')[0]} went into ${MAP.rooms.find(r => r.id === msg.roomId)?.name ?? msg.roomId}`, expires: 15000 });
         break;
       case 'state': {
-        this.offset = msg.serverTime - Date.now();
+        // a message can't arrive before it was sent, so each reading is a lower bound; the snapshot is big and takes longer
+        // on a slow link than the hello just before it, so keep the tighter one (the jukebox starts on this clock)
+        this.offset = Math.max(this.offset, msg.serverTime - Date.now());
         const next = new Map<string, ClientUser>();
         for (const p of msg.users) {
           const old = this.users.get(p.id);
