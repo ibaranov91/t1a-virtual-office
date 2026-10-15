@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import {
-  applyEdit, applyLayout, besideObject, dirBetween, doorwayTiles, KEEP_TYPES, migrateEastWing, layoutProblem, objectName, voiceRooms, findPath, isWalkable, pathDuration, pathTo, roomAt, sampleMove, seatAt, withLayout, WALK_MS_PER_TILE,
+  applyEdit, applyLayout, besideObject, dirBetween, doorwayTiles, KEEP_TYPES, migrateEastWing, layoutProblem, objectName, voiceRooms, findPath, isWalkable, pathDuration, pathTo, roomAt, sampleMove, seatAt, uniqueIds, withLayout, WALK_MS_PER_TILE,
   type Dir, type Layout, type Room, type Spot, type TileMap, type Tile,
 } from '../../shared/map';
 import {
@@ -819,7 +819,8 @@ export class World {
   // ---------- rearranging the office (admins) ----------
   edit(u: User, edit: LayoutEdit) {
     if (!this.isAdmin(u)) return;
-    const added = `e${Date.now().toString(36)}${(this.editSeq++).toString(36)}`;
+    const used = new Set([...this.map.objects, ...this.map.rugs].map(o => o.id));
+    let added: string; do added = `e${Date.now().toString(36)}${(this.editSeq++).toString(36)}`; while (used.has(added));
     const next = applyEdit(this.map, edit, () => added);
     if (typeof next === 'string') return this.sendTo(u.id, { t: 'notice', text: `Can't: ${next}` });
     this.setLayout(next, u, edit.op === 'add' || edit.op === 'rug_add' ? added : undefined);
@@ -827,14 +828,17 @@ export class World {
   /** A saved layout brought up to date with this build's one-of-a-kind objects: a new one (a release puts a vault
    *  door in the Lobby) goes at its generated spot when that's still free; one the admin already placed keeps its
    *  spot but takes the build's definition (a new link, say), unless its shape changed (the safe moved into the
-   *  wall), when it goes back to the generated spot too. */
+   *  wall), when it goes back to the generated spot too. Matched by type and order (the second cabinet is the second
+   *  cabinet), never by id: generated ids shift between builds. A new one may bring an id the saved layout already
+   *  uses; `uniqueIds` sorts that out. */
   private withNewFixtures(saved: Layout): Layout {
-    const out = { objects: [...saved.objects], rugs: saved.rugs };
+    const out = { objects: [...saved.objects], rugs: saved.rugs }, seen = new Map<string, number>();
     for (const o of this.baseLayout.objects) {
       if (!KEEP_TYPES.has(o.type)) continue;
-      const i = out.objects.findIndex(s => o.type === 'arcade' ? s.id === o.id : s.type === o.type), have = i >= 0 ? out.objects[i] : undefined;
+      const n = seen.get(o.type) ?? 0; seen.set(o.type, n + 1);
+      const i = saved.objects.flatMap((s, j) => (s.type === o.type ? [j] : []))[n] ?? -1, have = i >= 0 ? out.objects[i] : undefined;
       if (have && !!have.wall === !!o.wall && have.w === o.w && have.h === o.h) { out.objects[i] = { ...structuredClone(o), id: have.id, x: have.x, y: have.y }; continue; }
-      const next = { ...out, objects: [...out.objects.filter((_, j) => j !== i), structuredClone(o)] };
+      const next = { ...out, objects: have ? out.objects.map((s, j) => (j === i ? structuredClone(o) : s)) : [...out.objects, structuredClone(o)] };
       const problem = layoutProblem(withLayout(this.map, next), false);
       let placed = !problem;
       const room = roomAt(this.map, o.x, o.y);
@@ -1177,7 +1181,11 @@ export class World {
         if (!covers(r)) return true;
         console.warn(`saved ${r.color} rug dropped: covers the hole or hatch`); return false;
       });
-      const layout = this.withNewFixtures(migrateEastWing({ objects, rugs }, this.baseLayout));
+      const merged = this.withNewFixtures(migrateEastWing({ objects, rugs }, this.baseLayout));
+      // ids saved by an older build can clash with this one's (a plant and the safe were both o57): each gets its own,
+      // and the next save keeps it
+      const layout = uniqueIds(merged, this.baseLayout), was = [...merged.objects, ...merged.rugs].map(o => o.id);
+      [...layout.objects, ...layout.rugs].forEach((o, i) => { if (o.id !== was[i]) console.warn(`saved layout: the ${'type' in o ? objectName(o.type) : 'rug'} at ${o.x},${o.y} shared id ${was[i]}, now ${o.id}`); });
       const problem = layoutProblem(withLayout(this.map, layout), false);
       if (problem) console.warn(`saved layout dropped: ${problem}`);
       else {
