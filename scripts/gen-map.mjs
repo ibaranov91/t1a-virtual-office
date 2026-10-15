@@ -174,6 +174,8 @@ obj('radio', 13, 14, 1, 1, { sound: { clip: 'radio', gain: 0.8 }, use: { kind: '
 const CALENDAR = { wall: true, use: { kind: 'calendar', label: 'calendar' } };
 obj('calendar', 34, 1, 1, 1, CALENDAR); // Coffee, between the windows
 obj('calendar', 22, 12, 1, 1, CALENDAR); // Co-working
+// the board by the Meeting room's door: which calendar meetings are on in their own rooms
+obj('meetings_board', 18, 12, 1, 1, { wall: true, use: { kind: 'meetings', label: 'meetings' } });
 
 // ---- walkable mask ----
 const walkable = grid(1);

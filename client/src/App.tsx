@@ -131,14 +131,16 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
     const e = new Engine(canvasRef.current, store, assets);
     e.onPick = p => {
       // a wall calendar opens your calendar right away (nothing to walk over for)
-      if (p?.kind === 'object' && MAP.objects.find(o => o.id === p.id)?.use?.kind === 'calendar') { setPick(null); return store.openCalendar(); }
+      const use = p?.kind === 'object' ? MAP.objects.find(o => o.id === p.id)?.use : undefined;
+      if (use?.kind === 'calendar') { setPick(null); return store.openCalendar(); }
+      if (use?.kind === 'meetings') { setPick(null); return store.openMeetings(); }
       setPick(cur => (p && cur?.kind === p.kind && cur.id === p.id ? null : p)); // same target again: close
     };
     engineRef.current = e;
     if (import.meta.env.DEV) Object.assign(window, { __deck: { store, engine: e } });
     return () => e.destroy();
   }, [assets, store]);
-  useEffect(() => { const i = setInterval(() => tick(n => n + 1), 1000); return () => clearInterval(i); }, []);
+  useEffect(() => { const i = setInterval(() => { tick(n => n + 1); store.checkAgenda(); }, 1000); return () => clearInterval(i); }, [store]);
   useEffect(() => { if (engineRef.current) engineRef.current.selected = pick; }, [pick]);
 
   const me = store.users.get(store.me);
@@ -155,8 +157,10 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
         {!store.connected && assets && <div className="loading small">Reconnecting…</div>}
         {showRooms && <RoomList store={store} onPick={(id) => engineRef.current?.focusUser(id)} onClose={() => setShowRooms(false)} />}
         {store.calendarOpen && <CalendarPanel store={store} />}
+        {store.meetingsOpen && <MeetingsPanel store={store} />}
         {(showMeet || store.pendingKnock) && <MeetSetup key={store.pendingKnock ?? 'panel'} store={store} onClose={() => setShowMeet(false)} />}
         <div className="chips">
+          <MeetingChip store={store} />
           <VoiceChips store={store} voice={voice} />
           <DeskChip store={store} />
         </div>
@@ -209,16 +213,17 @@ function RoomList({ store, onPick, onClose }: { store: Store; onPick: (id: strin
   const byRoom = new Map<string, string[]>();
   for (const u of store.users.values()) {
     if (u.presence === 'offline') continue;
-    const r = store.roomOf(u)?.id ?? 'hall';
+    const r = u.instance ? 'meetings' : store.roomOf(u)?.id ?? 'hall'; // in a meeting's own room, not the real one
     byRoom.set(r, [...(byRoom.get(r) ?? []), u.id]);
   }
   const offline = [...store.users.values()].filter(u => u.presence === 'offline');
   return (
     <aside className="rooms">
       <div className="rooms-head"><span>Rooms</span><button className="ghost" onClick={onClose}>×</button></div>
-      {[...MAP.rooms, { id: 'hall', name: 'Hallway', rules: { label: 'passing through' }, capacity: 0 } as const].map(r => {
+      {[...MAP.rooms, { id: 'meetings', name: 'In meetings', rules: { label: 'calendar meetings' }, capacity: 0 } as const,
+        { id: 'hall', name: 'Hallway', rules: { label: 'passing through' }, capacity: 0 } as const].map(r => {
         const ids = byRoom.get(r.id) ?? [];
-        if (r.id === 'hall' && !ids.length) return null;
+        if ((r.id === 'hall' || r.id === 'meetings') && !ids.length) return null;
         return (
           <section key={r.id}>
             <h3>{r.name} <small>{ids.length}{r.capacity ? `/${r.capacity}` : ''} · {r.rules.label}</small></h3>
@@ -230,7 +235,8 @@ function RoomList({ store, onPick, onClose }: { store: Store; onPick: (id: strin
                     <i style={{ background: PRESENCE_COLOR[u.presence] }} />
                     <span className={id === store.me ? 'me' : ''}>{u.name}{store.roomCallOf(u) && u.callRole === 'member' ? ` 🎙${userIcons(u)}` : ''}</span>
                     {!!store.unread.get(id) && <b className="unread" title="Unread messages" onClick={e => { e.stopPropagation(); store.openChat(id); }}>💬 {store.unread.get(id)}</b>}
-                    {u.door ? <em>{{ arriving: 'just arrived', thinking: 'packing up…', leaving: 'heading out' }[u.door]}</em> : u.status && <em>{u.status}</em>}
+                    {u.door ? <em>{{ arriving: 'just arrived', thinking: 'packing up…', leaving: 'heading out' }[u.door]}</em>
+                      : u.meeting ? <em>in a meeting until {store.clock(u.meeting)}</em> : u.status && <em>{u.status}</em>}
                   </li>
                 );
               })}
@@ -305,6 +311,48 @@ const dayKey = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padSt
 /** All-day events come as YYYY-MM-DD: that's a local date, not UTC midnight. */
 const parseWhen = (s: string, allDay: boolean) => (allDay ? new Date(`${s}T00:00:00`) : new Date(s));
 const hm = (d: Date) => d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+/** In a meeting's own room: what it is, its call link, and the way back. */
+function MeetingChip({ store }: { store: Store }) {
+  const me = store.users.get(store.me);
+  if (!me?.instance) return null;
+  const m = store.myMeeting, room = store.meetingRooms.find(r => r.id === me.instance);
+  const others = (room?.members ?? []).filter(id => id !== me.id).map(id => store.users.get(id)).filter((u): u is ClientUser => !!u);
+  return <div className="desk-chip call-chip meeting-chip">
+    <span>📅 <b>{m?.title ?? 'Meeting'}</b> <small>· until {store.clock(room?.until ?? m?.end ?? 0)}{others.length ? ` · with ${store.names(others)}` : ' · waiting for the others'}</small></span>
+    {m?.link && <ExternalLink href={meetAs(m.link, store.meetAccount)}>Join call</ExternalLink>}
+    <button className="end" onClick={() => store.leaveMeeting()}>Leave</button>
+  </div>;
+}
+
+/** The board by the Meeting room: meetings on right now in their own rooms. Titles only for their attendees. */
+function MeetingsPanel({ store }: { store: Store }) {
+  const me = store.users.get(store.me);
+  const mine = new Map(store.agenda.map(a => [a.instance, a]));
+  const now = store.now();
+  const goable = store.agenda.filter(a => a.start - 10 * 60_000 <= now && a.end > now && a.instance !== me?.instance && !store.meetingRooms.some(r => r.id === a.instance));
+  return (
+    <div className="modal-backdrop" onClick={e => { if (e.target === e.currentTarget) store.closeMeetings(); }}>
+      <div className="meet-panel guided calendar-panel">
+        <div className="rooms-head"><span>🚪 Meetings on now</span><button type="button" className="ghost" onClick={() => store.closeMeetings()}>×</button></div>
+        {!store.meetingRooms.length && !goable.length && <p className="muted small">No meetings in their rooms right now. When a calendar meeting starts, its people get a Go button.</p>}
+        <ul className="meeting-list">
+          {store.meetingRooms.map(r => {
+            const a = mine.get(r.id), people = r.members.map(id => store.users.get(id)).filter((u): u is ClientUser => !!u);
+            return <li key={r.id}>
+              <span><b>{a?.title ?? 'A meeting'}</b> <small className="muted">until {store.clock(r.until)}</small><br /><small>{store.names(people)}</small></span>
+              {a && me?.instance !== r.id && <button onClick={() => store.goToMeeting(a.key)}>Go</button>}
+            </li>;
+          })}
+          {goable.map(a => <li key={a.key}>
+            <span><b>{a.title}</b> <small className="muted">{store.clock(a.start)}–{store.clock(a.end)}</small><br /><small>nobody's in yet</small></span>
+            <button onClick={() => store.goToMeeting(a.key)}>Go</button>
+          </li>)}
+        </ul>
+      </div>
+    </div>
+  );
+}
 
 /** Your week from Google Calendar, opened from a wall calendar. Only you see it. */
 function CalendarPanel({ store }: { store: Store }) {
@@ -563,6 +611,8 @@ function Toasts({ store }: { store: Store }) {
             {t.text.startsWith('Missed') ? 'Knock back' : 'Knock again'}
           </button>}
           {t.kind === 'chat' && t.userId && <button onClick={() => store.openChat(t.userId!)}>Reply</button>}
+          {t.kind === 'meeting' && t.meetingKey && <button onClick={() => store.goToMeeting(t.meetingKey!)}>Go</button>}
+          {t.kind === 'meeting' && t.link && <ExternalLink href={meetAs(t.link, store.meetAccount)}>Join call</ExternalLink>}
           {t.kind === 'link' && t.link && <ExternalLink href={meetAs(t.link, store.meetAccount)} onOpen={() => store.dismiss(t.id)}>Join Meet</ExternalLink>}
           {t.kind !== 'knock_in' && t.kind !== 'knock_out' && <button className="ghost x" onClick={() => store.dismiss(t.id)}>×</button>}
         </div>
@@ -626,7 +676,7 @@ function ActionWheel({ store, engine, pick, onClose }: { store: Store; engine: E
     }
   } else {
     const o = MAP.objects.find(o => o.id === pick.id);
-    if (!o?.use || o.use.kind === 'calendar') return null;
+    if (!o?.use || o.use.kind === 'calendar' || o.use.kind === 'meetings') return null;
     if (o.use.kind === 'toggle') {
       const on = store.objects[o.id]?.on ?? o.on ?? true;
       title = o.use.label[0].toUpperCase() + o.use.label.slice(1);

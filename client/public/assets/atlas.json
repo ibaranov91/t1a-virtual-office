@@ -514,110 +514,116 @@
    "w": 16,
    "h": 16
   },
-  "exit_door": {
+  "meetings_board": {
    "x": 187,
    "y": 150,
    "w": 16,
    "h": 16
   },
-  "doormat": {
+  "exit_door": {
    "x": 204,
    "y": 150,
    "w": 16,
    "h": 16
   },
-  "bubble_zzz": {
+  "doormat": {
    "x": 221,
+   "y": 150,
+   "w": 16,
+   "h": 16
+  },
+  "bubble_zzz": {
+   "x": 238,
    "y": 150,
    "w": 14,
    "h": 14
   },
   "bubble_headset": {
-   "x": 236,
-   "y": 150,
-   "w": 14,
-   "h": 14
-  },
-  "bubble_hand": {
    "x": 0,
    "y": 167,
    "w": 14,
    "h": 14
   },
-  "bubble_deaf": {
+  "bubble_hand": {
    "x": 15,
    "y": 167,
    "w": 14,
    "h": 14
   },
-  "bubble_bang": {
+  "bubble_deaf": {
    "x": 30,
    "y": 167,
    "w": 14,
    "h": 14
   },
-  "bubble_dots": {
+  "bubble_bang": {
    "x": 45,
    "y": 167,
    "w": 14,
    "h": 14
   },
-  "bubble_think": {
+  "bubble_dots": {
    "x": 60,
    "y": 167,
    "w": 14,
    "h": 14
   },
-  "bubble_meeting": {
+  "bubble_think": {
    "x": 75,
    "y": 167,
    "w": 14,
    "h": 14
   },
-  "bubble_muted": {
+  "bubble_meeting": {
    "x": 90,
    "y": 167,
    "w": 14,
    "h": 14
   },
-  "bubble_talk_0": {
+  "bubble_muted": {
    "x": 105,
    "y": 167,
    "w": 14,
    "h": 14
   },
-  "bubble_talk_1": {
+  "bubble_talk_0": {
    "x": 120,
    "y": 167,
    "w": 14,
    "h": 14
   },
-  "bubble_talk_2": {
+  "bubble_talk_1": {
    "x": 135,
    "y": 167,
    "w": 14,
    "h": 14
   },
-  "bag": {
+  "bubble_talk_2": {
    "x": 150,
+   "y": 167,
+   "w": 14,
+   "h": 14
+  },
+  "bag": {
+   "x": 165,
    "y": 167,
    "w": 10,
    "h": 10
   },
   "note_1": {
-   "x": 161,
+   "x": 176,
    "y": 167,
    "w": 8,
    "h": 9
   },
   "note_2": {
-   "x": 170,
+   "x": 185,
    "y": 167,
    "w": 8,
    "h": 9
   },
   "marker": {
-   "x": 179,
+   "x": 194,
    "y": 167,
    "w": 10,
    "h": 8

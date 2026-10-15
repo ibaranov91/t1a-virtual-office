@@ -3,10 +3,13 @@
 import { isWalkable, roomAt, seatAt, type MapObject } from '../../shared/map';
 import type { Assets, Frame } from './assets';
 import { drawText, textWidth } from './font';
+import { MEETING_ROOM_ID } from '../../shared/protocol';
 import { ITEMS, MAP, type ClientUser, type Pose, type Store } from './net';
 
 const TS = MAP.tileSize;
 const MW = MAP.width * TS, MH = MAP.height * TS;
+const MEETING = MAP.rooms.find(r => r.id === MEETING_ROOM_ID)!.rect;
+const inMeetingRoom = (x: number, y: number) => x >= MEETING.x && x < MEETING.x + MEETING.w && y >= MEETING.y && y < MEETING.y + MEETING.h;
 const DIR_ROW: Record<string, number> = { down: 0, left: 1, right: 2, up: 3 };
 const WALK_FPS = 8; // 4 frames per tile at 4 tiles/s
 const SIT_FRAME = 5;
@@ -166,7 +169,9 @@ export class Engine {
   }
 
   // ---------- input ----------
-  private visible(u: ClientUser) { return u.presence !== 'offline'; }
+  /** In a meeting's own room you see only its people; in the office, nobody who's in one. */
+  private visible(u: ClientUser) { return u.presence !== 'offline' && u.instance === this.myInstance(); }
+  private myInstance() { return this.store.users.get(this.store.me)?.instance ?? null; }
   private userAt(wx: number, wy: number): string | null {
     const t = this.store.now();
     let best: { id: string; base: number } | null = null;
@@ -213,9 +218,10 @@ export class Engine {
     }
     const w = this.toWorld(e);
     this.hoverUser = this.userAt(w.x, w.y);
-    this.hoverObject = this.hoverUser ? null : this.objectAt(w.x, w.y);
+    const inside = this.myInstance();
+    this.hoverObject = this.hoverUser || inside ? null : this.objectAt(w.x, w.y);
     const tx = Math.floor(w.x / TS), ty = Math.floor(w.y / TS);
-    this.hoverTile = isWalkable(MAP, tx, ty) ? { x: tx, y: ty } : null;
+    this.hoverTile = isWalkable(MAP, tx, ty) && (!inside || inMeetingRoom(tx, ty)) ? { x: tx, y: ty } : null;
     this.canvas.style.cursor = this.hoverUser || this.hoverObject ? 'pointer' : this.hoverTile ? 'crosshair' : 'default';
   };
   private onUp = (e: PointerEvent) => {
@@ -224,12 +230,13 @@ export class Engine {
     const w = this.toWorld(e);
     const hit = this.userAt(w.x, w.y);
     if (hit) return this.onPick?.({ kind: 'user', id: hit });
-    const obj = this.objectAt(w.x, w.y);
+    const inside = this.myInstance();
+    const obj = inside ? null : this.objectAt(w.x, w.y);
     if (obj?.sit) { this.onPick?.(null); this.manualCam = false; return this.store.moveTo(this.freeSeat(obj, Math.floor(w.x / TS))); }
     if (obj) return this.onPick?.({ kind: 'object', id: obj.id });
     this.onPick?.(null);
     const tx = Math.floor(w.x / TS), ty = Math.floor(w.y / TS);
-    if (isWalkable(MAP, tx, ty)) { this.store.moveTo({ x: tx, y: ty }); this.manualCam = false; }
+    if (isWalkable(MAP, tx, ty) && (!inside || inMeetingRoom(tx, ty))) { this.store.moveTo({ x: tx, y: ty }); this.manualCam = false; }
   };
 
   // ---------- render ----------
@@ -243,7 +250,9 @@ export class Engine {
     const me = this.store.users.get(this.store.me);
     if (me && !this.manualCam && poses.get(me.id)) {
       const p = poses.get(me.id)!;
-      const target = this.clampCam(p.x * TS + 8 - this.viewW / 2, p.y * TS - this.viewH / 2);
+      const target = me.instance // a meeting's room: keep the room in the middle
+        ? this.clampCam((MEETING.x + MEETING.w / 2) * TS - this.viewW / 2, (MEETING.y + MEETING.h / 2) * TS - this.viewH / 2)
+        : this.clampCam(p.x * TS + 8 - this.viewW / 2, p.y * TS - this.viewH / 2);
       const k = this.snapped ? 0.12 : 1; this.snapped = true;
       this.cam.x += (target.x - this.cam.x) * k; this.cam.y += (target.y - this.cam.y) * k;
     }
@@ -311,6 +320,14 @@ export class Engine {
     }
     ctx.globalAlpha = 1;
 
+    // a meeting's own room: the rest of the office fades away
+    if (me?.instance) {
+      ctx.fillStyle = 'rgba(20,13,16,0.9)';
+      ctx.beginPath(); ctx.rect(-MW, -MH, MW * 3, MH * 3);
+      ctx.rect((MEETING.x - 1) * TS, (MEETING.y - 2) * TS, (MEETING.w + 2) * TS, (MEETING.h + 3) * TS);
+      ctx.fill('evenodd');
+    }
+
     // overlays: nameplates + bubbles (never occluded)
     const sorted = users.slice().sort((a, b) => poses.get(a.id)!.y - poses.get(b.id)!.y);
     this.placedPlates = [];
@@ -324,7 +341,7 @@ export class Engine {
     else if (this.hoverObject && !this.selected) {
       const o = this.hoverObject, fr = this.f(o.type)!;
       const what = o.use?.kind === 'toggle' ? `${o.use.label[0].toUpperCase()}${o.use.label.slice(1)} · ${this.isOn(o) ? 'on' : 'off'}`
-        : o.use?.kind === 'calendar' ? 'Calendar · your week' : o.sit ? 'Sofa · click to sit' : o.type === 'coffee_machine' ? 'Coffee machine' : o.type === 'fridge' ? 'Fridge' : o.type;
+        : o.use?.kind === 'calendar' ? 'Calendar · your week' : o.use?.kind === 'meetings' ? 'Meetings · who\'s in which' : o.sit ? 'Sofa · click to sit' : o.type === 'coffee_machine' ? 'Coffee machine' : o.type === 'fridge' ? 'Fridge' : o.type;
       this.drawLabel(what, (o.x + o.w / 2) * TS, (o.y + o.h) * TS - fr.h + 4, camX, camY);
     }
     else if (this.hoverTile) {
@@ -564,6 +581,7 @@ export class Engine {
     const room = roomAt(MAP, p.tile.x, p.tile.y);
     const voiceRoom = this.store.roomCallOf(u);
     const presence = voiceRoom ? u.callRole === 'member' ? `in ${voiceRoom.name} voice` : `passing ${voiceRoom.name}` : u.door === 'thinking' ? 'packing up…' : u.door === 'leaving' ? 'heading out' : u.door === 'arriving' ? 'just arrived'
+      : u.instance ? 'in the meeting' : u.meeting ? `in a meeting until ${this.store.clock(u.meeting)}`
       : u.callId ? `talking with ${this.store.names(this.store.callPeers(u))}` : u.presence === 'in_call' ? 'in a call' : u.presence === 'away' ? 'away' : room?.rules.occupantLabel ?? 'around';
     const lines = [`${u.name}${u.id === this.store.me ? ' (you)' : ''} · ${presence}`];
     if (u.status) lines.push(`“${u.status}”`);
