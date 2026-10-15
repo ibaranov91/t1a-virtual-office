@@ -22,7 +22,8 @@ export interface UseItem { id: string; label: string; icon: string }
 /** What clicking an object offers: take something from it, flip it on/off, or look at your calendar on it. */
 export type ObjectUse = { kind: 'take'; items: UseItem[] } | { kind: 'toggle'; label: string } | { kind: 'calendar'; label: string }
   | { kind: 'meetings'; label: string } // the board by the Meeting room: which calendar meetings are on
-  | { kind: 'achievements'; label: string }; // the Lobby notice board: your plant and your badges
+  | { kind: 'achievements'; label: string } // the Lobby notice board: your plant and your badges
+  | { kind: 'link'; label: string; url: string }; // opens a page in a new tab (the safe: the vault)
 export interface MapObject {
   id: string; type: string; x: number; y: number; w: number; h: number;
   sound?: { clip: string; gain: number };
@@ -48,11 +49,49 @@ export interface TileMap {
 
 export const WALK_MS_PER_TILE = 250; // 4 tiles/s
 
-export const isWalkable = (m: TileMap, x: number, y: number) =>
-  x >= 0 && y >= 0 && x < m.width && y < m.height && m.layers.walkable[y][x] === 1;
+const SEAT_TYPES = new Set(['chair', 'stool']);
+/**
+ * Per-tile lookups, built once per map: the map is read many times a frame (every sprite, every path), so
+ * walkable/room/seat are flat typed arrays indexed by `y * width + x` instead of scans over rooms and objects.
+ * `g`, `came` and `seen` are A*'s scratch space, reused across calls (`seen` holds a generation stamp, so
+ * nothing is cleared between searches).
+ */
+interface MapIndex {
+  walk: Uint8Array; room: Int8Array; seat: Int16Array; byId: Map<string, MapObject>;
+  g: Int32Array; came: Int32Array; seen: Uint32Array; gen: number;
+}
+const indexes = new WeakMap<TileMap, MapIndex>();
+/** Maps are read-only once in use; after editing one (tests), drop its index so the next lookup rebuilds it. */
+const doorways = new WeakMap<TileMap, Map<Room, Tile[][]>>(); // doorwayTiles' groups
+export const reindexMap = (m: TileMap) => { indexes.delete(m); doorways.delete(m); };
+export function mapIndex(m: TileMap): MapIndex {
+  let ix = indexes.get(m);
+  if (ix) return ix;
+  const n = m.width * m.height;
+  const walk = new Uint8Array(n), room = new Int8Array(n).fill(-1), seat = new Int16Array(n).fill(-1);
+  for (let y = 0; y < m.height; y++) for (let x = 0; x < m.width; x++) walk[y * m.width + x] = m.layers.walkable[y][x] === 1 ? 1 : 0;
+  m.rooms.forEach((r, i) => {
+    for (let y = r.rect.y; y < r.rect.y + r.rect.h; y++) for (let x = r.rect.x; x < r.rect.x + r.rect.w; x++) room[y * m.width + x] = i;
+  });
+  m.objects.forEach((o, i) => { // first match wins, like the old `find`
+    if (SEAT_TYPES.has(o.type)) { const k = o.y * m.width + o.x; if (seat[k] < 0) seat[k] = i; }
+    else if (o.sit) for (let y = o.y; y < o.y + o.h; y++) for (let x = o.x; x < o.x + o.w; x++) { const k = y * m.width + x; if (seat[k] < 0) seat[k] = i; }
+  });
+  ix = { walk, room, seat, byId: new Map(m.objects.map(o => [o.id, o])), g: new Int32Array(n), came: new Int32Array(n), seen: new Uint32Array(n), gen: 0 };
+  indexes.set(m, ix);
+  return ix;
+}
 
-export const roomAt = (m: TileMap, x: number, y: number): Room | undefined =>
-  m.rooms.find(r => x >= r.rect.x && x < r.rect.x + r.rect.w && y >= r.rect.y && y < r.rect.y + r.rect.h);
+export const isWalkable = (m: TileMap, x: number, y: number) =>
+  x >= 0 && y >= 0 && x < m.width && y < m.height && mapIndex(m).walk[y * m.width + x] === 1;
+
+export const roomAt = (m: TileMap, x: number, y: number): Room | undefined => {
+  if (x < 0 || y < 0 || x >= m.width || y >= m.height) return undefined;
+  const i = mapIndex(m).room[y * m.width + x];
+  return i < 0 ? undefined : m.rooms[i];
+};
+
+export const objectById = (m: TileMap, id: string) => mapIndex(m).byId.get(id);
 
 // Deterministic 4-neighbour A*. Returns tiles from `from` to `to` inclusive, or [] if unreachable.
 const NEIGH: [number, number][] = [[0, -1], [1, 0], [0, 1], [-1, 0]];
@@ -60,7 +99,11 @@ export function findPath(m: TileMap, from: Tile, to: Tile): Tile[] {
   if (!isWalkable(m, to.x, to.y)) return [];
   if (from.x === to.x && from.y === to.y) return [{ ...from }];
   const W = m.width, key = (x: number, y: number) => y * W + x;
-  const g = new Map<number, number>(), came = new Map<number, number>();
+  const ix = mapIndex(m), walk = ix.walk, gen = ++ix.gen;
+  if (gen === 0xffffffff) { ix.seen.fill(0); ix.gen = 1; }
+  // g/came are valid for a tile only while seen[tile] === gen
+  const gAt = (k: number) => (ix.seen[k] === gen ? ix.g[k] : Infinity);
+  const set = (k: number, gv: number, from: number) => { ix.seen[k] = gen; ix.g[k] = gv; ix.came[k] = from; };
   const h = (x: number, y: number) => Math.abs(x - to.x) + Math.abs(y - to.y);
   // binary heap of [f, h, seq, key]; seq makes ordering fully deterministic
   const heap: [number, number, number, number][] = [];
@@ -84,24 +127,26 @@ export function findPath(m: TileMap, from: Tile, to: Tile): Tile[] {
     return top;
   };
   const start = key(from.x, from.y), goal = key(to.x, to.y);
-  g.set(start, 0); push([h(from.x, from.y), h(from.x, from.y), seq++, start]);
+  set(start, 0, -1); push([h(from.x, from.y), h(from.x, from.y), seq++, start]);
   while (heap.length) {
     const [, , , k] = pop();
     if (k === goal) break;
-    const cx = k % W, cy = (k / W) | 0, cg = g.get(k)!;
+    const cx = k % W, cy = (k / W) | 0, cg = ix.g[k];
     for (const [dx, dy] of NEIGH) {
       const nx = cx + dx, ny = cy + dy;
-      if (!isWalkable(m, nx, ny)) continue;
-      const nk = key(nx, ny), ng = cg + 1;
-      if (ng < (g.get(nk) ?? Infinity)) {
-        g.set(nk, ng); came.set(nk, k);
+      if (nx < 0 || ny < 0 || nx >= W || ny >= m.height) continue;
+      const nk = key(nx, ny);
+      if (walk[nk] !== 1) continue;
+      const ng = cg + 1;
+      if (ng < gAt(nk)) {
+        set(nk, ng, k);
         const hh = h(nx, ny); push([ng + hh, hh, seq++, nk]);
       }
     }
   }
-  if (!came.has(goal)) return [];
+  if (ix.seen[goal] !== gen) return [];
   const out: Tile[] = [];
-  for (let k: number | undefined = goal; k !== undefined; k = came.get(k)) {
+  for (let k = goal; k >= 0; k = ix.came[k]) {
     out.push({ x: k % W, y: (k / W) | 0 });
     if (k === start) break;
   }
@@ -154,16 +199,16 @@ export function besideObject(m: TileMap, o: MapObject): Spot[] {
   return out.filter(t => isWalkable(m, t.x, t.y));
 }
 
-const SEAT_TYPES = new Set(['chair', 'stool']);
 /** Seat (chair/stool) on this tile, with the direction a sitter faces. */
-export function seatAt(m: TileMap, x: number, y: number): (Spot & { homeDesk: boolean }) | null {
-  const o = m.objects.find(o => (SEAT_TYPES.has(o.type) && o.x === x && o.y === y) || (o.sit && x >= o.x && x < o.x + o.w && y >= o.y && y < o.y + o.h));
-  if (!o) return null;
-  return { x, y, dir: o.dir ?? 'down', homeDesk: o.type === 'chair' && !!roomAt(m, x, y)?.homeDesks };
+export function seatAt(m: TileMap, x: number, y: number): (Spot & { homeDesk: boolean; type: string }) | null {
+  if (x < 0 || y < 0 || x >= m.width || y >= m.height) return null;
+  const i = mapIndex(m).seat[y * m.width + x];
+  if (i < 0) return null;
+  const o = m.objects[i];
+  return { x, y, dir: o.dir ?? 'down', homeDesk: o.type === 'chair' && !!roomAt(m, x, y)?.homeDesks, type: o.type };
 }
 
 export const voiceRooms = (m: TileMap) => m.rooms.filter(r => r.rules.voice === 'open');
-const doorways = new WeakMap<TileMap, Map<Room, Tile[][]>>();
 export function doorwayTiles(m: TileMap, room: Room): Tile[][] {
   let rooms = doorways.get(m);
   if (!rooms) doorways.set(m, rooms = new Map());
@@ -204,6 +249,7 @@ export function applyLayout(m: TileMap, l: Layout) {
   const walkable = walls.map(row => row.map(w => (w ? 0 : 1)));
   for (const o of m.objects) if (!o.wall && !o.walkable) for (const t of footprint(o)) if (walkable[t.y]?.[t.x] !== undefined) walkable[t.y][t.x] = 0;
   m.layers.walkable = walkable;
+  reindexMap(m); // the lookups below must see the new floor
   const free = (x: number, y: number) => walkable[y]?.[x] === 1;
   for (const r of m.rooms) { r.spots = []; delete r.plantSlots; }
   for (const o of m.objects) {
@@ -216,7 +262,7 @@ export function applyLayout(m: TileMap, l: Layout) {
     if (r) r.spots.push({ x: o.x, y: o.y, dir: o.dir });
   }
   for (const r of m.rooms) for (const s of r.stand) if (free(s.x, s.y) && !r.spots.some(p => p.x === s.x && p.y === s.y)) r.spots.push(s);
-  doorways.delete(m);
+  reindexMap(m);
 }
 
 /** Why this layout won't do, or null if it's fine: furniture on the floor and decor on the walls, nothing on top of
@@ -261,7 +307,7 @@ export const objectName = (type: string) => ({ table_long: 'long table', table_b
   painting_small: 'small painting', coffee_machine: 'coffee machine', meetings_board: 'meetings board', noticeboard: 'notice board', exit_door: 'exit door' } as Record<string, string>)[type] ?? type.replace(/_/g, ' ');
 
 /** Types that are one of a kind (the way out, the coffee machine…): they can be moved but not removed. */
-export const KEEP_TYPES = new Set(['exit_door', 'coffee_machine', 'fridge', 'radio', 'meetings_board', 'noticeboard']);
+export const KEEP_TYPES = new Set(['exit_door', 'coffee_machine', 'fridge', 'radio', 'meetings_board', 'noticeboard', 'safe']);
 /** Types that stay exactly where they are. */
 export const FIXED_TYPES = new Set(['exit_door']);
 export const RUG_MIN = 2, RUG_MAX = 24;

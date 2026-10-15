@@ -1,6 +1,6 @@
 // The floor: one <canvas>, one requestAnimationFrame loop.
 // Order: static tilemap → y-sorted furniture + sprites → nameplates & bubbles → ambient tint → UI hints.
-import { applyEdit, FIXED_TYPES, findPath, isWalkable, layoutProblem, objectName, roomAt, seatAt, withLayout, type MapObject, type Rug, type Tile } from '../../shared/map';
+import { applyEdit, FIXED_TYPES, findPath, isWalkable, layoutProblem, objectById, objectName, roomAt, seatAt, withLayout, type MapObject, type Rug, type Tile } from '../../shared/map';
 import { roomDoors, type RoomDoor } from './doors';
 import type { Assets, Frame } from './assets';
 import { drawText, textWidth } from './font';
@@ -66,13 +66,16 @@ export class Engine {
   private hoverTile: { x: number; y: number } | null = null;
   private hoverPlant: PlacedPlant | null = null;
   private plants: PlacedPlant[] = [];
+  private plantsVersion = -1; // store.version the plants were placed for
+  private glow: HTMLCanvasElement; // one lamp's halo at full strength; drawn with alpha per frame
   private drag: { x: number; y: number; camX: number; camY: number; moved: boolean } | null = null;
   private bubbleState = new Map<string, { kind: BubbleKind | null; at: number }>();
   private nameplates = new Map<string, HTMLCanvasElement>();
   private ro: ResizeObserver;
-  private dynamicObjects: MapObject[];
+  private furniture: { o: MapObject; x: number; y: number; base: number; off: boolean }[]; // y-sorted on each layout; x,y = sprite origin
   private lights: MapObject[];
   private steamers: MapObject[];
+  private sounders: MapObject[];
   private placedPlates: { x: number; y: number; w: number }[] = [];
   private snapped = false;
   private slots: Tile[] = [];
@@ -91,8 +94,12 @@ export class Engine {
 
   constructor(private canvas: HTMLCanvasElement, private store: Store, private assets: Assets) {
     this.ctx = canvas.getContext('2d')!;
-    this.staticLayer = this.dynamicObjects = this.lights = this.steamers = this.interactive = this.boards = null!;
+    this.staticLayer = this.furniture = this.lights = this.steamers = this.sounders = this.interactive = this.boards = null!;
     this.refreshLayout();
+    this.glow = document.createElement('canvas'); this.glow.width = this.glow.height = 80;
+    const gc = this.glow.getContext('2d')!, g = gc.createRadialGradient(40, 40, 2, 40, 40, 40);
+    g.addColorStop(0, 'rgba(255,200,110,1)'); g.addColorStop(1, 'rgba(255,200,110,0)');
+    gc.fillStyle = g; gc.fillRect(0, 0, 80, 80);
     this.ro = new ResizeObserver(() => this.resize());
     this.ro.observe(canvas.parentElement!);
     this.resize();
@@ -182,7 +189,7 @@ export class Engine {
   anchor(p: Pick) {
     const k = this.px / (this.canvas.width / this.canvas.getBoundingClientRect().width);
     if (p.kind === 'user') { const s = this.screenPos(p.id); return s && { ...s, r: 13 * k }; }
-    const o = MAP.objects.find(o => o.id === p.id), fr = o && this.f(o.type);
+    const o = objectById(MAP, p.id), fr = o && this.f(o.type);
     if (!o || !fr) return null;
     const r = this.canvas.getBoundingClientRect();
     return { x: r.left + ((o.x + o.w / 2) * TS - this.cam.x) * k, y: r.top + ((o.y + o.h) * TS - fr.h / 2 - this.cam.y) * k, r: (Math.max(fr.w, fr.h) / 2) * k };
@@ -229,9 +236,14 @@ export class Engine {
     this.layoutSeen = this.store.layoutVersion;
     this.doors = roomDoors(MAP);
     this.staticLayer = this.buildStatic();
-    this.dynamicObjects = MAP.objects.filter(o => !o.wall && !o.walkable);
+    this.furniture = MAP.objects.filter(o => !o.wall && !o.walkable && this.f(o.type)).map(o => {
+      const fr = this.f(o.type);
+      return { o, x: o.x * TS + (o.w * TS - fr.w) / 2, y: (o.y + o.h) * TS - fr.h, base: (o.y + o.h) * TS - 0.5, off: !!this.f(`${o.type}_off`) };
+    }).sort((a, b) => a.base - b.base);
     this.lights = MAP.objects.filter(o => o.light);
     this.steamers = MAP.objects.filter(o => o.steam);
+    this.sounders = MAP.objects.filter(o => o.sound);
+    this.plantsVersion = -1; // shelves may have moved
     this.interactive = MAP.objects.filter(o => o.use || o.sit || o.sound);
     this.boards = MAP.objects.filter(o => o.use?.kind === 'meetings');
     this.slots = MAP.rooms.flatMap(r => r.plantSlots ?? []);
@@ -633,34 +645,30 @@ export class Engine {
       this.drawDeskTag(owner, dx, dy);
     }
 
-    // y-sorted drawables
-    type D = { base: number; draw: () => void };
+    // y-sorted drawables: furniture is sorted per layout (refreshLayout); people and plants are sorted here and merged in
+    if (this.plantsVersion !== this.store.version) { this.plants = me?.instance ? [] : this.placePlants(); this.plantsVersion = this.store.version; }
+    type D = { base: number; u?: ClientUser; p?: Pose; plant?: PlacedPlant; door?: RoomDoor };
     const ds: D[] = [];
-    for (const o of this.dynamicObjects) {
-      const fr = this.f(o.type); if (!fr) continue;
-      const x = o.x * TS + (o.w * TS - fr.w) / 2, y = (o.y + o.h) * TS - fr.h;
-      const name = this.isOn(o) || !this.f(`${o.type}_off`) ? o.type : `${o.type}_off`;
-      ds.push({ base: (o.y + o.h) * TS - 0.5, draw: () => this.blit(ctx, name, x, y) });
-    }
-    for (const door of this.doors) {
-      const open = [...poses.values()].some(p => door.tiles.some(t => Math.abs(t.x - p.tile.x) + Math.abs(t.y - p.tile.y) <= 1));
-      const name = `door_${door.horizontal ? 'h' : 'v'}_${open ? 'open' : 'closed'}`, fr = this.f(name);
-      if (!fr) continue;
-      const x = door.x * TS + (door.w * TS - fr.w) / 2, y = (door.y + door.h) * TS - fr.h;
-      ds.push({ base: (door.y + door.h) * TS - .5, draw: () => this.blit(ctx, name, x, y) });
-    }
-    for (const u of users) {
-      const p = poses.get(u.id)!;
-      ds.push({ base: p.y * TS + TS, draw: () => this.drawSprite(u, p, ms) });
-    }
-    this.plants = me?.instance ? [] : this.placePlants();
-    for (const p of this.plants) {
-      const pl = p.u.plant!, kinded = pl.kind && pl.stage >= PLANT_REVEAL;
-      const name = plantDead(pl, t) ? 'pot_dead' : kinded ? `pot_${pl.kind}_${pl.stage}` : `pot_${pl.stage}`;
-      ds.push({ base: p.base, draw: () => this.blit(ctx, name, p.x - 6, p.y - 20) });
-    }
+    for (const door of this.doors) ds.push({ base: (door.y + door.h) * TS - .5, door });
+    for (const u of users) { const p = poses.get(u.id)!; ds.push({ base: p.y * TS + TS, u, p }); }
+    for (const plant of this.plants) ds.push({ base: plant.base, plant });
     ds.sort((a, b) => a.base - b.base);
-    for (const d of ds) d.draw();
+    const drawD = (d: D) => {
+      if (d.u) return this.drawSprite(d.u, d.p!, ms);
+      if (d.door) { // open while someone stands in or right next to the doorway
+        const door = d.door, open = [...poses.values()].some(p => door.tiles.some(t => Math.abs(t.x - p.tile.x) + Math.abs(t.y - p.tile.y) <= 1));
+        const name = `door_${door.horizontal ? 'h' : 'v'}_${open ? 'open' : 'closed'}`, fr = this.f(name);
+        return void (fr && this.blit(ctx, name, door.x * TS + (door.w * TS - fr.w) / 2, (door.y + door.h) * TS - fr.h));
+      }
+      const p = d.plant!, pl = p.u.plant!, kinded = pl.kind && pl.stage >= PLANT_REVEAL;
+      this.blit(ctx, plantDead(pl, t) ? 'pot_dead' : kinded ? `pot_${pl.kind}_${pl.stage}` : `pot_${pl.stage}`, p.x - 6, p.y - 20);
+    };
+    let di = 0;
+    for (const f of this.furniture) {
+      while (di < ds.length && ds[di].base <= f.base) drawD(ds[di++]);
+      this.blit(ctx, f.off && !this.isOn(f.o) ? `${f.o.type}_off` : f.o.type, f.x, f.y);
+    }
+    while (di < ds.length) drawD(ds[di++]);
 
     // coffee steam when someone is in the Coffee room
     const coffeeBusy = users.some(u => roomAt(MAP, poses.get(u.id)!.tile.x, poses.get(u.id)!.tile.y)?.type === 'coffee');
@@ -668,11 +676,11 @@ export class Engine {
     // fresh steam (or fridge chill) right after someone used it
     for (const fx of this.store.objectFx) {
       if (ms - fx.at > 3000) continue;
-      const o = MAP.objects.find(o => o.id === fx.objectId);
+      const o = objectById(MAP, fx.objectId);
       if (o && !(coffeeBusy && o.steam)) this.drawSteam(o, ms);
     }
 
-    for (const o of MAP.objects.filter(o => o.sound)) for (let i = 0; i < 3; i++) {
+    for (const o of this.sounders) for (let i = 0; i < 3; i++) {
       const phase = (ms / 2200 + i / 3) % 1;
       ctx.globalAlpha = 1 - phase;
       this.blit(ctx, i % 2 ? 'note_1' : 'note_2', o.x * TS + 5 + Math.round(Math.sin(phase * 6 + i) * 4), o.y * TS - Math.round(phase * 18));
@@ -712,7 +720,7 @@ export class Engine {
     else if (this.hoverObject && !this.selected) {
       const o = this.hoverObject, fr = this.f(o.type)!;
       const what = o.sound ? 'Radio · music volume in ⚙' : o.use?.kind === 'toggle' ? `${o.use.label[0].toUpperCase()}${o.use.label.slice(1)} · ${this.isOn(o) ? 'on' : 'off'}`
-        : o.use?.kind === 'calendar' ? 'Calendar · your week' : o.use?.kind === 'achievements' ? 'Notice board · your plant and achievements' : o.use?.kind === 'meetings' ? `Meetings · ${this.store.meetingRooms.length || 'none'} on now` : o.sit ? `${o.type === 'bench' ? 'Bench' : 'Sofa'} · click to sit` : o.type === 'coffee_machine' ? 'Coffee machine' : o.type === 'fridge' ? 'Fridge' : o.type;
+        : o.use?.kind === 'calendar' ? 'Calendar · your week' : o.use?.kind === 'achievements' ? 'Notice board · your plant and achievements' : o.use?.kind === 'link' ? `Safe · opens the ${o.use.label}` : o.use?.kind === 'meetings' ? `Meetings · ${this.store.meetingRooms.length || 'none'} on now` : o.sit ? `${o.type === 'bench' ? 'Bench' : 'Sofa'} · click to sit` : o.type === 'coffee_machine' ? 'Coffee machine' : o.type === 'fridge' ? 'Fridge' : o.type;
       this.drawLabel(what, (o.x + o.w / 2) * TS, (o.y + o.h) * TS - fr.h + 4, camX, camY);
     }
     else if (this.hoverPlant) {
@@ -765,7 +773,7 @@ export class Engine {
       ctx.textAlign = 'start'; ctx.textBaseline = 'alphabetic';
     }
     // facing a desk: the chair's backrest is in front of the sitter
-    if (seat?.dir === 'up' && this.f('chair_up_back') && MAP.objects.some(o => o.type === 'chair' && o.x === seat.x && o.y === seat.y)) {
+    if (seat?.dir === 'up' && seat.type === 'chair' && this.f('chair_up_back')) {
       this.blit(ctx, 'chair_up_back', seat.x * TS, seat.y * TS);
     }
   }
@@ -860,7 +868,7 @@ export class Engine {
       const p = poses.get(sel.id); if (!p) return;
       cx = p.x * TS + 8; cy = p.y * TS + TS - 1.5; rx = 7;
     } else {
-      const o = MAP.objects.find(o => o.id === sel.id); if (!o) return;
+      const o = objectById(MAP, sel.id); if (!o) return;
       cx = (o.x + o.w / 2) * TS; cy = (o.y + o.h) * TS - 1; rx = o.w * 8 + 1;
     }
     const k = 1 + Math.sin(ms / 180) * 0.12;
@@ -960,13 +968,10 @@ export class Engine {
     }
     // lamps that are on glow: softly by day, warmly in the evening
     ctx.globalCompositeOperation = 'lighter';
-    const glow = Math.max(0.1, alpha * 0.55);
+    ctx.globalAlpha = Math.max(0.1, alpha * 0.55);
     for (const o of this.lights) {
       if (!this.isOn(o)) continue;
-      const lx = o.x * TS + 8, ly = (o.y + o.h) * TS - 26;
-      const g = ctx.createRadialGradient(lx, ly, 2, lx, ly, 40);
-      g.addColorStop(0, `rgba(255,200,110,${glow.toFixed(3)})`); g.addColorStop(1, 'rgba(255,200,110,0)');
-      ctx.fillStyle = g; ctx.fillRect(lx - 40, ly - 40, 80, 80);
+      ctx.drawImage(this.glow, o.x * TS + 8 - 40, (o.y + o.h) * TS - 26 - 40);
     }
     ctx.restore();
   }
