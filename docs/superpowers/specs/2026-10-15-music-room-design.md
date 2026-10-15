@@ -1,6 +1,7 @@
 # Music room: a shared jukebox — design
 
-Owner: Andrii Butko · 2026-10-15 · status: v2, after a Codex spec review · builds on
+Owner: Andrii Butko · 2026-10-15 · status: v2, after a Codex spec review; shipped. Since sound v3 (rooms are
+sealed) the jukebox is heard only inside the Music room: the door leak described below no longer exists · builds on
 `2026-10-15-open-talk-rooms-design.md` (soundscape, emitters) and `2026-10-15-sound-v2-design.md` (mixer: the Music
 category). Only what changes is here.
 
