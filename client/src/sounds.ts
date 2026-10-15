@@ -61,3 +61,21 @@ export function playKnock() {
     tap(c, t + 0.16, 190, 0.12);
   } catch { /* audio unavailable: stay silent */ }
 }
+
+/** A soft bubbly "pop" for a reaction or a message: one short rising sine. */
+export function playPop() {
+  if (!soundsOn()) return;
+  try {
+    const c = audio(), at = c.currentTime + 0.01;
+    const g = c.createGain();
+    g.gain.setValueAtTime(0, at);
+    g.gain.linearRampToValueAtTime(0.09, at + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001, at + 0.16);
+    g.connect(c.destination);
+    const o = c.createOscillator();
+    o.type = 'sine';
+    o.frequency.setValueAtTime(520, at);
+    o.frequency.exponentialRampToValueAtTime(880, at + 0.08);
+    o.connect(g); o.start(at); o.stop(at + 0.18);
+  } catch { /* audio unavailable: stay silent */ }
+}

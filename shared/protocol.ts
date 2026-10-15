@@ -24,7 +24,17 @@ export interface PublicUser {
   homeDesk: Tile | null;
   callId: string | null; // in a knock-started call; everyone with the same callId is talking together
   muted: boolean;        // mic muted in that call
+  following: string | null; // walks along with this person
+  holding: string | null;   // a UseItem id (coffee, snack…) in hand for a while
 }
+
+/** Quick reactions you can toss at someone; they float up over their head for everyone to see. */
+export const REACTIONS = ['👋', '👍', '❤️', '😂', '🎉', '☕'] as const;
+export type Reaction = typeof REACTIONS[number];
+
+/** A direct message. Only ever sent to the two people in the conversation. */
+export interface ChatMsg { id: string; fromId: string; toId: string; text: string; at: number }
+export const MAX_CHAT_LEN = 500;
 
 /** Built-in voice calls are peer-to-peer; keep them small. Bigger groups go to Meet. */
 export const MAX_CALL_SIZE = 5;
@@ -46,20 +56,26 @@ export interface Knock {
 // server -> client
 export type ServerMsg =
   | { t: 'hello'; you: string; serverTime: number }
-  | { t: 'state'; users: PublicUser[]; serverTime: number }
+  | { t: 'state'; users: PublicUser[]; objects: Record<string, { on: boolean }>; serverTime: number }
   | { t: 'move'; userId: string; from: Tile; to: Tile; startedAt: number; path?: Tile[]; face?: Dir }
   | { t: 'status'; userId: string; status: string }
   | { t: 'presence'; userId: string; presence: Presence }
   | { t: 'emote'; userId: string; emote: Emote }
   | { t: 'door'; userId: string; door: Door }
   | { t: 'knock'; knockId: string; fromId: string; toId: string }
-  | { t: 'knock_reply'; knockId: string; fromId: string; toId: string; reply: 'accept' | 'later' | 'blocked'; link?: string; reason?: string; fallback?: boolean }
+  | { t: 'knock_reply'; knockId: string; fromId: string; toId: string; reply: 'accept' | 'later' | 'blocked'; link?: string; reason?: string; fallback?: boolean; cancelled?: boolean }
   | { t: 'me'; meetLink: string } // private settings, only to the user themselves
   | { t: 'desk'; userId: string; desk: Tile | null }
   | { t: 'call'; userId: string; callId: string | null; link?: string } // link: the call's Meet room, only to members
   | { t: 'rtc'; from: string; signal: RtcSignal }
   | { t: 'speaking'; userId: string; on: boolean }
-  | { t: 'mute'; userId: string; muted: boolean };
+  | { t: 'mute'; userId: string; muted: boolean }
+  | { t: 'follow'; userId: string; targetId: string | null }
+  | { t: 'holding'; userId: string; item: string | null; objectId?: string; fromId?: string } // objectId: just taken; fromId: handed over
+  | { t: 'object'; id: string; on: boolean; by: string }
+  | { t: 'react'; fromId: string; toId: string; emoji: Reaction }
+  | { t: 'chat'; msg: ChatMsg }
+  | { t: 'chat_history'; withId: string; messages: ChatMsg[] };
 
 // client -> server
 export type ClientMsg =
@@ -68,10 +84,18 @@ export type ClientMsg =
   | { t: 'presence'; presence: Exclude<Presence, 'offline'> }
   | { t: 'knock'; targetId: string }
   | { t: 'knock_reply'; knockId: string; reply: 'accept' | 'later' }
+  | { t: 'knock_cancel'; knockId: string } // the knocker calls it back: closes the prompt for both
   | { t: 'meet_link'; link: string }
   | { t: 'claim_desk' }   // the seat you're sitting on becomes your home desk
   | { t: 'release_desk' }
   | { t: 'end_call' }
   | { t: 'rtc'; to: string; signal: RtcSignal }
   | { t: 'speaking'; on: boolean }
-  | { t: 'mute'; muted: boolean };
+  | { t: 'mute'; muted: boolean }
+  | { t: 'follow'; targetId: string | null }
+  | { t: 'react'; targetId: string; emoji: Reaction }
+  | { t: 'chat'; toId: string; text: string }
+  | { t: 'chat_history'; withId: string }
+  | { t: 'use'; objectId: string; item?: string } // walk over to an object and use it
+  | { t: 'drop' }                    // finish what you're holding
+  | { t: 'give'; targetId: string }; // hand it to someone with empty hands

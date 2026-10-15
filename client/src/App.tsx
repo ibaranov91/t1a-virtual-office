@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { loadAssets, type Assets } from './assets';
-import { Engine } from './engine';
+import { Engine, type Pick } from './engine';
 import { Voice } from './voice';
 import { playKnock, setSoundsOn, soundsOn } from './sounds';
-import { MAP, Store } from './net';
-import { MEET_LINK_RE, normalizeMeetLink } from '../../shared/protocol';
+import { ITEMS, MAP, Store } from './net';
+import { MAX_CHAT_LEN, MEET_LINK_RE, normalizeMeetLink, REACTIONS } from '../../shared/protocol';
 import { seatAt } from '../../shared/map';
 
 // Dev server: sign in automatically as ?as=<name> (default "Dev"); each name keeps its own session,
@@ -102,6 +102,7 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
   const engineRef = useRef<Engine | null>(null);
   const [showRooms, setShowRooms] = useState(() => window.innerWidth > 900);
   const [showMeet, setShowMeet] = useState(false);
+  const [pick, setPick] = useState<Pick | null>(null);
   const [, tick] = useState(0);
 
   useEffect(() => { store.connect(); return () => store.close(); }, [store]);
@@ -121,11 +122,13 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
   useEffect(() => {
     if (!assets || !canvasRef.current) return;
     const e = new Engine(canvasRef.current, store, assets);
+    e.onPick = p => setPick(cur => (p && cur?.kind === p.kind && cur.id === p.id ? null : p)); // same target again: close
     engineRef.current = e;
     if (import.meta.env.DEV) Object.assign(window, { __deck: { store, engine: e } });
     return () => e.destroy();
   }, [assets, store]);
   useEffect(() => { const i = setInterval(() => tick(n => n + 1), 1000); return () => clearInterval(i); }, []);
+  useEffect(() => { if (engineRef.current) engineRef.current.selected = pick; }, [pick]);
 
   const me = store.users.get(store.me);
   const myRoom = me ? store.roomOf(me) : undefined;
@@ -146,6 +149,8 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
           <DeskChip store={store} />
         </div>
         <Toasts store={store} />
+        {pick && engineRef.current && <ActionWheel key={`${pick.kind}:${pick.id}`} store={store} engine={engineRef.current} pick={pick} onClose={() => setPick(null)} />}
+        {store.chatWith && <ChatPanel key={store.chatWith} store={store} withId={store.chatWith} />}
       </div>
     </div>
   );
@@ -210,6 +215,7 @@ function RoomList({ store, onPick, onClose }: { store: Store; onPick: (id: strin
                   <li key={id} onClick={() => onPick(id)} title={u.status || undefined}>
                     <i style={{ background: PRESENCE_COLOR[u.presence] }} />
                     <span className={id === store.me ? 'me' : ''}>{u.name}</span>
+                    {!!store.unread.get(id) && <b className="unread" title="Unread messages" onClick={e => { e.stopPropagation(); store.openChat(id); }}>💬 {store.unread.get(id)}</b>}
                     {u.door ? <em>{{ arriving: 'just arrived', thinking: 'packing up…', leaving: 'heading out' }[u.door]}</em> : u.status && <em>{u.status}</em>}
                   </li>
                 );
@@ -344,10 +350,130 @@ function Toasts({ store }: { store: Store }) {
             <button onClick={() => store.replyKnock(t.knockId!, 'accept')}>Accept</button>
             <button className="ghost" onClick={() => store.replyKnock(t.knockId!, 'later')}>Later</button>
           </>}
+          {t.kind === 'knock_out' && t.knockId && <button className="ghost" onClick={() => store.cancelKnock(t.knockId!)}>Cancel</button>}
+          {t.kind === 'knock_again' && t.userId && <button onClick={() => { store.dismiss(t.id); store.requestKnock(t.userId!); }}>
+            {t.text.startsWith('Missed') ? 'Knock back' : 'Knock again'}
+          </button>}
+          {t.kind === 'chat' && t.userId && <button onClick={() => store.openChat(t.userId!)}>Reply</button>}
           {t.kind === 'link' && t.link && <ExternalLink href={t.link} onOpen={() => store.dismiss(t.id)}>Join call</ExternalLink>}
-          {t.kind !== 'knock_in' && <button className="ghost x" onClick={() => store.dismiss(t.id)}>×</button>}
+          {t.kind !== 'knock_in' && t.kind !== 'knock_out' && <button className="ghost x" onClick={() => store.dismiss(t.id)}>×</button>}
         </div>
       ))}
     </div>
+  );
+}
+
+type WheelItem = { icon: string; label: string; onClick: () => void; disabled?: boolean; title?: string; active?: boolean };
+
+/** Click a person or a thing: a ring of actions around it, following it as it moves. */
+function ActionWheel({ store, engine, pick, onClose }: { store: Store; engine: Engine; pick: Pick; onClose: () => void }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const isMe = pick.kind === 'user' && pick.id === store.me;
+  const [emoji, setEmoji] = useState(isMe);
+  useEffect(() => {
+    let raf = 0;
+    const tick = () => {
+      const a = engine.anchor(pick);
+      if (!a) return onClose();
+      if (ref.current) ref.current.style.transform = `translate(${Math.round(a.x)}px, ${Math.round(a.y)}px)`;
+      raf = requestAnimationFrame(tick);
+    };
+    tick();
+    const key = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', key);
+    return () => { cancelAnimationFrame(raf); window.removeEventListener('keydown', key); };
+  }, [engine, pick]);
+
+  const me = store.users.get(store.me);
+  const act = (fn: () => void) => () => { fn(); onClose(); };
+  let title = '', items: WheelItem[] = [];
+  if (pick.kind === 'user') {
+    const u = store.users.get(pick.id);
+    if (!u || u.presence === 'offline') return null;
+    title = isMe ? 'You' : u.name.split(' ')[0];
+    if (emoji) {
+      items = REACTIONS.map(e => ({ icon: e, label: '', onClick: act(() => store.react(u.id, e)) }));
+      const held = isMe && me?.holding ? ITEMS.get(me.holding) : undefined;
+      if (!isMe) items.push({ icon: '↩', label: 'Back', onClick: () => setEmoji(false) });
+      else if (held) items.push({ icon: held.icon, label: 'Finish', title: `Finish your ${held.label.toLowerCase()}`, onClick: act(() => store.drop()) });
+      if (isMe && me?.following) items.push({ icon: '🛑', label: 'Stop following', onClick: act(() => store.follow(null)) });
+    } else {
+      const room = store.roomOf(u);
+      const talking = !!me?.callId && me.callId === u.callId;
+      const away = u.door === 'thinking' || u.door === 'leaving';
+      const following = me?.following === u.id;
+      items = [
+        { icon: '✊', label: 'Knock', onClick: act(() => store.requestKnock(u.id)), disabled: talking || away || room?.rules.knock === 'disabled',
+          title: talking ? 'Already talking' : away ? 'Heading out' : room?.rules.knock === 'disabled' ? `${room.name}: ${room.rules.label}` : 'Knock for a voice call' },
+        { icon: '👣', label: following ? 'Unfollow' : 'Follow', active: following, onClick: act(() => store.follow(following ? null : u.id)), disabled: away },
+        { icon: '😊', label: 'React', onClick: () => setEmoji(true) },
+        { icon: '💬', label: 'Message', onClick: act(() => store.openChat(u.id)) },
+      ];
+      const held = me?.holding ? ITEMS.get(me.holding) : undefined;
+      if (held) items.push({ icon: held.icon, label: 'Give', disabled: !!u.holding || away,
+        title: u.holding ? `${u.name.split(' ')[0]}'s hands are full` : `Give ${u.name.split(' ')[0]} your ${held.label.toLowerCase()}`,
+        onClick: act(() => store.give(u.id)) });
+    }
+  } else {
+    const o = MAP.objects.find(o => o.id === pick.id);
+    if (!o?.use) return null;
+    if (o.use.kind === 'toggle') {
+      const on = store.objects[o.id]?.on ?? o.on ?? true;
+      title = o.use.label[0].toUpperCase() + o.use.label.slice(1);
+      items = [{ icon: on ? '🌑' : '💡', label: on ? 'Turn off' : 'Turn on', onClick: act(() => store.use(o.id)) }];
+    } else {
+      title = o.type === 'coffee_machine' ? 'Coffee machine' : o.type === 'fridge' ? 'Fridge' : o.type;
+      items = o.use.items.map(i => ({ icon: i.icon, label: i.label, onClick: act(() => store.use(o.id, i.id)) }));
+    }
+  }
+  const R = items.length <= 2 ? 46 : items.length <= 4 ? 56 : 66;
+  // two items sit left/right; more start at the top and go clockwise
+  const start = items.length === 2 ? Math.PI : -Math.PI / 2;
+  return (
+    <div className="wheel" ref={ref}>
+      <div className="wheel-title" style={{ top: -R - 46 }}>{title}</div>
+      {items.map((it, i) => {
+        const a = start + (i * 2 * Math.PI) / items.length;
+        return (
+          <button key={i} className={`wheel-item${it.active ? ' active' : ''}${it.label ? '' : ' bare'}`} disabled={it.disabled} title={it.title ?? it.label}
+            style={{ left: Math.round(Math.cos(a) * R), top: Math.round(Math.sin(a) * R), animationDelay: `${i * 18}ms` }}
+            onClick={e => { e.stopPropagation(); it.onClick(); }}>
+            <span className="ic">{it.icon}</span>
+            {it.label && <small>{it.label}</small>}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/** Direct messages with one person. History lives on the server; only the two of you ever get it. */
+function ChatPanel({ store, withId }: { store: Store; withId: string }) {
+  const other = store.users.get(withId);
+  const msgs = store.chats.get(withId) ?? [];
+  const [draft, setDraft] = useState('');
+  const listRef = useRef<HTMLDivElement>(null);
+  useEffect(() => { listRef.current?.scrollTo({ top: listRef.current.scrollHeight }); }, [msgs.length]);
+  const send = () => { store.sendChat(withId, draft); setDraft(''); };
+  const time = (at: number) => new Date(at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  return (
+    <aside className="chat" onKeyDown={e => { if (e.key === 'Escape') store.closeChat(); }}>
+      <div className="rooms-head">
+        <span><i className="pdot" style={{ background: PRESENCE_COLOR[other?.presence ?? 'offline'] }} />{other?.name ?? 'someone'}</span>
+        <button className="ghost" onClick={() => store.closeChat()} title="Close">×</button>
+      </div>
+      <div className="chat-list" ref={listRef}>
+        {!msgs.length && <p className="muted">Say hi to {other?.name.split(' ')[0] ?? 'them'} 👋{other?.presence === 'offline' ? ' They\'ll see it when they\'re back.' : ''}</p>}
+        {msgs.map(m => (
+          <div key={m.id} className={`msg${m.fromId === store.me ? ' mine' : ''}`}>
+            <span>{m.text}</span><small>{time(m.at)}</small>
+          </div>
+        ))}
+      </div>
+      <form className="chat-input" onSubmit={e => { e.preventDefault(); send(); }}>
+        <input autoFocus value={draft} maxLength={MAX_CHAT_LEN} placeholder="Message…" onChange={e => setDraft(e.target.value)} />
+        <button disabled={!draft.trim()}>Send</button>
+      </form>
+    </aside>
   );
 }

@@ -1,8 +1,8 @@
 // WebSocket client + the client-side mirror of server state.
 import mapJson from '../../shared/tilemap.json';
-import { findPath, roomAt, sampleMove, type Dir, type Tile, type TileMap } from '../../shared/map';
-import type { ClientMsg, PublicUser, RtcSignal, ServerMsg } from '../../shared/protocol';
-import { playKnock } from './sounds';
+import { pathTo, roomAt, sampleMove, type Dir, type Tile, type TileMap } from '../../shared/map';
+import type { ChatMsg, ClientMsg, PublicUser, Reaction, RtcSignal, ServerMsg } from '../../shared/protocol';
+import { playKnock, playPop } from './sounds';
 
 export const MAP = mapJson as unknown as TileMap;
 
@@ -14,9 +14,17 @@ export interface ClientUser extends PublicUser {
 }
 
 export interface Toast {
-  id: number; kind: 'knock_in' | 'info' | 'link';
+  // knock_out: my knock is waiting (Cancel); knock_again: it didn't land, or I missed one (Knock again / back)
+  id: number; kind: 'knock_in' | 'knock_out' | 'knock_again' | 'chat' | 'info' | 'link';
   text: string; link?: string; knockId?: string; expires?: number; hint?: string;
+  userId?: string; // the other person, for knock_again and chat
 }
+
+/** A reaction in flight, timed with performance.now() like the render loop. */
+export interface Flying { fromId: string; toId: string; emoji: string; at: number }
+
+/** Item id -> what it looks like, from whatever the map's objects hand out. */
+export const ITEMS = new Map(MAP.objects.flatMap(o => (o.use?.kind === 'take' ? o.use.items : [])).map(i => [i.id, i]));
 
 export interface Pose { x: number; y: number; dir: Dir; walking: boolean; tile: Tile }
 
@@ -29,6 +37,12 @@ export class Store {
   toasts: Toast[] = [];
   connected = false;
   meetLink: string | null = null; // null = not loaded yet, '' = not set
+  objects: Record<string, { on: boolean }> = {};
+  chats = new Map<string, ChatMsg[]>(); // by the other person's id
+  unread = new Map<string, number>();
+  chatWith: string | null = null;       // open conversation
+  reactions: Flying[] = [];             // the engine draws and prunes these
+  objectFx: { objectId: string; at: number }[] = []; // someone just used it (coffee steam)
   version = 0;
   private listeners = new Set<Listener>();
   private ws: WebSocket | null = null;
@@ -75,6 +89,23 @@ export class Store {
     if (id && action !== 'cancel') this.knock(id); // after meet_link on the same socket, so the server has it
     this.emit();
   }
+  cancelKnock(knockId: string) {
+    this.send({ t: 'knock_cancel', knockId });
+    this.toasts = this.toasts.filter(t => t.knockId !== knockId); this.emit();
+  }
+  follow(targetId: string | null) { this.send({ t: 'follow', targetId }); }
+  react(targetId: string, emoji: Reaction) { this.send({ t: 'react', targetId, emoji }); }
+  use(objectId: string, item?: string) { this.send({ t: 'use', objectId, item }); }
+  drop() { this.send({ t: 'drop' }); }
+  give(targetId: string) { this.send({ t: 'give', targetId }); }
+  openChat(withId: string) {
+    this.chatWith = withId; this.unread.delete(withId);
+    this.toasts = this.toasts.filter(t => !(t.kind === 'chat' && t.userId === withId));
+    this.send({ t: 'chat_history', withId });
+    this.emit();
+  }
+  closeChat() { this.chatWith = null; this.emit(); }
+  sendChat(toId: string, text: string) { if (text.trim()) this.send({ t: 'chat', toId, text }); }
   replyKnock(knockId: string, reply: 'accept' | 'later') {
     this.send({ t: 'knock_reply', knockId, reply });
     this.dismiss(this.toasts.find(t => t.knockId === knockId)?.id ?? -1);
@@ -107,7 +138,7 @@ export class Store {
 
   // ---------- state ----------
   private applyMove(u: ClientUser, m: { from: Tile; to: Tile; startedAt: number; path?: Tile[]; face?: Dir }) {
-    const path = m.path ?? findPath(MAP, m.from, m.to);
+    const path = m.path ?? pathTo(MAP, m.from, m.to);
     const t = this.now();
     if (u.move && u.path && t < m.startedAt) u.prev = { path: u.path, startedAt: u.move.startedAt };
     else u.prev = null;
@@ -145,8 +176,39 @@ export class Store {
           if (p.move && (!old?.move || old.move.startedAt !== p.move.startedAt)) { u.move = null; this.applyMove(u, p.move); }
           next.set(p.id, u);
         }
-        this.users = next; break;
+        this.users = next;
+        this.objects = msg.objects ?? {};
+        break;
       }
+      case 'follow': { const u = this.users.get(msg.userId); if (u) u.following = msg.targetId; break; }
+      case 'holding': {
+        const u = this.users.get(msg.userId); if (u) u.holding = msg.item;
+        if (msg.objectId) this.objectFx = [...this.objectFx.filter(f => performance.now() - f.at < 4000), { objectId: msg.objectId, at: performance.now() }];
+        const it = msg.item ? ITEMS.get(msg.item) : undefined;
+        if (msg.fromId && it) { // handed over: the item hops across like a reaction
+          this.reactions.push({ fromId: msg.fromId, toId: msg.userId, emoji: it.icon, at: performance.now() });
+          if (msg.userId === this.me) { playPop(); this.toast({ kind: 'info', text: `${this.name(msg.fromId)} handed you ${it.label.toLowerCase()} ${it.icon}`, expires: 5000 }); }
+        }
+        break;
+      }
+      case 'object': this.objects = { ...this.objects, [msg.id]: { on: msg.on } }; break;
+      case 'react':
+        this.reactions.push({ fromId: msg.fromId, toId: msg.toId, emoji: msg.emoji, at: performance.now() });
+        if (msg.toId === this.me && msg.fromId !== this.me) playPop();
+        return; // drawn by the engine; no re-render needed
+      case 'chat': {
+        const m = msg.msg, other = m.fromId === this.me ? m.toId : m.fromId;
+        const list = this.chats.get(other) ?? [];
+        if (!list.some(x => x.id === m.id)) this.chats.set(other, [...list, m]);
+        if (m.fromId !== this.me && this.chatWith !== other) {
+          this.unread.set(other, (this.unread.get(other) ?? 0) + 1);
+          this.toasts = this.toasts.filter(t => !(t.kind === 'chat' && t.userId === other));
+          this.toast({ kind: 'chat', userId: other, text: `${this.name(other)}: ${m.text}`, expires: 10000 });
+          playPop();
+        }
+        break;
+      }
+      case 'chat_history': this.chats.set(msg.withId, msg.messages); break;
       case 'move': { const u = this.users.get(msg.userId); if (u) this.applyMove(u, msg); break; }
       case 'me': this.meetLink = msg.meetLink; break;
       case 'desk': { const u = this.users.get(msg.userId); if (u) u.homeDesk = msg.desk; break; }
@@ -170,20 +232,22 @@ export class Store {
         }
         if (msg.toId === this.me) playKnock();
         if (msg.toId === this.me) this.toast({ kind: 'knock_in', knockId: msg.knockId, text: this.users.get(this.me)?.callId ? `${this.name(msg.fromId)} wants to join your call` : `${this.name(msg.fromId)} is knocking` });
-        else if (msg.fromId === this.me) this.toast({ kind: 'info', text: `Knocked on ${this.name(msg.toId)}…`, expires: 4000 });
+        else if (msg.fromId === this.me) this.toast({ kind: 'knock_out', knockId: msg.knockId, text: `Knocking on ${this.name(msg.toId)}…` });
         break;
       }
       case 'knock_reply': {
         const mine = msg.fromId === this.me, forMe = msg.toId === this.me;
-        if (forMe) this.toasts = this.toasts.filter(t => t.knockId !== msg.knockId);
         if (!mine && !forMe) break;
-        const other = this.name(mine ? msg.toId : msg.fromId);
+        this.toasts = this.toasts.filter(t => t.knockId !== msg.knockId);
+        if (msg.cancelled) break; // called back: the prompt just goes away on both sides
+        const otherId = mine ? msg.toId : msg.fromId, other = this.name(otherId);
         if (msg.reply === 'accept') {
           this.callLink = msg.link ?? this.callLink;
           this.toast({ kind: 'info', text: `🎙 Voice call with ${other} — you're live`, expires: 4000 });
         }
-        else if (mine) this.toast({ kind: 'info', text: msg.reason ?? `${other} said later`, expires: 5000 });
-        else if (forMe && msg.reason) this.toast({ kind: 'info', text: `Missed a knock from ${other}`, expires: 5000 });
+        else if (mine && msg.reply === 'blocked') this.toast({ kind: 'info', text: msg.reason ?? `Can't knock on ${other} now`, expires: 5000 });
+        else if (mine) this.toast({ kind: 'knock_again', userId: otherId, text: msg.reason ?? `${other} said later`, expires: 12000 });
+        else if (forMe && msg.reason) this.toast({ kind: 'knock_again', userId: otherId, text: `Missed a knock from ${other}`, expires: 30000 });
         break;
       }
     }
