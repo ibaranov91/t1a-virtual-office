@@ -11,6 +11,7 @@ import { ITEMS, MAP, Store, type ClientUser } from './net';
 import { inNativeApp, syncNative } from './native';
 import { ACHIEVEMENTS, underground, dayNumber, JUKEBOX_PER_PERSON, JUKEBOX_QUEUE_MAX, MAX_CHAT_LEN, MEET_LINK_RE, meetAs, normalizeMeetLink, kindName, PLANT_DIES_DAYS, PLANT_KINDS, PLANT_REVEAL, PLANT_STAGES, plantDead, plantName, REACTIONS, type JukeboxState, type Plant } from '../../shared/protocol';
 import { GENRES, jukeboxPosition, TRACK, TRACKS } from '../../shared/music';
+import { EFFECTS, HAT_NAMES, HAT_STYLES, effectOf } from '../../shared/effects';
 import { FIXED_TYPES, KEEP_TYPES, objectName, RUG_COLORS, RUG_MAX, RUG_MIN, seatAt } from '../../shared/map';
 
 // Dev server: sign in automatically as ?as=<name> (default "Dev"); each name keeps its own session,
@@ -120,6 +121,7 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
   const [, tick] = useState(0);
   const [engine, setEngine] = useState<Engine | null>(null);
   const [editing, setEditing] = useState(false);
+  const [gmOpen, setGmOpen] = useState(false);
 
   useEffect(() => { store.connect(); return () => store.close(); }, [store]);
   useEffect(() => { const s = new Soundscape(store); return () => s.destroy(); }, [store]);
@@ -174,7 +176,7 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
       <div className="office-chrome" ref={chromeRef}>
       <TopBar store={store} roomName={myRoom?.name} onToggleRooms={() => setShowRooms(s => !s)} onLogout={onLogout}
         onToggleMeet={() => setShowMeet(s => !s)} onToggleAppearance={() => setShowAppearance(s => me?.lookSet ? !s : true)} engine={engine}
-        editing={editing} onToggleEdit={() => setEditing(e => !e)} />
+        editing={editing} onToggleEdit={() => setEditing(e => !e)} gmOpen={gmOpen} onToggleGm={() => setGmOpen(o => !o)} />
       <div className="stage">
         <div className="canvas-wrap"><canvas ref={canvasRef} /></div>
         {!assets && <div className="loading">Unlocking the door…</div>}
@@ -183,6 +185,7 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
           onPick={id => { engineRef.current?.walkToUser(id); if (compact()) setShowRooms(false); }}
           onRoom={id => { engineRef.current?.walkToRoom(id); if (compact()) setShowRooms(false); }} />}
         {editing && store.admin && !down && engine && <EditPanel store={store} engine={engine} assets={assets} onDone={() => setEditing(false)} />}
+        {gmOpen && store.admin && !editing && <GmPanel store={store} picked={pick?.kind === 'user' ? pick.id : null} onClose={() => setGmOpen(false)} />}
         {store.calendarOpen && <CalendarPanel store={store} />}
         {store.meetingsOpen && <MeetingsPanel store={store} />}
         {store.jukeboxOpen && <JukeboxPanel key={store.jukeboxOpen} store={store} id={store.jukeboxOpen} />}
@@ -191,7 +194,12 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
         {store.achievementsOpen && me && <AchievementsPanel store={store} me={me} assets={assets} />}
         {(showMeet || store.pendingKnock) && <MeetSetup key={store.pendingKnock ?? 'panel'} store={store} onClose={() => setShowMeet(false)} />}
         {showAppearance && me && <AppearanceMenu key={me.id} look={me.look} assets={assets} firstTime={!me.lookSet}
-          onSave={(look) => { store.setLook(look); setShowAppearance(false); }} onClose={() => setShowAppearance(false)} />}
+          hat={String(effectOf(me.effects, 'hat')?.data?.style ?? '')} judge={store.judge}
+          onSave={(look, hat) => {
+            store.setLook(look); setShowAppearance(false);
+            const was = String(effectOf(me.effects, 'hat')?.data?.style ?? '');
+            if (!store.judge && hat !== was) store.setEffect(me.id, 'hat', !!hat, hat || undefined);
+          }} onClose={() => setShowAppearance(false)} />}
         <div className="chips">
           <MeetingChip store={store} />
           <NowPlayingChip store={store} />
@@ -296,9 +304,9 @@ function InstrumentPanel({ store, id, dialogOpen }: { store: Store; id: string; 
   </section>;
 }
 
-function TopBar({ store, roomName, onToggleRooms, onToggleMeet, onToggleAppearance, onLogout, engine, editing, onToggleEdit }: {
+function TopBar({ store, roomName, onToggleRooms, onToggleMeet, onToggleAppearance, onLogout, engine, editing, onToggleEdit, gmOpen, onToggleGm }: {
   store: Store; roomName?: string; onToggleRooms: () => void; onToggleMeet: () => void; onToggleAppearance: () => void; onLogout: () => void; engine: Engine | null;
-  editing: boolean; onToggleEdit: () => void;
+  editing: boolean; onToggleEdit: () => void; gmOpen: boolean; onToggleGm: () => void;
 }) {
   const me = store.users.get(store.me);
   const [draft, setDraft] = useState<string | null>(null);
@@ -349,6 +357,8 @@ function TopBar({ store, roomName, onToggleRooms, onToggleMeet, onToggleAppearan
         title={editing ? 'Done rearranging' : 'Rearrange the office (admins)'} aria-label="Rearrange the office">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16v4ZM13 7l4 4" /></svg>
       </button>}
+      {store.admin && me && <button onClick={onToggleGm} className={`hanger-btn gm-btn${gmOpen ? ' on' : ''}`} aria-pressed={gmOpen}
+        title="GM superpowers: buffs and debuffs (admins)" aria-label="GM superpowers">✨</button>}
       <button onClick={onToggleAppearance} className="hanger-btn" title="Character appearance" aria-label="Character appearance">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a2 2 0 0 0-2 2c0 1 .7 1.6 1.6 2.4.6.5 1.1 1 1.1 1.8V11M12 9l-7 9h14l-7-9ZM3 21h18" /></svg>
       </button>
@@ -367,10 +377,11 @@ const LOOK_COLORS = {
   hatColor: ['#3e5a8a', '#b4534a', '#3a5a4a', '#282832', '#d0a040', '#e8e0d0', '#6b3e26'],
 };
 
-function AppearanceMenu({ look, assets, firstTime, onSave, onClose }: {
-  look: PublicLook; assets: Assets | null; firstTime: boolean; onSave: (look: PublicLook) => void; onClose: () => void;
+function AppearanceMenu({ look, hat: savedHat, judge, assets, firstTime, onSave, onClose }: {
+  look: PublicLook; hat: string; judge: boolean; assets: Assets | null; firstTime: boolean; onSave: (look: PublicLook, hat: string) => void; onClose: () => void;
 }) {
   const [draft, setDraft] = useState(look);
+  const [hat, setHat] = useState(savedHat);
   const [tab, setTab] = useState<'body' | 'clothes'>('body');
   const previewRef = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
@@ -417,11 +428,16 @@ function AppearanceMenu({ look, assets, firstTime, onSave, onClose }: {
             {select('Top', draft.top, tops, 'top')}{colors('Top color', 'shirt')}
             {select('Bottom', draft.bottom, bottoms, 'bottom')}{colors('Bottom color', 'pants')}
             {colors('Shoe color', 'shoes')}
+            {judge ? <p className="small">You're a judge: the judge's hat stays on ✨</p>
+              : <label className="look-select">Fancy hat<select value={hat} onChange={e => setHat(e.target.value)}>
+                <option value="">None</option>
+                {HAT_STYLES.map(h => <option value={h} key={h}>{HAT_NAMES[h]}</option>)}
+              </select></label>}
           </>}
         </div>
         <footer className="appearance-actions">
           {!firstTime && <button className="ghost" onClick={onClose}>Cancel</button>}
-          <button onClick={() => onSave(draft)}>{firstTime ? 'Save & enter office' : 'Save changes'}</button>
+          <button onClick={() => onSave(draft, hat)}>{firstTime ? 'Save & enter office' : 'Save changes'}</button>
         </footer>
       </section>
     </div>
@@ -714,6 +730,42 @@ function EditPanel({ store, engine, assets, onDone }: { store: Store; engine: En
       </div>
       <button className="ghost reset" onClick={() => { if (confirm('Put every piece of furniture and every rug back where it started? Everyone sees it at once.')) store.resetLayout(); }}>
         Reset to the original layout…</button>
+    </div>
+  );
+}
+
+/** Office admins as game masters: buffs, debuffs and hats on themselves or the person they clicked. */
+function GmPanel({ store, picked, onClose }: { store: Store; picked: string | null; onClose: () => void }) {
+  const [target, setTarget] = useState(picked ?? store.me);
+  useEffect(() => { if (picked) setTarget(picked); }, [picked]);
+  const u = store.users.get(target) ?? store.users.get(store.me);
+  if (!u) return null;
+  const people = [...store.users.values()].filter(p => p.presence !== 'offline').sort((a, b) => a.name.localeCompare(b.name));
+  const now = store.now();
+  const left = (until?: number) => until === undefined ? '' : ` ${Math.max(0, Math.ceil((until - now) / 1000))}s`;
+  return (
+    <div className="edit-panel gm-panel">
+      <div className="rooms-head"><span>✨ GM superpowers</span><button className="ghost" onClick={onClose} aria-label="Close">×</button></div>
+      <label className="look-select">On<select value={u.id} onChange={e => setTarget(e.target.value)}>
+        {people.map(p => <option value={p.id} key={p.id}>{p.id === store.me ? `${p.name} (you)` : p.name}</option>)}
+      </select></label>
+      <p className="hint">Click someone on the floor to aim at them.</p>
+      <div className="palette">
+        {Object.entries(EFFECTS).filter(([k]) => k !== 'hat').map(([k, r]) => {
+          const on = effectOf(u.effects, k);
+          return <button key={k} className={on ? 'on' : ''} onClick={() => store.setEffect(u.id, k, !on)} title={on ? `Take ${r.label.toLowerCase()} off` : r.label}>
+            <b className="gm-icon">{r.icon}</b><span>{r.label}{on ? left(on.until) : ''}</span>
+          </button>;
+        })}
+      </div>
+      <h3>Hat</h3>
+      <div className="palette">
+        {HAT_STYLES.map(h => {
+          const on = effectOf(u.effects, 'hat')?.data?.style === h;
+          return <button key={h} className={on ? 'on' : ''} onClick={() => store.setEffect(u.id, 'hat', !on, h)}><span>{HAT_NAMES[h]}</span></button>;
+        })}
+      </div>
+      {u.effects.length > 0 && <button className="ghost reset" onClick={() => u.effects.forEach(e => store.setEffect(u.id, e.kind, false))}>Clear everything on {u.name.split(' ')[0]}</button>}
     </div>
   );
 }

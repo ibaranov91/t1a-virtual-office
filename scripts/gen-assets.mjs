@@ -1064,6 +1064,83 @@ for (const open of [false, true]) {
   frames[open ? 'hatch_open' : 'hatch'] = t;
 }
 
+// ---------- effects: hats, auras, critters (drawn over/around a person by client/src/effects.ts) ----------
+// Hats sit on the head: the bottom row lands on the character frame's row 4 (just above the brow).
+{
+  const hat = (name, w, h, draw) => { const t = new Img(w, h); draw(t); frames[`hat_${name}`] = t.outline(); };
+  hat('top', 16, 11, t => { // classic black top hat, red band
+    t.rect(4, 1, 8, 7, '#2a2430'); t.vline(5, 1, 7, '#3e3648'); t.rect(4, 6, 8, 2, '#b4473a');
+    t.rect(1, 8, 14, 2, '#2a2430'); t.hline(2, 8, 12, '#3e3648');
+  });
+  hat('party', 16, 12, t => { // striped cone and a pompom
+    for (let y = 2; y < 11; y++) { const half = Math.floor((y - 1) / 2); t.hline(8 - half, y, half * 2 + 1, y % 4 < 2 ? '#e8607a' : '#f2d060'); }
+    t.ellipse(8, 1.5, 1.6, 1.6, '#7ad0e8');
+  });
+  hat('wizard', 16, 14, t => { // blue cone with a bent tip, stars, wide brim
+    for (let y = 3; y < 12; y++) { const half = Math.floor((y - 2) / 2) + 1; t.hline(8 - half, y, half * 2, '#4a5ab0'); t.px(8 - half, y, '#3a4890'); }
+    t.rect(9, 1, 2, 2, '#4a5ab0'); t.px(11, 0, '#4a5ab0');
+    t.px(7, 6, '#f2d060'); t.px(9, 9, '#f2d060'); t.px(6, 10, '#e8e0d0');
+    t.rect(1, 11, 14, 2, '#3a4890'); t.hline(2, 11, 12, '#5a6ac8');
+  });
+  hat('cowboy', 16, 8, t => { // brown crown with a dent, wide curled brim
+    t.hline(4, 1, 3, '#8a5a30'); t.hline(9, 1, 3, '#8a5a30'); t.rect(4, 2, 8, 3, '#8a5a30'); t.hline(4, 4, 8, '#5a3a20');
+    t.rect(1, 5, 14, 2, '#a06a3a'); t.px(0, 4, '#a06a3a'); t.px(15, 4, '#a06a3a'); t.hline(2, 6, 12, '#7a4a28');
+  });
+  hat('crown', 16, 8, t => { // gold crown with gems
+    t.rect(3, 3, 10, 4, '#e8b830'); t.hline(3, 6, 10, '#b88a20');
+    for (const x of [3, 7, 12]) t.vline(x, 1, 2, '#e8b830'); t.vline(8, 1, 2, '#e8b830');
+    t.px(5, 4, '#d84a4a'); t.px(8, 4, '#4a8ad8'); t.px(11, 4, '#4ab86a'); t.hline(4, 3, 8, '#f8e070');
+  });
+  hat('judge', 16, 13, t => { // tall gold-and-purple top hat with a star: the hackathon judges'
+    t.rect(4, 1, 8, 9, '#6a3a9a'); t.vline(5, 1, 9, '#8a5ac0'); t.rect(4, 7, 8, 2, '#e8b830');
+    t.px(8, 3, '#f8e070'); t.hline(7, 4, 3, '#f8e070'); t.px(8, 5, '#f8e070'); t.px(7, 5, '#f8e070'); t.px(9, 5, '#f8e070');
+    t.rect(1, 10, 14, 2, '#6a3a9a'); t.hline(2, 10, 12, '#e8b830');
+  });
+  for (const n of [1, 2]) { // a twinkle: big plus, then a small one
+    const t = new Img(5, 5), c = '#fff6c0';
+    if (n === 1) { t.hline(0, 2, 5, c); t.vline(2, 0, 5, c); t.px(2, 2, '#ffffff'); }
+    else { t.hline(1, 2, 3, c); t.vline(2, 1, 3, c); }
+    frames[`sparkle_${n}`] = t;
+  }
+  for (const n of [1, 2]) { // a bat, wings up then down
+    const t = new Img(9, 5), c = '#2a1e30';
+    t.rect(3, 1, 3, 3, c); t.px(3, 0, c); t.px(5, 0, c); t.px(4, 2, '#d84a4a');
+    if (n === 1) { t.hline(0, 0, 3, c); t.px(2, 1, c); t.hline(6, 0, 3, c); t.px(6, 1, c); }
+    else { t.hline(0, 3, 3, c); t.px(2, 2, c); t.hline(6, 3, 3, c); t.px(6, 2, c); }
+    frames[`bat_${n}`] = t;
+  }
+  for (const n of [1, 2, 3]) { // a flame tongue flickering
+    const t = new Img(5, 8);
+    const h = [7, 6, 8][n - 1], lean = [0, 1, -1][n - 1];
+    for (let y = 8 - h; y < 8; y++) {
+      const k = (y - (8 - h)) / h, half = Math.round(k * 2);
+      const x0 = 2 + Math.round(lean * (1 - k)) - half;
+      t.hline(x0, y, half * 2 + 1, k < 0.35 ? '#f8e070' : k < 0.7 ? '#f8a030' : '#d8482a');
+    }
+    frames[`flame_${n}`] = t;
+  }
+  for (const n of [1, 2]) { // a little unicorn trotting right; mirrored for left
+    const t = new Img(13, 11), W = '#f8f4f8', S = '#d8cce0';
+    t.rect(2, 4, 7, 4, W); t.hline(2, 7, 7, S);                       // body
+    t.rect(8, 2, 3, 3, W); t.px(11, 3, W); t.px(11, 4, S);          // head + muzzle
+    t.px(9, 3, '#2a1e30');                                          // eye
+    t.px(10, 1, '#f2d060'); t.px(11, 0, '#f2d060');                 // horn
+    const mane = ['#e8607a', '#f2a040', '#f2d060', '#6ac870', '#5a8ae8', '#9a6ac8'];
+    mane.forEach((c, i) => t.px(7 - (i >> 1), 2 + (i & 1) + (i >> 2), c));
+    mane.forEach((c, i) => t.px(1 - (i & 1), 4 + i % 3, c));        // tail
+    const legs = n === 1 ? [[2, 8, 2], [4, 8, 1], [6, 8, 2], [8, 8, 1]] : [[2, 8, 1], [4, 8, 2], [6, 8, 1], [8, 8, 2]];
+    for (const [x, y, h] of legs) t.vline(x, y, h, S);
+    const img = t.outline();
+    frames[`unicorn_r_${n}`] = img; frames[`unicorn_l_${n}`] = img.mirror();
+  }
+  { // vampire cape: drawn behind the body (or over the back when walking away)
+    const t = new Img(14, 13);
+    for (let y = 0; y < 13; y++) { const half = 5 + (y > 6 ? 1 : 0) + (y > 10 ? 1 : 0); t.hline(7 - half, y, half * 2, y < 2 ? '#1a1418' : '#8a1a2a'); }
+    t.vline(1, 2, 9, '#5a0e1a'); t.vline(12, 2, 9, '#5a0e1a');
+    frames.cape = t.outline('#140c10');
+  }
+}
+
 // ---------- pack world atlas (shelf packer) ----------
 const names = Object.keys(frames).sort((a, b) => frames[b].h - frames[a].h || frames[b].w - frames[a].w);
 const AW = 256; let x = 0, y = 0, rowH = 0; const rects = {};

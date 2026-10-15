@@ -6,9 +6,10 @@ import {
 import {
   NOTE_RATE, NOTE_BURST, NOTE_HELD_MAX, SEAT_CHANGES_PER_10S, DUNGEON_INSTANCE, underground, MAX_CALL_SIZE, MEETING_ROOM_ID, MAX_CHAT_LEN, normalizeMeetLink, REACTIONS, ROOM_VOICE_MAX,
   dayNumber, plantDead, BOTANIST_KINDS, PLANT_KINDS, PLANT_STAGES, type Plant,
-  type ChatMsg, type ClientMsg, type Door, type Knock, type LayoutEdit, type Look, type Presence, type PublicUser, type Reaction, type ServerMsg,
+  type ChatMsg, type ClientMsg, type Door, type Effect, type Knock, type LayoutEdit, type Look, type Presence, type PublicUser, type Reaction, type ServerMsg,
 } from '../../shared/protocol';
 import { INSTRUMENTS, validNote } from '../../shared/instruments';
+import { EFFECTS, JUDGE_HAT, MAX_EFFECTS, walkMs } from '../../shared/effects';
 import { TRACKS } from '../../shared/music';
 import { Arcade } from './arcade';
 import { Jukebox } from './jukebox';
@@ -30,7 +31,7 @@ export interface User extends PublicUser {
   offlineAt?: number;   // when they walked out the door (not persisted)
   lastSpot?: Tile;      // where they were before heading out (not persisted)
   presenceBeforeCall?: Presence;
-  prev?: { path: Tile[]; startedAt: number };
+  prev?: { path: Tile[]; startedAt: number; ms?: number };
   afk?: boolean;
 }
 
@@ -66,6 +67,9 @@ const ARRIVAL_SLACK_MS = 50; // timers can fire a millisecond before the walk is
 
 /** Office admins rearrange the furniture: NetBird emails, or (only for name logins, so dev) plain names. */
 const ADMINS = (process.env.DECK_ADMINS ?? 'ivan.baranov@t1a.com').split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+/** Hackathon judges wear a sparkling hat. Same rules as admins: emails, or plain names for name logins (dev). */
+const JUDGES = (process.env.DECK_JUDGES ?? 'oleg.mikhov@t1a.com').split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+const listed = (list: string[], u: User) => !u.bot && list.some(a => (a.includes('@') ? a === u.email : !u.email && a === u.name.toLowerCase()));
 
 /** Dev bots answer DMs and reactions so there's something to talk to when testing alone. */
 export interface BotHooks { chat(bot: User, from: User, text: string): void; react(bot: User, from: User, emoji: Reaction): void }
@@ -103,14 +107,15 @@ export class World {
     this.baseLayout = structuredClone({ objects: map.objects, rugs: map.rugs });
     for (const o of map.objects) if (o.use?.kind === 'toggle') this.objectOn.set(o.id, o.on ?? true);
     this.syncJukeboxes();
-    setInterval(() => { const now = Date.now(); this.voiceTick(now); this.jukeboxTick(now); this.instrumentTick(now); }, 250).unref();
+    setInterval(() => { const now = Date.now(); this.voiceTick(now); this.jukeboxTick(now); this.instrumentTick(now); this.effectsTick(now); }, 250).unref();
   }
 
   // ---------- transport ----------
   broadcast(msg: ServerMsg) { for (const l of this.listeners) l(msg); }
   /** Private settings for the user themselves. */
-  me(u: User): ServerMsg { return { t: 'me', meetLink: u.meetLink ?? '', email: u.email, google: googleEnabled ? u.google?.email ?? null : undefined, calendar: !!u.google?.scopes.includes(CALENDAR_SCOPE), admin: this.isAdmin(u) || undefined }; }
-  isAdmin(u: User) { return !u.bot && ADMINS.some(a => (a.includes('@') ? a === u.email : !u.email && a === u.name.toLowerCase())); }
+  me(u: User): ServerMsg { return { t: 'me', meetLink: u.meetLink ?? '', email: u.email, google: googleEnabled ? u.google?.email ?? null : undefined, calendar: !!u.google?.scopes.includes(CALENDAR_SCOPE), admin: this.isAdmin(u) || undefined, judge: this.isJudge(u) || undefined }; }
+  isAdmin(u: User) { return listed(ADMINS, u); }
+  isJudge(u: User) { return listed(JUDGES, u); }
   layout(): Layout { return { objects: this.map.objects, rugs: this.map.rugs }; }
   sendTo(userId: string, msg: ServerMsg) { for (const s of this.sockets.get(userId)?.values() ?? []) s(msg); }
   private sendOwner(userId: string, msg: ServerMsg) {
@@ -137,6 +142,7 @@ export class World {
     this.listeners.add(send);
     send({ t: 'hello', you: userId, serverTime: Date.now(), build: this.build });
     this.stayAfterAll(u);
+    this.judgeHat(u);
     if (!u.plant && !u.bot) { u.plant = this.newPlant(u, dayNumber(Date.now()) - 1); this.plantChanged(u); } // a pot on your desk from day one; today's status already grows it
     if (u.presence === 'offline') this.comeIn(u);
     send({ t: 'layout', layout: this.layout() }); // before anyone's walk, which every client paths on this floor
@@ -246,7 +252,7 @@ export class World {
       email,
       id: randomUUID().slice(0, 8), name, look: lookFor(name), lookSet: false, tile: tile ?? { ...this.map.spawn }, dir: 'down',
       move: null, path: null, presence: bot ? 'online' : 'offline', status: '', emote: null, bot, homeDesk: null, door: null, callId: null, deafened: false, hand: false, muted: false,
-      following: null, holding: null, meeting: null, instance: null, game: null, plant: null, bloomed: [], achievements: {},
+      following: null, holding: null, meeting: null, instance: null, game: null, plant: null, bloomed: [], achievements: {}, effects: [],
     };
     this.users.set(u.id, u);
     this.broadcast(this.snapshot());
@@ -258,11 +264,12 @@ export class World {
   /** Where the user is right now (tile they occupy / are entering) and where they're going. */
   position(u: User, now = Date.now()) {
     if (!u.move || !u.path) return { tile: u.tile, next: u.tile, remainingMs: 0, dest: u.tile };
-    const move = u.prev && now < u.move.startedAt ? u.prev : { path: u.path, startedAt: u.move.startedAt };
-    const s = sampleMove(move.path, move.startedAt, now)!;
+    const move = u.prev && now < u.move.startedAt ? u.prev : { path: u.path, startedAt: u.move.startedAt, ms: u.move.ms };
+    const ms = move.ms ?? WALK_MS_PER_TILE;
+    const s = sampleMove(move.path, move.startedAt, now, ms)!;
     if (s.done) return { tile: s.tile, next: s.tile, remainingMs: 0, dest: s.tile };
-    const seg = Math.max(0, now - move.startedAt) / WALK_MS_PER_TILE;
-    return { tile: s.tile, next: s.next, remainingMs: (Math.ceil(seg) - seg) * WALK_MS_PER_TILE, dest: u.move.to };
+    const seg = Math.max(0, now - move.startedAt) / ms;
+    return { tile: s.tile, next: s.next, remainingMs: (Math.ceil(seg) - seg) * ms, dest: u.move.to };
   }
   roomOf(u: User) { const p = this.position(u); return roomAt(this.map, p.tile.x, p.tile.y); }
 
@@ -280,16 +287,17 @@ export class World {
     const startedAt = Math.round(now + pos.remainingMs);
     face ??= seatAt(this.map, to.x, to.y)?.dir; // sit facing the desk/table
     this.arcade.leave(u);
-    u.prev = u.move && u.path && now < u.move.startedAt + pathDuration(u.path) ? { path: u.path, startedAt: u.move.startedAt } : undefined;
-    u.move = { from, to, startedAt, face }; u.path = path; u.tile = to;
+    u.prev = u.move && u.path && now < u.move.startedAt + pathDuration(u.path, u.move.ms) ? { path: u.path, startedAt: u.move.startedAt, ...(u.move.ms ? { ms: u.move.ms } : {}) } : undefined;
+    const per = walkMs(u.effects), ms = per === WALK_MS_PER_TILE ? undefined : per; // the usual pace stays implicit
+    u.move = { from, to, startedAt, face, ...(ms ? { ms } : {}) }; u.path = path; u.tile = to;
     if (face) u.dir = face;
     else if (path.length > 1) { const a = path[path.length - 2], b = path[path.length - 1]; u.dir = b.x > a.x ? 'right' : b.x < a.x ? 'left' : b.y > a.y ? 'down' : 'up'; }
-    this.broadcast({ t: 'move', userId: u.id, from, to, startedAt, face });
+    this.broadcast({ t: 'move', userId: u.id, from, to, startedAt, face, ms });
     for (const f of this.users.values()) if (f.following === u.id) this.trail(f, to, startedAt + FOLLOW_LAG_MS);
-    const end = startedAt + pathDuration(path);
+    const end = startedAt + pathDuration(path, per);
     if (underground(u) && u.dungeon && this.map.dungeon) {
       const key = u.dungeon.key, i = key ? path.findIndex(p => p.x === key.x && p.y === key.y) : -1;
-      if (!u.dungeon.hasKey && i >= 0) this.dungeonTimer(u, 'key', startedAt + i * WALK_MS_PER_TILE, () => {
+      if (!u.dungeon.hasKey && i >= 0) this.dungeonTimer(u, 'key', startedAt + i * per, () => {
         if (!u.dungeon || !underground(u)) return;
         u.dungeon.hasKey = true; u.dungeon.key = null; this.sendDungeon(u, 'key');
       });
@@ -357,7 +365,7 @@ export class World {
     return !u.bot && u.presence !== 'offline' && !goingOut(u) && !u.instance && !!this.sockets.get(u.id)?.size;
   }
   private atInstrument(u: User, o: MapObject, now: number) {
-    return (!u.move || !u.path || now >= u.move.startedAt + pathDuration(u.path)) &&
+    return (!u.move || !u.path || now >= u.move.startedAt + pathDuration(u.path, u.move.ms)) &&
       besideObject(this.map, o).some(s => s.x === u.tile.x && s.y === u.tile.y);
   }
   private recentSeatChanges(user: string, now: number) {
@@ -504,7 +512,10 @@ export class World {
       if (!current?.use || current.use.kind !== o.use!.kind) return;
       if (current.use.kind === 'arcade') { if (!u.bot && this.sockets.get(u.id)?.size) this.arcade.join(u, current.id); return; }
       if (o.use!.kind === 'toggle') this.setObject(o.id, !this.objectOn.get(o.id), u);
-      else if (item) this.setHolding(u, item.id, o.id);
+      else if (item) {
+        this.setHolding(u, item.id, o.id);
+        if (o.type === 'coffee_machine') this.addEffect(u, 'speed'); // a fresh cup: quick on your feet for a while
+      }
     }, Math.max(0, at - Date.now()) + (o.use.kind === 'arcade' ? 0 : USE_MS[o.use.kind])));
   }
   private objectState(id: string) { return { on: this.objectOn.get(id) ?? true }; }
@@ -523,6 +534,52 @@ export class World {
     if (item) this.holdTimers.set(u.id, setTimeout(() => this.setHolding(u, null), HOLD_MS));
     u.holding = item;
     this.broadcast({ t: 'holding', userId: u.id, item, objectId, fromId });
+  }
+
+  // ---------- effects ----------
+  /** Put an effect on someone (replacing one of the same kind), for its rule's duration unless `ms` says otherwise. */
+  addEffect(u: User, kind: string, opts: { ms?: number; data?: Record<string, unknown> } = {}, now = Date.now()) {
+    const rule = EFFECTS[kind]; if (!rule) return;
+    const ms = opts.ms ?? rule.ms;
+    const e: Effect = { kind, ...(ms ? { until: now + ms } : {}), ...(opts.data ? { data: opts.data } : {}) };
+    u.effects = [...u.effects.filter(x => x.kind !== kind), e].slice(-MAX_EFFECTS);
+    this.effectsChanged(u);
+  }
+  removeEffect(u: User, kind: string) {
+    if (!u.effects.some(e => e.kind === kind)) return;
+    u.effects = u.effects.filter(e => e.kind !== kind);
+    this.effectsChanged(u);
+  }
+  private effectsChanged(u: User) { this.broadcast({ t: 'effects', userId: u.id, effects: u.effects }); }
+  effectsTick(now = Date.now()) {
+    for (const u of this.users.values()) {
+      if (!u.effects.some(e => e.until !== undefined && e.until <= now)) continue;
+      u.effects = u.effects.filter(e => e.until === undefined || e.until > now);
+      this.effectsChanged(u);
+    }
+  }
+  /** Judges always wear the judge's hat. */
+  private judgeHat(u: User) {
+    const hat = u.effects.find(e => e.kind === 'hat');
+    if (this.isJudge(u) && hat?.data?.style !== JUDGE_HAT) this.addEffect(u, 'hat', { data: { style: JUDGE_HAT } });
+    else if (!this.isJudge(u) && hat?.data?.style === JUDGE_HAT) this.removeEffect(u, 'hat'); // no longer judging
+  }
+  /** A client asks for an effect on someone. Yourself: 'self' effects only; GMs (office admins): anything on anyone. */
+  private requestEffect(u: User, msg: Extract<ClientMsg, { t: 'effect' }>) {
+    const kind = String(msg.kind), rule = Object.prototype.hasOwnProperty.call(EFFECTS, kind) ? EFFECTS[kind] : undefined;
+    const target = this.users.get(String(msg.targetId));
+    if (!rule || !target || target.presence === 'offline') return;
+    const gm = this.isAdmin(u);
+    if (!gm && (target.id !== u.id || rule.who !== 'self')) return;
+    if (kind === 'hat' && this.isJudge(target)) return; // the judge's hat stays on
+    if (!msg.on) return this.removeEffect(target, kind);
+    let data: Record<string, unknown> | undefined;
+    if (rule.styles) {
+      const style = String(msg.style ?? '');
+      if (!(rule.styles as readonly string[]).includes(style)) return;
+      data = { style };
+    }
+    this.addEffect(target, kind, { data });
   }
 
   // ---------- reactions & chat ----------
@@ -661,7 +718,7 @@ export class World {
     const r = this.map.dungeon?.rect;
     return !!r && t.x >= r.x && t.x < r.x + r.w && t.y >= r.y && t.y < r.y + r.h;
   }
-  private walkDone(u: User) { return !!u.move && !!u.path && Date.now() >= u.move.startedAt + pathDuration(u.path); }
+  private walkDone(u: User) { return !!u.move && !!u.path && Date.now() >= u.move.startedAt + pathDuration(u.path, u.move.ms); }
   private bumpWalk(u: User) {
     u.walkSeq = (u.walkSeq ?? 0) + 1;
     for (const t of Object.values(u.dungeonTimers ?? {})) clearTimeout(t.timer);
@@ -1168,6 +1225,7 @@ export class World {
         break;
       }
       case 'status': this.setStatus(u, String(msg.status ?? '')); break;
+      case 'effect': this.requestEffect(u, msg); break;
       case 'look': {
         const color = (v: unknown, fallback: string) => typeof v === 'string' && /^#[0-9a-f]{6}$/i.test(v) ? v : fallback;
         const int = (v: unknown, max: number) => Math.max(0, Math.min(max, Number.isInteger(v) ? Number(v) : 0));
@@ -1291,7 +1349,7 @@ export class World {
   dump() {
     return {
       users: [...this.users.values()].map(u => {
-        return { id: u.id, name: u.name, email: u.email, meetLink: u.meetLink, google: u.google, homeDesk: u.homeDesk, look: u.look, lookSet: u.lookSet, tile: underground(u) ? this.dungeonExit(false) : u.tile, dir: u.dir, status: u.status, presence: u.presence, bot: u.bot, plant: u.plant, bloomed: u.bloomed, achievements: u.achievements };
+        return { id: u.id, name: u.name, email: u.email, meetLink: u.meetLink, google: u.google, homeDesk: u.homeDesk, look: u.look, lookSet: u.lookSet, tile: underground(u) ? this.dungeonExit(false) : u.tile, dir: u.dir, status: u.status, presence: u.presence, bot: u.bot, plant: u.plant, bloomed: u.bloomed, achievements: u.achievements, effects: u.effects.filter(e => e.until === undefined) };
       }),
       objects: Object.fromEntries(this.objectOn),
       jukebox: Object.fromEntries([...this.jukeboxes].map(([id, j]) => [id, j.dump()])),
@@ -1332,7 +1390,7 @@ export class World {
       const tile = this.inDungeon(d.tile) ? this.dungeonExit(false) : isWalkable(this.map, d.tile.x, d.tile.y) || seatAt(this.map, d.tile.x, d.tile.y) ? d.tile : { ...this.map.spawn };
       const legacy = lookFor(d.name);
       const look = { ...legacy, ...d.look, eyes: d.look?.eyes ?? legacy.eyes, shoes: d.look?.shoes ?? legacy.shoes, top: d.look?.top ?? 0, bottom: d.look?.bottom ?? 0, glasses: d.look?.glasses ?? 0, hat: d.look?.hat ?? 0, glassesColor: d.look?.glassesColor ?? legacy.glassesColor, hatColor: d.look?.hatColor ?? legacy.hatColor };
-      this.users.set(d.id, { ...d, look, lookSet: d.lookSet ?? false, homeDesk: d.homeDesk ?? null, plant: d.plant ?? null, bloomed: d.bloomed ?? [], achievements: d.achievements ?? {}, tile, move: null, path: null, emote: null, door: null, callId: null, deafened: false, hand: false, muted: false, following: null, holding: null, meeting: null, instance: null, game: null, presence: d.bot ? d.presence : 'offline' });
+      this.users.set(d.id, { ...d, look, lookSet: d.lookSet ?? false, homeDesk: d.homeDesk ?? null, plant: d.plant ?? null, bloomed: d.bloomed ?? [], achievements: d.achievements ?? {}, effects: (d.effects ?? []).filter(e => Object.prototype.hasOwnProperty.call(EFFECTS, e.kind) && e.until === undefined), tile, move: null, path: null, emote: null, door: null, callId: null, deafened: false, hand: false, muted: false, following: null, holding: null, meeting: null, instance: null, game: null, presence: d.bot ? d.presence : 'offline' });
     }
     for (const [id, on] of Object.entries(data.objects ?? {})) if (this.objectOn.has(id)) this.objectOn.set(id, !!on);
     this.arcade.load(data.arcade);
