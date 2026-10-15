@@ -881,7 +881,7 @@ export class Engine {
     }
     ctx.globalAlpha = 1;
 
-    if (!me?.instance) this.drawBoardBadges(ctx, ms);
+    if (!me?.instance) { this.drawBoardBadges(ctx, ms); this.drawLiveScreen(ctx, ms); }
 
     // a meeting's own room: the rest of the office fades away
     if (me?.instance && !this.areaDown && !this.falling()) {
@@ -922,7 +922,8 @@ export class Engine {
       const player = this.store.instruments[o.id];
       const instrumentTip = o.use?.kind === 'instrument' ? `${INSTRUMENTS[o.use.instrument].name} · ${this.store.seat === o.id ? "you're playing · Esc to stand up" : player === this.store.me ? "you're playing in another tab" : player ? `${this.store.name(player).split(' ')[0]} is playing` : 'click to play'}` : '';
       const what = instrumentTip || (o.use?.kind === 'arcade' ? this.store.gameDescription(o.id) : o.use?.kind === 'records' ? 'Deck Park · team records' : o.use?.kind === 'jukebox' ? !jukebox ? 'Jukebox · Reconnecting…' : jukebox.pausedAt !== null ? 'Jukebox · paused' : `Jukebox · ♪ ${track?.title ?? jukebox.track} — ${track?.artist ?? ''}` : o.sound ? 'Radio · music volume in ⚙' : o.use?.kind === 'toggle' ? `${o.use.label[0].toUpperCase()}${o.use.label.slice(1)} · ${this.isOn(o) ? 'on' : 'off'}`
-        : o.use?.kind === 'calendar' ? 'Calendar · your week' : o.use?.kind === 'achievements' ? 'Notice board · your plant and achievements' : o.use?.kind === 'link' ? `Vault 13 · click to open the ${o.use.label}` : o.use?.kind === 'meetings' ? `Meetings · ${this.store.meetingRooms.length || 'none'} on now` : o.sit ? `${o.type === 'bench' ? 'Bench' : 'Sofa'} · click to sit` : o.type === 'coffee_machine' ? 'Coffee machine' : o.type === 'fridge' ? 'Fridge' : o.type);
+        : o.use?.kind === 'calendar' ? 'Calendar · your week' : o.use?.kind === 'achievements' ? 'Notice board · your plant and achievements' : o.use?.kind === 'link' ? `Vault 13 · click to open the ${o.use.label}` : o.use?.kind === 'meetings' ? `Meetings · ${this.store.meetingRooms.length || 'none'} on now`
+        : o.use?.kind === 'presentation' ? (this.store.presentation?.objectId === o.id ? `Screen · LIVE: ${this.store.presentation.deck.title}` : 'Screen · click to present slides') : o.sit ? `${o.type === 'bench' ? 'Bench' : 'Sofa'} · click to sit` : o.type === 'coffee_machine' ? 'Coffee machine' : o.type === 'fridge' ? 'Fridge' : o.type);
       this.drawLabel(what, (o.x + o.w / 2) * TS, (o.y + o.h) * TS - fr.h + 4, camX, camY);
     }
     else if (this.cupTile) {
@@ -1220,6 +1221,22 @@ export class Engine {
       ctx.fillStyle = color; ctx.fillRect(x, y, w, h);
       drawText(ctx, text, x + 2, y + 1, '#2a1f24');
     }
+  }
+
+  /** Slides are up: the screen glows and flashes a LIVE tag, so people outside the room notice. */
+  private drawLiveScreen(ctx: CanvasRenderingContext2D, ms: number) {
+    const live = this.store.presentation, o = live && MAP.objects.find(o => o.id === live.objectId);
+    if (!o) return;
+    const pulse = (Math.sin(ms / 260) + 1) / 2, x = o.x * TS, y = o.y * TS, w = o.w * TS;
+    ctx.fillStyle = `rgba(120,230,255,${0.25 + 0.25 * pulse})`; ctx.fillRect(x + 4, y + 6, w - 8, 14); // the picture lights up
+    for (let i = 0; i < 3; i++) { // a soft halo
+      ctx.strokeStyle = `rgba(255,80,200,${(0.5 - i * 0.15) * (0.6 + 0.4 * pulse)})`; ctx.lineWidth = 1;
+      ctx.strokeRect(x + 1.5 - i, y + 3.5 - i, w - 3 + i * 2, 20 + i * 2);
+    }
+    const text = 'LIVE', tw = textWidth(text) + 4, tx = Math.round(x + w / 2 - tw / 2), ty = Math.round(y - 3 - Math.round(pulse * 2));
+    ctx.fillStyle = '#3a2329'; ctx.fillRect(tx - 1, ty - 1, tw + 2, 9);
+    ctx.fillStyle = Math.floor(ms / 500) % 2 ? '#ff4fa8' : '#ffe14f'; ctx.fillRect(tx, ty, tw, 7);
+    drawText(ctx, text, tx + 2, ty + 1, '#2a1f24');
   }
 
   /** Overview: each room's name and headcount on its floor, and a pin over me. */

@@ -436,3 +436,82 @@ button:focus-visible, summary:focus-visible, input[type="range"]:focus-visible {
   .park-records.meet-panel.guided { inset: auto 0 0; transform: none; width: 100%; max-height: calc(100% - 8px); border-radius: 12px 12px 0 0; border-width: 2px 0 0; padding-bottom: calc(12px + env(safe-area-inset-bottom)); }
   .park-records button { min-height: 40px; min-width: 40px; }
 }
+
+/* ---------- presentation mode: the screen's panel, and slides as a 90s games-magazine page ---------- */
+.present-panel { display: grid; gap: 8px; width: min(400px, calc(100% - 16px)); }
+.present-form { display: grid; gap: 8px; }
+.present-form label { display: grid; grid-template-columns: 56px 1fr; align-items: center; gap: 8px; }
+.present-form input[type=file] { border: 0; padding: 0; background: none; }
+.present-live { display: flex; align-items: center; gap: 8px; justify-content: space-between; padding: 6px 8px; border-radius: 6px; background: #3a1630; border: 1px solid #ff2d95; }
+.present-decks { display: grid; gap: 4px; border-top: 1px solid var(--line); padding-top: 8px; max-height: 160px; overflow: auto; }
+.present-decks .row { display: flex; align-items: center; gap: 8px; }
+.present-deck-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.live-chip { border-color: #ff2d95 !important; cursor: pointer; }
+.live-dot { color: #ff4fa8; animation: mag-blink 1s steps(1) infinite; }
+.pixel-text { image-rendering: pixelated; display: block; max-width: 100%; height: auto; }
+
+.mag-wrap { position: absolute; inset: 0; z-index: 6; display: grid; place-items: center; padding: 12px; overflow: auto;
+  background: rgba(16,6,26,.72); }
+.mag { position: relative; width: min(1100px, 100%); display: grid; gap: 0; color: #111; font-family: ui-monospace, Menlo, monospace;
+  background: #fff7e0; border: 4px solid #111; box-shadow: 10px 10px 0 #ff2d95, 18px 18px 0 #00e5ff; transform: rotate(-.4deg); }
+.mag::before { content: ''; position: absolute; inset: 0; pointer-events: none; opacity: .35; /* halftone print dots */
+  background: radial-gradient(circle, rgba(255,45,149,.35) 1px, transparent 1.6px) 0 0 / 7px 7px; mix-blend-mode: multiply; }
+.mag-mast { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 14px;
+  background: repeating-linear-gradient(135deg, #2a0a5e 0 14px, #3a0f7a 14px 28px); border-bottom: 4px solid #111; }
+.mag-logo { min-width: 0; filter: drop-shadow(0 0 6px rgba(255,225,79,.6)); }
+.mag-issue { display: grid; justify-items: end; gap: 2px; color: #00e5ff; font-weight: 900; font-size: 12px; letter-spacing: 1px; white-space: nowrap; }
+.mag-issue span:last-child { background: #ffe14f; color: #111; padding: 1px 6px; transform: rotate(3deg); }
+.mag-strip { display: flex; align-items: center; gap: 10px; padding: 6px 14px; background: #ff2d95; border-bottom: 4px solid #111; min-width: 0; }
+.mag-strip > span:first-child { background: #111; color: #ffe14f; font-weight: 900; padding: 2px 6px; transform: skew(-10deg); white-space: nowrap; }
+.mag-strip .pixel-text { min-width: 0; flex: 0 1 auto; }
+.mag-strip-by { margin-left: auto; color: #fff; font-weight: 900; white-space: nowrap; }
+.mag-body { display: grid; grid-template-columns: minmax(0, 1fr) 200px; gap: 14px; padding: 14px; position: relative; }
+.mag-slide { position: relative; margin: 0; background: #111; border: 4px solid #111; box-shadow: 6px 6px 0 #ffe14f; display: grid; }
+.mag-slide img { width: 100%; max-height: calc(100vh - 290px); min-height: 120px; object-fit: contain; display: block; background: #000; animation: mag-in .25s steps(4); }
+.mag-slide figcaption { background: #00e5ff; color: #111; font-weight: 900; font-size: 11px; padding: 3px 8px; letter-spacing: 1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mag-new { position: absolute; left: -16px; top: -18px; z-index: 1; width: 78px; height: 78px; display: grid; place-items: center; background: #ffe14f;
+  clip-path: polygon(50% 0, 61% 18%, 82% 9%, 80% 31%, 100% 38%, 85% 54%, 97% 73%, 75% 76%, 70% 98%, 52% 84%, 33% 100%, 27% 78%, 4% 78%, 14% 58%, 0 40%, 19% 31%, 15% 9%, 38% 18%);
+  animation: mag-pop 1.2s steps(2) infinite; }
+.mag-new span { color: #d0006f; font-weight: 900; font-size: 18px; transform: rotate(-14deg); text-shadow: 1px 1px 0 #fff; }
+.mag-side { display: grid; align-content: start; gap: 12px; min-width: 0; }
+.mag-score { background: #111; color: #fff; border: 4px solid #ff2d95; box-shadow: 0 0 12px #ff2d95, inset 0 0 12px rgba(255,45,149,.6); padding: 8px; text-align: center; display: grid; justify-items: center; gap: 4px; }
+.mag-score-head { background: #ff2d95; color: #fff; font-weight: 900; font-size: 12px; padding: 2px 6px; letter-spacing: 1px; width: 100%; }
+.mag-score-big { padding: 4px 0; filter: drop-shadow(0 0 8px rgba(255,225,79,.7)); }
+.mag-score-of { color: #00e5ff; font-weight: 900; font-size: 12px; }
+.mag-meter { width: 100%; height: 10px; border: 2px solid #00e5ff; background: #000; }
+.mag-meter i { display: block; height: 100%; background: repeating-linear-gradient(90deg, #7cff4f 0 6px, #2ab01f 6px 8px); transition: width .2s steps(5); }
+.mag-bars { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.mag-bars li { display: flex; justify-content: space-between; gap: 6px; background: var(--c); color: #111; font-weight: 900; font-size: 11px; padding: 3px 6px; border: 2px solid #111; }
+.mag-tip { background: #7cff4f; border: 3px dashed #111; padding: 6px; font-size: 12px; font-weight: 700; transform: rotate(1.2deg); }
+.mag-tip b { background: #111; color: #7cff4f; padding: 0 4px; margin-right: 4px; }
+.mag-foot { display: flex; align-items: center; justify-content: center; gap: 10px; padding: 8px 14px; background: #111; color: #ffe14f; flex-wrap: wrap; }
+.mag-foot button { background: #ffe14f; color: #111; border-radius: 0; box-shadow: 3px 3px 0 #ff2d95; font-weight: 900; }
+.mag-foot button.ghost { background: transparent; color: #00e5ff; box-shadow: none; }
+.mag-foot button.mag-stop { background: #ff2d95; color: #fff; box-shadow: 3px 3px 0 #00e5ff; }
+.mag-page { font-weight: 900; min-width: 56px; text-align: center; }
+.mag-away { flex-basis: 100%; text-align: center; color: #ff4fa8; font-weight: 900; }
+.mag-crt { position: absolute; inset: 0; pointer-events: none; z-index: 2; /* CRT scanlines + a little flicker */
+  background: repeating-linear-gradient(to bottom, rgba(0,0,0,0) 0 2px, rgba(0,0,0,.16) 2px 3px),
+    radial-gradient(ellipse at center, rgba(0,0,0,0) 60%, rgba(0,0,0,.35) 100%);
+  animation: mag-flicker 4s steps(1) infinite; }
+@keyframes mag-blink { 50% { opacity: .25; } }
+@keyframes mag-pop { 0% { transform: rotate(-8deg) scale(1); } 50% { transform: rotate(6deg) scale(1.08); } }
+@keyframes mag-in { 0% { opacity: 0; transform: scale(.96); } 100% { opacity: 1; transform: none; } }
+@keyframes mag-flicker { 0%, 100% { opacity: 1; } 47% { opacity: .85; } 48% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .mag-new, .live-dot, .mag-crt, .mag-slide img { animation: none; } }
+@media (max-width: 760px) {
+  .mag-body { grid-template-columns: 1fr; gap: 10px; padding: 10px; }
+  .mag-side { grid-template-columns: auto 1fr; align-items: start; }
+  .mag-bars, .mag-tip { display: none; } /* small screens: the slide and its score */
+  .mag-score { grid-template-columns: auto auto; grid-template-areas: 'head head' 'big of' 'meter meter'; align-items: center; }
+  .mag-score-head { grid-area: head; } .mag-score-big { grid-area: big; } .mag-score-of { grid-area: of; } .mag-meter { grid-area: meter; }
+  .mag-side { grid-template-columns: 1fr; }
+}
+@media (max-width: 560px), (max-height: 500px) {
+  .mag-wrap { padding: 6px 6px calc(64px + env(safe-area-inset-bottom)); place-items: start center; } /* clear of the thumb dock */
+  .mag { transform: none; box-shadow: 5px 5px 0 #ff2d95; border-width: 3px; }
+  .mag-mast { padding: 6px 8px; } .mag-issue { display: none; }
+  .mag-strip { padding: 4px 8px; } .mag-strip-by { display: none; }
+  .mag-new { width: 54px; height: 54px; left: -8px; top: -10px; } .mag-new span { font-size: 12px; }
+  .mag-slide img { max-height: calc(100vh - 260px); }
+}

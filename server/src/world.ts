@@ -15,6 +15,7 @@ import { Arcade } from './arcade';
 import { Jukebox } from './jukebox';
 import { Meetings } from './meetings';
 import { Creatures } from './creatures';
+import type { Presenter } from './presentation';
 import { authUrl, CALENDAR_SCOPE, createSpace, forgetAccess, googleEnabled, listEvents, revoke, type GoogleLink } from './google';
 
 type DungeonEvent = Extract<ServerMsg, { t: 'dungeon' }>['event'];
@@ -96,6 +97,7 @@ export class World {
   private lastJukeboxControl = new Map<string, number>();
   private lastReact = new Map<string, number>();
   botHooks?: BotHooks;
+  present?: Presenter; // slides on the Meeting room screen (index.ts sets it up with the data folder)
 
   arcade = new Arcade({ now: () => Date.now(), send: (id, msg) => this.sendOwner(id, msg),
     broadcast: msg => this.broadcast(msg), user: id => this.users.get(id) });
@@ -160,6 +162,8 @@ export class World {
     for (const person of this.users.values()) send({ t: 'game_status', userId: person.id, game: person.game });
     if (!u.bot) this.meetings.sendAgenda(u, true);
     send({ t: 'voice_wait', roomId: this.waiting.get(userId) ?? null });
+    send({ t: 'presentation', live: this.present?.live ?? null });
+    this.present?.back(u.id);
     const call = u.callId ? this.calls.get(u.callId) : undefined; // a reloaded page gets its call's Meet link back
     if (call) send({ t: 'call', userId: u.id, callId: call.id, link: call.link });
     this.setOwner(userId, socket);
@@ -169,7 +173,7 @@ export class World {
       if (this.pendingSeat.get(userId)?.socket === socket) this.cancelSeatWalk(userId);
       for (const [id, seat] of this.seats) if (seat.socket === socket) this.endSeat(id);
       if (this.owners.get(userId) === socket) this.setOwner(userId, [...set.keys()].at(-1));
-      if (set.size === 0 && !u.bot) { this.setWaiting(u, null); this.startLeaving(u); }
+      if (set.size === 0 && !u.bot) { this.setWaiting(u, null); this.startLeaving(u); this.present?.gone(u.id); }
     } };
   }
   private setOwner(userId: string, socket?: string) {
@@ -480,7 +484,7 @@ export class World {
   use(u: User, objectId: string, itemId?: string) {
     this.cancelSeatWalk(u.id);
     const o = this.map.objects.find(o => o.id === objectId);
-    if (!o?.use || o.use.kind === 'instrument' || o.use.kind === 'calendar' || o.use.kind === 'meetings' || o.use.kind === 'achievements' || o.use.kind === 'link' || o.use.kind === 'jukebox' || o.use.kind === 'records' || goingOut(u) || u.instance || u.presence === 'offline' || (o.use.kind === 'arcade' && u.bot)) return;
+    if (!o?.use || o.use.kind === 'instrument' || o.use.kind === 'calendar' || o.use.kind === 'meetings' || o.use.kind === 'achievements' || o.use.kind === 'link' || o.use.kind === 'jukebox' || o.use.kind === 'records' || o.use.kind === 'presentation' || goingOut(u) || u.instance || u.presence === 'offline' || (o.use.kind === 'arcade' && u.bot)) return;
     const item = o.use.kind === 'take' ? o.use.items.find(i => i.id === itemId) ?? o.use.items[0] : null;
     this.setFollowing(u, null);
     clearTimeout(this.errands.get(u.id));
@@ -1372,6 +1376,8 @@ export class World {
       case 'drop': if (u.holding) this.setHolding(u, null); break;
       case 'cup_put': if (msg.tile) this.putCup(u, { x: msg.tile.x | 0, y: msg.tile.y | 0 }); break;
       case 'give': { const to = this.users.get(String(msg.targetId)); if (to) this.give(u, to); break; }
+      case 'present_slide': this.present?.slide(u.id, msg.slide); break;
+      case 'present_stop': this.present?.stop(u.id); break;
     }
   }
 

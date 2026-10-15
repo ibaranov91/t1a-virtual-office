@@ -1,7 +1,7 @@
 // WebSocket client + the client-side mirror of server state.
 import mapJson from '../../shared/tilemap.json';
 import { applyLayout, besideObject, doorwayTiles, isWalkable, pathTo, roomAt, sampleMove, type Dir, type Tile, type TileMap } from '../../shared/map';
-import { ACHIEVEMENTS, underground, DUNGEON_INSTANCE, PLANT_STAGES, plantName, ROOM_VOICE_MAX, type JukeboxState, type JukeboxAction, type AgendaItem, type LayoutEdit, type CalEvent, type MeetingRoomInfo, type ChatMsg, type ObjectState, type ClientMsg, type PublicUser, type Reaction, type RtcSignal, type ServerMsg, type Creature, type Cup, CUP_ITEMS } from '../../shared/protocol';
+import { ACHIEVEMENTS, underground, DUNGEON_INSTANCE, PLANT_STAGES, plantName, ROOM_VOICE_MAX, type JukeboxState, type JukeboxAction, type AgendaItem, type LayoutEdit, type CalEvent, type MeetingRoomInfo, type ChatMsg, type LiveDeck, type ObjectState, type ClientMsg, type PublicUser, type Reaction, type RtcSignal, type ServerMsg, type Creature, type Cup, CUP_ITEMS } from '../../shared/protocol';
 import { ParkLoop } from './park/loop';
 import type { CabinetSummary, ParkRecords } from '../../shared/protocol';
 import { playPark, playHand, playKnock, playPop, playDungeon } from './sounds';
@@ -295,6 +295,20 @@ export class Store {
   claimVoice() { this.send({ t: 'voice_claim' }); }
   /** The vault door: a panel with the link, which works from a tap anywhere (a tap on the floor can't open a tab on a phone). */
   linkOpen: { label: string; url: string } | null = null;
+  presentation: LiveDeck | null = null; // slides on a screen right now
+  presentOpen: string | null = null;    // the screen whose upload panel is open
+  slidesHidden = false;                 // I closed the slides for this deck (the Live chip brings them back)
+  openPresent(id: string | null) { this.presentOpen = id; this.emit(); }
+  presentSlide(slide: number) { if (this.presentation?.presenter === this.me) this.send({ t: 'present_slide', slide }); }
+  presentStop() { this.send({ t: 'present_stop' }); }
+  hideSlides(hidden: boolean) { this.slidesHidden = hidden; this.emit(); }
+  /** For REST calls made as me (uploading slides). */
+  get sessionId() { return this.session; }
+  /** I'm presenting, or I'm in the screen's room (not in a meeting's copy of it). */
+  inPresentationRoom() {
+    const l = this.presentation, me = this.users.get(this.me);
+    return !!l && !!me && (l.presenter === me.id || (!me.instance && this.roomOf(me)?.id === l.room));
+  }
   openLink(use: { label: string; url: string }) { this.linkOpen = use; this.emit(); }
   closeLink() { this.linkOpen = null; this.emit(); }
   roomCallOf(u?: ClientUser) {
@@ -572,6 +586,10 @@ export class Store {
       case 'speaking': { const u = this.users.get(msg.userId); if (u) u.speaking = msg.on; break; }
       case 'mute': { const u = this.users.get(msg.userId); if (u) { u.muted = msg.muted; if (msg.muted) u.speaking = false; } break; }
       case 'status': { const u = this.users.get(msg.userId); if (u) u.status = msg.status; break; }
+      case 'presentation': {
+        if (msg.live?.deck.id !== this.presentation?.deck.id) this.slidesHidden = false;
+        this.presentation = msg.live; break;
+      }
       case 'look': { const u = this.users.get(msg.userId); if (u) { u.look = msg.look; u.lookSet = msg.lookSet; } break; }
       case 'effects': { const u = this.users.get(msg.userId); if (u) u.effects = msg.effects; break; }
       case 'presence': { const u = this.users.get(msg.userId); if (u) u.presence = msg.presence; break; }

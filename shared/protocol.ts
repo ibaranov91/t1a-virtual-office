@@ -180,6 +180,14 @@ export type LayoutEdit =
   | { op: 'rug_add'; x: number; y: number; color?: string; w?: number; h?: number }
   | { op: 'rug'; id: string; color?: string; w?: number; h?: number };
 
+/** Presentation mode: a deck of slide images shown on a screen object to everyone in its room. */
+export interface DeckInfo { id: string; title: string; count: number; ext: string[]; by: string; at: number } // ext: each slide's file extension
+export interface LiveDeck { deck: DeckInfo; slide: number; presenter: string; objectId: string; room: string; away?: boolean } // away: presenter disconnected, ends after PRESENT_AWAY_MS
+export const PRESENT_AWAY_MS = 60_000;
+export const PRESENT_MAX_SLIDES = 60;
+export const PRESENT_MAX_BYTES = 30 * 1024 * 1024; // one upload, all slides together
+export const slideUrl = (d: DeckInfo, i: number) => `/api/present/${d.id}/${i + 1}.${d.ext[i]}`;
+
 // server -> client
 export type ServerMsg =
   | ParkIncoming
@@ -233,7 +241,8 @@ export type ServerMsg =
   | { t: 'notice'; text: string }
   | { t: 'voice_wait'; roomId: string | null }
   | { t: 'voice_owner'; owner: boolean }
-  | { t: 'look'; userId: string; look: Look; lookSet: boolean };
+  | { t: 'look'; userId: string; look: Look; lookSet: boolean }
+  | { t: 'presentation'; live: LiveDeck | null };
 
 // client -> server
 export type ClientMsg =
@@ -282,4 +291,6 @@ export type ClientMsg =
   | { t: 'edit_reset' }              // office admins only: back to the generated layout
   | { t: 'look'; look: Look }
   // put an effect on someone (on: true) or take it off. Yourself: 'self' effects; office admins (GMs): anyone, any effect.
-  | { t: 'effect'; targetId: string; kind: string; on: boolean; style?: string };
+  | { t: 'effect'; targetId: string; kind: string; on: boolean; style?: string }
+  | { t: 'present_slide'; slide: number } // presenter only
+  | { t: 'present_stop' };                // presenter only
