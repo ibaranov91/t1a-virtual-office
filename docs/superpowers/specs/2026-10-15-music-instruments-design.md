@@ -135,8 +135,9 @@ Regenerate `shared/tilemap.json`; the generator's assertions must pass.
 
 **Saved layouts** (andr and prod may have one, which overrides the generator's furniture): the instruments are
 `KEEP_TYPES`, so main's `World.withNewFixtures` brings missing ones in on load — at the generated position, else the
-nearest free one in its room, else left out with a `console.warn`. One addition: a fixture whose generated id is
-already taken in the saved layout gets a fresh `e…` id.
+nearest free one in its room, else left out with a `console.warn`; main's `uniqueIds` settles an id the saved layout
+already used (the generated object keeps it). The gaming room shrank Music to y 3–10 (the Arcade is below); the stage
+along its top wall is unaffected.
 
 ## 4. Protocol (`shared/protocol.ts`)
 

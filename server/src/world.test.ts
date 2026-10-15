@@ -272,7 +272,7 @@ test('room calls have no two-hour expiry; disconnect retains grace then leaves',
 const jukebox = map.objects.find(o => o.use?.kind === 'jukebox')!;
 const stateOf = (w: World) => (w.snapshot() as Extract<ServerMsg, { t: 'state' }>).jukebox![jukebox.id];
 test('jukebox snapshot, actions, private refusals, broadcasts and tick', t => {
-  const { w, add, tick } = setup(t), a = add('A', { x: 56, y: 17 }), b = add('B', { x: 57, y: 17 });
+  const { w, add, tick } = setup(t), a = add('A', { x: 57, y: 7 }), b = add('B', { x: 60, y: 8 });
   const before = stateOf(w); assert.ok(TRACKS.some(t => t.id === before.track));
   const track = TRACKS.find(t => t.id !== before.track)!;
   a.messages.length = 0; b.messages.length = 0;
@@ -287,7 +287,7 @@ test('jukebox snapshot, actions, private refusals, broadcasts and tick', t => {
   assert.ok(b.messages.some(m => m.t === 'jukebox' && m.state.track === track.id));
 });
 test('jukebox requires a human online in its room, with no meeting instance or outgoing door', t => {
-  const { w, add } = setup(t), a = add('A', { x: 56, y: 17 }), b = add('B');
+  const { w, add } = setup(t), a = add('A', { x: 57, y: 7 }), b = add('B');
   const before = structuredClone(stateOf(w)), original = { ...a.u };
   for (const patch of [{ tile: { x: 52, y: 17 } }, { bot: true }, { instance: 'meeting' }, { presence: 'offline' as const }, { door: 'thinking' as const }, { door: 'leaving' as const }]) {
     Object.assign(a.u, original, patch); a.messages.length = 0; b.messages.length = 0;
@@ -296,8 +296,8 @@ test('jukebox requires a human online in its room, with no meeting instance or o
   }
 });
 test('jukebox authorizes the shown mid-walk tile when entering and exiting', t => {
-  const { w, add, settle } = setup(t), a = add('A', { x: 54, y: 17 });
-  const start = Date.now(); w.walk(a.u, { x: 53, y: 17 });
+  const { w, add, settle } = setup(t), a = add('A', { x: 58, y: 10 });
+  const start = Date.now(); w.walk(a.u, { x: 58, y: 11 });
   const playId = stateOf(w).playId;
   t.mock.timers.setTime(start + 124);
   w.handle(a.u, { t: 'jukebox', objectId: jukebox.id, action: 'pause', playId }, a.socket);
@@ -306,14 +306,14 @@ test('jukebox authorizes the shown mid-walk tile when entering and exiting', t =
   w.handle(a.u, { t: 'jukebox', objectId: jukebox.id, action: 'play', playId }, a.socket);
   assert.notEqual(stateOf(w).pausedAt, null); assert.equal(a.messages.at(-1)?.t, 'notice');
   t.mock.timers.setTime(start + 524);
-  settle(a.u, { x: 53, y: 17 }); w.walk(a.u, { x: 55, y: 17 });
+  settle(a.u, { x: 58, y: 11 }); w.walk(a.u, { x: 58, y: 9 });
   const entry = Date.now(); t.mock.timers.setTime(entry + 124); a.messages.length = 0;
   w.handle(a.u, { t: 'jukebox', objectId: jukebox.id, action: 'play', playId }, a.socket); assert.equal(a.messages.at(-1)?.t, 'notice');
   t.mock.timers.setTime(entry + 126);
   w.handle(a.u, { t: 'jukebox', objectId: jukebox.id, action: 'play', playId }, a.socket); assert.equal(stateOf(w).pausedAt, null);
 });
 test('unknown objects and malformed jukebox messages are silently ignored; use does not walk', t => {
-  const { w, add } = setup(t), a = add('A', { x: 56, y: 17 });
+  const { w, add } = setup(t), a = add('A', { x: 57, y: 7 });
   const before = structuredClone(stateOf(w)); a.messages.length = 0;
   const base = { t: 'jukebox', objectId: jukebox.id };
   for (const msg of [
@@ -327,8 +327,9 @@ test('unknown objects and malformed jukebox messages are silently ignored; use d
   w.use(a.u, jukebox.id); assert.equal(a.u.move, null);
 });
 test('jukebox dump/load preserves state, ignores removed objects and loads old saves', t => {
-  const { w, add } = setup(t), a = add('A', { x: 56, y: 17 });
+  const { w, add } = setup(t), a = add('A', { x: 57, y: 7 });
   w.handle(a.u, { t: 'jukebox', objectId: jukebox.id, action: 'pause', playId: stateOf(w).playId }, a.socket);
+  assert.notEqual(stateOf(w).pausedAt, null);
   const saved = w.dump(); saved.jukebox.removed = saved.jukebox[jukebox.id];
   const restored = new World(map); restored.load(saved);
   assert.deepEqual(stateOf(restored), stateOf(w)); assert.deepEqual(Object.keys(restored.dump().jukebox), [jukebox.id]);
@@ -365,6 +366,58 @@ test('a saved layout is brought up to date with the vault door: added, moved int
   const objects = load(blocked);
   assert.equal(objects.some(o => o.type === 'safe'), false);
   assert.equal(objects.find(o => o.id === painting.id)!.x, safe.x);
+});
+// gen-map.mjs numbers objects in order, so a build that adds one shifts every id after it (the safe took o57 from a plant)
+const olderBuild = (objects: TileMap['objects']) => objects.map(o => ({ ...structuredClone(o), id: `o${Number(o.id.slice(1)) + 1}` }));
+const loadLayout = (w: World, objects: TileMap['objects']) => {
+  const r = new World(structuredClone(map)); r.load({ ...w.dump(), layout: structuredClone({ objects, rugs: map.rugs }) }); return r;
+};
+const idsOf = (w: World) => [...w.layout().objects, ...w.layout().rugs].map(o => o.id);
+const asAdmin = (w: World) => { const u = w.addUser('Admin', false, { x: 32, y: 12 }); u.email = 'ivan.baranov@t1a.com'; return u; };
+test('a fixture new in this build never takes an id a saved layout already uses, and neither does an admin addition', t => {
+  const { w } = setup(t), safe = map.objects.find(o => o.type === 'safe')!;
+  const saved = olderBuild(map.objects.filter(o => o.type !== 'safe'));
+  const holder = saved.find(o => o.id === safe.id)!, cabinets = saved.filter(o => o.type === 'arcade');
+  cabinets[1].x = 57;
+  const lastRun = { id: `e${Date.now().toString(36)}0`, type: 'plant', x: 3, y: 20, w: 1, h: 1 }; // an addition from before a restart
+  const r = loadLayout(w, [...saved, lastRun]), ids = idsOf(r);
+  assert.equal(new Set(ids).size, ids.length);
+  assert.deepEqual(r.map.objects.find(o => o.id === safe.id), safe);
+  assert.deepEqual(r.map.objects.find(o => o.id === `${safe.id}-2`), { ...holder, id: `${safe.id}-2` });
+  // the cabinets are matched by order, not by their (shifted) ids: three of them, where the admin left them
+  assert.deepEqual(r.map.objects.filter(o => o.type === 'arcade').map(o => [o.id, o.x]), cabinets.map(o => [o.id, o.x]));
+  assert.equal(r.map.objects.length, saved.length + 2);
+  const admin = asAdmin(r);
+  r.edit(admin, { op: 'add', type: 'plant', x: 62, y: 25 }); r.edit(admin, { op: 'add', type: 'plant', x: 20, y: 31 });
+  const after = idsOf(r);
+  assert.equal(after.length, ids.length + 2); assert.equal(new Set(after).size, after.length);
+});
+test('ids saved twice (prod: a plant and the safe were both o57) are repaired on load, the same way every time', t => {
+  const { w } = setup(t), safe = map.objects.find(o => o.type === 'safe')!, plant = map.objects.find(o => o.type === 'plant' && o.x === 1 && o.y === 22)!;
+  const saved = [{ ...plant, id: safe.id }, ...map.objects.filter(o => o.id !== plant.id)]; // the plant comes first
+  const r = loadLayout(w, saved), ids = idsOf(r);
+  assert.equal(new Set(ids).size, ids.length);
+  assert.deepEqual(r.map.objects.find(o => o.id === safe.id), safe); // the build's fixture keeps its id
+  assert.deepEqual(r.map.objects.find(o => o.id === `${safe.id}-2`), { ...plant, id: `${safe.id}-2` });
+  assert.equal(r.map.objects.length, saved.length);
+  const dumped = r.dump(); assert.deepEqual(dumped.layout, r.layout()); // saved repaired
+  const again = new World(structuredClone(map)); again.load(structuredClone(dumped)); assert.deepEqual(again.layout(), r.layout());
+  assert.deepEqual(loadLayout(w, saved).layout(), r.layout());
+  // edit mode reaches each by its own id
+  const admin = asAdmin(r), notices: ServerMsg[] = []; r.connect(admin.id, m => notices.push(m));
+  r.edit(admin, { op: 'remove', id: safe.id });
+  assert.ok(notices.some(m => m.t === 'notice' && m.text.includes('needs its safe'))); assert.ok(r.map.objects.some(o => o.x === 1 && o.y === 22));
+  r.edit(admin, { op: 'remove', id: `${safe.id}-2` });
+  assert.equal(r.map.objects.some(o => o.x === 1 && o.y === 22), false); assert.deepEqual(r.map.objects.find(o => o.id === safe.id), safe);
+});
+test('the east-wing migration keeps every saved object outside the wing, whatever ids its build gave them', t => {
+  const { w } = setup(t), key = (o: { type: string; x: number; y: number }) => `${o.type}@${o.x},${o.y}`;
+  const inWing = (o: { x: number; y: number; w: number; h: number }) => o.x < 64 && o.x + o.w > 54 && o.y < 23 && o.y + o.h > 3;
+  const saved = olderBuild(map.objects.filter(o => o.type !== 'arcade' && o.type !== 'records'));
+  const r = loadLayout(w, saved), ids = idsOf(r), kept = new Set(r.map.objects.map(key));
+  assert.deepEqual(saved.filter(o => !inWing(o) && !kept.has(key(o))).map(key), []);
+  assert.deepEqual(r.map.objects.filter(inWing).map(key).sort(), map.objects.filter(inWing).map(key).sort());
+  assert.equal(new Set(ids).size, ids.length);
 });
 test('a pot on first login; a status a day grows it, blooms earn badges, a week without one kills it', t => {
   const { w, add, tick } = setup(t), a = add('A'), DAY = 86_400_000, stage = () => a.u.plant?.stage;
@@ -408,7 +461,7 @@ test('leaving a meeting for good clears busy and lets knocks through; Go puts yo
 });
 
 test('jukebox playback controls throttle only accepted controls for 400 ms', t => {
-  const { w, add, tick } = setup(t), a = add('A', { x: 56, y: 17 }), b = add('B', { x: 57, y: 17 });
+  const { w, add, tick } = setup(t), a = add('A', { x: 57, y: 7 }), b = add('B', { x: 60, y: 8 });
   const skip = (playId = stateOf(w).playId) => w.handle(a.u, { t: 'jukebox', objectId: jukebox.id, action: 'skip', playId }, a.socket);
   const before = structuredClone(stateOf(w));
   skip('stale'); skip();
@@ -943,9 +996,9 @@ test('saved layout migration resolves id clashes and uses the first valid room p
   layout.objects.push({ id: 'e1', type: 'plant', x: 62, y: 20, w: 1, h: 1 });
   const fresh = new World(structuredClone(map)); fresh.load({ ...w.dump(), layout });
   const keys = fresh.map.objects.find(o => o.use?.kind === 'instrument' && o.use.instrument === 'keys')!;
-  assert.ok(/^e/.test(keys.id)); assert.notEqual(keys.id, 'e1'); assert.notEqual(keys.id, objects[0].id);
+  assert.equal(keys.id, objects[0].id); // uniqueIds: the generated object keeps its id, the plant moves on
   assert.deepEqual({ x: keys.x, y: keys.y }, { x: 55, y: 3 });
-  assert.ok(fresh.map.objects.some(o => o.id === objects[0].id && o.type === 'plant'));
+  assert.ok(fresh.map.objects.some(o => o.id === `${objects[0].id}-2` && o.type === 'plant'));
   assert.equal(new Set(fresh.map.objects.map(o => o.id)).size, fresh.map.objects.length);
 });
 test('migration leaves an instrument out with a warning when its room has no valid position', t => {

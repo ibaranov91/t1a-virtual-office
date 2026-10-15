@@ -78,7 +78,7 @@ test('private dungeon state follows instance snapshots, retains seen across key 
   assert.ok(store.dungeonOpening);
   receive(store, { t: 'dungeon', key: null, hasKey: false, event: 'escaped' });
   assert.equal(store.toasts.at(-1)?.text, '☀️ You made it out!');
-  receive(store, { t: 'state', users: [user()], objects: {}, serverTime: Date.now() });
+  receive(store, { t: 'state', users: [user()], objects: {}, jukebox: {}, serverTime: Date.now() });
   assert.equal(store.dungeon, null); assert.equal(store.dungeonOpening, false);
   receive(store, { t: 'instance', userId: 'me', instance: DUNGEON_INSTANCE, tile: d.landing, dir: 'down' });
   receive(store, { t: 'dungeon', key: d.keySpots[1], hasKey: false, event: 'fell' });
@@ -129,7 +129,7 @@ test('area changes clear held input, selection and editing, refit zoom and snap 
   const { store, engine, me } = engineFixture();
   engine.editing = true; engine.placing = 'rug'; engine.selected = { kind: 'user', id: 'other' };
   engine.hoverUser = 'other'; engine.held.set('w', [0, -1]); engine.manualCam = true;
-  receive(store, { t: 'state', users: [{ ...me, instance: null, tile: MAP.dungeon!.hatch }], objects: {}, serverTime: Date.now() });
+  receive(store, { t: 'state', users: [{ ...me, instance: null, tile: MAP.dungeon!.hatch }], objects: {}, jukebox: {}, serverTime: Date.now() });
   assert.equal(engine.area, MAP.office); assert.equal(engine.areaDown, false);
   assert.equal(engine.editing, false); assert.equal(engine.placing, null); assert.equal(engine.selected, null);
   assert.equal(engine.hoverUser, null); assert.equal(engine.held.size, 0); assert.equal(engine.manualCam, false);
@@ -137,7 +137,7 @@ test('area changes clear held input, selection and editing, refit zoom and snap 
   const expected = engine.clampCam((MAP.dungeon!.hatch.x * MAP.tileSize) + 8 - engine.viewW / 2, MAP.dungeon!.hatch.y * MAP.tileSize - engine.viewH / 2);
   assert.deepEqual(engine.cam, expected);
   const officeMin = engine.minPx;
-  receive(store, { t: 'state', users: [{ ...me, instance: DUNGEON_INSTANCE, tile: MAP.dungeon!.landing }], objects: {}, serverTime: Date.now() });
+  receive(store, { t: 'state', users: [{ ...me, instance: DUNGEON_INSTANCE, tile: MAP.dungeon!.landing }], objects: {}, jukebox: {}, serverTime: Date.now() });
   assert.equal(engine.area, MAP.dungeon!.rect); assert.ok(engine.minPx >= officeMin);
   engine.destroy();
 });
@@ -146,7 +146,7 @@ test('own fall holds the office for sink and fade, then snaps underground; givin
   let now = 100;
   t.mock.method(performance, 'now', () => now);
   const { store, engine, me } = engineFixture(), d = MAP.dungeon!;
-  receive(store, { t: 'state', users: [{ ...me, instance: null, tile: d.hole }], objects: {}, serverTime: Date.now() });
+  receive(store, { t: 'state', users: [{ ...me, instance: null, tile: d.hole }], objects: {}, jukebox: {}, serverTime: Date.now() });
   engine.held.set('w', [0, -1]); engine.editing = true;
   receive(store, { t: 'instance', userId: 'me', instance: DUNGEON_INSTANCE, tile: d.landing, dir: 'down' });
   assert.equal(engine.area, MAP.office); assert.ok(engine.falling());

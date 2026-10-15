@@ -12,7 +12,7 @@ const model = (a: ReturnType<typeof pose>, b: ReturnType<typeof pose>, flags = {
 const keys = (tiles: { x: number; y: number }[]) => tiles.map(t => `${t.x},${t.y}`).sort();
 test('doorways are grouped connected non-room tiles, memoized and invalidated by layout', () => {
   for (const [room, expected] of [[coffee, [['26,6', '26,7'], ['32,11', '32,12', '33,11', '33,12']]],
-    [music, [['53,17', '53,18'], ['58,23', '58,24', '59,23', '59,24']]]] as const) {
+    [music, [['58,11', '58,12', '59,11', '59,12']]]] as const) {
     const groups = doorwayTiles(map, room);
     assert.deepEqual(groups.map(keys).sort(), expected.map(g => [...g].sort()).sort());
     assert.equal(doorwayTiles(map, room), groups);
@@ -90,8 +90,8 @@ test('moving the jukebox moves its acoustic room and derived doors without addin
   const oldRoom = pose(music.rect.x + 1, music.rect.y + 1);
   assert.equal(soundModel(next, field(next, oldRoom.tile), oldRoom, src).gain, 0);
   assert.deepEqual(next.objects.map(o => o.id), ids); assert.deepEqual(next.catalog, map.catalog);
-  assert.deepEqual([...new Set(roomDoors(next).map(d => d.room.id))].sort(), ['coffee', 'focus']);
-  assert.deepEqual([...new Set(roomDoors(map).map(d => d.room.id))].sort(), ['coffee', 'music']);
+  assert.deepEqual([...new Set(roomDoors(next).map(d => d.room.id))].sort(), ['arcade', 'coffee', 'focus']);
+  assert.deepEqual([...new Set(roomDoors(map).map(d => d.room.id))].sort(), ['arcade', 'coffee', 'music']);
   assert.equal(Object.keys(map.catalog).some(k => /^door_[hv]_/.test(k)), false);
 });
 test('the jukebox fills Music and nothing outside it, not even at the door; knock calls stay flat', () => {

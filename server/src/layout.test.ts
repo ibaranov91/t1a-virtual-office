@@ -137,8 +137,8 @@ test('instruments move but cannot be added or removed; play spots put the behind
   for (const o of map.objects.filter(o => o.use?.kind === 'instrument')) {
     const beside = besideObject(map, o);
     assert.deepEqual(playSpots(map, o), [...beside.filter(s => s.dir === 'down'), ...beside.filter(s => s.dir !== 'down')]);
-    w.edit(admin.u, { op: 'move', id: o.id, x: o.x, y: o.y + 5 });
-    assert.equal(map.objects.find(p => p.id === o.id)!.y, o.y + 5);
+    w.edit(admin.u, { op: 'move', id: o.id, x: o.x, y: o.y + 2 });
+    assert.equal(map.objects.find(p => p.id === o.id)!.y, o.y + 2, notices(admin.messages).join('; '));
     const before = JSON.stringify(map.objects);
     w.edit(admin.u, { op: 'remove', id: o.id });
     w.edit(admin.u, { op: 'add', type: o.type, x: o.x, y: o.y });

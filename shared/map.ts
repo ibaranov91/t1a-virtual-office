@@ -25,6 +25,7 @@ export interface UseItem { id: string; label: string; icon: string }
 export type ObjectUse = { kind: 'take'; items: UseItem[] } | { kind: 'toggle'; label: string } | { kind: 'calendar'; label: string }
   | { kind: 'instrument'; instrument: InstrumentKind; label: string }
   | { kind: 'jukebox'; label: string }
+  | { kind: 'arcade'; label: string; game: 'park' } | { kind: 'records'; label: string }
   | { kind: 'meetings'; label: string } // the board by the Meeting room: which calendar meetings are on
   | { kind: 'achievements'; label: string } // the Lobby notice board: your plant and your badges
   | { kind: 'link'; label: string; url: string }; // opens a page in a new tab (the safe: the vault)
@@ -313,7 +314,7 @@ export function layoutProblem(m: TileMap, checkDungeonReach = true): string | nu
     if (!ok({ x: s.x + step.x, y: s.y + step.y })) return `that cuts off a seat in ${r.name}`;
   }
   // you walk over to these to use them (the calendars and boards just open)
-  for (const o of m.objects) if ((o.use?.kind === 'take' || o.use?.kind === 'toggle' || o.use?.kind === 'instrument') && !besideObject(m, o).some(ok)) return `nobody could reach the ${objectName(o.type)}`;
+  for (const o of m.objects) if ((o.use?.kind === 'take' || o.use?.kind === 'toggle' || o.use?.kind === 'arcade' || o.use?.kind === 'instrument') && !besideObject(m, o).some(ok)) return `nobody could reach the ${objectName(o.type)}`;
   return null;
 }
 
@@ -322,7 +323,7 @@ export const objectName = (type: string) => ({ table_long: 'long table', table_b
   painting_small: 'small painting', coffee_machine: 'coffee machine', meetings_board: 'meetings board', noticeboard: 'notice board', exit_door: 'exit door' } as Record<string, string>)[type] ?? type.replace(/_/g, ' ');
 
 /** Types that are one of a kind (the way out, the coffee machine…): they can be moved but not removed. */
-export const KEEP_TYPES = new Set(['exit_door', 'coffee_machine', 'fridge', 'jukebox', 'meetings_board', 'noticeboard', 'safe', 'keyboard', 'drum_kit', 'bass_amp']);
+export const KEEP_TYPES = new Set(['exit_door', 'coffee_machine', 'fridge', 'jukebox', 'arcade', 'records', 'meetings_board', 'noticeboard', 'safe', 'keyboard', 'drum_kit', 'bass_amp']);
 /** Types that stay exactly where they are. */
 export const FIXED_TYPES = new Set(['exit_door']);
 export const RUG_MIN = 2, RUG_MAX = 24;
@@ -382,4 +383,35 @@ export function withLayout(m: TileMap, l: Layout): TileMap {
 export function playSpots(m: TileMap, o: MapObject): Spot[] {
   const spots = besideObject(m, o);
   return [...spots.filter(s => s.dir === 'down'), ...spots.filter(s => s.dir !== 'down')];
+}
+
+/** Replace the old east wing once, including its one-of-a-kind fixtures an admin moved out of it. The saved ids come from
+ *  an older build, so nothing outside the wing is matched by id: the rest out there is the admin's and stays. */
+export function migrateEastWing(saved: Layout, base: Layout): Layout {
+  if (saved.objects.some(o => o.type === 'arcade')) return saved;
+  const touches = (o: { x: number; y: number; w: number; h: number }) => o.x < 64 && o.x + o.w > 54 && o.y < 23 && o.y + o.h > 3;
+  const objects = base.objects.filter(touches), rugs = base.rugs.filter(touches);
+  const fixtures = new Set(objects.filter(o => KEEP_TYPES.has(o.type)).map(o => o.type));
+  return uniqueIds({
+    objects: [...saved.objects.filter(o => !touches(o) && !fixtures.has(o.type)), ...structuredClone(objects)],
+    rugs: [...saved.rugs.filter(o => !touches(o)), ...structuredClone(rugs)],
+  }, base);
+}
+
+/** The layout with every id used once, objects and rugs together (edit mode finds either by id). Generated ids are
+ *  positional, so a layout saved by an older build can share one with an object this build brings in: the one that is
+ *  the generated object (same type, then same spot) keeps the id, the other gets a fresh one (o57 → o57-2). */
+export function uniqueIds(l: Layout, base: Layout): Layout {
+  const out = { objects: l.objects.map(o => ({ ...o })), rugs: l.rugs.map(r => ({ ...r })) };
+  const all: (MapObject | Rug)[] = [...out.objects, ...out.rugs], used = new Set(all.map(o => o.id));
+  const generated = new Map<string, MapObject | Rug>([...base.objects, ...base.rugs].map(o => [o.id, o]));
+  const kind = (o: MapObject | Rug) => ('type' in o ? o.type : 'rug');
+  const rank = (o: MapObject | Rug) => { const g = generated.get(o.id); return !g || kind(g) !== kind(o) ? 0 : g.x === o.x && g.y === o.y ? 2 : 1; };
+  const keeper = new Map<string, MapObject | Rug>();
+  for (const o of all) { const k = keeper.get(o.id); if (!k || rank(o) > rank(k)) keeper.set(o.id, o); }
+  for (const o of all) if (keeper.get(o.id) !== o) {
+    let n = 2; while (used.has(`${o.id}-${n}`)) n++;
+    used.add(o.id = `${o.id}-${n}`);
+  }
+  return out;
 }
