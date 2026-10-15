@@ -40,6 +40,8 @@ folder, data, settings and systemd service. They're listed in `scripts/instances
 |---|---|---|---|
 | `prod` (login: sso) | 8080 | ibaranov91 | https://voffice.t1a.io |
 | `andr` (login: pin) | 8081 | booandrew | https://voffice-andr.pub.t1a.cloud |
+| `var` (login: pin) | 8082 | varvaratikhonova-ui | https://voffice-var.pub.t1a.cloud |
+| `iva` (login: pin) | 8083 | ibaranov91 | https://voffice-iva.pub.t1a.cloud |
 
 ```bash
 scripts/deploy.sh andr      # your instance; no argument deploys prod

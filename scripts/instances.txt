@@ -5,3 +5,5 @@
 # Add a line + a NetBird proxy entry, then: scripts/deploy.sh <name>
 prod   8080   sso   ibaranov91   https://voffice.t1a.io
 andr   8081   pin   booandrew    https://voffice-andr.pub.t1a.cloud
+var    8082   pin   varvaratikhonova-ui   https://voffice-var.pub.t1a.cloud
+iva    8083   pin   ibaranov91   https://voffice-iva.pub.t1a.cloud
