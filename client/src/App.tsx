@@ -7,10 +7,10 @@ import { needsGesture, resume } from './audio';
 import { prefs, savePrefs, type Category } from './prefs';
 import { ITEMS, MAP, Store, type ClientUser } from './net';
 import { inNativeApp, syncNative } from './native';
-import { JUKEBOX_PER_PERSON, JUKEBOX_QUEUE_MAX, type JukeboxState, MAX_CHAT_LEN, MEET_LINK_RE, meetAs, normalizeMeetLink, REACTIONS } from '../../shared/protocol';
+import { ACHIEVEMENTS, dayNumber, JUKEBOX_PER_PERSON, JUKEBOX_QUEUE_MAX, MAX_CHAT_LEN, MEET_LINK_RE, meetAs, normalizeMeetLink, kindName, PLANT_DIES_DAYS, PLANT_KINDS, PLANT_REVEAL, PLANT_STAGES, plantDead, plantName, REACTIONS, type JukeboxState, type Plant } from '../../shared/protocol';
 import { GENRES, TRACK, TRACKS } from '../../shared/music';
 import { hallLevel } from '../../shared/acoustics';
-import { seatAt } from '../../shared/map';
+import { FIXED_TYPES, KEEP_TYPES, objectName, RUG_COLORS, RUG_MAX, RUG_MIN, seatAt } from '../../shared/map';
 
 // Dev server: sign in automatically as ?as=<name> (default "Dev"); each name keeps its own session,
 // so several tabs can be different people.
@@ -113,8 +113,10 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
   const [pick, setPick] = useState<Pick | null>(null);
   const [personMenu, setPersonMenu] = useState<PersonMenuAt | null>(null);
   const openPerson = (at: PersonMenuAt) => { setPick(null); setPersonMenu(at); };
+  const [showAppearance, setShowAppearance] = useState(false);
   const [, tick] = useState(0);
   const [engine, setEngine] = useState<Engine | null>(null);
+  const [editing, setEditing] = useState(false);
 
   useEffect(() => { store.connect(); return () => store.close(); }, [store]);
   useEffect(() => { const s = new Soundscape(store); return () => s.destroy(); }, [store]);
@@ -142,34 +144,43 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
       if (use?.kind === 'jukebox' && p) { setPick(null); return store.openJukebox(p.id); }
       if (use?.kind === 'calendar') { setPick(null); return store.openCalendar(); }
       if (use?.kind === 'meetings') { setPick(null); return store.openMeetings(); }
+      if (use?.kind === 'achievements') { setPick(null); return store.openAchievements(); }
       setPick(cur => (p && cur?.kind === p.kind && cur.id === p.id ? null : p)); // same target again: close
     };
     e.onZoom = () => tick(n => n + 1);
+    e.onEditChange = () => tick(n => n + 1);
     engineRef.current = e; setEngine(e);
     if (import.meta.env.DEV) Object.assign(window, { __deck: { store, engine: e } });
     return () => { e.destroy(); setEngine(null); };
   }, [assets, store]);
   useEffect(() => { const i = setInterval(() => { tick(n => n + 1); store.checkAgenda(); }, 1000); return () => clearInterval(i); }, [store]);
   useEffect(() => { if (engineRef.current) engineRef.current.selected = pick; }, [pick]);
+  useEffect(() => { engine?.setEditing(editing && store.admin); }, [engine, editing, store.admin]);
 
   const me = store.users.get(store.me);
   const myRoom = me ? store.roomOf(me) : undefined;
+  useEffect(() => { if (me && !me.lookSet) setShowAppearance(true); }, [me?.id, me?.lookSet]);
 
   return (
     <div className="office">
       <TopBar store={store} roomName={myRoom?.name} onToggleRooms={() => setShowRooms(s => !s)} onLogout={onLogout}
-        onToggleMeet={() => setShowMeet(s => !s)} engine={engine} />
+        onToggleMeet={() => setShowMeet(s => !s)} onToggleAppearance={() => setShowAppearance(s => me?.lookSet ? !s : true)} engine={engine}
+        editing={editing} onToggleEdit={() => setEditing(e => !e)} />
       <div className="stage">
         <div className="canvas-wrap"><canvas ref={canvasRef} /></div>
         {!assets && <div className="loading">Unlocking the door…</div>}
         {!store.connected && assets && <div className="loading small">Reconnecting…</div>}
         {showRooms && <RoomList store={store} onPerson={openPerson} onClose={() => setShowRooms(false)}
-          onPick={id => { engineRef.current?.focusUser(id); if (compact()) setShowRooms(false); }}
-          onRoom={id => { engineRef.current?.focusRoom(id); if (compact()) setShowRooms(false); }} />}
+          onPick={id => { engineRef.current?.walkToUser(id); if (compact()) setShowRooms(false); }}
+          onRoom={id => { engineRef.current?.walkToRoom(id); if (compact()) setShowRooms(false); }} />}
+        {editing && store.admin && engine && <EditPanel store={store} engine={engine} assets={assets} onDone={() => setEditing(false)} />}
         {store.calendarOpen && <CalendarPanel store={store} />}
         {store.meetingsOpen && <MeetingsPanel store={store} />}
         {store.jukeboxOpen && <JukeboxPanel key={store.jukeboxOpen} store={store} id={store.jukeboxOpen} />}
+        {store.achievementsOpen && me && <AchievementsPanel store={store} me={me} assets={assets} />}
         {(showMeet || store.pendingKnock) && <MeetSetup key={store.pendingKnock ?? 'panel'} store={store} onClose={() => setShowMeet(false)} />}
+        {showAppearance && me && <AppearanceMenu key={me.id} look={me.look} assets={assets} firstTime={!me.lookSet}
+          onSave={(look) => { store.setLook(look); setShowAppearance(false); }} onClose={() => setShowAppearance(false)} />}
         <div className="chips">
           <MeetingChip store={store} />
           <NowPlayingChip store={store} />
@@ -189,8 +200,9 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
   );
 }
 
-function TopBar({ store, roomName, onToggleRooms, onToggleMeet, onLogout, engine }: {
-  store: Store; roomName?: string; onToggleRooms: () => void; onToggleMeet: () => void; onLogout: () => void; engine: Engine | null;
+function TopBar({ store, roomName, onToggleRooms, onToggleMeet, onToggleAppearance, onLogout, engine, editing, onToggleEdit }: {
+  store: Store; roomName?: string; onToggleRooms: () => void; onToggleMeet: () => void; onToggleAppearance: () => void; onLogout: () => void; engine: Engine | null;
+  editing: boolean; onToggleEdit: () => void;
 }) {
   const me = store.users.get(store.me);
   const [draft, setDraft] = useState<string | null>(null);
@@ -214,7 +226,7 @@ function TopBar({ store, roomName, onToggleRooms, onToggleMeet, onLogout, engine
         <option value="in_call">🎧 In a call</option>
       </select>
       <form className="status" onSubmit={e => { e.preventDefault(); store.setStatus(status); setDraft(null); (document.activeElement as HTMLElement)?.blur(); }}>
-        <input value={status} maxLength={80} placeholder="What are you on?" onChange={e => setDraft(e.target.value)}
+        <input value={status} maxLength={80} placeholder="What are you on? (waters your plant)" onChange={e => setDraft(e.target.value)}
           onBlur={() => { if (draft !== null) { store.setStatus(draft); setDraft(null); } }} />
       </form>
       <div className="zoom">
@@ -229,12 +241,98 @@ function TopBar({ store, roomName, onToggleRooms, onToggleMeet, onLogout, engine
         <button onClick={onToggleMeet} className={`meet-btn${store.meetLink === '' && !store.google ? ' unset' : ''}`}
           title={store.google ? `Google connected: ${store.google}` : store.meetLink ? `Your Meet room: ${store.meetLink}` : 'Set up Google Meet'}>Meet</button>
         <MacAppButton />
-        <button onClick={onToggleRooms} title="Rooms" className="rooms-btn">Rooms</button>
+        <button onClick={onToggleRooms} title="Who's where: click a room or a person to walk there" className="rooms-btn">People</button>
         <button onClick={onLogout} title="Sign out" className="ghost">Leave</button>
       </div>
+      <button onClick={() => store.openAchievements(!store.achievementsOpen)} className="hanger-btn trophy-btn"
+        title={me?.plant && needsWater(me.plant, store.now()) ? 'Achievements · your plant needs a status today' : 'Achievements and your plant'} aria-label="Achievements and your plant">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 4h8v5a4 4 0 0 1-8 0V4ZM8 6H5v1a3 3 0 0 0 3 3M16 6h3v1a3 3 0 0 1-3 3M12 13v4M8 20h8M9 17h6" /></svg>
+        {me?.plant && needsWater(me.plant, store.now()) && <b className="dot" />}
+      </button>
+      {store.admin && <button onClick={onToggleEdit} className={`hanger-btn${editing ? ' on' : ''}`} aria-pressed={editing}
+        title={editing ? 'Done rearranging' : 'Rearrange the office (admins)'} aria-label="Rearrange the office">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16v4ZM13 7l4 4" /></svg>
+      </button>}
+      <button onClick={onToggleAppearance} className="hanger-btn" title="Character appearance" aria-label="Character appearance">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a2 2 0 0 0-2 2c0 1 .7 1.6 1.6 2.4.6.5 1.1 1 1.1 1.8V11M12 9l-7 9h14l-7-9ZM3 21h18" /></svg>
+      </button>
     </header>
   );
 }
+
+const LOOK_COLORS = {
+  skin: ['#f8dcc0', '#f2c79b', '#e2ad7f', '#c98d5e', '#a46a43', '#7c4f32'],
+  hair: ['#2b1d1f', '#4f2b1a', '#6b3e26', '#a0603a', '#d8a050', '#ecd59a', '#b4473a', '#8c8a98', '#3e5a8a', '#c8789a'],
+  eyes: ['#2b1d1f', '#4b2e1e', '#3e5a8a', '#4f7d45', '#6b9ac4', '#7a4c32'],
+  shirt: ['#4a7ab0', '#b4534a', '#7a9a55', '#d0a040', '#8a5aa0', '#4f9a92', '#d8805a', '#e8e0d0', '#5a5a6e', '#c8607a', '#6a8ad0', '#9a7a50'],
+  pants: ['#3d3a52', '#2c3e5a', '#5a4030', '#4a4a4a', '#6a5a7a', '#3a5a4a'],
+  shoes: ['#4a3028', '#282832', '#68432e', '#85766b', '#b05b42', '#d0b58a'],
+  glassesColor: ['#282832', '#4a3028', '#d0b58a', '#85766b', '#3e5a8a', '#b4473a', '#e8e0d0'],
+  hatColor: ['#3e5a8a', '#b4534a', '#3a5a4a', '#282832', '#d0a040', '#e8e0d0', '#6b3e26'],
+};
+
+function AppearanceMenu({ look, assets, firstTime, onSave, onClose }: {
+  look: PublicLook; assets: Assets | null; firstTime: boolean; onSave: (look: PublicLook) => void; onClose: () => void;
+}) {
+  const [draft, setDraft] = useState(look);
+  const [tab, setTab] = useState<'body' | 'clothes'>('body');
+  const previewRef = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const canvas = previewRef.current;
+    if (!canvas || !assets) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    const frame = assets.atlas.character;
+    canvas.width = frame.frameW; canvas.height = frame.frameH;
+    ctx.imageSmoothingEnabled = false;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(assets.sheet(draft), 0, 0, frame.frameW, frame.frameH, 0, 0, frame.frameW, frame.frameH);
+  }, [assets, draft]);
+  const set = <K extends keyof PublicLook>(key: K, value: PublicLook[K]) => setDraft(d => ({ ...d, [key]: value }));
+  const colors = (label: string, key: 'skin' | 'hair' | 'eyes' | 'shirt' | 'pants' | 'shoes' | 'glassesColor' | 'hatColor') => (
+    <fieldset className="look-colors"><legend>{label}</legend><div className="swatches">
+      {LOOK_COLORS[key].map(color => <button key={color} type="button" className={`swatch${draft[key] === color ? ' selected' : ''}`}
+        style={{ backgroundColor: color }} title={color} aria-label={`${label} ${color}`} aria-pressed={draft[key] === color} onClick={() => set(key, color)} />)}
+    </div></fieldset>
+  );
+  const select = (label: string, value: number, options: string[], key: 'style' | 'top' | 'bottom' | 'glasses' | 'hat') => (
+    <label className="look-select">{label}<select value={value} onChange={e => set(key, Number(e.target.value))}>
+      {options.map((option, i) => <option value={i} key={option}>{option}</option>)}
+    </select></label>
+  );
+  const styles = (assets?.atlas.character.styles ?? ['short', 'long', 'ponytail']).map(s => s[0].toUpperCase() + s.slice(1));
+  const tops = assets?.atlas.character.tops ?? ['T-shirt', 'Button-up shirt', 'Sweater'];
+  const bottoms = assets?.atlas.character.bottoms ?? ['Trousers', 'Skirt', 'Shorts'];
+  return (
+    <div className="appearance-backdrop" onClick={e => { if (e.target === e.currentTarget && !firstTime) onClose(); }}>
+      <section className="appearance-panel" role="dialog" aria-modal="true" aria-labelledby="appearance-title">
+        <header className="appearance-head"><div><h2 id="appearance-title">Your character</h2><p>{firstTime ? 'Choose your look before stepping into the office.' : 'Make the office feel a little more like you.'}</p></div>
+          {!firstTime && <button className="ghost" onClick={onClose} aria-label="Close appearance settings">×</button>}</header>
+        <div className="appearance-preview"><div className="avatar-frame"><canvas ref={previewRef} /></div><span>{styles[draft.style]} hair</span></div>
+        <nav className="appearance-tabs" aria-label="Appearance categories">
+          <button className={tab === 'body' ? 'active' : ''} onClick={() => setTab('body')}>Body</button>
+          <button className={tab === 'clothes' ? 'active' : ''} onClick={() => setTab('clothes')}>Clothes</button>
+        </nav>
+        <div className="appearance-options">
+          {tab === 'body' ? <>
+            {select('Hairstyle', draft.style, styles, 'style')}
+            {colors('Hair color', 'hair')}{colors('Skin tone', 'skin')}{colors('Eye color', 'eyes')}
+          </> : <>
+            {select('Top', draft.top, tops, 'top')}{colors('Top color', 'shirt')}
+            {select('Bottom', draft.bottom, bottoms, 'bottom')}{colors('Bottom color', 'pants')}
+            {colors('Shoe color', 'shoes')}
+          </>}
+        </div>
+        <footer className="appearance-actions">
+          {!firstTime && <button className="ghost" onClick={onClose}>Cancel</button>}
+          <button onClick={() => onSave(draft)}>{firstTime ? 'Save & enter office' : 'Save changes'}</button>
+        </footer>
+      </section>
+    </div>
+  );
+}
+
+type PublicLook = import('../../shared/protocol').Look;
 
 const PRESENCE_COLOR: Record<string, string> = { online: '#7cc87c', away: '#e0b050', in_call: '#d86a5a', offline: '#666' };
 
@@ -255,24 +353,24 @@ function RoomList({ store, onPick, onRoom, onPerson, onClose }: {
   const offline = [...store.users.values()].filter(u => u.presence === 'offline');
   return (
     <aside className="rooms">
-      <div className="rooms-head"><span>Rooms</span><button className="ghost" onClick={onClose}>×</button></div>
+      <div className="rooms-head"><span>People</span><button className="ghost" onClick={onClose}>×</button></div>
       {[...MAP.rooms, { id: 'meetings', name: 'In meetings', rules: { label: 'calendar meetings' }, capacity: 0 } as const,
         { id: 'hall', name: 'Hallway', rules: { label: 'passing through' }, capacity: 0 } as const].map(r => {
         const ids = byRoom.get(r.id) ?? [];
         const jukebox = MAP.objects.find(o => o.use?.kind === 'jukebox' && store.jukeboxRoom(o.id)?.id === r.id);
         const state = jukebox && store.jukebox[jukebox.id];
-        const subtitle = state ? state.pausedAt !== null ? 'paused' : `♪ ${TRACK.get(state.track)?.title ?? state.track}` : r.rules.label;
+        const subtitle = state && r.rules.label ? r.rules.label.replace(/^jukebox/, state.pausedAt !== null ? 'paused' : `♪ ${TRACK.get(state.track)?.title ?? state.track}`) : r.rules.label;
         if ((r.id === 'hall' || r.id === 'meetings') && !ids.length) return null;
         return (
           <section key={r.id}>
-            <h3 onClick={MAP.rooms.some(m => m.id === r.id) ? () => onRoom(r.id) : undefined}>{r.name} <small>{ids.length}{r.capacity ? `/${r.capacity}` : ''} · {subtitle}</small></h3>
+            <h3 onClick={MAP.rooms.some(m => m.id === r.id) ? () => onRoom(r.id) : undefined} title={MAP.rooms.some(m => m.id === r.id) ? `Walk to ${r.name}` : undefined}>{r.name} <small>{ids.length}{r.capacity ? `/${r.capacity}` : ''} · {subtitle}</small></h3>
             <ul>
               {ids.map(id => {
                 const u = store.users.get(id)!;
                 return (
                   <li key={id} onContextMenu={e => menu(u, e)} title={u.status || undefined}>
                     <i style={{ background: PRESENCE_COLOR[u.presence] }} />
-                    <button className={`ghost person-name${id === store.me ? ' me' : ''}`} onClick={() => onPick(id)}>{u.name}{store.roomCallOf(u) ? ` 🎙${userIcons(u)}` : ''}</button>
+                    <button className={`ghost person-name${id === store.me ? ' me' : ''}`} onClick={() => onPick(id)} title={id === store.me ? 'Show me' : `Walk to ${u.name}`}>{u.name}{store.roomCallOf(u) ? ` 🎙${userIcons(u)}` : ''}</button>
                     {more(u)}
                     {!!store.unread.get(id) && <b className="unread" title="Unread messages" onClick={e => { e.stopPropagation(); store.openChat(id); }}>💬 {store.unread.get(id)}</b>}
                     {u.door ? <em>{{ arriving: 'just arrived', thinking: 'packing up…', leaving: 'heading out' }[u.door]}</em>
@@ -303,7 +401,7 @@ function MeetSetup({ store, onClose }: { store: Store; onClose: () => void }) {
     <div className={knockTo ? 'modal-backdrop' : ''} onClick={e => { if (knockTo && e.target === e.currentTarget) done('cancel'); }}>
       <form className={`meet-panel${knockTo ? ' guided' : ''}`} onSubmit={e => { e.preventDefault(); if (parsed) save(parsed); }}>
         <div className="rooms-head">
-          <span>{knockTo ? `Before you knock on ${knockTo.name.split(' ')[0]}…` : 'Your Google Meet room'}</span>
+          <span>{knockTo ? `Before you knock on ${knockTo.name.split(' ')[0]}…` : google ? 'Google Meet' : 'Your Google Meet room'}</span>
           <button type="button" className="ghost" onClick={() => done('cancel')}>×</button>
         </div>
         {google !== undefined && <div className="google-row">
@@ -315,7 +413,9 @@ function MeetSetup({ store, onClose }: { store: Store; onClose: () => void }) {
                   ? <ExternalLink href={store.googleAuthUrl} onOpen={() => store.prepareGoogle()}>Connect Google</ExternalLink>
                   : <span className="muted small">…</span>}</>}
         </div>}
-        {google !== undefined && <p className="muted small">{google ? 'Your own room below is used when Google can\'t make one.' : 'Or use your own reusable room:'}</p>}
+        {/* with Google connected every call gets its own room, so there's nothing to set up by hand */}
+        {!google && <>
+        {google !== undefined && <p className="muted small">Or use your own reusable room:</p>}
         <p className="muted">
           {knockTo ? 'Set up your own Meet room once. When someone accepts your knock, you both join it — no more two separate calls.'
             : 'When you knock and they accept, you both join this room.'}
@@ -336,6 +436,7 @@ function MeetSetup({ store, onClose }: { store: Store; onClose: () => void }) {
           {!knockTo && store.meetLink && <button type="button" className="ghost" onClick={() => save('')}>Clear</button>}
           <button disabled={!parsed || parsed === store.meetLink}>{knockTo ? `Save & knock` : 'Save'}</button>
         </div>
+        </>}
       </form>
     </div>
   );
@@ -457,6 +558,117 @@ function JukeboxPanel({ store, id }: { store: Store; id: string }) {
   </div>;
 }
 
+/** Today's status hasn't been set yet (or the plant is gone): the plant wants attention. */
+const needsWater = (p: Plant, now: number) => plantDead(p, now) || p.care < dayNumber(now);
+
+/** Office admins: what to add, and what to do with the selected thing. The floor itself is where you drag. */
+function EditPanel({ store, engine, assets, onDone }: { store: Store; engine: Engine; assets: Assets | null; onDone: () => void }) {
+  const sel = engine.editSel ? engine.item(engine.editSel) : undefined;
+  const types = Object.keys(MAP.catalog).filter(t => !KEEP_TYPES.has(t) && !FIXED_TYPES.has(t));
+  const resize = (dw: number, dh: number) => sel && store.edit({ op: 'rug', id: sel.id, w: sel.w + dw, h: sel.h + dh });
+  return (
+    <div className="edit-panel">
+      <div className="rooms-head"><span>Rearrange the office</span><button onClick={onDone}>Done</button></div>
+      <p className="hint">Drag furniture or rugs to move them. Arrows nudge, Delete removes, Esc lets go. Everyone sees changes right away.</p>
+      {sel && <section className="edit-sel">
+        <h3>{sel.type ? objectName(sel.type) : 'Rug'}</h3>
+        {sel.color && <>
+          <div className="swatches">{RUG_COLORS.map(c => <button key={c} className={`swatch rug-${c}${sel.color === c ? ' on' : ''}`} title={c} aria-label={`${c} rug`}
+            onClick={() => store.edit({ op: 'rug', id: sel.id, color: c })} />)}</div>
+          <div className="rug-size">
+            <span>{sel.w} × {sel.h}</span>
+            <button onClick={() => resize(-1, 0)} disabled={sel.w <= RUG_MIN} title="Narrower">↔−</button>
+            <button onClick={() => resize(1, 0)} disabled={sel.w >= RUG_MAX} title="Wider (shift →)">↔+</button>
+            <button onClick={() => resize(0, -1)} disabled={sel.h <= RUG_MIN} title="Shorter">↕−</button>
+            <button onClick={() => resize(0, 1)} disabled={sel.h >= RUG_MAX} title="Longer (shift ↓)">↕+</button>
+          </div>
+        </>}
+        {sel.type && FIXED_TYPES.has(sel.type) ? <p className="hint">This one stays where it is.</p>
+          : sel.type && KEEP_TYPES.has(sel.type) ? <p className="hint">The office needs this one: move it, but it stays.</p>
+          : <button className="danger" onClick={() => store.edit({ op: 'remove', id: sel.id })}>Remove</button>}
+      </section>}
+      <h3>Add <small>{engine.placing ? 'click the floor to place · Esc to stop' : 'pick one, then click the floor'}</small></h3>
+      <div className="palette">
+        <button className={engine.placing === 'rug' ? 'on' : ''} onClick={() => engine.setPlacing(engine.placing === 'rug' ? null : 'rug')} title="rug">
+          <ItemThumb assets={assets} frame="rug_green_c" /><span>rug</span>
+        </button>
+        {types.map(t => <button key={t} className={engine.placing === t ? 'on' : ''} onClick={() => engine.setPlacing(engine.placing === t ? null : t)} title={objectName(t)}>
+          <ItemThumb assets={assets} frame={t} /><span>{objectName(t)}</span>
+        </button>)}
+      </div>
+      <button className="ghost reset" onClick={() => { if (confirm('Put every piece of furniture and every rug back where it started? Everyone sees it at once.')) store.resetLayout(); }}>
+        Reset to the original layout…</button>
+    </div>
+  );
+}
+
+/** A world-atlas frame, scaled to fit a 32×32 box, crisp. */
+function ItemThumb({ assets, frame }: { assets: Assets | null; frame: string }) {
+  const ref = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const c = ref.current, f = assets?.atlas.frames[frame]; if (!c || !f || !assets) return;
+    const k = Math.max(1, Math.floor(32 / Math.max(f.w, f.h))), w = Math.min(32, f.w * k), h = Math.min(32, f.h * k);
+    const ctx = c.getContext('2d')!; ctx.imageSmoothingEnabled = false; ctx.clearRect(0, 0, 32, 32);
+    ctx.drawImage(assets.world, f.x, f.y, f.w, f.h, (32 - w) / 2, 32 - h, w, h);
+  }, [assets, frame]);
+  return <canvas ref={ref} width={32} height={32} />;
+}
+
+/** A plant sprite from the world atlas, scaled up crisply. */
+function PlantSprite({ assets, plant, now, scale = 4 }: { assets: Assets | null; plant: Plant; now: number; scale?: number }) {
+  const ref = useRef<HTMLCanvasElement>(null);
+  const name = plantDead(plant, now) ? 'pot_dead' : plant.kind && plant.stage >= PLANT_REVEAL ? `pot_${plant.kind}_${plant.stage}` : `pot_${plant.stage}`;
+  useEffect(() => {
+    const c = ref.current, f = assets?.atlas.frames[name]; if (!c || !f || !assets) return;
+    const ctx = c.getContext('2d')!; ctx.imageSmoothingEnabled = false; ctx.clearRect(0, 0, c.width, c.height);
+    ctx.drawImage(assets.world, f.x, f.y, f.w, f.h, 0, 0, f.w * scale, f.h * scale);
+  }, [assets, name, scale]);
+  return <canvas ref={ref} width={12 * scale} height={20 * scale} className="plant-sprite" />;
+}
+
+/** The Lobby notice board (and the 🏆 button): how your plant is doing, what makes it grow, and your achievements. */
+function AchievementsPanel({ store, me, assets }: { store: Store; me: ClientUser; assets: Assets | null }) {
+  const now = store.now(), today = dayNumber(now), p = me.plant, close = () => store.openAchievements(false);
+  const dead = p && plantDead(p, now), left = p ? PLANT_DIES_DAYS - (today - p.care) : 0;
+  const when = (ms: number) => new Date(ms).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+  return (
+    <div className="modal-backdrop" onClick={e => { if (e.target === e.currentTarget) close(); }}>
+      <div className="meet-panel guided calendar-panel achievements">
+        <div className="rooms-head"><span>🏆 Achievements</span><button type="button" className="ghost" aria-label="Close" onClick={close}>×</button></div>
+        <section className="plant-card">
+          {p && <PlantSprite assets={assets} plant={p} now={now} />}
+          <div>
+            <b>{!p ? 'No plant yet' : dead ? 'Your plant withered' : `Your ${plantName(p)}`}</b>
+            {p && !dead && <>
+              <div className="pips" aria-label={`Stage ${p.stage + 1} of ${PLANT_STAGES.length}`}>{PLANT_STAGES.map((_, i) => <i key={i} className={i <= p.stage ? 'on' : ''} />)}</div>
+              <small>{PLANT_STAGES[p.stage]}{p.stage < PLANT_REVEAL ? ' · what it becomes shows at stage 4' : ''}</small>
+            </>}
+            <p className={p && !dead && p.care >= today ? 'ok' : 'todo'}>
+              {!p ? 'Set a status to plant one.'
+                : dead ? `A week passed without a status. Set one to plant a new seedling.`
+                : p.care >= today ? '✓ Watered today: it grows again tomorrow when you set a status.'
+                : `💧 Set a status today to water it. It withers in ${left} day${left === 1 ? '' : 's'} without one.`}
+            </p>
+            <small className="muted-line">Your plant grows one stage each day you set a status, in the box at the top. It stands on your home desk, or in the Orangery if you don't have one.</small>
+          </div>
+        </section>
+        <ul className="achievement-list">
+          {ACHIEVEMENTS.map(a => {
+            const got = me.achievements[a.id];
+            const progress = a.id === 'botanist' && !got ? `${Math.min(me.bloomed.length, a.goal!)}/${a.goal}` : null;
+            return <li key={a.id} className={got ? 'got' : a.soon ? 'soon' : ''}>
+              <span className="icon">{a.icon}</span>
+              <span><b>{a.title}</b><br /><small>{a.how}</small>
+                {a.id === 'botanist' && me.bloomed.length > 0 && <><br /><small className="muted-line">Bloomed: {me.bloomed.map(kindName).join(', ')} · {PLANT_KINDS.length} kinds in all</small></>}</span>
+              <small className="state">{got ? `✓ ${when(got)}` : a.soon ? 'Coming soon' : progress ?? ''}</small>
+            </li>;
+          })}
+        </ul>
+      </div>
+    </div>
+  );
+}
+
 /** The board by the Meeting room: meetings on right now in their own rooms. Titles only for their attendees. */
 function MeetingsPanel({ store }: { store: Store }) {
   const me = store.users.get(store.me);
@@ -551,11 +763,11 @@ function Dock({ store, engine, roomsOpen, onRooms }: { store: Store; engine: Eng
   const chatWith = [...store.unread.keys()][0] ?? [...store.chats.keys()].at(-1);
   return (
     <nav className="dock" aria-label="Floor">
-      <button className={roomsOpen ? 'on' : ''} aria-pressed={roomsOpen} onClick={onRooms}><span className="ic">👥</span><small>Rooms</small></button>
+      <button className={roomsOpen ? 'on' : ''} aria-pressed={roomsOpen} onClick={onRooms}><span className="ic">👥</span><small>People</small></button>
       <button className={z?.overview ? 'on' : ''} aria-pressed={!!z?.overview} onClick={() => engine?.toggleOverview()}>
         <span className="ic">🗺️</span><small>{z?.overview ? 'Back' : 'Floor'}</small></button>
       <button onClick={() => engine?.recenter()}><span className="ic">📍</span><small>Me</small></button>
-      <button onClick={() => (chatWith ? store.openChat(chatWith) : onRooms())} title={chatWith ? undefined : 'Pick someone in Rooms to message'}>
+      <button onClick={() => (chatWith ? store.openChat(chatWith) : onRooms())} title={chatWith ? undefined : 'Pick someone in People to message'}>
         <span className="ic">💬</span>{total > 0 && <b className="badge">{total}</b>}<small>Chat</small></button>
     </nav>
   );
@@ -817,7 +1029,7 @@ function ActionWheel({ store, engine, pick, onPerson, onClose }: { store: Store;
     }
   } else {
     const o = MAP.objects.find(o => o.id === pick.id);
-    if (!o?.use || o.use.kind === 'calendar' || o.use.kind === 'meetings' || o.use.kind === 'jukebox') return null;
+    if (!o?.use || o.use.kind === 'calendar' || o.use.kind === 'meetings' || o.use.kind === 'achievements' || o.use.kind === 'jukebox') return null;
     if (o.use.kind === 'toggle') {
       const on = store.objects[o.id]?.on ?? o.on ?? true;
       title = o.use.label[0].toUpperCase() + o.use.label.slice(1);

@@ -1,10 +1,10 @@
 // The floor: one <canvas>, one requestAnimationFrame loop.
 // Order: static tilemap → y-sorted furniture + sprites → nameplates & bubbles → ambient tint → UI hints.
-import { isWalkable, roomAt, seatAt, type MapObject } from '../../shared/map';
+import { applyEdit, FIXED_TYPES, findPath, isWalkable, layoutProblem, objectName, roomAt, seatAt, withLayout, type MapObject, type Rug, type Tile } from '../../shared/map';
 import type { Assets, Frame } from './assets';
 import { drawText, textWidth } from './font';
 import { TRACK } from '../../shared/music';
-import { MEETING_ROOM_ID } from '../../shared/protocol';
+import { MEETING_ROOM_ID, PLANT_REVEAL, PLANT_STAGES, plantDead, plantName, type LayoutEdit } from '../../shared/protocol';
 import { ITEMS, MAP, type ClientUser, type Pose, type Store } from './net';
 
 const TS = MAP.tileSize;
@@ -15,6 +15,10 @@ const DIR_ROW: Record<string, number> = { down: 0, left: 1, right: 2, up: 3 };
 const WALK_FPS = 8; // 4 frames per tile at 4 tiles/s
 const SIT_FRAME = 5;
 
+/** Someone's plant where it stands: x = pot centre, y = pot bottom, base = y-sort key (just after its desk or shelf). */
+type PlacedPlant = { u: ClientUser; x: number; y: number; base: number };
+const FRONT: Record<string, [number, number]> = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
+
 type BubbleKind = 'bubble_bang' | 'bubble_headset' | 'bubble_zzz' | 'bubble_meeting' | 'bubble_dots' | 'bubble_think' | 'bubble_talk' | 'bubble_hand' | 'bubble_deaf';
 // where the bag hangs when carried, per facing; behind = drawn before the body
 const BAG_HAND: Record<string, { dx: number; behind: boolean }> = {
@@ -23,6 +27,8 @@ const BAG_HAND: Record<string, { dx: number; behind: boolean }> = {
 
 /** What a click landed on; the action wheel opens for it. */
 export type Pick = { kind: 'user' | 'object'; id: string };
+/** Something an admin can pick up in edit mode: a piece of furniture or a rug. */
+type Item = { id: string; x: number; y: number; w: number; h: number; type?: string; wall?: boolean; dir?: string; color?: string };
 
 // item id -> icon, from whatever the map's objects hand out
 const ITEM_ICON = new Map([...ITEMS].map(([id, i]) => [id, i.icon]));
@@ -58,6 +64,8 @@ export class Engine {
   selected: Pick | null = null;
   onPick?: (p: Pick | null) => void;
   private hoverTile: { x: number; y: number } | null = null;
+  private hoverPlant: PlacedPlant | null = null;
+  private plants: PlacedPlant[] = [];
   private drag: { x: number; y: number; camX: number; camY: number; moved: boolean } | null = null;
   private bubbleState = new Map<string, { kind: BubbleKind | null; at: number }>();
   private nameplates = new Map<string, HTMLCanvasElement>();
@@ -67,15 +75,23 @@ export class Engine {
   private steamers: MapObject[];
   private placedPlates: { x: number; y: number; w: number }[] = [];
   private snapped = false;
+  private slots: Tile[] = [];
+  private layoutSeen = -1;
+  // ---- edit mode (office admins) ----
+  editing = false;
+  /** Selected furniture or rug. */
+  editSel: string | null = null;
+  /** A catalog type (or 'rug') to put down with the next click. */
+  placing: string | null = null;
+  onEditChange?: () => void;
+  private editHover: Item | null = null;
+  private editDrag: { item: Item; gx: number; gy: number; x: number; y: number; moved: boolean } | null = null;
+  private ghost: { item: Item; problem: string | null } | null = null;
 
   constructor(private canvas: HTMLCanvasElement, private store: Store, private assets: Assets) {
     this.ctx = canvas.getContext('2d')!;
-    this.staticLayer = this.buildStatic();
-    this.dynamicObjects = MAP.objects.filter(o => !o.wall && !o.walkable);
-    this.lights = MAP.objects.filter(o => o.light);
-    this.steamers = MAP.objects.filter(o => o.steam);
-    this.interactive = MAP.objects.filter(o => o.use || o.sit || o.sound);
-    this.boards = MAP.objects.filter(o => o.use?.kind === 'meetings');
+    this.staticLayer = this.dynamicObjects = this.lights = this.steamers = this.interactive = this.boards = null!;
+    this.refreshLayout();
     this.ro = new ResizeObserver(() => this.resize());
     this.ro.observe(canvas.parentElement!);
     this.resize();
@@ -115,6 +131,39 @@ export class Engine {
     const r = MAP.rooms.find(r => r.id === id)?.rect; if (!r) return;
     this.lookAt((r.x + r.w / 2) * TS, (r.y + r.h / 2) * TS);
   }
+  /** Walk into a room (from the list): the free tile nearest its middle, plain floor before a seat. */
+  walkToRoom(id: string) {
+    const r = MAP.rooms.find(r => r.id === id), me = this.store.users.get(this.store.me); if (!r || !me) return;
+    if (me.instance || roomAt(MAP, me.tile.x, me.tile.y)?.id === id) return this.focusRoom(id); // a meeting's room has no way out but Leave
+    const { x, y, w, h } = r.rect, cx = x + (w - 1) / 2, cy = y + (h - 1) / 2, taken = this.taken();
+    let best: { t: Tile; score: number } | null = null;
+    for (let ty = y; ty < y + h; ty++) for (let tx = x; tx < x + w; tx++) {
+      if (!isWalkable(MAP, tx, ty) || taken.has(`${tx},${ty}`)) continue;
+      const score = Math.abs(tx - cx) + Math.abs(ty - cy) + (seatAt(MAP, tx, ty) ? 100 : 0);
+      if (!best || score < best.score) best = { t: { x: tx, y: ty }, score };
+    }
+    if (best) this.walkTo(best.t); else this.focusRoom(id);
+  }
+  /** Walk up beside someone (from the list): the free neighbouring tile with the shortest path. */
+  walkToUser(id: string) {
+    const me = this.store.users.get(this.store.me), u = this.store.users.get(id);
+    if (!me || !u || u.id === me.id || !this.visible(u)) return this.focusUser(id);
+    const taken = this.taken(), inside = !!me.instance, d = u.tile;
+    let best: { t: Tile; len: number } | null = null;
+    for (const [dx, dy] of [[0, 1], [-1, 0], [1, 0], [0, -1]]) {
+      const t = { x: d.x + dx, y: d.y + dy };
+      if (t.x === me.tile.x && t.y === me.tile.y) return this.walkTo(t); // already there
+      if (!isWalkable(MAP, t.x, t.y) || taken.has(`${t.x},${t.y}`) || (inside && !inMeetingRoom(t.x, t.y))) continue;
+      const len = findPath(MAP, me.tile, t).length;
+      if (len && (!best || len < best.len)) best = { t, len };
+    }
+    if (best) this.walkTo(best.t); else this.focusUser(id);
+  }
+  /** Tiles other people stand on or are heading to, in my office or meeting room. */
+  private taken() {
+    return new Set([...this.store.users.values()].filter(u => u.id !== this.store.me && this.visible(u)).map(u => `${u.tile.x},${u.tile.y}`));
+  }
+  private walkTo(t: Tile) { this.onPick?.(null); this.manualCam = false; if (this.overview) this.zoomTo(this.backPx()); this.store.moveTo(t); }
   private lookAt(wx: number, wy: number) {
     this.manualCam = true;
     if (this.overview) return this.zoomTo(this.backPx(), { sx: this.canvas.width / 2, sy: this.canvas.height / 2 }, { wx, wy });
@@ -138,6 +187,58 @@ export class Engine {
     return { x: r.left + ((o.x + o.w / 2) * TS - this.cam.x) * k, y: r.top + ((o.y + o.h) * TS - fr.h / 2 - this.cam.y) * k, r: (Math.max(fr.w, fr.h) / 2) * k };
   }
 
+  // ---------- edit mode (office admins) ----------
+  setEditing(on: boolean) {
+    this.editing = on; this.editSel = this.placing = null; this.editDrag = this.ghost = this.editHover = null;
+    this.hoverTile = null; this.hoverUser = null; this.hoverObject = null;
+    this.manualCam = on; // the floor holds still under the pointer; Done follows me again
+    this.onPick?.(null); this.onEditChange?.();
+  }
+  setPlacing(type: string | null) { this.placing = type; this.editSel = null; this.ghost = null; this.onEditChange?.(); }
+  select(id: string | null) { this.editSel = id; this.placing = null; this.onEditChange?.(); }
+  item(id: string): Item | undefined { return MAP.objects.find(o => o.id === id) ?? MAP.rugs.find(r => r.id === id); }
+  /** What's under this point in edit mode: the front-most sprite, else a rug. */
+  private itemAt(wx: number, wy: number): Item | null {
+    let best: MapObject | null = null, bestKey = -Infinity;
+    for (const o of MAP.objects) {
+      const s = this.sprite(o);
+      const [x, y, w, h] = s ? [s.x, s.y, s.fr.w, s.fr.h] : [o.x * TS, o.y * TS, o.w * TS, o.h * TS];
+      if (wx < x || wx >= x + w || wy < y || wy >= y + h) continue;
+      const key = (o.wall ? -1000 : 0) + (o.y + o.h) * 2 + (o.walkable ? 0 : 1); // in front wins, decor last
+      if (key > bestKey) { best = o; bestKey = key; }
+    }
+    if (best) return best;
+    const tx = Math.floor(wx / TS), ty = Math.floor(wy / TS);
+    return MAP.rugs.find(r => tx >= r.x && tx < r.x + r.w && ty >= r.y && ty < r.y + r.h) ?? null;
+  }
+  /** What clicking this tile would put down, centred under the pointer. */
+  private placeItem(tx: number, ty: number): Item {
+    const t = this.placing === 'rug' ? { w: 3, h: 2, color: 'green' } : MAP.catalog[this.placing!];
+    return { ...t, id: '', x: tx - Math.floor((t.w - 1) / 2), y: ty - Math.floor((t.h - 1) / 2) };
+  }
+  private placeEdit(it: Item): LayoutEdit { return it.color ? { op: 'rug_add', x: it.x, y: it.y } : { op: 'add', type: it.type!, x: it.x, y: it.y }; }
+  /** Why the server would turn this edit down, or null: the same checks, run here first so the ghost can say. */
+  private check(edit: LayoutEdit) {
+    const next = applyEdit(MAP, edit, () => '');
+    return typeof next === 'string' ? next : layoutProblem(withLayout(MAP, next));
+  }
+
+  /** The furniture changed (an admin moved something): redraw the floor and re-sort what's where. */
+  private refreshLayout() {
+    this.layoutSeen = this.store.layoutVersion;
+    this.staticLayer = this.buildStatic();
+    this.dynamicObjects = MAP.objects.filter(o => !o.wall && !o.walkable);
+    this.lights = MAP.objects.filter(o => o.light);
+    this.steamers = MAP.objects.filter(o => o.steam);
+    this.interactive = MAP.objects.filter(o => o.use || o.sit || o.sound);
+    this.boards = MAP.objects.filter(o => o.use?.kind === 'meetings');
+    this.slots = MAP.rooms.flatMap(r => r.plantSlots ?? []);
+    if (this.editSel && !this.item(this.editSel)) this.editSel = null;
+    if (this.store.added) { this.editSel = this.store.added; this.store.added = null; }
+    this.ghost = null;
+    this.onEditChange?.();
+  }
+
   // ---------- frames ----------
   private f(name: string): Frame { return this.assets.atlas.frames[name]; }
   private blit(ctx: CanvasRenderingContext2D, name: string, x: number, y: number) {
@@ -152,6 +253,7 @@ export class Engine {
     for (let y = 0; y < MAP.height; y++) for (let x = 0; x < MAP.width; x++) {
       if (floor[y][x]) this.blit(ctx, MAP.tiles[floor[y][x]], x * TS, y * TS);
     }
+    for (const r of MAP.rugs) this.drawRug(ctx, r);
     // soft shadows on the floor below wall faces and to the right of caps
     ctx.fillStyle = 'rgba(40,20,20,0.22)';
     for (let y = 1; y < MAP.height; y++) for (let x = 0; x < MAP.width; x++) {
@@ -165,15 +267,24 @@ export class Engine {
       if (walls[y][x]) this.blit(ctx, MAP.tiles[walls[y][x]], x * TS, y * TS);
     }
     // wall decor + floor-level furniture (chairs) are static
-    for (const o of MAP.objects) {
-      if (!o.wall && !o.walkable) continue;
-      const name = o.dir && this.f(`${o.type}_${o.dir}`) ? `${o.type}_${o.dir}` : o.type; // chairs face their desk
-      const fr = this.f(name); if (!fr) continue;
-      const x = o.x * TS + (o.w * TS - fr.w) / 2;
-      const y = o.wall ? o.y * TS : (o.y + o.h) * TS - fr.h;
-      this.blit(ctx, name, x, y);
-    }
+    for (const o of MAP.objects) if (o.wall || o.walkable) this.drawItem(ctx, o);
     return c;
+  }
+  private drawRug(ctx: CanvasRenderingContext2D, r: Rug) {
+    for (let y = r.y; y < r.y + r.h; y++) for (let x = r.x; x < r.x + r.w; x++) {
+      const v = y === r.y ? 'n' : y === r.y + r.h - 1 ? 's' : '', h = x === r.x ? 'w' : x === r.x + r.w - 1 ? 'e' : '';
+      this.blit(ctx, `rug_${r.color}_${(v + h) || 'c'}`, x * TS, y * TS);
+    }
+  }
+  /** A piece of furniture's sprite and where it goes: centred on its footprint, standing on its bottom edge (decor hangs from the top). */
+  private sprite(o: Item) {
+    const name = o.dir && this.f(`${o.type}_${o.dir}`) ? `${o.type}_${o.dir}` : o.type!; // chairs face their desk
+    const fr = this.f(name);
+    return fr && { name, fr, x: o.x * TS + (o.w * TS - fr.w) / 2, y: o.wall ? o.y * TS : (o.y + o.h) * TS - fr.h };
+  }
+  private drawItem(ctx: CanvasRenderingContext2D, o: Item) {
+    if (o.color) return this.drawRug(ctx, o as Rug);
+    const s = this.sprite(o); if (s) this.blit(ctx, s.name, s.x, s.y);
   }
 
   // ---------- layout ----------
@@ -299,6 +410,13 @@ export class Engine {
       return;
     }
     if (this.pointers.size > 2) return;
+    if (this.editing && !this.placing && !this.tapZooms) { // grab a piece of furniture (the floor still pans)
+      const w = this.toWorld(e), it = this.itemAt(w.x, w.y);
+      if (it && !(it.type && FIXED_TYPES.has(it.type))) {
+        this.editDrag = { item: { ...it }, gx: Math.floor(w.x / TS) - it.x, gy: Math.floor(w.y / TS) - it.y, x: it.x, y: it.y, moved: false };
+        return;
+      }
+    }
     this.drag = { x: e.clientX, y: e.clientY, camX: this.cam.x, camY: this.cam.y, moved: false };
   };
   private onPinch() {
@@ -312,7 +430,7 @@ export class Engine {
     pin.x = mid.x; pin.y = mid.y;
     this.zoomTo(pin.px * (Math.hypot(a.x - b.x, a.y - b.y) / pin.dist), at);
   }
-  private onCancel = (e: PointerEvent) => { this.pointers.delete(e.pointerId); if (this.pointers.size < 2) this.pinch = null; this.drag = null; };
+  private onCancel = (e: PointerEvent) => { this.pointers.delete(e.pointerId); if (this.pointers.size < 2) this.pinch = null; this.drag = null; this.editDrag = null; this.ghost = null; };
   private onLeave = (e: PointerEvent) => { this.hoverUser = null; this.hoverObject = null; this.hoverTile = null; if (!this.pointers.has(e.pointerId)) this.drag = null; };
   private onWheel = (e: WheelEvent) => {
     e.preventDefault();
@@ -344,6 +462,7 @@ export class Engine {
   private onKey = (e: KeyboardEvent) => {
     const t = e.target;
     if (e.metaKey || e.ctrlKey || e.altKey || (t instanceof Element && t.closest('input, textarea, select, [contenteditable]'))) return;
+    if (this.editing && this.onEditKey(e)) return e.preventDefault();
     if (e.key === '+' || e.key === '=') this.zoomIn();
     else if (e.key === '-' || e.key === '_') this.zoomOut();
     else if (e.key === '0') this.resetZoom();
@@ -351,6 +470,18 @@ export class Engine {
     else return;
     e.preventDefault();
   };
+  /** Edit mode keys: arrows nudge (shift+arrows resize a rug), Delete removes, Esc lets go. */
+  private onEditKey(e: KeyboardEvent) {
+    if (e.key === 'Escape' && (this.placing || this.editSel)) { if (this.placing) this.setPlacing(null); else this.select(null); return true; }
+    const sel = this.editSel ? this.item(this.editSel) : undefined;
+    if (!sel) return false;
+    const step = ({ ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0] } as Record<string, [number, number]>)[e.key];
+    if (step && e.shiftKey && sel.color) this.store.edit({ op: 'rug', id: sel.id, w: sel.w + step[0], h: sel.h + step[1] });
+    else if (step) this.store.edit({ op: 'move', id: sel.id, x: sel.x + step[0], y: sel.y + step[1] });
+    else if (e.key === 'Delete' || e.key === 'Backspace') this.store.edit({ op: 'remove', id: sel.id });
+    else return false;
+    return true;
+  }
   private onMove = (e: PointerEvent) => {
     if (this.pointers.has(e.pointerId)) this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (this.pinch && this.pointers.size >= 2) return this.onPinch();
@@ -364,22 +495,51 @@ export class Engine {
       }
     }
     const w = this.toWorld(e);
+    if (this.editing) return this.onEditMove(w);
     this.hoverUser = this.userAt(w.x, w.y);
     const inside = this.myInstance();
     this.hoverObject = this.hoverUser || inside ? null : this.objectAt(w.x, w.y);
+    this.hoverPlant = this.hoverUser || this.hoverObject || inside ? null
+      : this.plants.find(p => w.x >= p.x - 5 && w.x < p.x + 5 && w.y >= p.y - 18 && w.y < p.y) ?? null;
     const tx = Math.floor(w.x / TS), ty = Math.floor(w.y / TS);
     this.hoverTile = isWalkable(MAP, tx, ty) && (!inside || inMeetingRoom(tx, ty)) ? { x: tx, y: ty } : null;
     this.canvas.style.cursor = this.tapZooms ? 'zoom-in' : this.hoverUser || this.hoverObject ? 'pointer' : this.hoverTile ? 'crosshair' : 'default';
   };
+  private onEditMove(w: { x: number; y: number }) {
+    const tx = Math.floor(w.x / TS), ty = Math.floor(w.y / TS), d = this.editDrag;
+    if (d) {
+      const x = tx - d.gx, y = ty - d.gy;
+      if (x !== d.x || y !== d.y) {
+        d.x = x; d.y = y; d.moved = true;
+        this.ghost = { item: { ...d.item, x, y }, problem: this.check({ op: 'move', id: d.item.id, x, y }) };
+      }
+    } else if (this.placing && !this.tapZooms) {
+      const it = this.placeItem(tx, ty);
+      if (!this.ghost || this.ghost.item.x !== it.x || this.ghost.item.y !== it.y || this.ghost.item.type !== it.type) this.ghost = { item: it, problem: this.check(this.placeEdit(it)) };
+    }
+    this.editHover = this.placing || d ? null : this.itemAt(w.x, w.y);
+    this.canvas.style.cursor = this.tapZooms ? 'zoom-in' : d ? 'grabbing' : this.placing ? 'copy' : this.editHover ? 'grab' : 'default';
+  }
   private onUp = (e: PointerEvent) => {
     this.pointers.delete(e.pointerId);
     if (this.pinch) { if (this.pointers.size < 2) this.pinch = null; return; }
+    const ed = this.editDrag; this.editDrag = null;
+    if (ed) { // dropped (or just clicked): select it, and move it if it went somewhere
+      this.ghost = null;
+      if (ed.moved) this.store.edit({ op: 'move', id: ed.item.id, x: ed.x, y: ed.y });
+      return this.select(ed.item.id);
+    }
     const d = this.drag; this.drag = null;
     if (!d || d.moved) return;
     const w = this.toWorld(e);
     if (this.tapZooms) { // overview: a tap zooms in right there
       this.manualCam = true; this.onPick?.(null);
       return this.zoomTo(this.backPx(), this.devicePoint(e), { wx: w.x, wy: w.y });
+    }
+    if (this.editing) {
+      if (this.placing) this.store.edit(this.placeEdit(this.placeItem(Math.floor(w.x / TS), Math.floor(w.y / TS))));
+      else this.select(this.itemAt(w.x, w.y)?.id ?? null);
+      return;
     }
     const hit = this.userAt(w.x, w.y);
     if (hit) return this.onPick?.({ kind: 'user', id: hit });
@@ -393,9 +553,32 @@ export class Engine {
     if (isWalkable(MAP, tx, ty) && (!inside || inMeetingRoom(tx, ty))) { this.store.moveTo({ x: tx, y: ty }); this.manualCam = false; }
   };
 
+  /** Plants stand on their owner's home desk, or on an Orangery shelf if they have none. On the desk it goes to the
+   *  far end from the chair along the edge you sit at (a desk's other end, a shared table's back corner on your side),
+   *  pushed to the outer edge so it clears the monitor or laptops. */
+  private placePlants(): PlacedPlant[] {
+    const out: PlacedPlant[] = [], shelved: ClientUser[] = [];
+    for (const u of this.store.users.values()) {
+      if (!u.plant) continue;
+      const seat = u.homeDesk && seatAt(MAP, u.homeDesk.x, u.homeDesk.y);
+      const [dx, dy] = FRONT[seat ? seat.dir : 'up'], fx = (seat?.x ?? 0) + dx, fy = (seat?.y ?? 0) + dy;
+      const desk = seat && MAP.objects.find(o => !o.walkable && !o.wall && fx >= o.x && fx < o.x + o.w && fy >= o.y && fy < o.y + o.h);
+      if (!seat || !desk) { shelved.push(u); continue; }
+      const far = (lo: number, n: number, from: number) => (Math.abs(lo - from) > Math.abs(lo + n - 1 - from) ? lo : lo + n - 1);
+      const tx = dx ? fx : far(desk.x, desk.w, seat.x), ty = dy ? fy : far(desk.y, desk.h, seat.y);
+      const side = Math.sign(tx + 0.5 - (desk.x + desk.w / 2)) || 1;
+      out.push({ u, x: tx * TS + 8 + side * 4, y: ty * TS + (desk.h > 1 ? 11 : 7), base: (desk.y + desk.h) * TS - 0.25 }); // a big table: inside its top edge
+    }
+    shelved.sort((a, b) => a.id.localeCompare(b.id));
+    const slots = this.slots;
+    shelved.slice(0, slots.length).forEach((u, i) => out.push({ u, x: slots[i].x * TS + 8, y: slots[i].y * TS + 6, base: (slots[i].y + 1) * TS - 0.25 }));
+    return out;
+  }
+
   // ---------- render ----------
   private frame = (ms: number) => {
     this.raf = requestAnimationFrame(this.frame);
+    if (this.layoutSeen !== this.store.layoutVersion) this.refreshLayout();
     const ctx = this.ctx, t = this.store.now();
     const users = [...this.store.users.values()].filter(u => this.visible(u));
     const poses = new Map<string, Pose>(users.map(u => [u.id, this.store.pose(u, t)]));
@@ -426,7 +609,7 @@ export class Engine {
     ctx.drawImage(this.staticLayer, 0, 0);
 
     // hover tile + my destination marker
-    if (this.hoverTile && !this.hoverUser && !this.tapZooms) {
+    if (this.hoverTile && !this.hoverUser && !this.tapZooms && !this.editing) {
       ctx.strokeStyle = 'rgba(255,240,200,0.55)'; ctx.lineWidth = 1;
       ctx.strokeRect(this.hoverTile.x * TS + 0.5, this.hoverTile.y * TS + 0.5, TS - 1, TS - 1);
     }
@@ -460,6 +643,12 @@ export class Engine {
     for (const u of users) {
       const p = poses.get(u.id)!;
       ds.push({ base: p.y * TS + TS, draw: () => this.drawSprite(u, p, ms) });
+    }
+    this.plants = me?.instance ? [] : this.placePlants();
+    for (const p of this.plants) {
+      const pl = p.u.plant!, kinded = pl.kind && pl.stage >= PLANT_REVEAL;
+      const name = plantDead(pl, t) ? 'pot_dead' : kinded ? `pot_${pl.kind}_${pl.stage}` : `pot_${pl.stage}`;
+      ds.push({ base: p.base, draw: () => this.blit(ctx, name, p.x - 6, p.y - 20) });
     }
     ds.sort((a, b) => a.base - b.base);
     for (const d of ds) d.draw();
@@ -498,6 +687,7 @@ export class Engine {
     this.drawReactions(poses, ms);
 
     this.drawAmbient(ctx, camX, camY);
+    if (this.editing) this.drawEdit(ctx, camX, camY, ms);
     if (this.overview && !me?.instance) this.drawRoomTags(users, poses, camX, camY);
     // one of my meetings is on: say so over the board, readable at any zoom
     const goable = me && !me.instance && this.hoverObject?.use?.kind !== 'meetings'
@@ -508,14 +698,19 @@ export class Engine {
     }
 
     // hover tooltip in screen space
-    if (this.tapZooms) { /* overview: room tags only */ }
+    if (this.tapZooms || this.editing) { /* overview: room tags only; edit mode: its own labels */ }
     else if (this.hoverUser) this.drawTooltip(this.hoverUser, poses, camX, camY);
     else if (this.hoverObject && !this.selected) {
       const o = this.hoverObject, fr = this.f(o.type)!;
       const jukebox = this.store.jukebox[o.id], track = jukebox && TRACK.get(jukebox.track);
       const what = o.use?.kind === 'jukebox' ? !jukebox ? 'Jukebox · Reconnecting…' : jukebox.pausedAt !== null ? 'Jukebox · paused' : `Jukebox · ♪ ${track?.title ?? jukebox.track} — ${track?.artist ?? ''}` : o.sound ? 'Radio · music volume in ⚙' : o.use?.kind === 'toggle' ? `${o.use.label[0].toUpperCase()}${o.use.label.slice(1)} · ${this.isOn(o) ? 'on' : 'off'}`
-        : o.use?.kind === 'calendar' ? 'Calendar · your week' : o.use?.kind === 'meetings' ? `Meetings · ${this.store.meetingRooms.length || 'none'} on now` : o.sit ? 'Sofa · click to sit' : o.type === 'coffee_machine' ? 'Coffee machine' : o.type === 'fridge' ? 'Fridge' : o.type;
+        : o.use?.kind === 'calendar' ? 'Calendar · your week' : o.use?.kind === 'achievements' ? 'Notice board · your plant and achievements' : o.use?.kind === 'meetings' ? `Meetings · ${this.store.meetingRooms.length || 'none'} on now` : o.sit ? `${o.type === 'bench' ? 'Bench' : 'Sofa'} · click to sit` : o.type === 'coffee_machine' ? 'Coffee machine' : o.type === 'fridge' ? 'Fridge' : o.type;
       this.drawLabel(what, (o.x + o.w / 2) * TS, (o.y + o.h) * TS - fr.h + 4, camX, camY);
+    }
+    else if (this.hoverPlant) {
+      const { u, x, y } = this.hoverPlant, mine = u.id === this.store.me, p = u.plant!;
+      const state = plantDead(p, t) ? (mine ? 'withered · set a status to replant' : 'withered') : PLANT_STAGES[p.stage] + (mine ? ' · set a status each day' : '');
+      this.drawLabel(`${mine ? 'Your' : `${u.name.split(' ')[0]}'s`} ${plantDead(p, t) ? 'plant' : plantName(p)} · ${state}`, x, y - 18, camX, camY);
     }
     else if (this.hoverTile) {
       const owner = deskOwners.get(`${this.hoverTile.x},${this.hoverTile.y}`);
@@ -541,6 +736,7 @@ export class Engine {
       bob = u.presence === 'away' ? (phase < 900 ? 1 : 0) : phase < 300 ? 1 : 0; // tiny breathing bob
     }
     const row = DIR_ROW[p.dir] ?? 0;
+    const walkBob = p.walking && (frame === 2 || frame === 4) ? -1 : 0;
     // the bag: in hand walking in and out, on the floor while they think about leaving
     const hand = BAG_HAND[p.dir] ?? BAG_HAND.down;
     const swing = p.walking && frame % 2 ? 1 : 0;
@@ -550,7 +746,7 @@ export class Engine {
     if (carrying && hand.behind) drawBag();
     // at the door: already half out
     ctx.globalAlpha = u.door === 'leaving' && !p.walking ? 0.45 : u.presence === 'away' ? 0.8 : 1;
-    ctx.drawImage(sheet, frame * c.frameW, row * c.frameH, c.frameW, c.frameH, x, baseY - c.frameH + bob - 1, c.frameW, c.frameH);
+    ctx.drawImage(sheet, frame * c.frameW, row * c.frameH, c.frameW, c.frameH, x, baseY - c.frameH + bob + walkBob - 1, c.frameW, c.frameH);
     if (carrying && !hand.behind) drawBag();
     ctx.globalAlpha = 1;
     const icon = u.holding && !carrying ? ITEM_ICON.get(u.holding) : undefined;
@@ -582,9 +778,9 @@ export class Engine {
     if (u.door === 'leaving') return null;
     if (u.emote === 'knock') return 'bubble_bang';
     if (u.callId) return u.deafened ? 'bubble_deaf' : 'bubble_talk';
+    if (u.instance || u.meeting) return 'bubble_meeting'; // a real calendar meeting, not just standing in the Meeting room; beats a manual "In a call"
     if (u.presence === 'in_call') return 'bubble_headset';
     if (u.presence === 'away') return 'bubble_zzz';
-    if (!p.walking && roomAt(MAP, p.tile.x, p.tile.y)?.rules.occupantLabel) return 'bubble_meeting';
     if (u.status) return 'bubble_dots';
     return null;
   }
@@ -701,6 +897,39 @@ export class Engine {
       const s = ph < 0.5 ? 1 : 2;
       ctx.fillRect(x, y, s, s);
     }
+  }
+
+  /** Edit mode: a tile grid, what's under the pointer, the selection, and where a dragged or new thing would land. */
+  private drawEdit(ctx: CanvasRenderingContext2D, camX: number, camY: number, ms: number) {
+    const x0 = Math.max(0, Math.floor(camX / TS)), x1 = Math.min(MAP.width, Math.ceil((camX + this.viewW) / TS));
+    const y0 = Math.max(0, Math.floor(camY / TS)), y1 = Math.min(MAP.height, Math.ceil((camY + this.viewH) / TS));
+    ctx.strokeStyle = 'rgba(255,240,200,0.2)'; ctx.lineWidth = 1 / this.px;
+    ctx.beginPath();
+    for (let x = x0; x <= x1; x++) { ctx.moveTo(x * TS, y0 * TS); ctx.lineTo(x * TS, y1 * TS); }
+    for (let y = y0; y <= y1; y++) { ctx.moveTo(x0 * TS, y * TS); ctx.lineTo(x1 * TS, y * TS); }
+    ctx.stroke();
+    // the footprint shaded, the whole sprite outlined
+    const outline = (it: Item, color: string, fill: string, dash: boolean) => {
+      const s = it.color ? null : this.sprite(it);
+      const x = Math.min(it.x * TS, s?.x ?? Infinity), y = Math.min(it.y * TS, s?.y ?? Infinity);
+      const r = Math.max((it.x + it.w) * TS, s ? s.x + s.fr.w : 0), b = Math.max((it.y + it.h) * TS, s ? s.y + s.fr.h : 0);
+      ctx.fillStyle = fill; ctx.fillRect(it.x * TS, it.y * TS, it.w * TS, it.h * TS);
+      ctx.strokeStyle = color; ctx.lineWidth = 1; ctx.setLineDash(dash ? [2, 2] : []);
+      ctx.strokeRect(Math.round(x) - 0.5, Math.round(y) - 0.5, Math.round(r - x) + 1, Math.round(b - y) + 1); ctx.setLineDash([]);
+    };
+    const hover = this.editHover && this.editHover.id !== this.editSel ? this.editHover : null;
+    if (hover) outline(hover, 'rgba(255,255,255,0.85)', 'rgba(255,255,255,0.1)', true);
+    const sel = this.editSel ? this.item(this.editSel) : undefined;
+    if (sel) outline(sel, `rgba(255,214,110,${(0.8 + Math.sin(ms / 180) * 0.2).toFixed(2)})`, 'rgba(255,214,110,0.22)', false);
+    const g = this.ghost;
+    if (g) {
+      ctx.globalAlpha = 0.7; this.drawItem(ctx, g.item); ctx.globalAlpha = 1;
+      ctx.fillStyle = g.problem ? 'rgba(220,60,50,0.38)' : 'rgba(90,200,110,0.3)';
+      ctx.fillRect(g.item.x * TS, g.item.y * TS, g.item.w * TS, g.item.h * TS);
+    }
+    // labels last: they draw in screen space
+    if (g?.problem) this.drawLabel(g.problem, (g.item.x + g.item.w / 2) * TS, g.item.y * TS, camX, camY);
+    else if (hover) this.drawLabel(hover.type ? objectName(hover.type) : 'rug', (hover.x + hover.w / 2) * TS, hover.y * TS, camX, camY);
   }
 
   private drawAmbient(ctx: CanvasRenderingContext2D, camX: number, camY: number) {

@@ -70,6 +70,18 @@
       "url": "https://localhost:5173"
     },
     {
+      "name": "deck-edit",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "VITE_PORT=5179",
+        "DECK_PORT=8794",
+        "npm",
+        "run",
+        "dev"
+      ],
+      "port": 5179
+    },
+    {
       "name": "deck-floor",
       "runtimeExecutable": "env",
       "runtimeArgs": [

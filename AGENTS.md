@@ -77,6 +77,14 @@ npm run typecheck    # run before every commit or deploy
   name the current `playId`, so stale clicks do nothing). Clients stream a track through one `<audio>` element into
   the soundscape and only while it's audible, so nobody outside the room downloads music. Static files support HTTP
   Range (`server/src/static.ts`), which media seeking needs.
+- **Edit mode** (pencil in the top bar, admins only: `DECK_ADMINS`, emails, default `ivan.baranov@t1a.com`; `npm run dev`
+  adds the name `dev`, and names only count for logins without an email). Admins drag furniture and rugs, add from the
+  catalog (one of each generated type), recolor/resize rugs, Reset. Walls, floors and rooms stay as generated; the
+  furniture and rugs are a `Layout` the server owns (`edit` → `layout` to everyone, saved in `state.json` once changed).
+  `applyLayout` in `shared/map.ts` derives walkable tiles, chair facing, seats and plant slots from it; `layoutProblem`
+  refuses anything that blocks a doorway, the way in, a seat or a coffee machine/lamp (the client runs the same check for
+  the red/green ghost). Home desks follow their chair; people under new furniture step aside. A saved layout overrides
+  `gen-map.mjs`'s furniture, so after changing the generator, Reset (or drop `layout` from `state.json`) to see it.
 - **Room behavior is data.** Knock rules, meeting links and home-desk rooms live in `tilemap.json`
   (from `gen-map.mjs`), not in code.
 
@@ -167,4 +175,6 @@ scripts/deploy.sh <name>   # no argument = prod. Deploys your WORKING COPY (unco
 - TypeScript strict, both sides. Match the surrounding style: compact, comments only where the *why* isn't obvious.
 - Protocol changes go in `shared/protocol.ts` first. The server validates everything a client sends.
 - Keep REQUIREMENTS.md's "not now" list in mind: design for it (data, not code), don't build it.
-- Commit only when asked, and write descriptive messages. `main` is the shared branch, so pull before you push.
+- **Never work in `main` and never commit or push to it directly.** `main` is the shared branch. Before editing, pull
+  `main` and branch off it (or use a worktree), then land changes through a pull request.
+- Commit only when asked, and write descriptive messages.

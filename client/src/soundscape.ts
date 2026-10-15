@@ -171,6 +171,11 @@ export class Soundscape {
     }
   }
   private emitters() {
+    // the jukebox can be moved (edit mode): follow it, and drop one that's gone
+    for (const [id, s] of this.sources) if (s.kind === 'jukebox') {
+      const o = MAP.objects.find(o => `obj:${o.id}` === id && o.use?.kind === 'jukebox');
+      if (!o) this.remove(id); else if (s.tile!.x !== o.x || s.tile!.y !== o.y) s.tile = { x: o.x, y: o.y };
+    }
     for (const o of MAP.objects) if (o.use?.kind === 'jukebox' && !this.sources.has(`obj:${o.id}`)) {
       const el = new Audio(); el.preload = 'auto';
       const s = this.add(`obj:${o.id}`, 'jukebox', audio().createMediaElementSource(el), o.sound?.gain ?? 1, { x: o.x, y: o.y });

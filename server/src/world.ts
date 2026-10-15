@@ -1,11 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import {
-  besideObject, dirBetween, hallDistance, voiceRooms, findPath, isWalkable, pathDuration, pathTo, roomAt, sampleMove, seatAt, WALK_MS_PER_TILE,
-  type Dir, type Room, type Spot, type TileMap, type Tile,
+  applyEdit, applyLayout, besideObject, dirBetween, hallDistance, layoutProblem, voiceRooms, findPath, isWalkable, pathDuration, pathTo, roomAt, sampleMove, seatAt, withLayout, WALK_MS_PER_TILE,
+  type Dir, type Layout, type Room, type Spot, type TileMap, type Tile,
 } from '../../shared/map';
 import {
   ZONE_IN_TILES, ZONE_OUT_TILES, MAX_CALL_SIZE, MEETING_ROOM_ID, MAX_CHAT_LEN, normalizeMeetLink, REACTIONS, ROOM_VOICE_MAX,
-  type ChatMsg, type ClientMsg, type Door, type Knock, type Look, type Presence, type PublicUser, type Reaction, type ServerMsg,
+  dayNumber, plantDead, BOTANIST_KINDS, PLANT_KINDS, PLANT_STAGES, type Plant,
+  type ChatMsg, type ClientMsg, type Door, type Knock, type LayoutEdit, type Look, type Presence, type PublicUser, type Reaction, type ServerMsg,
 } from '../../shared/protocol';
 import { TRACKS } from '../../shared/music';
 import { Jukebox } from './jukebox';
@@ -39,7 +40,8 @@ export const lookFor = (name: string): Look => {
   const h = hashStr(name.toLowerCase());
   return {
     skin: SKINS[h % SKINS.length], hair: HAIRS[(h >>> 4) % HAIRS.length],
-    shirt: SHIRTS[(h >>> 9) % SHIRTS.length], pants: PANTS[(h >>> 14) % PANTS.length], style: (h >>> 20) % 3,
+    shirt: SHIRTS[(h >>> 9) % SHIRTS.length], pants: PANTS[(h >>> 14) % PANTS.length], eyes: '#2b1d1f', shoes: '#4a3028',
+    style: (h >>> 20) % 3, top: 0, bottom: 0, glasses: 0, hat: 0, glassesColor: '#282832', hatColor: '#3e5a8a',
   };
 };
 
@@ -52,6 +54,9 @@ const goingOut = (u: User) => u.door === 'thinking' || u.door === 'leaving';
 const FOLLOW_LAG_MS = 300;   // followers set off a beat after the person they follow
 const HOLD_MS = 3 * 60_000;  // a coffee lasts this long
 const USE_MS = { take: 1200, toggle: 150 }; // brewing a coffee vs flicking a switch
+
+/** Office admins rearrange the furniture: NetBird emails, or (only for name logins, so dev) plain names. */
+const ADMINS = (process.env.DECK_ADMINS ?? 'ivan.baranov@t1a.com').split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
 
 /** Dev bots answer DMs and reactions so there's something to talk to when testing alone. */
 export interface BotHooks { chat(bot: User, from: User, text: string): void; react(bot: User, from: User, emoji: Reaction): void }
@@ -74,17 +79,22 @@ export class World {
   botHooks?: BotHooks;
 
   build?: string; // sent in hello so open pages reload after a deploy
+  private baseLayout: Layout;     // as generated, for Reset
+  private layoutEdited = false;   // saved only once someone has changed it
+  private editSeq = 0;
   constructor(public map: TileMap) {
+    this.baseLayout = structuredClone({ objects: map.objects, rugs: map.rugs });
     for (const o of map.objects) if (o.use?.kind === 'toggle') this.objectOn.set(o.id, o.on ?? true);
-    const now = Date.now();
-    for (const o of map.objects) if (o.use?.kind === 'jukebox') this.jukeboxes.set(o.id, new Jukebox(TRACKS, now));
+    this.syncJukeboxes();
     setInterval(() => { const now = Date.now(); this.voiceTick(now); this.jukeboxTick(now); }, 250).unref();
   }
 
   // ---------- transport ----------
   broadcast(msg: ServerMsg) { for (const l of this.listeners) l(msg); }
   /** Private settings for the user themselves. */
-  me(u: User): ServerMsg { return { t: 'me', meetLink: u.meetLink ?? '', email: u.email, google: googleEnabled ? u.google?.email ?? null : undefined, calendar: !!u.google?.scopes.includes(CALENDAR_SCOPE) }; }
+  me(u: User): ServerMsg { return { t: 'me', meetLink: u.meetLink ?? '', email: u.email, google: googleEnabled ? u.google?.email ?? null : undefined, calendar: !!u.google?.scopes.includes(CALENDAR_SCOPE), admin: this.isAdmin(u) || undefined }; }
+  isAdmin(u: User) { return !u.bot && ADMINS.some(a => (a.includes('@') ? a === u.email : !u.email && a === u.name.toLowerCase())); }
+  layout(): Layout { return { objects: this.map.objects, rugs: this.map.rugs }; }
   sendTo(userId: string, msg: ServerMsg) { for (const s of this.sockets.get(userId)?.values() ?? []) s(msg); }
   snapshot(): ServerMsg {
     const objects = Object.fromEntries([...this.objectOn.keys()].map(id => [id, this.objectState(id)]));
@@ -105,7 +115,9 @@ export class World {
     this.listeners.add(send);
     send({ t: 'hello', you: userId, serverTime: Date.now(), build: this.build });
     this.stayAfterAll(u);
+    if (!u.plant && !u.bot) { u.plant = this.newPlant(u, dayNumber(Date.now()) - 1); this.plantChanged(u); } // a pot on your desk from day one; today's status already grows it
     if (u.presence === 'offline') this.comeIn(u);
+    send({ t: 'layout', layout: this.layout() }); // before anyone's walk, which every client paths on this floor
     send(this.snapshot());
     send(this.me(u));
     send({ t: 'meetings', rooms: this.meetingRooms() });
@@ -198,9 +210,9 @@ export class World {
   addUser(name: string, bot = false, tile?: Tile, email?: string): User {
     const u: User = {
       email,
-      id: randomUUID().slice(0, 8), name, look: lookFor(name), tile: tile ?? { ...this.map.spawn }, dir: 'down',
+      id: randomUUID().slice(0, 8), name, look: lookFor(name), lookSet: false, tile: tile ?? { ...this.map.spawn }, dir: 'down',
       move: null, path: null, presence: bot ? 'online' : 'offline', status: '', emote: null, bot, homeDesk: null, door: null, callId: null, deafened: false, hand: false, muted: false,
-      following: null, holding: null, meeting: null, instance: null,
+      following: null, holding: null, meeting: null, instance: null, plant: null, bloomed: [], achievements: {},
     };
     this.users.set(u.id, u);
     this.broadcast(this.snapshot());
@@ -281,7 +293,7 @@ export class World {
   /** Walk over to an object and use it: take something from it, or flip it on/off. */
   use(u: User, objectId: string, itemId?: string) {
     const o = this.map.objects.find(o => o.id === objectId);
-    if (!o?.use || o.use.kind === 'jukebox' || o.use.kind === 'calendar' || o.use.kind === 'meetings' || goingOut(u) || u.instance) return;
+    if (!o?.use || o.use.kind === 'jukebox' || o.use.kind === 'calendar' || o.use.kind === 'meetings' || o.use.kind === 'achievements' || goingOut(u) || u.instance) return;
     const item = o.use.kind === 'take' ? o.use.items.find(i => i.id === itemId) ?? o.use.items[0] : null;
     this.setFollowing(u, null);
     clearTimeout(this.errands.get(u.id));
@@ -368,7 +380,32 @@ export class World {
   setStatus(u: User, status: string) {
     u.status = status.slice(0, 80);
     this.broadcast({ t: 'status', userId: u.id, status: u.status });
+    if (u.status.trim()) this.tendPlant(u);
   }
+  /** Setting a status tends your plant: one stage a day. A dead one (or none yet) is replanted. */
+  tendPlant(u: User, now = Date.now()) {
+    const today = dayNumber(now), p = u.plant && !plantDead(u.plant, now) ? u.plant : null;
+    if (p?.care === today) return;
+    if (!p) { u.plant = this.newPlant(u, today); return this.plantChanged(u); }
+    const stage = Math.min(PLANT_STAGES.length - 1, p.stage + 1);
+    u.plant = { ...p, stage, care: today };
+    if (stage > p.stage) this.award(u, 'tended', now);
+    if (stage === PLANT_STAGES.length - 1 && stage > p.stage) {
+      const kind = p.kind ?? 'bush';
+      if (!u.bloomed.includes(kind)) u.bloomed = [...u.bloomed, kind];
+      this.award(u, 'bloom', now);
+      if (u.bloomed.length >= BOTANIST_KINDS) this.award(u, 'botanist', now);
+    }
+    this.plantChanged(u);
+  }
+  /** A seedling of a random kind, preferring flowers this person hasn't bloomed yet. */
+  private newPlant(u: User, care: number): Plant {
+    const fresh = PLANT_KINDS.filter(k => !u.bloomed.includes(k) && k !== u.plant?.kind);
+    const pool = fresh.length ? fresh : PLANT_KINDS.filter(k => k !== u.plant?.kind);
+    return { stage: 0, care, kind: pool[Math.floor(Math.random() * pool.length)] };
+  }
+  private award(u: User, id: string, now: number) { if (!u.achievements[id]) u.achievements = { ...u.achievements, [id]: now }; }
+  private plantChanged(u: User) { this.broadcast({ t: 'plant', userId: u.id, plant: u.plant, bloomed: u.bloomed, achievements: u.achievements }); }
   setPresence(u: User, presence: Presence) {
     if (u.presence === presence) return;
     u.presence = presence;
@@ -620,6 +657,68 @@ export class World {
     this.broadcast({ t: 'emote', userId: u.id, emote });
   }
 
+  // ---------- rearranging the office (admins) ----------
+  edit(u: User, edit: LayoutEdit) {
+    if (!this.isAdmin(u)) return;
+    const added = `e${Date.now().toString(36)}${(this.editSeq++).toString(36)}`;
+    const next = applyEdit(this.map, edit, () => added);
+    if (typeof next === 'string') return this.sendTo(u.id, { t: 'notice', text: `Can't: ${next}` });
+    this.setLayout(next, u, edit.op === 'add' || edit.op === 'rug_add' ? added : undefined);
+  }
+  resetLayout(u: User) { if (this.isAdmin(u) && this.setLayout(structuredClone(this.baseLayout), u)) this.layoutEdited = false; }
+  /** Check the whole floor, then put it in place for everyone: home desks go along with their chair, toggles
+   *  get their state, and anyone the new furniture lands on (or whose way it blocks) steps aside. */
+  private setLayout(next: Layout, by: User, added?: string) {
+    const problem = layoutProblem(withLayout(this.map, next));
+    if (problem) { this.sendTo(by.id, { t: 'notice', text: `Can't: ${problem}` }); return false; }
+    const chairAt = (t: Tile) => this.map.objects.find(o => o.type === 'chair' && o.x === t.x && o.y === t.y)?.id;
+    const deskChairs = [...this.users.values()].filter(o => o.homeDesk).map(o => ({ o, id: chairAt(o.homeDesk!) }));
+    applyLayout(this.map, next);
+    this.syncToggles(); this.syncJukeboxes(true);
+    this.layoutEdited = true;
+    this.broadcast({ t: 'layout', layout: this.layout(), by: by.id, added });
+    for (const { o, id } of deskChairs) {
+      const chair = this.map.objects.find(c => c.id === id), seat = chair && seatAt(this.map, chair.x, chair.y);
+      if (!seat?.homeDesk) this.setDesk(o, null);
+      else if (seat.x !== o.homeDesk!.x || seat.y !== o.homeDesk!.y) this.setDesk(o, { x: seat.x, y: seat.y });
+    }
+    this.stepAside();
+    return true;
+  }
+  /** Lamps added get switched on, lamps removed are forgotten. */
+  /** One Jukebox per jukebox on the floor; an admin moving it keeps what's playing. */
+  private syncJukeboxes(announce = false) {
+    const ids = new Set(this.map.objects.filter(o => o.use?.kind === 'jukebox').map(o => o.id));
+    for (const id of ids) if (!this.jukeboxes.has(id)) {
+      const j = new Jukebox(TRACKS, Date.now()); this.jukeboxes.set(id, j);
+      if (announce) this.broadcast({ t: 'jukebox', id, state: j.state });
+    }
+    for (const id of [...this.jukeboxes.keys()]) if (!ids.has(id)) this.jukeboxes.delete(id);
+  }
+  private syncToggles() {
+    for (const o of this.map.objects) if (o.use?.kind === 'toggle' && !this.objectOn.has(o.id)) this.objectOn.set(o.id, o.on ?? true);
+    for (const id of this.objectOn.keys()) if (!this.map.objects.some(o => o.id === id)) this.objectOn.delete(id);
+  }
+  private stepAside() {
+    const ok = (t: Tile) => isWalkable(this.map, t.x, t.y) || !!seatAt(this.map, t.x, t.y);
+    for (const u of this.users.values()) {
+      if (u.presence === 'offline') { if (!ok(u.tile)) u.tile = { ...this.map.spawn }; continue; }
+      const p = this.position(u);
+      if (!ok(p.dest)) { for (const t of this.freeNear(p.dest, u.instance)) if (this.walk(u, t) !== null) break; }
+      else if ((p.tile.x !== p.dest.x || p.tile.y !== p.dest.y) && u.path?.some(t => !ok(t))) this.walk(u, p.dest, u.move?.face);
+    }
+  }
+  /** Free walkable tiles around `t`, nearest first. */
+  private freeNear(t: Tile, instance: string | null) {
+    const occ = this.occupied(instance), out: Tile[] = [];
+    for (let r = 1; r <= 6; r++) for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
+      if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+      const x = t.x + dx, y = t.y + dy;
+      if (isWalkable(this.map, x, y) && !occ.has(`${x},${y}`)) out.push({ x, y });
+    }
+    return out.sort((a, b) => Math.abs(a.x - t.x) + Math.abs(a.y - t.y) - (Math.abs(b.x - t.x) + Math.abs(b.y - t.y)));
+  }
+
   /** Tiles where nobody is standing or heading. */
   /** Tiles taken in the office, or in one meeting's room. */
   occupied(instance: string | null = null) {
@@ -731,7 +830,24 @@ export class World {
         break;
       }
       case 'status': this.setStatus(u, String(msg.status ?? '')); break;
+      case 'look': {
+        const color = (v: unknown, fallback: string) => typeof v === 'string' && /^#[0-9a-f]{6}$/i.test(v) ? v : fallback;
+        const int = (v: unknown, max: number) => Math.max(0, Math.min(max, Number.isInteger(v) ? Number(v) : 0));
+        u.look = {
+          skin: color(msg.look.skin, u.look.skin), hair: color(msg.look.hair, u.look.hair),
+          shirt: color(msg.look.shirt, u.look.shirt), pants: color(msg.look.pants, u.look.pants),
+          eyes: color(msg.look.eyes, u.look.eyes), shoes: color(msg.look.shoes, u.look.shoes),
+          glassesColor: color(msg.look.glassesColor, u.look.glassesColor), hatColor: color(msg.look.hatColor, u.look.hatColor),
+          style: int(msg.look.style, 2), top: int(msg.look.top, 2), bottom: int(msg.look.bottom, 2),
+          glasses: int(msg.look.glasses, 2), hat: int(msg.look.hat, 2),
+        };
+        u.lookSet = true;
+        this.broadcast({ t: 'look', userId: u.id, look: u.look, lookSet: true });
+        break;
+      }
       case 'claim_desk': this.claimDesk(u); break;
+      case 'edit': if (msg.edit && typeof msg.edit === 'object') this.edit(u, msg.edit); break;
+      case 'edit_reset': this.resetLayout(u); break;
       case 'release_desk': this.releaseDesk(u); break;
       case 'meet_link': {
         const raw = String(msg.link ?? '');
@@ -833,17 +949,30 @@ export class World {
     return {
       users: [...this.users.values()].map(u => {
         const p = this.position(u).dest;
-        return { id: u.id, name: u.name, email: u.email, meetLink: u.meetLink, google: u.google, homeDesk: u.homeDesk, look: u.look, tile: p, dir: u.dir, status: u.status, presence: u.presence, bot: u.bot };
+        return { id: u.id, name: u.name, email: u.email, meetLink: u.meetLink, google: u.google, homeDesk: u.homeDesk, look: u.look, lookSet: u.lookSet, tile: p, dir: u.dir, status: u.status, presence: u.presence, bot: u.bot, plant: u.plant, bloomed: u.bloomed, achievements: u.achievements };
       }),
       objects: Object.fromEntries(this.objectOn),
       jukebox: Object.fromEntries([...this.jukeboxes].map(([id, j]) => [id, j.dump()])),
+      layout: this.layoutEdited ? this.layout() : undefined,
       chats: Object.fromEntries(this.chats),
     };
   }
   load(data: ReturnType<World['dump']>) {
+    if (data.layout && !data.layout.objects.some(o => o.use?.kind === 'jukebox')) // saved in the radio days: the radio makes way for the jukebox
+      data.layout = { ...data.layout, objects: [...data.layout.objects.filter(o => o.type !== 'radio'), ...structuredClone(this.baseLayout.objects.filter(o => o.use?.kind === 'jukebox'))] };
+    if (data.layout) { // an admin rearranged the office; if it no longer fits the generated floor, start over from that
+      const problem = layoutProblem(withLayout(this.map, data.layout));
+      if (problem) console.warn(`saved layout dropped: ${problem}`);
+      else {
+        applyLayout(this.map, data.layout); this.layoutEdited = true;
+        this.syncToggles(); this.syncJukeboxes();
+      }
+    }
     for (const d of data.users ?? []) {
       const tile = isWalkable(this.map, d.tile.x, d.tile.y) || seatAt(this.map, d.tile.x, d.tile.y) ? d.tile : { ...this.map.spawn };
-      this.users.set(d.id, { ...d, homeDesk: d.homeDesk ?? null, tile, move: null, path: null, emote: null, door: null, callId: null, deafened: false, hand: false, muted: false, following: null, holding: null, meeting: null, instance: null, presence: d.bot ? d.presence : 'offline' });
+      const legacy = lookFor(d.name);
+      const look = { ...legacy, ...d.look, eyes: d.look?.eyes ?? legacy.eyes, shoes: d.look?.shoes ?? legacy.shoes, top: d.look?.top ?? 0, bottom: d.look?.bottom ?? 0, glasses: d.look?.glasses ?? 0, hat: d.look?.hat ?? 0, glassesColor: d.look?.glassesColor ?? legacy.glassesColor, hatColor: d.look?.hatColor ?? legacy.hatColor };
+      this.users.set(d.id, { ...d, look, lookSet: d.lookSet ?? false, homeDesk: d.homeDesk ?? null, plant: d.plant ?? null, bloomed: d.bloomed ?? [], achievements: d.achievements ?? {}, tile, move: null, path: null, emote: null, door: null, callId: null, deafened: false, hand: false, muted: false, following: null, holding: null, meeting: null, instance: null, presence: d.bot ? d.presence : 'offline' });
     }
     for (const [id, on] of Object.entries(data.objects ?? {})) if (this.objectOn.has(id)) this.objectOn.set(id, !!on);
     const now = Date.now();

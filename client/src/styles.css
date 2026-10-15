@@ -282,3 +282,80 @@ button:focus-visible, summary:focus-visible, input[type="range"]:focus-visible {
   .jukebox-chip .jukebox-chip-title { flex-basis: 100%; }
   .jukebox-chip > button:last-child { margin-left: auto; }
 }
+.hanger-btn { display: grid; place-items: center; width: 34px; height: 30px; padding: 4px; background: var(--panel2); color: var(--text); }
+.hanger-btn svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
+.appearance-backdrop { position: absolute; inset: 0; z-index: 8; display: grid; place-items: center; padding: 12px; background: rgba(20,12,16,.68); }
+.appearance-panel { width: min(560px, 100%); max-height: min(720px, 100%); overflow: auto; display: grid; grid-template-columns: 126px 1fr; grid-template-rows: auto auto 1fr auto;
+  gap: 12px 18px; padding: 18px; background: #302328; border: 2px solid var(--wood); border-radius: 12px; box-shadow: 0 16px 55px rgba(0,0,0,.6); }
+.appearance-head { grid-column: 1 / -1; display: flex; justify-content: space-between; gap: 10px; align-items: flex-start; }
+.appearance-head h2 { margin: 0; font-size: 20px; color: var(--accent); }
+.appearance-head p { margin: 3px 0 0; color: var(--muted); font-size: 12px; }
+.appearance-preview { grid-row: 2 / 4; display: flex; flex-direction: column; align-items: center; gap: 7px; padding-top: 26px; color: var(--muted); font-size: 12px; }
+.avatar-frame { width: 88px; height: 112px; display: grid; place-items: center; border: 2px solid #6c4938; border-radius: 9px; background: radial-gradient(ellipse at 50% 42%, #765342, #3a2a2c 72%); }
+.avatar-frame canvas { width: 64px; height: 96px; image-rendering: pixelated; }
+.appearance-tabs { display: flex; gap: 6px; border-bottom: 1px solid var(--line); }
+.appearance-tabs button { background: transparent; color: var(--muted); box-shadow: none; border-radius: 6px 6px 0 0; }
+.appearance-tabs button.active { color: var(--accent); background: var(--panel2); }
+.appearance-options { min-height: 250px; align-content: start; display: grid; grid-template-columns: 1fr 1fr; gap: 12px 14px; }
+.look-colors { min-width: 0; margin: 0; padding: 0; border: 0; }
+.look-colors legend { margin-bottom: 6px; color: var(--muted); font-size: 12px; }
+.swatches { display: flex; flex-wrap: wrap; gap: 6px; }
+.swatch { width: 23px; height: 23px; padding: 0; border: 2px solid rgba(255,255,255,.16); border-radius: 6px; box-shadow: 0 1px 0 rgba(0,0,0,.3); }
+.swatch.selected { outline: 2px solid var(--accent); outline-offset: 2px; }
+.look-select { display: grid; gap: 5px; color: var(--muted); font-size: 12px; }
+.look-select select { width: 100%; }
+.appearance-actions { grid-column: 2; display: flex; justify-content: flex-end; gap: 8px; align-items: center; }
+@media (max-width: 480px) {
+  .appearance-panel { grid-template-columns: 1fr; gap: 10px; padding: 14px; }
+  .appearance-preview { grid-row: auto; padding: 0; flex-direction: row; }
+  .avatar-frame { width: 64px; height: 76px; }
+  .avatar-frame canvas { width: 40px; height: 60px; }
+  .appearance-options { min-height: 180px; }
+  .appearance-actions { grid-column: 1; }
+}
+
+.trophy-btn { position: relative; }
+.trophy-btn .dot { position: absolute; top: 3px; right: 4px; width: 7px; height: 7px; border-radius: 50%; background: #6ab0e8; box-shadow: 0 0 0 2px var(--panel2); }
+.achievements .plant-card { display: flex; gap: 12px; align-items: center; padding: 8px; border-radius: 6px; background: var(--panel2); }
+.achievements .plant-card > div { display: grid; gap: 4px; font-size: 13px; }
+.achievements .plant-card p { margin: 0; }
+.achievements .plant-card p.todo { color: #8cc4ec; }
+.achievements .plant-card p.ok { color: #9ccc78; }
+.plant-sprite { image-rendering: pixelated; flex: none; }
+.achievements .pips { display: flex; gap: 3px; }
+.achievements .pips i { width: 14px; height: 5px; border-radius: 2px; background: var(--line); }
+.achievements .pips i.on { background: #7bb85a; }
+.achievements .muted-line { color: var(--muted); }
+.achievement-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.achievement-list li { display: flex; align-items: center; gap: 10px; font-size: 13px; padding: 6px 8px; border-radius: 6px; background: var(--panel2); }
+.achievement-list li > span:nth-child(2) { flex: 1; }
+.achievement-list .icon { font-size: 20px; filter: grayscale(1); opacity: .45; }
+.achievement-list li.got .icon { filter: none; opacity: 1; }
+.achievement-list li.soon { opacity: .6; }
+.achievement-list .state { color: var(--muted); white-space: nowrap; }
+.achievement-list li.got .state { color: #9ccc78; }
+
+/* edit mode (office admins) */
+.hanger-btn.on { background: var(--accent); color: #2a1a10; }
+.edit-panel { position: absolute; top: 8px; left: 8px; bottom: 8px; width: 260px; max-width: calc(100% - 16px); overflow: auto; z-index: 7;
+  background: rgba(42,31,36,.95); border: 2px solid var(--accent); border-radius: 10px; padding: 8px 10px; display: flex; flex-direction: column; gap: 8px; }
+.edit-panel .hint { margin: 0; color: var(--muted); font-size: 12px; }
+.edit-panel h3 { margin: 4px 0 0; font-size: 13px; }
+.edit-panel h3 small { display: block; color: var(--muted); font-weight: 400; }
+.edit-sel { display: grid; gap: 6px; padding: 8px; border-radius: 6px; background: var(--panel2); }
+.edit-sel h3 { margin: 0; text-transform: capitalize; color: var(--accent); }
+.edit-sel button.danger { background: var(--danger); color: #fff; justify-self: start; }
+.swatches { display: flex; gap: 6px; }
+.swatch { width: 26px; height: 22px; padding: 0; border: 2px solid transparent; }
+.swatch.on { border-color: var(--text); }
+.rug-green { background: #7a9a55; } .rug-blue { background: #5577a8; } .rug-orange { background: #d08a4a; } .rug-red { background: #b4534a; } .rug-teal { background: #4f9a92; }
+.rug-size { display: flex; align-items: center; gap: 4px; font-size: 13px; }
+.rug-size span { flex: 1; font-variant-numeric: tabular-nums; }
+.rug-size button { padding: 2px 6px; background: var(--panel); color: var(--text); font-size: 12px; }
+.palette { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; }
+.palette button { display: grid; justify-items: center; gap: 2px; padding: 4px 2px; background: var(--panel2); color: var(--text); font-weight: 500; font-size: 11px; }
+.palette button.on { outline: 2px solid var(--accent); background: #4a3428; }
+.palette button span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.palette canvas { width: 32px; height: 32px; image-rendering: pixelated; }
+.edit-panel .reset { align-self: start; font-size: 12px; }

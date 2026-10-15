@@ -21,7 +21,7 @@ Open http://localhost:5173, enter any name, token `deck` (override with `DECK_TO
 - `shared/protocol.ts`: WS events (`hello`, `state`, `move`, `status`, `presence`, `emote`, `knock`, `knock_reply`).
 - `server/`: Node + `ws`, in-memory world, knock flow, bots.
 - `client/`: React chrome + a single-canvas engine (`engine.ts`).
-- `client/public/assets/`: `atlas.json` + `world.png` + `characters.png`. These are a procedural CC0 placeholder pack made by `scripts/gen-assets.mjs`. Replace the three files to swap the art; the code only uses frame names.
+- `client/public/assets/`: `atlas.json` + `world.png` + `characters.png` + `accessories.png`. These are a procedural CC0 placeholder pack made by `scripts/gen-assets.mjs`. Replace the files to swap the art; the code reads sprite metadata from `atlas.json`.
 
 `npm run gen` regenerates the map and the art.
 

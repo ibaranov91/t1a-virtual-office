@@ -1,5 +1,6 @@
 // Dev-only: 12 fake teammates that wander between spots, idle, and change status/presence.
 import { isWalkable } from '../../shared/map';
+import { dayNumber, PLANT_KINDS, PLANT_STAGES } from '../../shared/protocol';
 import type { User, World } from './world';
 
 const NAMES = ['Maya', 'Leo', 'Priya', 'Sam', 'Ines', 'Tomas', 'Aiko', 'Ben', 'Zoe', 'Omar', 'Nina', 'Felix'];
@@ -35,6 +36,9 @@ export function startBots(world: World, count = 4) {
     u.tile = { x: spot.x, y: spot.y }; u.dir = spot.dir;
     u.status = pick(STATUSES);
   }
+  // bots' plants start at random ages (some long dead) so the desks and the Orangery look lived in
+  const today = dayNumber(Date.now());
+  for (const b of [...world.users.values()]) if (b.bot && !b.plant?.kind) b.plant = { stage: Math.floor(Math.random() * PLANT_STAGES.length), care: today - Math.floor(Math.random() * 10), kind: PLANT_KINDS[Math.floor(Math.random() * PLANT_KINDS.length)] };
   world.botHooks = {
     chat: (b, from) => setTimeout(() => world.chat(b, from, pick(REPLIES)), 1200 + Math.random() * 2000),
     react: (b, from) => { if (Math.random() < 0.6) setTimeout(() => world.react(b, from, pick(['👋', '👍', '❤️', '😂'])), 700 + Math.random() * 1200); },

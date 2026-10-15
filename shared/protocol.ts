@@ -1,4 +1,4 @@
-import type { Dir, Move, Tile } from './map';
+import type { Dir, Layout, Move, Tile } from './map';
 
 export const JUKEBOX_QUEUE_MAX = 20;
 export const JUKEBOX_PER_PERSON = 3;
@@ -47,10 +47,40 @@ export const meetAs = (link: string, email?: string | null) => {
   } catch { return link; }
 };
 
-export interface Look { skin: string; hair: string; shirt: string; pants: string; style: number }
+/** Everyone's desk plant. It grows one stage on each day you set a status and withers after a week without one.
+ *  care: the last day (UTC day number) it was tended. kind: which flower it turns into (random when planted);
+ *  absent on plants from before kinds existed, which grow into the original flowering bush. */
+export interface Plant { stage: number; care: number; kind?: PlantKind }
+export const PLANT_STAGES = ['just planted', 'sprouting', 'growing', 'leafy', 'budding', 'in bloom'] as const;
+export const PLANT_DIES_DAYS = 7;
+export const PLANT_KINDS = ['tulip_red', 'tulip_yellow', 'tulip_pink', 'daisy', 'sunflower', 'cactus', 'lavender'] as const;
+export type PlantKind = typeof PLANT_KINDS[number];
+const KIND_NAMES: Record<PlantKind | 'bush', string> = {
+  bush: 'flowering bush', tulip_red: 'red tulip', tulip_yellow: 'yellow tulip', tulip_pink: 'pink tulip',
+  daisy: 'daisy', sunflower: 'sunflower', cactus: 'cactus', lavender: 'lavender',
+};
+export const PLANT_REVEAL = 3; // every plant is the same seedling until this stage: what it becomes is a surprise
+export const plantName = (p: Plant) => (p.stage >= PLANT_REVEAL ? KIND_NAMES[p.kind ?? 'bush'] : 'seedling');
+export const kindName = (k: string) => KIND_NAMES[k as PlantKind] ?? k;
+export const dayNumber = (ms: number) => Math.floor(ms / 86_400_000);
+export const plantDead = (p: Plant, now: number) => dayNumber(now) - p.care >= PLANT_DIES_DAYS;
+
+/** Badges, shown on the Achievements board. Earned ones are kept per person with when they were earned.
+ *  soon: announced but not earnable yet. */
+export interface Achievement { id: string; icon: string; title: string; how: string; goal?: number; soon?: boolean }
+export const BOTANIST_KINDS = 3;
+export const ACHIEVEMENTS: Achievement[] = [
+  { id: 'tended', icon: '💧', title: 'Green fingers', how: 'Set a status on a new day. Each day you do, your plant grows one stage.' },
+  { id: 'bloom', icon: '🌸', title: 'In bloom', how: `Grow your plant all the way: set a status on ${PLANT_STAGES.length - 1} more days, never ${PLANT_DIES_DAYS} days apart.` },
+  { id: 'botanist', icon: '🌻', title: 'Botanist', how: `Bloom ${BOTANIST_KINDS} different flowers. A plant that withers is replanted as a new, random one.`, goal: BOTANIST_KINDS },
+  { id: 'event', icon: '🎉', title: 'Party person', how: 'Be in the office during an office event.', soon: true },
+];
+
+export interface Look { skin: string; hair: string; shirt: string; pants: string; eyes: string; shoes: string; glassesColor: string; hatColor: string; style: number; top: number; bottom: number; glasses: number; hat: number }
 
 export interface PublicUser {
   id: string; name: string; look: Look;
+  lookSet: boolean;
   tile: Tile; dir: Dir; move: Move | null;
   presence: Presence; status: string; emote: Emote; bot: boolean; door: Door;
   homeDesk: Tile | null;
@@ -61,6 +91,9 @@ export interface PublicUser {
   holding: string | null;   // a UseItem id (coffee, snack…) in hand for a while
   meeting: number | null;   // in a calendar meeting until then (ms); knocks go to Later
   instance: string | null;  // inside a meeting's own room: only people in the same one see each other
+  plant: Plant | null;      // on their home desk, or in the Orangery if they have none
+  bloomed: string[];        // plant kinds they've grown to full bloom
+  achievements: Record<string, number>; // achievement id → when it was earned (ms)
 }
 
 /** Quick reactions you can toss at someone; they float up over their head for everyone to see. */
@@ -98,8 +131,18 @@ export interface Knock {
   state: 'walking' | 'pending' | 'accept' | 'later' | 'blocked';
 }
 
+/** One change an office admin makes to the furniture or the rugs. `id` is an object's or a rug's. */
+export type LayoutEdit =
+  | { op: 'move'; id: string; x: number; y: number }
+  | { op: 'add'; type: string; x: number; y: number }
+  | { op: 'remove'; id: string }
+  | { op: 'rug_add'; x: number; y: number; color?: string; w?: number; h?: number }
+  | { op: 'rug'; id: string; color?: string; w?: number; h?: number };
+
 // server -> client
 export type ServerMsg =
+  // the furniture and rugs: on connect, and to everyone after each admin edit. by: who made it; added: a new thing's id
+  | { t: 'layout'; layout: Layout; by?: string; added?: string }
   | { t: 'hello'; you: string; serverTime: number; build?: string } // build: the client bundle the server serves (absent in dev)
   | { t: 'state'; users: PublicUser[]; objects: Record<string, ObjectState>; jukebox: Record<string, JukeboxState>; serverTime: number }
   | { t: 'move'; userId: string; from: Tile; to: Tile; startedAt: number; path?: Tile[]; face?: Dir }
@@ -111,7 +154,7 @@ export type ServerMsg =
   | { t: 'knock_reply'; knockId: string; fromId: string; toId: string; reply: 'accept' | 'later' | 'blocked'; link?: string; reason?: string; fallback?: boolean; cancelled?: boolean }
   // private settings, only to the user themselves. google: the connected Google account (null = not connected),
   // absent when this instance has no Google sign-in
-  | { t: 'me'; meetLink: string; email?: string; google?: string | null; calendar?: boolean } // calendar: Calendar access granted
+  | { t: 'me'; meetLink: string; email?: string; google?: string | null; calendar?: boolean; admin?: boolean } // calendar: Calendar access granted; admin: may rearrange the office
   | { t: 'google_auth'; url: string; calendar?: boolean } // open this to connect Google (in the system browser from the Mac app)
   | { t: 'calendar'; events?: CalEvent[]; error?: string } // my own events, only to me
   | { t: 'agenda'; items: AgendaItem[] } // my calendar meetings now and soon, only to me
@@ -119,6 +162,7 @@ export type ServerMsg =
   | { t: 'instance'; userId: string; instance: string | null; tile: Tile; dir: Dir } // stepped into (or out of) a meeting room
   | { t: 'meetings'; rooms: MeetingRoomInfo[] } // running meeting rooms, for the board
   | { t: 'desk'; userId: string; desk: Tile | null }
+  | { t: 'plant'; userId: string; plant: Plant | null; bloomed: string[]; achievements: Record<string, number> }
   | { t: 'call'; userId: string; callId: string | null; link?: string } // link: the call's Meet room, only to members
   | { t: 'rtc'; from: string; signal: RtcSignal }
   | { t: 'speaking'; userId: string; on: boolean }
@@ -135,7 +179,8 @@ export type ServerMsg =
   | { t: 'hand'; userId: string; up: boolean }
   | { t: 'notice'; text: string }
   | { t: 'voice_wait'; roomId: string | null }
-  | { t: 'voice_owner'; owner: boolean };
+  | { t: 'voice_owner'; owner: boolean }
+  | { t: 'look'; userId: string; look: Look; lookSet: boolean };
 
 // client -> server
 export type ClientMsg =
@@ -169,4 +214,7 @@ export type ClientMsg =
   | { t: 'deafen'; on: boolean }
   | { t: 'hand'; up: boolean }
   | { t: 'leave_room' }
-  | { t: 'voice_claim' };
+  | { t: 'voice_claim' }
+  | { t: 'edit'; edit: LayoutEdit } // office admins only
+  | { t: 'edit_reset' }              // office admins only: back to the generated layout
+  | { t: 'look'; look: Look };

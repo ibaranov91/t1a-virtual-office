@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { World, type User } from './world';
 import { hallDistance, pathDuration, roomAt, sampleMove, seatAt, voiceRooms, WALK_MS_PER_TILE, type TileMap, type Tile } from '../../shared/map';
 import { TRACKS } from '../../shared/music';
-import { ROOM_VOICE_MAX, type ClientMsg, type ServerMsg } from '../../shared/protocol';
+import { PLANT_DIES_DAYS, PLANT_STAGES, plantDead, ROOM_VOICE_MAX, type ClientMsg, type ServerMsg } from '../../shared/protocol';
 const map: TileMap = JSON.parse(readFileSync(new URL('../../shared/tilemap.json', import.meta.url), 'utf8'));
 const coffee = map.rooms.find(r => r.id === 'coffee')!;
 function setup(t: TestContext) {
@@ -300,4 +300,20 @@ test('lamp toggles still broadcast and persist', t => {
   const saved = w.dump(); assert.equal('objectVolumes' in saved, false);
   const restored = new World(map); restored.load(saved);
   const after = restored.snapshot() as Extract<ServerMsg, { t: 'state' }>; assert.deepEqual(after.objects[lamp.id], { on: !before.objects[lamp.id].on });
+});
+test('a pot on first login; a status a day grows it, blooms earn badges, a week without one kills it', t => {
+  const { w, add, tick } = setup(t), a = add('A'), DAY = 86_400_000, stage = () => a.u.plant?.stage;
+  assert.equal(stage(), 0); assert.ok(a.u.plant?.kind); // planted on connect
+  const kind = a.u.plant!.kind!;
+  w.handle(a.u, { t: 'status', status: '' }, a.socket); assert.equal(stage(), 0); // clearing it isn't tending
+  w.handle(a.u, { t: 'status', status: 'hi' }, a.socket); assert.equal(stage(), 1); // today counts already
+  assert.ok(a.u.achievements.tended);
+  w.handle(a.u, { t: 'status', status: 'again' }, a.socket); assert.equal(stage(), 1); // once a day
+  for (let i = 0; i < 8; i++) { tick(DAY); w.handle(a.u, { t: 'status', status: `day ${i + 2}` }, a.socket); }
+  assert.equal(stage(), PLANT_STAGES.length - 1); assert.equal(a.u.plant?.kind, kind); // stays in bloom, same flower
+  assert.ok(a.u.achievements.bloom); assert.deepEqual(a.u.bloomed, [kind]); assert.equal(a.u.achievements.botanist, undefined);
+  tick(PLANT_DIES_DAYS * DAY); assert.ok(plantDead(a.u.plant!, Date.now()));
+  w.handle(a.u, { t: 'status', status: 'back' }, a.socket); assert.equal(stage(), 0);
+  assert.notEqual(a.u.plant?.kind, kind); // replanted as something new
+  assert.ok(a.messages.some(m => m.t === 'plant' && m.achievements.bloom));
 });
