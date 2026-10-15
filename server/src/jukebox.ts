@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { Track } from '../../shared/music';
+import { jukeboxPosition, type Track } from '../../shared/music';
 import { JUKEBOX_PER_PERSON, JUKEBOX_QUEUE_MAX, type JukeboxAction, type JukeboxState } from '../../shared/protocol';
 
 type Options = { rand?: () => number; id?: () => string };
@@ -41,7 +41,7 @@ export class Jukebox {
     if (a.action === 'queue') {
       if (!this.catalog.has(a.track)) return { changed };
       if (s.track === a.track || s.queue.some(e => e.track === a.track)) return { changed, notice: 'Already in the queue' };
-      if (s.queue.filter(e => e.by === userId).length >= JUKEBOX_PER_PERSON) return { changed, notice: 'You have 3 tracks queued — wait for one to play' };
+      if (s.queue.filter(e => e.by === userId).length >= JUKEBOX_PER_PERSON) return { changed, notice: `You have ${JUKEBOX_PER_PERSON} tracks queued — wait for one to play` };
       if (s.queue.length >= JUKEBOX_QUEUE_MAX) return { changed, notice: 'The queue is full' };
       this.state = { ...s, queue: [...s.queue, { id: this.id(), track: a.track, by: userId }] };
     } else if (a.action === 'unqueue') {
@@ -52,7 +52,7 @@ export class Jukebox {
       if (a.playId !== s.playId) return { changed };
       if (a.action === 'pause') {
         if (s.pausedAt !== null) return { changed };
-        this.state = { ...s, pausedAt: Math.max(0, Math.min(this.catalog.get(s.track)!.duration, now - s.startedAt)) };
+        this.state = { ...s, pausedAt: jukeboxPosition(s, this.catalog.get(s.track)!.duration, now) };
       } else if (a.action === 'play') {
         if (s.pausedAt === null) return { changed };
         this.state = { ...s, startedAt: now - s.pausedAt, pausedAt: null };

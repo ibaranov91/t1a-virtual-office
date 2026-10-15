@@ -77,7 +77,9 @@ npm run typecheck    # run before every commit or deploy
   Playback is server state timed by the server clock; anyone standing in the room queues, pauses and skips (controls
   name the current `playId`, so stale clicks do nothing). Clients stream a track through one `<audio>` element into
   the soundscape and only while it's audible, so nobody outside the room downloads music. Static files support HTTP
-  Range (`server/src/static.ts`), which media seeking needs.
+  Range (`server/src/static.ts`), which media seeking needs. `npm run gen:music -- --force`
+  re-encodes everything, and new content hashes add ~35 MB to git history each time, so use it only when the
+  pipeline itself changes.
 - **Arcade** (Deck Park): clicking one of the three cabinets walks you over and opens its 1–4-player session;
   later arrivals watch from the balcony, and the records board shows best runs by level and team size. The server
   sequences inputs; clients predict locally and roll back with the shared `Runner`. `npm test` includes the deterministic
@@ -127,8 +129,11 @@ page answers curl with 401); deploy.sh sets `DECK_PUBLIC_URL` / `DECK_INSTALL_UR
   The build id is a hash of the app's sources, so deploys without native changes don't update anything.
 - **Signing:** `macos/make-cert.sh` creates the self-signed "T1A Deck" identity in `~/.deck-signing` (its own
   keychain). A stable signer keeps the mic permission across updates and lets updates verify the signer.
-  **Everyone who deploys must use the same identity** (`make-cert.sh import <p12>`), or installed apps
-  refuse the update. Without it, builds are ad-hoc and every update re-asks for the mic.
+  **Everyone who deploys must use the same identity** (`make-cert.sh import <p12>`, never a new one), or
+  installed apps refuse the update. Without it, or if the Mac build fails, deploy.sh keeps the signed app the
+  instance already serves as long as the app's sources haven't changed (same build id), and stops if they have
+  (`DECK_ALLOW_ADHOC=1` ships ad-hoc anyway). An instance serving an ad-hoc app (or none) just gets an ad-hoc
+  build, and every update re-asks for the mic.
 - Only a Mac can build the app; deploying from elsewhere ships the instance without it.
 - **One app per instance.** prod's app is "The Deck" (`io.t1a.deck`); every other instance builds its own,
   e.g. "The Deck (iva)" (`io.t1a.deck.iva`), with its own settings and login and a small purple mark on its

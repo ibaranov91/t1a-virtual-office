@@ -222,7 +222,7 @@ obj('lamp', 1, 14, 1, 1, LAMP);
 obj('lamp', 27, 10, 1, 1, LAMP);
 obj('lamp', 14, 10, 1, 1, LAMP);
 
-// on the west wall beside the dance floor: fills the room and leaks faintly out of the Desks door
+// on the west wall beside the dance floor: fills the Music room (rooms are sealed, nothing leaks out)
 obj('jukebox', 54, 7, 2, 2, { sound: { gain: 0.8 }, use: { kind: 'jukebox', label: 'jukebox' } });
 
 // wall calendars: click to see your own Google Calendar (after the jukebox, same reason)

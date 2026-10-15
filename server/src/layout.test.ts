@@ -2,7 +2,7 @@ import { test, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { World } from './world';
-import { isWalkable, seatAt, type TileMap, type Tile } from '../../shared/map';
+import { isWalkable, layoutProblem, roomAt, seatAt, type TileMap, type Tile } from '../../shared/map';
 import type { ServerMsg } from '../../shared/protocol';
 const base: TileMap = JSON.parse(readFileSync(new URL('../../shared/tilemap.json', import.meta.url), 'utf8'));
 
@@ -104,15 +104,31 @@ test('a layout saved in the radio days gets the jukebox; moving it keeps what is
   w2.load(saved);
   assert.equal(map2.objects.some(o => o.type === 'radio'), false);
   assert.deepEqual(map2.objects.filter(o => o.use?.kind === 'jukebox').map(o => [o.id, o.x, o.y]), [[jukebox.id, jukebox.x, jukebox.y]]);
-  const state = (w2.snapshot() as Extract<ServerMsg, { t: 'state' }>).jukebox;
+  const state = (w2.snapshot() as Extract<ServerMsg, { t: 'state' }>).jukebox!;
   assert.deepEqual(Object.keys(state), [jukebox.id]);
 
   const admin = add('Ivan', { x: 4, y: 17 }, 'ivan.baranov@t1a.com');
-  const before = (w.snapshot() as Extract<ServerMsg, { t: 'state' }>).jukebox[jukebox.id];
+  const before = (w.snapshot() as Extract<ServerMsg, { t: 'state' }>).jukebox![jukebox.id];
   w.handle(admin.u, { t: 'edit', edit: { op: 'move', id: jukebox.id, x: jukebox.x, y: jukebox.y + 2 } }, admin.socket);
   assert.equal(notices(admin.messages).length, 0, notices(admin.messages).join());
   assert.equal(map.objects.find(o => o.id === jukebox.id)!.y, jukebox.y + 2);
-  assert.equal((w.snapshot() as Extract<ServerMsg, { t: 'state' }>).jukebox[jukebox.id].playId, before.playId);
+  assert.equal((w.snapshot() as Extract<ServerMsg, { t: 'state' }>).jukebox![jukebox.id].playId, before.playId);
   w.handle(admin.u, { t: 'edit', edit: { op: 'remove', id: jukebox.id } }, admin.socket);
   assert.ok(map.objects.some(o => o.id === jukebox.id)); // one of a kind: it can be moved, not removed
+});
+
+test('a saved radio layout with a blocked jukebox spot finds another spot in Music', t => {
+  const { map, w } = setup(t), jukebox = map.objects.find(o => o.use?.kind === 'jukebox')!;
+  const radio = { id: 'old-radio', type: 'radio', x: 58, y: 4, w: 1, h: 1, sound: { clip: 'radio', gain: .8 } };
+  const blocker = { id: 'blocker', type: 'plant', x: jukebox.x, y: jukebox.y, w: 1, h: 1 };
+  const saved = { ...w.dump(), layout: { objects: [...map.objects.filter(o => o !== jukebox), radio, blocker], rugs: map.rugs } };
+  const map2 = structuredClone(base), w2 = new World(map2); w2.load(saved);
+  const placed = map2.objects.filter(o => o.type === 'jukebox');
+  assert.equal(placed.length, 1);
+  const o = placed[0], room = roomAt(map2, jukebox.x, jukebox.y)!;
+  assert.equal(room.id, 'music');
+  for (let y = o.y; y < o.y + o.h; y++) for (let x = o.x; x < o.x + o.w; x++) assert.equal(roomAt(map2, x, y)?.id, room.id);
+  assert.ok(o.x !== jukebox.x || o.y !== jukebox.y);
+  assert.equal(layoutProblem(map2), null);
+  assert.ok(map2.objects.some(o => o.id === blocker.id));
 });

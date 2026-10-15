@@ -3,6 +3,7 @@
 #   macos/build.sh                  local build: macos/build/The Deck.app (never self-updates)
 #   macos/build.sh --dist <name>    build for instance <name> and write macos/dist/The-Deck.zip + manifest.json
 #                                   (served by the instance; scripts/deploy.sh runs this)
+#   macos/build.sh --build-id <name>  print the build id <name>'s app would get, without building
 # prod's app is "The Deck" (io.t1a.deck). Every other instance gets its own app, e.g. "The Deck (iva)"
 # (io.t1a.deck.iva), with its own settings and login, so a branch on a test instance never replaces prod's
 # app and both can be installed side by side.
@@ -11,7 +12,13 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 DIST=false; INSTANCE=prod
-if [ "${1:-}" = --dist ]; then DIST=true; INSTANCE="${2:?usage: build.sh --dist <instance>}"; fi
+case "${1:-}" in --dist|--build-id) DIST=true; INSTANCE="${2:?usage: build.sh $1 <instance>}" ;; esac
+
+# DeckBuild: changes only when the app's sources (or the instance) do, so a deploy without native
+# changes doesn't offer an update. CFBundleVersion is just for people reading "About".
+BUILD=$( (cat Package.swift Info.plist AppIcon.icns Sources/Deck/*.swift; echo "$INSTANCE") | shasum -a 256 | cut -c1-12)
+if [ "${1:-}" = --build-id ]; then echo "$BUILD"; exit 0; fi
+
 if [ "$INSTANCE" = prod ]; then NAME="The Deck"; ID=io.t1a.deck
 else NAME="The Deck ($INSTANCE)"; ID="io.t1a.deck.$INSTANCE"; fi
 
@@ -28,9 +35,6 @@ plutil -replace CFBundleName -string "$NAME" "$P"
 plutil -replace CFBundleDisplayName -string "$NAME" "$P"
 plutil -replace DeckInstance -string "$INSTANCE" "$P"
 
-# DeckBuild: changes only when the app's sources (or the instance) do, so a deploy without native
-# changes doesn't offer an update. CFBundleVersion is just for people reading "About".
-BUILD=$( (cat Package.swift Info.plist AppIcon.icns Sources/Deck/*.swift; echo "$INSTANCE") | shasum -a 256 | cut -c1-12)
 plutil -replace DeckBuild -string "$BUILD" "$P"
 plutil -replace CFBundleVersion -string "$(git rev-list --count HEAD 2>/dev/null || echo 1)" "$P"
 $DIST || plutil -replace DeckDev -bool YES "$P" # local builds never self-update

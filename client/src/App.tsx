@@ -9,7 +9,7 @@ import { prefs, savePrefs, type Category } from './prefs';
 import { ITEMS, MAP, Store, type ClientUser } from './net';
 import { inNativeApp, syncNative } from './native';
 import { ACHIEVEMENTS, underground, dayNumber, JUKEBOX_PER_PERSON, JUKEBOX_QUEUE_MAX, MAX_CHAT_LEN, MEET_LINK_RE, meetAs, normalizeMeetLink, kindName, PLANT_DIES_DAYS, PLANT_KINDS, PLANT_REVEAL, PLANT_STAGES, plantDead, plantName, REACTIONS, type JukeboxState, type Plant } from '../../shared/protocol';
-import { GENRES, TRACK, TRACKS } from '../../shared/music';
+import { GENRES, jukeboxPosition, TRACK, TRACKS } from '../../shared/music';
 import { FIXED_TYPES, KEEP_TYPES, objectName, RUG_COLORS, RUG_MAX, RUG_MIN, seatAt } from '../../shared/map';
 
 // Dev server: sign in automatically as ?as=<name> (default "Dev"); each name keeps its own session,
@@ -489,7 +489,7 @@ function MeetingChip({ store }: { store: Store }) {
 }
 
 const musicTime = (ms: number) => { const s = Math.floor(Math.max(0, ms) / 1000); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
-const musicPosition = (store: Store, state: JukeboxState) => Math.max(0, Math.min(TRACK.get(state.track)?.duration ?? 0, state.pausedAt ?? store.now() - state.startedAt));
+const musicPosition = (store: Store, state: JukeboxState) => jukeboxPosition(state, TRACK.get(state.track)?.duration ?? 0, store.now());
 
 function JukeboxControls({ store, id, state, disabled }: { store: Store; id: string; state: JukeboxState; disabled: boolean }) {
   const paused = state.pausedAt !== null;
@@ -535,7 +535,7 @@ function JukeboxPanel({ store, id }: { store: Store; id: string }) {
     if (e.shiftKey && (document.activeElement === first || document.activeElement === panel.current)) { e.preventDefault(); end?.focus(); }
     else if (!e.shiftKey && document.activeElement === end) { e.preventDefault(); first?.focus(); }
   };
-  return <div className="modal-backdrop" onClick={e => { if (e.target === e.currentTarget) close(); }}>
+  return <div className="modal-backdrop" {...backdropClose(close)}>
     <div ref={panel} tabIndex={-1} role="dialog" aria-modal="true" aria-label="Jukebox" onKeyDown={onKey} className="meet-panel guided calendar-panel jukebox-panel">
       <div className="rooms-head"><span>🎵 Jukebox</span><button className="ghost" aria-label="Close jukebox" onClick={close}>×</button></div>
       {!known && <p role="status">Reconnecting…</p>}
@@ -567,7 +567,7 @@ function JukeboxPanel({ store, id }: { store: Store; id: string }) {
           <h4>{genre}</h4><ul className="jukebox-tracks">
             {TRACKS.filter(t => t.genre === genre).map(t => {
               const reason = state?.track === t.id ? 'Playing now' : state?.queue.some(e => e.track === t.id) ? 'Already queued'
-                : mine >= JUKEBOX_PER_PERSON ? 'You have 3 tracks queued' : (state?.queue.length ?? 0) >= JUKEBOX_QUEUE_MAX ? 'The queue is full' : undefined;
+                : mine >= JUKEBOX_PER_PERSON ? `You have ${JUKEBOX_PER_PERSON} tracks queued` : (state?.queue.length ?? 0) >= JUKEBOX_QUEUE_MAX ? 'The queue is full' : undefined;
               return <li key={t.id}>
                 <div><b>{t.title}</b><small>{t.artist} · {musicTime(t.duration)} · <ExternalLink href={t.page}>CC0</ExternalLink></small></div>
                 <span title={reason}><button disabled={disabled || !!reason} title={reason} aria-label={`Queue ${t.title}`} onClick={() => store.jukeboxAction(id, { action: 'queue', track: t.id })}>+</button></span>
