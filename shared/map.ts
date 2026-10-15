@@ -36,6 +36,27 @@ export type ObjectUse = { kind: 'take'; items: UseItem[] } | { kind: 'toggle'; l
   | { kind: 'dealer'; label: string; items: string[] } // hands out items into your inventory (the bouncer, the hat stand)
   | { kind: 'bell'; label: string } // the Lobby reception bell: ring it from beside the desk
   | { kind: 'toilet'; label: string }; // a stall: occupied for a while, fills up with use (see Toilets on the server)
+export type UseKind = ObjectUse['kind'];
+/** How a click on each use.kind is routed. A new kind fails typecheck until it has a row (docs/ADDING-A-FEATURE.md).
+ *  wheel: clicking opens App.tsx's ActionWheel (add its buttons there); otherwise App.tsx's `e.onPick` acts on the click
+ *    straight away (add a line there). use: the server's generic `use` intent handles it (World.use: walk beside it, wait
+ *    USE_MS, act); otherwise `use` ignores it (it has its own intent, or it's a client-only panel). reach: people walk up
+ *    to it, so layoutProblem refuses a layout that leaves no free tile beside it. */
+export const USE_KINDS = {
+  take: { wheel: true, use: true, reach: true },
+  toggle: { wheel: true, use: true, reach: true },
+  toilet: { wheel: true, use: true }, // reached through its door instead: layoutProblem checks stallDoor
+  dealer: { wheel: true, use: true },
+  bell: { use: true },
+  arcade: { use: true, reach: true },
+  instrument: { reach: true },
+  library: { reach: true },
+  calendar: {}, jukebox: {}, dance: {}, records: {}, meetings: {}, achievements: {}, clock: {}, presentation: {}, link: {},
+} as const satisfies Record<UseKind, { wheel?: true; use?: true; reach?: true }>;
+type KindsWith<F extends string> = { [K in UseKind]: (typeof USE_KINDS)[K] extends Record<F, true> ? K : never }[UseKind];
+/** True when this use's kind has that flag in USE_KINDS; narrows the use to those kinds. */
+export const routes = <F extends 'wheel' | 'use' | 'reach'>(use: ObjectUse | undefined, flag: F): use is Extract<ObjectUse, { kind: KindsWith<F> }> =>
+  !!use && (USE_KINDS[use.kind] as Partial<Record<F, true>>)[flag] === true;
 export interface MapObject {
   id: string; type: string; x: number; y: number; w: number; h: number;
   sound?: { clip?: string; gain: number };
@@ -343,7 +364,7 @@ export function layoutProblem(m: TileMap, checkDungeonReach = true): string | nu
     if (!ok({ x: s.x + step.x, y: s.y + step.y })) return `that cuts off a seat in ${r.name}`;
   }
   // you walk over to these to use them (the calendars and boards just open)
-  for (const o of m.objects) if ((o.use?.kind === 'take' || o.use?.kind === 'toggle' || o.use?.kind === 'arcade' || o.use?.kind === 'instrument' || o.use?.kind === 'library') && !besideObject(m, o).some(ok)) return `nobody could reach the ${objectName(o.type)}`;
+  for (const o of m.objects) if (routes(o.use, 'reach') && !besideObject(m, o).some(ok)) return `nobody could reach the ${objectName(o.type)}`;
   for (const o of m.objects) if (o.use?.kind === 'toilet' && !ok(stallDoor(o))) return `nobody could get into the ${objectName(o.type)}`;
   return null;
 }
