@@ -66,10 +66,10 @@ canvas { display: block; image-rendering: pixelated; touch-action: none; }
 .rooms li .me { color: var(--accent); font-weight: 700; }
 .rooms li.off { opacity: .55; cursor: default; }
 
-.toasts { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); display: grid; gap: 8px; width: min(420px, calc(100% - 16px)); pointer-events: none; }
+.toasts { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); display: grid; gap: 8px; width: min(420px, calc(100% - 16px)); pointer-events: none; z-index: 7; }
 .toast { pointer-events: auto; display: flex; align-items: center; gap: 8px; background: var(--panel); border: 2px solid var(--wood);
   border-radius: 8px; padding: 8px 10px; box-shadow: 0 6px 20px rgba(0,0,0,.45); animation: pop .22s steps(2) both; }
-.toast .txt { flex: 1; }
+.toast .txt { flex: 1; min-width: 0; } /* so a long chat line ellipsizes instead of widening the toast off-screen */
 .toast.knock_in { border-color: var(--accent); }
 .toast.link { border-color: var(--accent2); }
 .toast a { background: var(--accent2); color: #142010; font-weight: 700; padding: 5px 11px; border-radius: 6px; text-decoration: none; }
@@ -112,7 +112,10 @@ canvas { display: block; image-rendering: pixelated; touch-action: none; }
   .rooms li { padding: 8px 6px; font-size: 14px; }
   .rooms h3 { padding: 4px 0; }
   .chat-input input, .chat-input button { min-height: 44px; }
-  .toasts { top: 52px; bottom: auto; } /* the bottom belongs to the dock and my voice panel */
+  .toasts { top: 8px; bottom: auto; z-index: 8; } /* the bottom belongs to the dock and my voice panel */
+  .stage:has(.chips > *) .toasts { top: 58px; } /* under a desk or meeting chip */
+  .stage:has(.call-chip) .toasts { top: 92px; } /* the call chip wraps to two lines here */
+  .meet-panel:not(.guided) { top: 50%; transform: translate(-50%, -50%); z-index: 10; }
   .loading.small { bottom: calc(76px + env(safe-area-inset-bottom)); }
   .toast button { min-height: 40px; }
   .chips { top: 6px; }
@@ -123,14 +126,15 @@ canvas { display: block; image-rendering: pixelated; touch-action: none; }
 .meet-btn { background: var(--panel2); color: var(--text); position: relative; }
 .meet-btn.unset::after { content: ''; position: absolute; top: 3px; right: 3px; width: 7px; height: 7px; border-radius: 2px; background: var(--danger); }
 .meet-panel { position: absolute; top: 8px; left: 50%; transform: translateX(-50%); width: min(380px, calc(100% - 16px)); display: grid; gap: 8px;
-  background: rgba(42,31,36,.97); border: 2px solid var(--wood); border-radius: 10px; padding: 10px 12px; z-index: 5; box-shadow: 0 8px 30px rgba(0,0,0,.5); }
+  background: rgba(42,31,36,.97); border: 2px solid var(--wood); border-radius: 10px; padding: 10px 12px; z-index: 7; box-shadow: 0 8px 30px rgba(0,0,0,.5); }
 .meet-panel p { margin: 0; }
 .meet-panel .small { font-size: 12px; }
 .meet-panel a { color: var(--accent); }
 .meet-panel .row { display: flex; justify-content: flex-end; gap: 6px; }
 .toast .hint { display: block; color: var(--muted); font-size: 12px; }
 
-.modal-backdrop { position: absolute; inset: 0; background: rgba(20,12,16,.55); z-index: 7; } /* over the self panel and the dock */
+/* dialogs sit above everything on the stage: voice stack 6, chips and toasts 7-8, sheets 8, person menu 9 */
+.modal-backdrop { position: absolute; inset: 0; background: rgba(20,12,16,.55); z-index: 10; }
 .meet-panel.guided { top: 50%; transform: translate(-50%, -50%); border-color: var(--accent); }
 .steps { margin: 0; padding-left: 20px; display: grid; gap: 4px; font-size: 13px; }
 .steps a { color: var(--accent); }
@@ -152,8 +156,8 @@ canvas { display: block; image-rendering: pixelated; touch-action: none; }
 .cal-days .now { font-size: 11px; color: var(--accent); }
 .paste-row input { flex: 1; }
 
-.chips { position: absolute; left: 8px; right: 8px; top: 10px; display: grid; gap: 6px; justify-items: center; pointer-events: none; }
-.chips > * { pointer-events: auto; }
+.chips { position: absolute; left: 8px; right: 8px; top: 10px; z-index: 7; display: grid; gap: 6px; justify-items: center; pointer-events: none; }
+.chips > * { pointer-events: auto; min-width: 0; } /* a grid item's auto min-width is its nowrap text: it would run off a phone screen */
 .desk-chip { display: flex; align-items: center; gap: 10px;
   background: rgba(42,31,36,.95); border: 2px solid var(--wood); border-radius: 8px; padding: 5px 6px 5px 12px; font-size: 13px;
   box-shadow: 0 4px 16px rgba(0,0,0,.4); animation: pop .22s steps(2) both; white-space: nowrap; max-width: calc(100% - 16px); }
@@ -189,7 +193,7 @@ canvas { display: block; image-rendering: pixelated; touch-action: none; }
 @keyframes wheel-in { 0% { transform: scale(.3); opacity: 0; } 100% { transform: none; opacity: 1; } }
 
 /* direct messages */
-.chat { position: relative; width: 100%; height: min(360px, 40vh); min-height: 100px; flex: 0 1 360px; max-height: 40vh; z-index: 6;
+aside.chat { position: relative; width: 100%; height: min(360px, 40vh); min-height: 100px; flex: 0 3 360px; /* aside: a chat *toast* has class "chat" too; shrinks before the voice controls */ max-height: 40vh; z-index: 6;
   display: flex; flex-direction: column; gap: 6px; background: rgba(42,31,36,.97); border: 2px solid var(--wood); border-radius: 10px; padding: 8px 10px;
   box-shadow: 0 8px 30px rgba(0,0,0,.5); animation: pop .22s steps(2) both; }
 .chat .pdot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
@@ -218,7 +222,7 @@ button:focus-visible, summary:focus-visible, input[type="range"]:focus-visible {
 
 .self-stack { position: absolute; left: 8px; bottom: 8px; width: min(360px, calc(100% - 16px)); max-height: calc(100% - 16px); display: flex; flex-direction: column; gap: 8px; pointer-events: none; z-index: 6; }
 .self-stack > * { pointer-events: auto; }
-.self-controls { flex: none; display: grid; gap: 8px; min-width: 0; }
+.self-controls { flex: 0 1 auto; min-height: 0; overflow: auto; display: grid; gap: 8px; min-width: 0; } /* scrolls on short screens instead of pushing past the dock */
 .self-panel { position: relative; flex: none; display: grid; gap: 6px; padding: 8px 10px; background: var(--panel); border: 2px solid var(--wood); border-radius: 8px; }
 .self-heading { display: flex; align-items: center; gap: 6px; }
 .self-heading b { flex: 1; min-width: 0; overflow-wrap: anywhere; }
@@ -241,10 +245,11 @@ button:focus-visible, summary:focus-visible, input[type="range"]:focus-visible {
 .rooms li .unread { grid-column: 2 / -1; justify-self: end; }
 .unread-btn { background: #6a8ad0; color: #fff; }
 @media (hover: none) { .rooms li .person-more { opacity: 1; } }
-@media (max-width: 560px) {
-  .call-chip { white-space: normal; }
-  .toasts { bottom: auto; top: 8px; z-index: 8; }
-  .rooms { bottom: 168px; z-index: 5; }
+@media (max-width: 560px) { .call-chip { white-space: normal; } }
+/* desktop: chips keep out of the chat (left) and People (right) columns */
+@media (min-width: 561px) and (min-height: 501px) {
+  .stage:has(aside.chat) .chips { left: 376px; }
+  .stage:has(.rooms) .chips { right: 266px; }
 }
 .meeting-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
 .meeting-list li { display: flex; align-items: center; gap: 10px; font-size: 13px; padding: 6px 8px; border-radius: 6px; background: var(--panel2); }
@@ -285,7 +290,7 @@ button:focus-visible, summary:focus-visible, input[type="range"]:focus-visible {
 .hanger-btn { display: grid; place-items: center; width: 34px; height: 30px; padding: 4px; background: var(--panel2); color: var(--text); }
 .hanger-btn svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 
-.appearance-backdrop { position: absolute; inset: 0; z-index: 8; display: grid; place-items: center; padding: 12px; background: rgba(20,12,16,.68); }
+.appearance-backdrop { position: absolute; inset: 0; z-index: 10; display: grid; place-items: center; padding: 12px; background: rgba(20,12,16,.68); }
 .appearance-panel { width: min(560px, 100%); max-height: min(720px, 100%); overflow: auto; display: grid; grid-template-columns: 126px 1fr; grid-template-rows: auto auto 1fr auto;
   gap: 12px 18px; padding: 18px; background: #302328; border: 2px solid var(--wood); border-radius: 12px; box-shadow: 0 16px 55px rgba(0,0,0,.6); }
 .appearance-head { grid-column: 1 / -1; display: flex; justify-content: space-between; gap: 10px; align-items: flex-start; }
