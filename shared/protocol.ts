@@ -82,6 +82,7 @@ export type ServerMsg =
   | { t: 'rtc'; from: string; signal: RtcSignal }
   | { t: 'speaking'; userId: string; on: boolean }
   | { t: 'mute'; userId: string; muted: boolean }
+  | { t: 'to_meet'; fromId: string } // someone in your call opened its Meet room; come along
   | { t: 'follow'; userId: string; targetId: string | null }
   | { t: 'holding'; userId: string; item: string | null; objectId?: string; fromId?: string } // objectId: just taken; fromId: handed over
   | { t: 'object'; id: string; on: boolean; by: string }
@@ -101,6 +102,7 @@ export type ClientMsg =
   | { t: 'claim_desk' }   // the seat you're sitting on becomes your home desk
   | { t: 'release_desk' }
   | { t: 'end_call' }
+  | { t: 'to_meet' } // I'm opening our call's Meet room: tell the others
   | { t: 'rtc'; to: string; signal: RtcSignal }
   | { t: 'speaking'; on: boolean }
   | { t: 'mute'; muted: boolean }

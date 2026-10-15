@@ -495,6 +495,11 @@ export class World {
         break;
       }
       case 'end_call': this.leaveCall(u); break;
+      case 'to_meet': {
+        const call = u.callId ? this.calls.get(u.callId) : undefined;
+        if (call && !call.fallback) for (const id of call.members) if (id !== u.id) this.sendTo(id, { t: 'to_meet', fromId: u.id });
+        break;
+      }
       // voice: relay WebRTC signaling only between members of the same call
       case 'rtc': {
         const to = this.users.get(String(msg.to));

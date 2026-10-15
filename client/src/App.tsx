@@ -346,7 +346,7 @@ function CallChip({ store, voice }: { store: Store; voice: Voice | null }) {
           {voice.muted ? '🔇 Unmute' : '🎙 Mute'}
         </button>
       )}
-      {meet && <ExternalLink href={meetAs(meet, store.email)}>Move to Meet</ExternalLink>}
+      {meet && <ExternalLink href={meetAs(meet, store.email)} onOpen={() => store.moveToMeet()}>Move to Meet</ExternalLink>}
       <button className="end" onClick={() => store.endCall()}>Leave</button>
     </div>
   );
@@ -385,7 +385,7 @@ function Toasts({ store }: { store: Store }) {
             {t.text.startsWith('Missed') ? 'Knock back' : 'Knock again'}
           </button>}
           {t.kind === 'chat' && t.userId && <button onClick={() => store.openChat(t.userId!)}>Reply</button>}
-          {t.kind === 'link' && t.link && <ExternalLink href={meetAs(t.link, store.email)} onOpen={() => store.dismiss(t.id)}>Join call</ExternalLink>}
+          {t.kind === 'link' && t.link && <ExternalLink href={meetAs(t.link, store.email)} onOpen={() => store.dismiss(t.id)}>Join Meet</ExternalLink>}
           {t.kind !== 'knock_in' && t.kind !== 'knock_out' && <button className="ghost x" onClick={() => store.dismiss(t.id)}>×</button>}
         </div>
       ))}
