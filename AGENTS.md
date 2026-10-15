@@ -96,6 +96,12 @@ npm run typecheck    # run before every commit or deploy
   Only a human's own `move` ending on the garden hole can fall into `instance: 'dungeon'`; `walkSeq` cancels stale
   fall/key/door timers on any later walk or placement. The server owns key state and sends it only to its owner;
   client discovery resets per visit. Neither is persisted.
+- **Creatures and cups** (`server/src/creatures.ts`, drawn by `client/src/creatures.ts`): a cat, a dog, a bat (October only)
+  and the cleaner. Not users: their own `creatures`/`creature` messages, never in the people list, never knock. They run
+  everywhere, prod included (`PETS=0` turns them off). Holding a coffee or tea, click a table tile to put the cup down
+  (`cup_put`; at most `MAX_CUPS`, saved in `state.json`); the cleaner paths to settled cups, wipes, takes them away. Cups
+  also vanish after 30 min. The ghost of Mazurkevich is client-only (night hours, or 3 min an hour); in dev,
+  `__deck.engine.critters.summonGhost()` brings him out.
 - **Room behavior is data.** Knock rules, meeting links and home-desk rooms live in `tilemap.json`
   (from `gen-map.mjs`), not in code.
 

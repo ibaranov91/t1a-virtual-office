@@ -5,7 +5,7 @@ import {
 } from '../../shared/map';
 import {
   NOTE_RATE, NOTE_BURST, NOTE_HELD_MAX, SEAT_CHANGES_PER_10S, DUNGEON_INSTANCE, underground, MAX_CALL_SIZE, MEETING_ROOM_ID, MAX_CHAT_LEN, normalizeMeetLink, REACTIONS, ROOM_VOICE_MAX,
-  dayNumber, plantDead, BOTANIST_KINDS, PLANT_KINDS, PLANT_STAGES, type Plant,
+  CUP_ITEMS, dayNumber, plantDead, BOTANIST_KINDS, PLANT_KINDS, PLANT_STAGES, type Plant,
   type ChatMsg, type ClientMsg, type Door, type Effect, type Knock, type LayoutEdit, type Look, type Presence, type PublicUser, type Reaction, type ServerMsg,
 } from '../../shared/protocol';
 import { INSTRUMENTS, validNote } from '../../shared/instruments';
@@ -14,6 +14,7 @@ import { TRACKS } from '../../shared/music';
 import { Arcade } from './arcade';
 import { Jukebox } from './jukebox';
 import { Meetings } from './meetings';
+import { Creatures } from './creatures';
 import { authUrl, CALENDAR_SCOPE, createSpace, forgetAccess, googleEnabled, listEvents, revoke, type GoogleLink } from './google';
 
 type DungeonEvent = Extract<ServerMsg, { t: 'dungeon' }>['event'];
@@ -99,6 +100,8 @@ export class World {
   arcade = new Arcade({ now: () => Date.now(), send: (id, msg) => this.sendOwner(id, msg),
     broadcast: msg => this.broadcast(msg), user: id => this.users.get(id) });
 
+  creatures = new Creatures({ map: () => this.map, broadcast: msg => this.broadcast(msg),
+    people: () => [...this.users.values()].filter(u => u.presence !== 'offline' && !u.instance).map(u => this.position(u).dest) });
   build?: string; // sent in hello so open pages reload after a deploy
   private baseLayout: Layout;     // as generated, for Reset
   private layoutEdited = false;   // saved only once someone has changed it
@@ -150,6 +153,8 @@ export class World {
     send(this.me(u));
     if (underground(u) && u.dungeon) send({ t: 'dungeon', ...u.dungeon });
     send({ t: 'meetings', rooms: this.meetingRooms() });
+    send({ t: 'creatures', creatures: this.creatures.all() });
+    send({ t: 'cups', cups: this.creatures.cups });
     send({ t: 'arcade', cabinets: this.arcade.summary() });
     send({ t: 'arcade_records', records: structuredClone(this.arcade.records) });
     for (const person of this.users.values()) send({ t: 'game_status', userId: person.id, game: person.game });
@@ -517,6 +522,30 @@ export class World {
         if (o.type === 'coffee_machine') this.addEffect(u, 'speed'); // a fresh cup: quick on your feet for a while
       }
     }, Math.max(0, at - Date.now()) + (o.use.kind === 'arcade' ? 0 : USE_MS[o.use.kind])));
+  }
+  /** Walk over to a table and put down the coffee or tea you're holding. */
+  putCup(u: User, tile: Tile) {
+    if (!u.holding || !CUP_ITEMS.includes(u.holding) || u.instance || goingOut(u) || u.presence === 'offline') return;
+    const problem = this.creatures.cupProblem(tile);
+    if (problem) { this.sendTo(u.id, { t: 'notice', text: problem }); return; }
+    const here = this.position(u).next, occ = this.occupied();
+    const spots = this.creatures.beside(tile).filter(s => (s.x === here.x && s.y === here.y) || !occ.has(`${s.x},${s.y}`))
+      .map(s => ({ s, len: s.x === here.x && s.y === here.y ? 0 : findPath(this.map, here, s).length })).filter(p => p.s.x === here.x && p.s.y === here.y || p.len);
+    spots.sort((a, b) => a.len - b.len);
+    const spot = spots[0]?.s;
+    if (!spot) return;
+    this.setFollowing(u, null);
+    clearTimeout(this.errands.get(u.id));
+    const at = this.walk(u, spot, dirBetween(spot, tile)) ?? Date.now();
+    const item = u.holding;
+    this.errands.set(u.id, setTimeout(() => {
+      this.errands.delete(u.id);
+      const d = this.position(u).dest;
+      if (d.x !== spot.x || d.y !== spot.y || u.holding !== item || u.instance) return; // changed their mind
+      const cup = this.creatures.addCup(tile, item, Date.now());
+      if (typeof cup === 'string') this.sendTo(u.id, { t: 'notice', text: cup });
+      else this.setHolding(u, null);
+    }, Math.max(0, at - Date.now()) + 300));
   }
   private objectState(id: string) { return { on: this.objectOn.get(id) ?? true }; }
   private setObject(id: string, on: boolean, by: User) {
@@ -1341,6 +1370,7 @@ export class World {
       }
       case 'use': this.use(u, String(msg.objectId), msg.item === undefined ? undefined : String(msg.item)); break;
       case 'drop': if (u.holding) this.setHolding(u, null); break;
+      case 'cup_put': if (msg.tile) this.putCup(u, { x: msg.tile.x | 0, y: msg.tile.y | 0 }); break;
       case 'give': { const to = this.users.get(String(msg.targetId)); if (to) this.give(u, to); break; }
     }
   }
@@ -1356,6 +1386,7 @@ export class World {
       arcade: this.arcade.dump(),
       layout: this.layoutEdited ? this.layout() : undefined,
       chats: Object.fromEntries(this.chats),
+      cups: this.creatures.cups,
     };
   }
   load(data: ReturnType<World['dump']>) {
@@ -1397,5 +1428,6 @@ export class World {
     const now = Date.now();
     for (const [id, saved] of Object.entries(data.jukebox ?? {})) if (this.jukeboxes.has(id)) this.jukeboxes.set(id, Jukebox.load(TRACKS, saved, now));
     for (const [key, msgs] of Object.entries(data.chats ?? {})) this.chats.set(key, msgs);
+    this.creatures.cups = (data.cups ?? []).filter(c => this.creatures.tableAt(c.tile));
   }
 }

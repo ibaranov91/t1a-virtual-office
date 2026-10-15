@@ -11,6 +11,7 @@ import type { ClientMsg } from '../../shared/protocol';
 import { World } from './world';
 import { serveStatic } from './static';
 import { startBots } from './bots';
+import { startCreatures } from './creatures';
 import { finish as finishGoogle, googleEnabled, revoke as revokeGoogle } from './google';
 
 const PORT = Number(process.env.DECK_PORT ?? 8787);
@@ -74,6 +75,8 @@ for (const sig of ['SIGINT', 'SIGTERM'] as const) process.on(sig, () => { save()
 // Bots are opt-in (BOTS=1): npm run dev and the test instances set it, prod doesn't have it at all.
 if (process.env.BOTS && process.env.BOTS !== '0') startBots(world, Number(process.env.BOT_COUNT ?? 4));
 else for (const u of [...world.users.values()]) if (u.bot) world.users.delete(u.id); // bots saved before they were turned off
+// The cat, the dog, the October bat and the cleaner run everywhere, prod included, unless PETS=0.
+startCreatures(world.creatures, process.env.PETS !== '0');
 
 // ---------- macOS app (macos/dist, built by `macos/build.sh --dist` during deploy) ----------
 // One-command install: curl -fsSL <base>/api/mac/install.sh | bash. curl doesn't quarantine what it
