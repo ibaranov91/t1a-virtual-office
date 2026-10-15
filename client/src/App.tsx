@@ -8,7 +8,6 @@ import { prefs, savePrefs, type Category } from './prefs';
 import { ITEMS, MAP, Store, type ClientUser } from './net';
 import { inNativeApp, syncNative } from './native';
 import { ACHIEVEMENTS, dayNumber, MAX_CHAT_LEN, MEET_LINK_RE, meetAs, normalizeMeetLink, kindName, PLANT_DIES_DAYS, PLANT_KINDS, PLANT_REVEAL, PLANT_STAGES, plantDead, plantName, REACTIONS, type Plant } from '../../shared/protocol';
-import { hallLevel } from '../../shared/acoustics';
 import { FIXED_TYPES, KEEP_TYPES, objectName, RUG_COLORS, RUG_MAX, RUG_MIN, seatAt } from '../../shared/map';
 
 // Dev server: sign in automatically as ?as=<name> (default "Dev"); each name keeps its own session,
@@ -780,8 +779,8 @@ function SelfPanel({ store, voice }: { store: Store; voice: Voice | null }) {
     window.addEventListener('pointerdown', outside); window.addEventListener('keydown', key);
     return () => { window.removeEventListener('pointerdown', outside); window.removeEventListener('keydown', key); };
   }, [settings]);
-  const myLevel = me && room ? hallLevel(MAP, room, store.pose(me).tile) : 0;
-  const near = me && room ? store.callPeers(me).filter(u => !u.bot && u.presence !== 'offline' && myLevel * hallLevel(MAP, room, store.pose(u).tile) > .02) : [];
+  const inside = me && room && !me.instance && store.roomOf(me)?.id === room.id;
+  const near = me && room ? store.callPeers(me).filter(u => !u.bot && u.presence !== 'offline' && inside && u.instance === me.instance && store.roomOf(u)?.id === room.id) : [];
   const status = room ? `In ${room.name} · ${near.length ? `within earshot: ${near.map(u => u.name.split(' ')[0]).join(', ')}` : 'nobody within earshot'}`
     : me?.callId ? `Talking with ${store.names(store.callPeers(me))}` : 'Not in voice';
   return <section className="self-controls" ref={ref} aria-label="Your voice controls">
@@ -871,6 +870,7 @@ function Toasts({ store }: { store: Store }) {
           {t.kind === 'knock_again' && t.userId && <button onClick={() => { store.dismiss(t.id); store.requestKnock(t.userId!); }}>
             {t.text.startsWith('Missed') ? 'Knock back' : 'Knock again'}
           </button>}
+          {t.kind === 'call_moved' && t.roomId && <button onClick={() => { store.joinRoom(t.roomId!); store.dismiss(t.id); }}>Join them</button>}
           {t.kind === 'chat' && t.userId && <button onClick={() => store.openChat(t.userId!)}>Reply</button>}
           {t.kind === 'meeting' && t.meetingKey && <button onClick={() => store.goToMeeting(t.meetingKey!)}>Go</button>}
           {t.kind === 'meeting' && t.link && <ExternalLink href={meetAs(t.link, store.meetAccount)}>Join call</ExternalLink>}

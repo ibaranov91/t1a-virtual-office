@@ -1,10 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import {
-  applyEdit, applyLayout, besideObject, dirBetween, hallDistance, KEEP_TYPES, layoutProblem, objectName, voiceRooms, findPath, isWalkable, pathDuration, pathTo, roomAt, sampleMove, seatAt, withLayout, WALK_MS_PER_TILE,
+  applyEdit, applyLayout, besideObject, dirBetween, doorwayTiles, KEEP_TYPES, layoutProblem, objectName, voiceRooms, findPath, isWalkable, pathDuration, pathTo, roomAt, sampleMove, seatAt, withLayout, WALK_MS_PER_TILE,
   type Dir, type Layout, type Room, type Spot, type TileMap, type Tile,
 } from '../../shared/map';
 import {
-  ZONE_IN_TILES, ZONE_OUT_TILES, MAX_CALL_SIZE, MEETING_ROOM_ID, MAX_CHAT_LEN, normalizeMeetLink, REACTIONS, ROOM_VOICE_MAX,
+  MAX_CALL_SIZE, MEETING_ROOM_ID, MAX_CHAT_LEN, normalizeMeetLink, REACTIONS, ROOM_VOICE_MAX,
   dayNumber, plantDead, BOTANIST_KINDS, PLANT_KINDS, PLANT_STAGES, type Plant,
   type ChatMsg, type ClientMsg, type Door, type Knock, type LayoutEdit, type Look, type Presence, type PublicUser, type Reaction, type ServerMsg,
 } from '../../shared/protocol';
@@ -564,7 +564,7 @@ export class World {
     if (u.bot || u.afk || u.instance || u.presence === 'offline' || goingOut(u) || !this.sockets.get(u.id)?.size) return false; // a meeting's own room is off the floor
     if (u.callId && !this.calls.get(u.callId)?.room) return false;
     const t = this.position(u, now).tile;
-    return hallDistance(this.map, room, t.x, t.y) <= (u.callId === `room:${room.id}` ? ZONE_OUT_TILES : ZONE_IN_TILES);
+    return roomAt(this.map, t.x, t.y)?.id === room.id || doorwayTiles(this.map, room).some(g => g.some(p => p.x === t.x && p.y === t.y));
   }
   private maintainRoom(call: Call, now = Date.now()) {
     for (const [id, roomId] of this.waiting) {
@@ -586,6 +586,7 @@ export class World {
       if (call && !call.room) {
         this.setWaiting(u, null);
         if (!inside) continue;
+        for (const id of call.members) if (id !== u.id) this.sendTo(id, { t: 'call_moved', userId: u.id, roomId: inside.id });
         this.leaveCall(u, now);
       }
       const room = rooms.find(r => this.hallEligible(u, r, now));
@@ -628,7 +629,7 @@ export class World {
     this.setWaiting(u, null); this.setFollowing(u, null);
     u.afk = true; this.leaveCall(u);
     const occ = this.occupied(), home = u.homeDesk;
-    const outside = (t: Tile) => voiceRooms(this.map).every(r => hallDistance(this.map, r, t.x, t.y) > ZONE_OUT_TILES);
+    const outside = (t: Tile) => voiceRooms(this.map).every(r => roomAt(this.map, t.x, t.y)?.id !== r.id && !doorwayTiles(this.map, r).some(g => g.some(p => p.x === t.x && p.y === t.y)));
     const free = (t: Tile) => !occ.has(`${t.x},${t.y}`) && outside(t);
     let to = home && free(home) ? home : undefined;
     if (!to) {

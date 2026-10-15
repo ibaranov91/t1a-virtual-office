@@ -1,6 +1,6 @@
 // WebSocket client + the client-side mirror of server state.
 import mapJson from '../../shared/tilemap.json';
-import { applyLayout, besideObject, pathTo, roomAt, sampleMove, type Dir, type Tile, type TileMap } from '../../shared/map';
+import { applyLayout, besideObject, doorwayTiles, isWalkable, pathTo, roomAt, sampleMove, type Dir, type Tile, type TileMap } from '../../shared/map';
 import { ACHIEVEMENTS, PLANT_STAGES, plantName, ROOM_VOICE_MAX, type AgendaItem, type LayoutEdit, type CalEvent, type MeetingRoomInfo, type ChatMsg, type ObjectState, type ClientMsg, type PublicUser, type Reaction, type RtcSignal, type ServerMsg } from '../../shared/protocol';
 import { playHand, playKnock, playPop } from './sounds';
 import type { Soundscape } from './soundscape';
@@ -16,8 +16,9 @@ export interface ClientUser extends PublicUser {
 
 export interface Toast {
   // knock_out: my knock is waiting (Cancel); knock_again: it didn't land, or I missed one (Knock again / back)
-  id: number; kind: 'knock_in' | 'knock_out' | 'knock_again' | 'chat' | 'info' | 'link' | 'meeting';
+  id: number; kind: 'knock_in' | 'knock_out' | 'knock_again' | 'chat' | 'info' | 'link' | 'meeting' | 'call_moved';
   text: string; link?: string; knockId?: string; expires?: number; hint?: string;
+  roomId?: string;
   meetingKey?: string; // meeting: one-click Go into its room
   userId?: string; // the other person, for knock_again and chat
 }
@@ -90,16 +91,32 @@ export class Store {
     ws.onopen = () => { this.connected = true; this.emit(); };
     ws.onmessage = (e) => this.onMessage(JSON.parse(e.data));
     ws.onclose = (e) => {
-      this.connected = false; this.voiceOwner = false; this.emit();
+      this.connected = false; this.voiceOwner = false; this.soundscape?.resetCrossings(); this.emit();
       if (e.code === 4001) return this.onUnauthorized();
       if (!this.closed) setTimeout(() => this.connect(), 1500);
     };
   }
-  close() { this.closed = true; this.connected = false; this.voiceOwner = false; this.emit(); this.ws?.close(); }
+  close() { this.closed = true; this.connected = false; this.voiceOwner = false; this.soundscape?.resetCrossings(); this.emit(); this.ws?.close(); }
   send(msg: ClientMsg) { if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(msg)); }
 
   // ---------- actions ----------
   moveTo(to: Tile) { this.send({ t: 'move', to }); }
+  joinRoom(roomId: string) {
+    const me = this.users.get(this.me), room = MAP.rooms.find(r => r.id === roomId);
+    if (!me || me.instance || !room) return;
+    const pose = this.pose(me), doors = doorwayTiles(MAP, room);
+    const distance = (t: Tile, p: Tile) => Math.abs(t.x - p.x) + Math.abs(t.y - p.y);
+    const door = doors.slice().sort((a, b) => Math.min(...a.map(t => distance(t, pose))) - Math.min(...b.map(t => distance(t, pose))))[0];
+    if (!door) return;
+    const occupied = new Set([...this.users.values()].filter(u => u.id !== me.id && u.presence !== 'offline' && u.instance === me.instance)
+      .map(u => { const t = u.move?.to ?? u.tile; return `${t.x},${t.y}`; }));
+    const tiles: Tile[] = [], { x, y, w, h } = room.rect;
+    for (let yy = y; yy < y + h; yy++) for (let xx = x; xx < x + w; xx++)
+      if (isWalkable(MAP, xx, yy) && !occupied.has(`${xx},${yy}`)) tiles.push({ x: xx, y: yy });
+    tiles.sort((a, b) => Math.min(...door.map(t => distance(a, t))) - Math.min(...door.map(t => distance(b, t))) || distance(a, pose) - distance(b, pose));
+    const tile = tiles.find(t => pathTo(MAP, pose.tile, t).length);
+    if (tile) this.moveTo(tile);
+  }
   knock(targetId: string) { this.send({ t: 'knock', targetId }); }
   /** Knock, but first walk the user through setting up their Meet room if they have none. */
   pendingKnock: string | null = null;
@@ -261,6 +278,9 @@ export class Store {
         if (msg.build && this.build && msg.build !== this.build) this.staleBuild = true;
         this.build ??= msg.build;
         break;
+      case 'call_moved':
+        this.toast({ kind: 'call_moved', roomId: msg.roomId, text: `${this.name(msg.userId).split(' ')[0]} went into ${MAP.rooms.find(r => r.id === msg.roomId)?.name ?? msg.roomId}`, expires: 15000 });
+        break;
       case 'state': {
         this.offset = msg.serverTime - Date.now();
         const next = new Map<string, ClientUser>();
@@ -272,7 +292,7 @@ export class Store {
         }
         this.users = next;
         this.objects = msg.objects ?? {};
-        this.soundscape?.resetAdmitted();
+        this.soundscape?.resetCrossings();
         break;
       }
       case 'follow': { const u = this.users.get(msg.userId); if (u) u.following = msg.targetId; break; }
@@ -331,6 +351,7 @@ export class Store {
       case 'instance': {
         const u = this.users.get(msg.userId);
         if (u) { u.instance = msg.instance; u.tile = msg.tile; u.dir = msg.dir; u.move = null; u.path = null; u.prev = null; u.faceOverride = null; }
+        this.soundscape?.resetCrossings(msg.userId === this.me ? undefined : msg.userId);
         if (msg.userId === this.me && msg.instance) this.toasts = this.toasts.filter(t => !(t.kind === 'meeting' && this.agenda.find(a => a.key === t.meetingKey)?.instance === msg.instance));
         break;
       }
