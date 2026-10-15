@@ -1,5 +1,6 @@
 // Dev-only: 12 fake teammates that wander between spots, idle, and change status/presence.
-import { isWalkable } from '../../shared/map';
+import { DANCE_ROOM } from '../../shared/effects';
+import { isWalkable, roomAt } from '../../shared/map';
 import { dayNumber, PLANT_KINDS, PLANT_STAGES } from '../../shared/protocol';
 import type { User, World } from './world';
 
@@ -69,6 +70,8 @@ export function startBots(world: World, count = 4) {
   setInterval(() => {
     const now = Date.now();
     for (const b of bots()) {
+      // a bot standing in the club dances by itself (the world ends it when it walks out)
+      if (b.presence === 'online' && !b.move && !b.callId && roomAt(map, b.tile.x, b.tile.y)?.id === DANCE_ROOM && !b.effects.some(e => e.kind === 'dance')) world.startDance(b, now);
       if (b.callId) { presenceUntil.delete(b.id); continue; } // on a call: stay put
       const until = presenceUntil.get(b.id);
       if (until && now > until) { world.setPresence(b, 'online'); presenceUntil.delete(b.id); }

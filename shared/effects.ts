@@ -19,6 +19,7 @@ export const hatOf = (item: string) => (item.startsWith('hat:') ? item.slice(4) 
 export const EFFECTS: Record<string, EffectRule> = {
   speed: { who: 'server', label: 'Caffeinated', icon: '⚡', ms: 2 * 60_000 },
   hat: { who: 'self', label: 'Hat', icon: '🎩', styles: ALL_HATS }, // self: only a hat from your pockets
+  dance: { who: 'self', label: 'Dancing', icon: '🕺', ms: 3 * 60_000 }, // Berghain's floor only; the server ends it when you leave or sit
   vampire: { who: 'gm', label: 'Vampire', icon: '🧛', ms: 2 * 60_000 },
   fire_aura: { who: 'gm', label: 'Fire aura', icon: '🔥', ms: 2 * 60_000 },
   gum: { who: 'gm', label: 'Gum', icon: '🩲', ms: 60_000 },
@@ -26,6 +27,11 @@ export const EFFECTS: Record<string, EffectRule> = {
   unicorns: { who: 'gm', label: 'Unicorns', icon: '🦄', ms: 90_000 },
 };
 export const MAX_EFFECTS = 8;
+export const DANCE_ROOM = 'berghain';
+export const DANCE_BPM = 120; // everyone sways to the same Date.now()-based beat
+/** The beat number at this time: Date.now()-based so everyone in the club moves together. */
+export const danceBeat = (ms: number) => Math.floor((ms * DANCE_BPM) / 60_000);
+export const RAVER_MS = 30 * 60_000; // total dancing for the `raver` achievement
 
 export const SPEED_FACTOR = 1.6;  // coffee: tiles per second × this
 export const DRUNK_FACTOR = 0.8;  // a bit slower, a lot wobblier

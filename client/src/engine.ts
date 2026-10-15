@@ -3,6 +3,7 @@ import { INSTRUMENTS } from '../../shared/instruments';
 // Order: static tilemap → y-sorted furniture + sprites → nameplates & bubbles → ambient tint → UI hints.
 import { adminOnly, applyEdit, FIXED_TYPES, findPath, pathTo, sampleMove, pathDuration, WALK_MS_PER_TILE, isWalkable, layoutProblem, objectById, objectName, roomAt, seatAt, withLayout, type MapObject, type Rect, type Rug, type Tile } from '../../shared/map';
 import { DungeonView } from './dungeon';
+import { danceBeat } from '../../shared/effects';
 import { drawEffects, effectLook, effectSway } from './effects';
 import { CreatureLayer } from './creatures';
 import { lockedDoors, roomDoors, type RoomDoor } from './doors';
@@ -331,7 +332,7 @@ export class Engine {
     }
     for (const o of MAP.dungeon?.decor ?? []) this.blit(ctx, o.type, o.x * TS, o.y * TS);
     // wall decor + floor-level furniture (chairs) are static
-    for (const o of MAP.objects) if (o.wall || o.walkable) this.drawItem(ctx, o);
+    for (const o of MAP.objects) if ((o.wall || o.walkable) && o.type !== 'dance_floor') this.drawItem(ctx, o); // the dance floor animates: see drawDanceFloor
     return c;
   }
   private drawRug(ctx: CanvasRenderingContext2D, r: Rug) {
@@ -345,6 +346,21 @@ export class Engine {
     const name = o.dir && this.f(`${o.type}_${o.dir}`) ? `${o.type}_${o.dir}` : o.type!; // chairs face their desk
     const fr = this.f(name);
     return fr && { name, fr, x: o.x * TS + (o.w * TS - fr.w) / 2, y: o.wall ? o.y * TS : (o.y + o.h) * TS - fr.h };
+  }
+  /** Berghain's floor: two checkered neon frames on the beat; the tiles under dancers flicker. */
+  private drawDanceFloor(ctx: CanvasRenderingContext2D, poses: Map<string, Pose>) {
+    const beat = danceBeat(Date.now());
+    for (const o of MAP.objects) {
+      if (o.type !== 'dance_floor') continue;
+      const name = `dance_floor_${beat % 2}`, fr = this.f(name) ?? this.f(o.type);
+      if (fr) this.blit(ctx, this.f(name) ? name : o.type, o.x * TS, (o.y + o.h) * TS - fr.h);
+      for (const u of this.store.users.values()) {
+        const p = poses.get(u.id);
+        if (!p || p.walking || !u.effects?.some(e => e.kind === 'dance') || p.tile.x < o.x || p.tile.x >= o.x + o.w || p.tile.y < o.y || p.tile.y >= o.y + o.h) continue;
+        ctx.fillStyle = (beat + p.tile.x + p.tile.y) % 2 ? 'rgba(255,94,200,0.45)' : 'rgba(94,240,255,0.45)';
+        ctx.fillRect(p.tile.x * TS, p.tile.y * TS, TS, TS);
+      }
+    }
   }
   /** The world clocks' hands, from the real time in each one's zone. */
   private drawClockHands(ctx: CanvasRenderingContext2D) {
@@ -838,7 +854,7 @@ export class Engine {
     ctx.beginPath(); ctx.rect(this.area.x * TS, this.area.y * TS, this.area.w * TS, this.area.h * TS); ctx.clip();
     ctx.drawImage(this.staticLayer, this.area.x * TS, this.area.y * TS, this.area.w * TS, this.area.h * TS,
       this.area.x * TS, this.area.y * TS, this.area.w * TS, this.area.h * TS);
-    if (this.areaDown) this.drawDungeon(ms); else this.drawClockHands(ctx);
+    if (this.areaDown) this.drawDungeon(ms); else { this.drawDanceFloor(ctx, poses); this.drawClockHands(ctx); }
 
     // hover tile + my destination marker
     if (this.hoverTile && !this.hoverUser && !this.tapZooms && !this.editing) {

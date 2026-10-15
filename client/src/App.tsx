@@ -12,7 +12,7 @@ import { inNativeApp, syncNative } from './native';
 import { LiveChip, PresentPanel, SlideOverlay } from './Presentation';
 import { ACHIEVEMENTS, underground, dayNumber, JUKEBOX_PER_PERSON, JUKEBOX_QUEUE_MAX, MAX_CHAT_LEN, MEET_LINK_RE, meetAs, normalizeMeetLink, kindName, PLANT_DIES_DAYS, PLANT_KINDS, PLANT_REVEAL, PLANT_STAGES, plantDead, plantName, REACTIONS, TOILET_CAPACITY, TOILET_SHELF_ITEM, TOILET_SHELF_MAX, TOILET_USE_MS, toiletFull, type JukeboxState, type Plant } from '../../shared/protocol';
 import { GENRES, jukeboxPosition, TRACK, TRACKS } from '../../shared/music';
-import { ALL_HATS, EFFECTS, HAT_NAMES, effectOf, hatItem, hatOf } from '../../shared/effects';
+import { ALL_HATS, DANCE_ROOM, EFFECTS, HAT_NAMES, effectOf, hatItem, hatOf } from '../../shared/effects';
 import { FIXED_TYPES, KEEP_TYPES, objectName, RUG_COLORS, RUG_MAX, RUG_MIN, seatAt } from '../../shared/map';
 
 // Dev server: sign in automatically as ?as=<name> (default "Dev"); each name keeps its own session,
@@ -150,6 +150,7 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
       const use = p?.kind === 'object' ? MAP.objects.find(o => o.id === p.id)?.use : undefined;
       if (use?.kind === 'instrument' && p) { setPick(null); return store.playInstrument(p.id); }
       if (use?.kind === 'arcade' && p) { setPick(null); return store.use(p.id); }
+      if (use?.kind === 'dance' && p) { setPick(null); return store.dance(p.id); }
       if (use?.kind === 'records') { setPick(null); return store.openRecords(); }
       if (use?.kind === 'jukebox' && p) { setPick(null); return store.openJukebox(p.id); }
       if (use?.kind === 'calendar') { setPick(null); return store.openCalendar(); }
@@ -1321,6 +1322,7 @@ function ActionWheel({ store, engine, pick, assets, onPerson, onClose }: { store
         { icon: '😊', label: 'React', onClick: () => setEmoji(true) },
         { icon: '💬', label: 'Message', onClick: act(() => store.openChat(u.id)) },
       ];
+      if (isMe && (store.dancing || (store.roomOf(u)?.id === DANCE_ROOM && !u.instance))) items.push({ icon: '💃', label: store.dancing ? 'Stop dancing' : 'Dance', onClick: act(() => store.dance()) });
       if (me?.callId && me.callId === u.callId) items.push({ icon: '🔊', label: 'Volume', onClick: act(() => { if (at) onPerson({ id: u.id, x, y }); }) });
       const held = me?.holding ? ITEMS.get(me.holding) : undefined;
       if (held) items.push({ icon: held.icon, label: 'Give', disabled: !!u.holding || away || !!dungeon,
@@ -1329,7 +1331,7 @@ function ActionWheel({ store, engine, pick, assets, onPerson, onClose }: { store
     }
   } else {
     const o = MAP.objects.find(o => o.id === pick.id);
-    if (!o?.use || o.use.kind === 'instrument' || o.use.kind === 'calendar' || o.use.kind === 'meetings' || o.use.kind === 'achievements' || o.use.kind === 'link' || o.use.kind === 'clock' || o.use.kind === 'jukebox' || o.use.kind === 'arcade' || o.use.kind === 'records' || o.use.kind === 'presentation') return null;
+    if (!o?.use || o.use.kind === 'instrument' || o.use.kind === 'calendar' || o.use.kind === 'meetings' || o.use.kind === 'achievements' || o.use.kind === 'link' || o.use.kind === 'clock' || o.use.kind === 'jukebox' || o.use.kind === 'dance' || o.use.kind === 'arcade' || o.use.kind === 'records' || o.use.kind === 'presentation') return null;
     if (o.use.kind === 'toilet') {
       const s = store.toilets[o.id], full = toiletFull(s), inside = !!s?.in.includes(store.me), queued = s?.queue.indexOf(store.me) ?? -1;
       title = full ? 'Toilet · out of order' : inside ? `Toilet · ${s!.in.length}/${TOILET_CAPACITY} inside` : queued >= 0 ? `Toilet · #${queued + 1} in line` : s?.in.length ? `Toilet · ${s.in.length}/${TOILET_CAPACITY} inside` : 'Toilet';

@@ -1152,3 +1152,37 @@ test('a shared time zone reaches everyone, is validated, can be hidden, and is n
   assert.equal(a.u.tz, undefined);
   assert.deepEqual(b.messages.filter(m => m.t === 'tz').pop(), { t: 'tz', userId: a.u.id, tz: null });
 });
+
+test('dancing works only on the Berghain floor and ends when you leave', t => {
+  const { w, add, settle } = setup(t), a = add('A');
+  const club = map.rooms.find(r => r.id === 'berghain')!, [s0, s1] = club.spots;
+  const dancing = () => a.u.effects.some(e => e.kind === 'dance');
+  w.handle(a.u, effect(a.u.id, 'dance'), a.socket);
+  assert.equal(dancing(), false, 'not in the club');
+  settle(a.u, s0); a.u.instance = 'meeting:x';
+  w.handle(a.u, effect(a.u.id, 'dance'), a.socket);
+  assert.equal(dancing(), false, 'instances do not count');
+  a.u.instance = null;
+  w.handle(a.u, effect(a.u.id, 'dance'), a.socket);
+  assert.equal(dancing(), true);
+  w.handle(a.u, effect(a.u.id, 'dance', false), a.socket);
+  assert.equal(dancing(), false);
+  w.handle(a.u, effect(a.u.id, 'dance'), a.socket);
+  w.walk(a.u, s1);
+  assert.equal(dancing(), true, 'moving inside the club keeps it');
+  settle(a.u, s1);
+  w.walk(a.u, { x: 32, y: 12 });
+  assert.equal(dancing(), false, 'walking out ends it');
+});
+
+test('30 minutes of dancing earns the raver badge', t => {
+  const { w, add, settle, tick } = setup(t), a = add('A');
+  settle(a.u, map.rooms.find(r => r.id === 'berghain')!.spots[0]);
+  for (let i = 0; i < 10; i++) {
+    w.handle(a.u, effect(a.u.id, 'dance'), a.socket);
+    assert.equal(a.u.achievements.raver, undefined);
+    for (let k = 0; k < 720; k++) tick(250);
+  }
+  tick(250);
+  assert.ok(a.u.achievements.raver);
+});
