@@ -16,6 +16,7 @@ export interface Room {
   spots: Spot[];
   homeDesks?: boolean; // seats here can be claimed as someone's home desk
   plantSlots?: Tile[];  // where plants of people without a home desk stand (the Orangery's shelves)
+  disco?: { x: number; y: number }; // a disco ball comes out here in the evening: the floor point under it, in tiles
   rules: { voice?: 'open'; knock: KnockRule; label?: string; occupantLabel?: string; access?: 'admins' }; // access: only office admins walk in
   meeting: { provider: 'meet' | 'teams'; url: string };
 }
