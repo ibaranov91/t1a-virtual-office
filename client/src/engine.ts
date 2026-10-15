@@ -1,6 +1,6 @@
 // The floor: one <canvas>, one requestAnimationFrame loop.
 // Order: static tilemap → y-sorted furniture + sprites → nameplates & bubbles → ambient tint → UI hints.
-import { isWalkable, roomAt, seatAt, type MapObject } from '../../shared/map';
+import { findPath, isWalkable, roomAt, seatAt, type MapObject, type Tile } from '../../shared/map';
 import type { Assets, Frame } from './assets';
 import { drawText, textWidth } from './font';
 import { MEETING_ROOM_ID } from '../../shared/protocol';
@@ -114,6 +114,39 @@ export class Engine {
     const r = MAP.rooms.find(r => r.id === id)?.rect; if (!r) return;
     this.lookAt((r.x + r.w / 2) * TS, (r.y + r.h / 2) * TS);
   }
+  /** Walk into a room (from the list): the free tile nearest its middle, plain floor before a seat. */
+  walkToRoom(id: string) {
+    const r = MAP.rooms.find(r => r.id === id), me = this.store.users.get(this.store.me); if (!r || !me) return;
+    if (me.instance || roomAt(MAP, me.tile.x, me.tile.y)?.id === id) return this.focusRoom(id); // a meeting's room has no way out but Leave
+    const { x, y, w, h } = r.rect, cx = x + (w - 1) / 2, cy = y + (h - 1) / 2, taken = this.taken();
+    let best: { t: Tile; score: number } | null = null;
+    for (let ty = y; ty < y + h; ty++) for (let tx = x; tx < x + w; tx++) {
+      if (!isWalkable(MAP, tx, ty) || taken.has(`${tx},${ty}`)) continue;
+      const score = Math.abs(tx - cx) + Math.abs(ty - cy) + (seatAt(MAP, tx, ty) ? 100 : 0);
+      if (!best || score < best.score) best = { t: { x: tx, y: ty }, score };
+    }
+    if (best) this.walkTo(best.t); else this.focusRoom(id);
+  }
+  /** Walk up beside someone (from the list): the free neighbouring tile with the shortest path. */
+  walkToUser(id: string) {
+    const me = this.store.users.get(this.store.me), u = this.store.users.get(id);
+    if (!me || !u || u.id === me.id || !this.visible(u)) return this.focusUser(id);
+    const taken = this.taken(), inside = !!me.instance, d = u.tile;
+    let best: { t: Tile; len: number } | null = null;
+    for (const [dx, dy] of [[0, 1], [-1, 0], [1, 0], [0, -1]]) {
+      const t = { x: d.x + dx, y: d.y + dy };
+      if (t.x === me.tile.x && t.y === me.tile.y) return this.walkTo(t); // already there
+      if (!isWalkable(MAP, t.x, t.y) || taken.has(`${t.x},${t.y}`) || (inside && !inMeetingRoom(t.x, t.y))) continue;
+      const len = findPath(MAP, me.tile, t).length;
+      if (len && (!best || len < best.len)) best = { t, len };
+    }
+    if (best) this.walkTo(best.t); else this.focusUser(id);
+  }
+  /** Tiles other people stand on or are heading to, in my office or meeting room. */
+  private taken() {
+    return new Set([...this.store.users.values()].filter(u => u.id !== this.store.me && this.visible(u)).map(u => `${u.tile.x},${u.tile.y}`));
+  }
+  private walkTo(t: Tile) { this.onPick?.(null); this.manualCam = false; if (this.overview) this.zoomTo(this.backPx()); this.store.moveTo(t); }
   private lookAt(wx: number, wy: number) {
     this.manualCam = true;
     if (this.overview) return this.zoomTo(this.backPx(), { sx: this.canvas.width / 2, sy: this.canvas.height / 2 }, { wx, wy });
