@@ -13,6 +13,20 @@ import { TOILET_CAPACITY, toiletFull, cupTableAt, CUP_ITEMS, underground, MEETIN
 import { ITEMS, MAP, type ClientUser, type Pose, type Store, type DungeonFx } from './net';
 
 const TS = MAP.tileSize;
+/** "🕒 14:35 · Warsaw", plus "tomorrow"/"yesterday" when their date isn't mine. */
+function localTime(tz: string) {
+  const now = new Date(), day = (z?: string) => new Intl.DateTimeFormat('en-CA', { timeZone: z }).format(now), theirs = day(tz), mine = day();
+  const time = new Intl.DateTimeFormat([], { timeZone: tz, hour: '2-digit', minute: '2-digit' }).format(now);
+  return `🕒 ${time}${theirs === mine ? '' : theirs > mine ? ' tomorrow' : ' yesterday'} · ${tz.split('/').pop()!.replace(/_/g, ' ')}`;
+}
+const zoneFmt = new Map<string, Intl.DateTimeFormat>();
+/** Hour and minute on the wall in an IANA zone, right now. */
+function zoneHM(tz: string) {
+  let f = zoneFmt.get(tz); if (!f) zoneFmt.set(tz, f = new Intl.DateTimeFormat('en-US', { timeZone: tz, hourCycle: 'h23', hour: 'numeric', minute: 'numeric' }));
+  const p = f.formatToParts(new Date());
+  return { h: +p.find(x => x.type === 'hour')!.value, m: +p.find(x => x.type === 'minute')!.value };
+}
+function zoneTime(tz: string) { const { h, m } = zoneHM(tz); return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`; }
 const MW = MAP.width * TS, MH = MAP.height * TS;
 const MEETING = MAP.rooms.find(r => r.id === MEETING_ROOM_ID)!.rect;
 const inMeetingRoom = (x: number, y: number) => x >= MEETING.x && x < MEETING.x + MEETING.w && y >= MEETING.y && y < MEETING.y + MEETING.h;
@@ -331,6 +345,24 @@ export class Engine {
     const name = o.dir && this.f(`${o.type}_${o.dir}`) ? `${o.type}_${o.dir}` : o.type!; // chairs face their desk
     const fr = this.f(name);
     return fr && { name, fr, x: o.x * TS + (o.w * TS - fr.w) / 2, y: o.wall ? o.y * TS : (o.y + o.h) * TS - fr.h };
+  }
+  /** The world clocks' hands, from the real time in each one's zone. */
+  private drawClockHands(ctx: CanvasRenderingContext2D) {
+    for (const o of MAP.objects) {
+      if (o.use?.kind !== 'clock') continue;
+      const s = this.sprite(o); if (!s) continue;
+      const { h, m } = zoneHM(o.use.tz), cx = s.x + 8, cy = s.y + 7;
+      const hand = (turns: number, len: number, color: string) => {
+        ctx.fillStyle = color;
+        const a = turns * Math.PI * 2;
+        for (let r = 0; r <= len; r += 0.5) ctx.fillRect(Math.round(cx + Math.sin(a) * r), Math.round(cy - Math.cos(a) * r), 1, 1);
+      };
+      hand(((h % 12) + m / 60) / 12, 2.5, '#3a2a2a'); hand(m / 60, 4, '#3a2a2a');
+      ctx.fillStyle = '#b4534a'; ctx.fillRect(cx, cy, 1, 1);
+      ctx.font = 'bold 4px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'top'; // the zone's name under the face
+      ctx.fillStyle = 'rgba(40,20,20,0.7)'; ctx.fillText(o.use.label, cx + 0.3, s.y + 15.3);
+      ctx.fillStyle = '#ffe9c4'; ctx.fillText(o.use.label, cx, s.y + 15);
+    }
   }
   private drawItem(ctx: CanvasRenderingContext2D, o: Item) {
     if (o.color) return this.drawRug(ctx, o as Rug);
@@ -806,7 +838,7 @@ export class Engine {
     ctx.beginPath(); ctx.rect(this.area.x * TS, this.area.y * TS, this.area.w * TS, this.area.h * TS); ctx.clip();
     ctx.drawImage(this.staticLayer, this.area.x * TS, this.area.y * TS, this.area.w * TS, this.area.h * TS,
       this.area.x * TS, this.area.y * TS, this.area.w * TS, this.area.h * TS);
-    if (this.areaDown) this.drawDungeon(ms);
+    if (this.areaDown) this.drawDungeon(ms); else this.drawClockHands(ctx);
 
     // hover tile + my destination marker
     if (this.hoverTile && !this.hoverUser && !this.tapZooms && !this.editing) {
@@ -939,7 +971,7 @@ export class Engine {
       const instrumentTip = o.use?.kind === 'instrument' ? `${INSTRUMENTS[o.use.instrument].name} · ${this.store.seat === o.id ? "you're playing · Esc to stand up" : player === this.store.me ? "you're playing in another tab" : player ? `${this.store.name(player).split(' ')[0]} is playing` : 'click to play'}` : '';
       const what = instrumentTip || (o.use?.kind === 'arcade' ? this.store.gameDescription(o.id) : o.use?.kind === 'records' ? 'Deck Park · team records' : o.use?.kind === 'jukebox' ? !jukebox ? 'Jukebox · Reconnecting…' : jukebox.pausedAt !== null ? 'Jukebox · paused' : `Jukebox · ♪ ${track?.title ?? jukebox.track} — ${track?.artist ?? ''}` : o.sound ? 'Radio · music volume in ⚙' : o.use?.kind === 'toggle' ? `${o.use.label[0].toUpperCase()}${o.use.label.slice(1)} · ${this.isOn(o) ? 'on' : 'off'}`
         : o.use?.kind === 'calendar' ? 'Calendar · your week' : o.use?.kind === 'achievements' ? 'Notice board · your plant and achievements' : o.use?.kind === 'link' ? `Vault 13 · click to open the ${o.use.label}` : o.use?.kind === 'meetings' ? `Meetings · ${this.store.meetingRooms.length || 'none'} on now`
-        : o.use?.kind === 'presentation' ? (this.store.presentation?.objectId === o.id ? `Screen · LIVE: ${this.store.presentation.deck.title}` : 'Screen · click to present slides') : o.sit ? `${o.type === 'bench' ? 'Bench' : 'Sofa'} · click to sit` : o.type === 'coffee_machine' ? 'Coffee machine' : o.type === 'fridge' ? 'Fridge' : o.use?.kind === 'toilet' ? this.toiletTip(o.id) : o.use?.kind === 'dealer' ? (o.type === 'bouncer' ? 'Bouncer · knows a guy' : 'Hat stand · pick a hat for your pockets') : objectName(o.type));
+        : o.use?.kind === 'presentation' ? (this.store.presentation?.objectId === o.id ? `Screen · LIVE: ${this.store.presentation.deck.title}` : 'Screen · click to present slides') : o.use?.kind === 'clock' ? `Clock · ${o.use.city}, ${zoneTime(o.use.tz)} · click for all our cities` : o.sit ? `${o.type === 'bench' ? 'Bench' : 'Sofa'} · click to sit` : o.type === 'coffee_machine' ? 'Coffee machine' : o.type === 'fridge' ? 'Fridge' : o.use?.kind === 'toilet' ? this.toiletTip(o.id) : o.use?.kind === 'dealer' ? (o.type === 'bouncer' ? 'Bouncer · knows a guy' : 'Hat stand · pick a hat for your pockets') : objectName(o.type));
       this.drawLabel(what, (o.x + o.w / 2) * TS, (o.y + o.h) * TS - fr.h + 4, camX, camY);
     }
     else if (this.cupTile) {
@@ -1338,6 +1370,7 @@ export class Engine {
     const lines = [`${u.name}${u.id === this.store.me ? ' (you)' : ''} · ${presence}`];
     if (u.game) lines.push(this.store.gameDescription(u.game.cabinet, u.id));
     if (u.status) lines.push(`“${u.status}”`);
+    if (u.tz && u.id !== this.store.me) lines.push(localTime(u.tz));
     const extra = [u.following && `following ${this.store.name(u.following).split(' ')[0]}`, u.holding && ITEM_ICON.get(u.holding)].filter(Boolean).join(' · ');
     if (extra) lines.push(extra);
     if (this.selected?.id !== id) lines.push(u.id === this.store.me ? 'click to react'

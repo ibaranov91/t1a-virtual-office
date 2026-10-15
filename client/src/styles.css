@@ -312,6 +312,8 @@ button:focus-visible, summary:focus-visible, input[type="range"]:focus-visible {
 .look-select { display: grid; gap: 5px; color: var(--muted); font-size: 12px; }
 .look-select select { width: 100%; }
 .appearance-actions { grid-column: 2; display: flex; justify-content: flex-end; gap: 8px; align-items: center; }
+.tz-field { margin-right: auto; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; text-align: left; }
+.tz-field select { max-width: 200px; font-size: 12px; }
 @media (max-width: 480px) {
   .appearance-panel { grid-template-columns: 1fr; gap: 10px; padding: 14px; }
   .appearance-preview { grid-row: auto; padding: 0; flex-direction: row; }

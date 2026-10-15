@@ -368,6 +368,17 @@ test('a saved layout is brought up to date with the vault door: added, moved int
   assert.equal(objects.some(o => o.type === 'safe'), false);
   assert.equal(objects.find(o => o.id === painting.id)!.x, safe.x);
 });
+test('a saved layout with plain world clocks gets their zones, where the admin left them', t => {
+  const { w } = setup(t), clocks = map.objects.filter(o => o.type.startsWith('clock_'));
+  assert.deepEqual(clocks.map(o => o.use?.kind === 'clock' && o.use.tz), ['America/New_York', 'Europe/Berlin', 'Europe/Moscow']);
+  const r = new World(structuredClone(map));
+  const objects = map.objects.map(o => (o.type === 'clock_berlin' ? { id: 'old', type: o.type, x: 30, y: o.y, w: 1, h: 1, wall: true } : o.type.startsWith('clock_') ? null : o)).filter((o): o is typeof map.objects[number] => !!o);
+  r.load({ ...w.dump(), layout: structuredClone({ objects, rugs: map.rugs }) });
+  const got = r.map.objects.filter(o => o.type.startsWith('clock_'));
+  assert.equal(got.length, 3); // the missing ones come back at their generated spots
+  const berlin = got.find(o => o.type === 'clock_berlin')!;
+  assert.deepEqual([berlin.id, berlin.x, berlin.use], ['old', 30, clocks[1].use]);
+});
 // gen-map.mjs numbers objects in order, so a build that adds one shifts every id after it (the safe took o57 from a plant)
 const olderBuild = (objects: TileMap['objects']) => objects.map(o => ({ ...structuredClone(o), id: `o${Number(o.id.slice(1)) + 1}` }));
 const loadLayout = (w: World, objects: TileMap['objects']) => {
@@ -1128,4 +1139,16 @@ test('effects: coffee makes you walk faster, timed the same on server and in the
   tick(EFFECTS.speed.ms!); assert.equal(a.u.effects.some(e => e.kind === 'speed'), false);
   a.messages.length = 0; w.walk(a.u, { x: 32, y: 8 });
   assert.equal((a.messages.find(m => m.t === 'move') as Extract<ServerMsg, { t: 'move' }>).ms, undefined);
+});
+
+test('a shared time zone reaches everyone, is validated, can be hidden, and is never saved', t => {
+  const { w, add } = setup(t), a = add('A'), b = add('B');
+  w.handle(a.u, { t: 'tz', tz: 'Europe/Warsaw' }, a.socket);
+  assert.deepEqual(b.messages.filter(m => m.t === 'tz'), [{ t: 'tz', userId: a.u.id, tz: 'Europe/Warsaw' }]);
+  assert.equal((w.snapshot() as Extract<ServerMsg, { t: 'state' }>).users.find(u => u.id === a.u.id)!.tz, 'Europe/Warsaw');
+  w.handle(a.u, { t: 'tz', tz: '<b>hi</b>' }, a.socket); assert.equal(a.u.tz, 'Europe/Warsaw'); // junk is ignored
+  assert.equal(JSON.stringify(w.dump()).includes('Warsaw'), false);
+  w.handle(a.u, { t: 'tz', tz: null }, a.socket);
+  assert.equal(a.u.tz, undefined);
+  assert.deepEqual(b.messages.filter(m => m.t === 'tz').pop(), { t: 'tz', userId: a.u.id, tz: null });
 });

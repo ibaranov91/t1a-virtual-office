@@ -28,6 +28,7 @@ export type ObjectUse = { kind: 'take'; items: UseItem[] } | { kind: 'toggle'; l
   | { kind: 'arcade'; label: string; game: 'park' } | { kind: 'records'; label: string }
   | { kind: 'meetings'; label: string } // the board by the Meeting room: which calendar meetings are on
   | { kind: 'achievements'; label: string } // the Lobby notice board: your plant and your badges
+  | { kind: 'clock'; label: string; city: string; tz: string } // a Lobby wall clock (real time, one city); clicking opens the list of our cities
   | { kind: 'presentation'; label: string } // the Meeting room screen: upload slides and present them
   | { kind: 'link'; label: string; url: string } // opens a page in a new tab (the safe: the vault)
   | { kind: 'dealer'; label: string; items: string[] } // hands out items into your inventory (the bouncer, the hat stand)
@@ -348,7 +349,7 @@ export const objectName = (type: string) => ({ table_long: 'long table', table_b
   painting_small: 'small painting', coffee_machine: 'coffee machine', meetings_board: 'meetings board', noticeboard: 'notice board', exit_door: 'exit door', server_rack: 'server rack', dj_booth: 'DJ booth', neon_sign: 'neon sign' } as Record<string, string>)[type] ?? type.replace(/_/g, ' ');
 
 /** Types that are one of a kind (the way out, the coffee machine…): they can be moved but not removed. */
-export const KEEP_TYPES = new Set(['exit_door', 'coffee_machine', 'fridge', 'jukebox', 'arcade', 'records', 'meetings_board', 'noticeboard', 'safe', 'keyboard', 'drum_kit', 'bass_amp', 'screen', 'toilet', 'bouncer', 'hat_stand']);
+export const KEEP_TYPES = new Set(['exit_door', 'coffee_machine', 'fridge', 'jukebox', 'arcade', 'records', 'meetings_board', 'noticeboard', 'clock_nyc', 'clock_berlin', 'clock_moscow', 'safe', 'keyboard', 'drum_kit', 'bass_amp', 'screen', 'toilet', 'bouncer', 'hat_stand']);
 /** Types that stay exactly where they are. */
 export const FIXED_TYPES = new Set(['exit_door']);
 export const RUG_MIN = 2, RUG_MAX = 24;

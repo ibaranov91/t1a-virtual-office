@@ -215,6 +215,14 @@ export class Store {
   }
   edit(edit: LayoutEdit) { this.send({ t: 'edit', edit }); }
   resetLayout() { this.send({ t: 'edit_reset' }); }
+  /** My time zone, shown to colleagues in the hover card; on unless switched off (kept on this device only). */
+  get shareTz() { try { return localStorage.getItem('deck.shareTz') !== 'off'; } catch { return true; } }
+  setShareTz(on: boolean) { try { localStorage.setItem('deck.shareTz', on ? 'on' : 'off'); } catch { /* storage unavailable */ } this.sendTz(); this.emit(); }
+  /** The zone the browser reports, and the one picked by hand instead (null = follow the browser). */
+  detectedTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  get pickedTz(): string | null { try { return localStorage.getItem('deck.tz'); } catch { return null; } }
+  setPickedTz(tz: string | null) { try { if (tz) localStorage.setItem('deck.tz', tz); else localStorage.removeItem('deck.tz'); } catch { /* storage unavailable */ } this.sendTz(); this.emit(); }
+  private sendTz() { this.send({ t: 'tz', tz: this.shareTz ? this.pickedTz ?? this.detectedTz : null }); }
   setStatus(status: string) { this.send({ t: 'status', status }); }
   setLook(look: PublicUser['look']) { this.send({ t: 'look', look }); }
   /** Put an effect on someone (yourself, or anyone if you're a GM), or take it off. */
@@ -299,6 +307,9 @@ export class Store {
   setDeafen(on: boolean) { this.send({ t: 'deafen', on }); }
   claimVoice() { this.send({ t: 'voice_claim' }); }
   /** The vault door: a panel with the link, which works from a tap anywhere (a tap on the floor can't open a tab on a phone). */
+  clockOpen = false;
+  openClock() { this.clockOpen = true; this.emit(); }
+  closeClock() { this.clockOpen = false; this.emit(); }
   linkOpen: { label: string; url: string } | null = null;
   presentation: LiveDeck | null = null; // slides on a screen right now
   presentOpen: string | null = null;    // the screen whose upload panel is open
@@ -397,6 +408,7 @@ export class Store {
         this.offset = msg.serverTime - Date.now();
         if (msg.build && this.build && msg.build !== this.build) this.staleBuild = true;
         this.build ??= msg.build;
+        this.sendTz();
         break;
       case 'game_session':
         if (msg.session) { this.gameOpen = true; this.gameCheers.clear(); }
@@ -597,6 +609,7 @@ export class Store {
         if (msg.live?.deck.id !== this.presentation?.deck.id) this.slidesHidden = false;
         this.presentation = msg.live; break;
       }
+      case 'tz': { const u = this.users.get(msg.userId); if (u) { if (msg.tz) u.tz = msg.tz; else delete u.tz; } break; }
       case 'look': { const u = this.users.get(msg.userId); if (u) { u.look = msg.look; u.lookSet = msg.lookSet; } break; }
       case 'effects': { const u = this.users.get(msg.userId); if (u) u.effects = msg.effects; break; }
       case 'presence': { const u = this.users.get(msg.userId); if (u) u.presence = msg.presence; break; }

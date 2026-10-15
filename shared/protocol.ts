@@ -113,6 +113,7 @@ export interface PublicUser {
   lookSet: boolean;
   tile: Tile; dir: Dir; move: Move | null;
   presence: Presence; status: string; emote: Emote; bot: boolean; door: Door;
+  tz?: string; // IANA time zone the person chose to share (memory only, never saved); absent when hidden
   homeDesk: Tile | null;
   callId: string | null;
   game: { cabinet: string; role: GameRole } | null;
@@ -219,6 +220,7 @@ export type ServerMsg =
   | { t: 'move'; userId: string; from: Tile; to: Tile; startedAt: number; path?: Tile[]; face?: Dir; ms?: number } // ms: per tile, absent = WALK_MS_PER_TILE
   | { t: 'effects'; userId: string; effects: Effect[] }
   | { t: 'status'; userId: string; status: string }
+  | { t: 'tz'; userId: string; tz: string | null }
   | { t: 'presence'; userId: string; presence: Presence }
   | { t: 'emote'; userId: string; emote: Emote }
   | { t: 'door'; userId: string; door: Door }
@@ -271,6 +273,7 @@ export type ClientMsg =
   | ({ t: 'jukebox'; objectId: string } & JukeboxAction)
   | { t: 'move'; to: Tile }
   | { t: 'status'; status: string }
+  | { t: 'tz'; tz: string | null } // share (or hide, with null) my time zone
   | { t: 'presence'; presence: Exclude<Presence, 'offline'> }
   | { t: 'knock'; targetId: string }
   | { t: 'knock_reply'; knockId: string; reply: 'accept' | 'later' }
@@ -311,3 +314,9 @@ export type ClientMsg =
   | { t: 'effect'; targetId: string; kind: string; on: boolean; style?: string }
   | { t: 'present_slide'; slide: number } // presenter only
   | { t: 'present_stop' };                // presenter only
+
+/** An IANA zone name this runtime knows ('Europe/Warsaw'), so a client can't put arbitrary text on everyone's screen. */
+export function isTimeZone(tz: unknown): tz is string {
+  if (typeof tz !== 'string' || !tz || tz.length > 64) return false;
+  try { new Intl.DateTimeFormat('en', { timeZone: tz }); return true; } catch { return false; }
+}

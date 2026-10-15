@@ -153,6 +153,7 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
       if (use?.kind === 'records') { setPick(null); return store.openRecords(); }
       if (use?.kind === 'jukebox' && p) { setPick(null); return store.openJukebox(p.id); }
       if (use?.kind === 'calendar') { setPick(null); return store.openCalendar(); }
+      if (use?.kind === 'clock') { setPick(null); return store.openClock(); }
       if (use?.kind === 'meetings') { setPick(null); return store.openMeetings(); }
       if (use?.kind === 'achievements') { setPick(null); return store.openAchievements(); }
       if (use?.kind === 'presentation' && p) { setPick(null); return store.openPresent(p.id); }
@@ -198,15 +199,11 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
         {store.recordsOpen && <RecordsPopover store={store} />}
         {store.linkOpen && <LinkPanel store={store} />}
         {store.presentOpen && <PresentPanel key={store.presentOpen} store={store} id={store.presentOpen} />}
+        {store.clockOpen && <ClockPanel store={store} />}
         {store.achievementsOpen && me && <AchievementsPanel store={store} me={me} assets={assets} />}
         {(showMeet || store.pendingKnock) && <MeetSetup key={store.pendingKnock ?? 'panel'} store={store} onClose={() => setShowMeet(false)} />}
-        {showAppearance && me && <AppearanceMenu key={me.id} look={me.look} assets={assets} firstTime={!me.lookSet}
-          hat={String(effectOf(me.effects, 'hat')?.data?.style ?? '')} judge={store.judge}
-          onSave={(look, hat) => {
-            store.setLook(look); setShowAppearance(false);
-            const was = String(effectOf(me.effects, 'hat')?.data?.style ?? '');
-            if (!store.judge && hat !== was) store.setEffect(me.id, 'hat', !!hat, hat || undefined);
-          }} onClose={() => setShowAppearance(false)} />}
+        {showAppearance && me && <AppearanceMenu key={me.id} look={me.look} assets={assets} firstTime={!me.lookSet} store={store}
+          onSave={(look) => { store.setLook(look); setShowAppearance(false); }} onClose={() => setShowAppearance(false)} />}
         <div className="chips">
           <MeetingChip store={store} />
           <LiveChip store={store} onGo={room => engineRef.current?.walkToRoom(room)} />
@@ -223,7 +220,7 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
         </div>
         {personMenu && <PersonMenu key={personMenu.id} store={store} at={personMenu} onClose={() => setPersonMenu(null)} />}
         {store.seat && <InstrumentPanel key={store.seat} store={store} id={store.seat}
-          dialogOpen={!!(showAppearance || showMeet || store.pendingKnock || store.calendarOpen || store.meetingsOpen || store.jukeboxOpen || store.achievementsOpen || store.presentOpen || store.chatWith || personMenu || pick)} />}
+          dialogOpen={!!(showAppearance || showMeet || store.pendingKnock || store.calendarOpen || store.meetingsOpen || store.clockOpen || store.jukeboxOpen || store.achievementsOpen || store.presentOpen || store.chatWith || personMenu || pick)} />}
         <Dock store={store} engine={engine} roomsOpen={showRooms} onRooms={() => setShowRooms(s => !s)} />
       </div>
       </div>
@@ -387,11 +384,25 @@ const LOOK_COLORS = {
   hatColor: ['#3e5a8a', '#b4534a', '#3a5a4a', '#282832', '#d0a040', '#e8e0d0', '#6b3e26'],
 };
 
-function AppearanceMenu({ look, hat: savedHat, judge, assets, firstTime, onSave, onClose }: {
-  look: PublicLook; hat: string; judge: boolean; assets: Assets | null; firstTime: boolean; onSave: (look: PublicLook, hat: string) => void; onClose: () => void;
+/** Whether colleagues see my local time, and which zone: the browser's, or one picked by hand (a laptop set to the wrong zone, a VPN). */
+function TimeZoneField({ store }: { store: Store }) {
+  const zones = useMemo(() => { try { return Intl.supportedValuesOf('timeZone'); } catch { return []; } }, []);
+  const picked = store.pickedTz, shown = picked ?? store.detectedTz;
+  return (
+    <div className="tz-field small muted" title="Colleagues see your local time when they hover over you. Only the time zone is shared, not your location.">
+      <label><input type="checkbox" checked={store.shareTz} onChange={e => store.setShareTz(e.target.checked)} /> Show my local time</label>
+      <select value={picked ?? ''} disabled={!store.shareTz} onChange={e => store.setPickedTz(e.target.value || null)} aria-label="Time zone">
+        <option value="">Automatic: {store.detectedTz}</option>
+        {zones.filter(z => z !== store.detectedTz || picked).map(z => <option key={z} value={z}>{z}</option>)}
+      </select>
+      {store.shareTz && <span>{new Intl.DateTimeFormat([], { timeZone: shown, hour: '2-digit', minute: '2-digit' }).format(new Date())} now</span>}
+    </div>
+  );
+}
+function AppearanceMenu({ look, assets, firstTime, store, onSave, onClose }: {
+  look: PublicLook; assets: Assets | null; firstTime: boolean; store: Store; onSave: (look: PublicLook) => void; onClose: () => void;
 }) {
   const [draft, setDraft] = useState(look);
-  const [hat, setHat] = useState(savedHat);
   const [tab, setTab] = useState<'body' | 'clothes'>('body');
   const previewRef = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
@@ -438,12 +449,13 @@ function AppearanceMenu({ look, hat: savedHat, judge, assets, firstTime, onSave,
             {select('Top', draft.top, tops, 'top')}{colors('Top color', 'shirt')}
             {select('Bottom', draft.bottom, bottoms, 'bottom')}{colors('Bottom color', 'pants')}
             {colors('Shoe color', 'shoes')}
-            <p className="small">Hats are in your pockets 🎒 (take one from the Lobby hat stand){judge ? ' · judges find theirs there ✨' : ''}</p>
+            <p className="small">Hats are in your pockets 🎒 (take one from the Lobby hat stand){store.judge ? ' · judges find theirs there ✨' : ''}</p>
           </>}
         </div>
         <footer className="appearance-actions">
+          <TimeZoneField store={store} />
           {!firstTime && <button className="ghost" onClick={onClose}>Cancel</button>}
-          <button onClick={() => onSave(draft, hat)}>{firstTime ? 'Save & enter office' : 'Save changes'}</button>
+          <button onClick={() => onSave(draft)}>{firstTime ? 'Save & enter office' : 'Save changes'}</button>
         </footer>
       </section>
     </div>
@@ -913,6 +925,52 @@ function MeetingsPanel({ store }: { store: Store }) {
   );
 }
 
+/** Where our people are: [region, [city, IANA zone][]]. Edit here; daylight saving comes from the zone names. */
+const CLOCK_REGIONS: [string, [string, string][]][] = [
+  ['USA', [['New York', 'America/New_York'], ['Chicago', 'America/Chicago'], ['Denver', 'America/Denver'], ['Los Angeles', 'America/Los_Angeles']]],
+  ['Canada', [['Toronto', 'America/Toronto'], ['Vancouver', 'America/Vancouver']]],
+  ['West Europe', [['London', 'Europe/London'], ['Paris', 'Europe/Paris'], ['Madrid', 'Europe/Madrid']]],
+  ['East Europe', [['Warsaw', 'Europe/Warsaw'], ['Kyiv', 'Europe/Kyiv'], ['Bucharest', 'Europe/Bucharest']]],
+];
+
+/** The Lobby clock: the time in each city, a day marker when it isn't your date, your own zone highlighted. */
+function ClockPanel({ store }: { store: Store }) {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => { const i = setInterval(() => setNow(new Date()), 10_000); return () => clearInterval(i); }, []);
+  const mine = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const day = (tz: string) => new Intl.DateTimeFormat('en-CA', { timeZone: tz }).format(now); // yyyy-mm-dd
+  const myDay = day(mine);
+  const offset = (tz: string) => offsetOf(tz, mine, now);
+  return (
+    <div className="modal-backdrop" {...backdropClose(() => store.closeClock())}>
+      <div className="meet-panel guided">
+        <div className="rooms-head"><span>🕰️ Our time zones</span><button type="button" className="ghost" onClick={() => store.closeClock()}>×</button></div>
+        {CLOCK_REGIONS.map(([region, cities]) => (
+          <div key={region}>
+            <p className="small muted"><b>{region}</b></p>
+            <ul className="meeting-list">
+              {cities.map(([city, tz]) => {
+                const d = day(tz), here = offset(tz) === 0;
+                return (
+                  <li key={tz} style={here ? { fontWeight: 600 } : undefined}>
+                    <span>{city}{here && <small className="muted"> · your time</small>}</span>
+                    <span>{new Intl.DateTimeFormat([], { timeZone: tz, hour: '2-digit', minute: '2-digit' }).format(now)}{d !== myDay && <small className="muted"> · {d > myDay ? 'tomorrow' : 'yesterday'}</small>}</span>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+/** Minutes by which `tz` is ahead of `base` right now. */
+function offsetOf(tz: string, base: string, at: Date) {
+  const wall = (z: string) => { const p = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: z, hourCycle: 'h23', year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric' }).formatToParts(at).map(x => [x.type, +x.value])); return Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute) / 60_000; };
+  return wall(tz) - wall(base);
+}
+
 /** The vault door: where the team's vault lives, and a link that opens it in a new tab. */
 function LinkPanel({ store }: { store: Store }) {
   const { label, url } = store.linkOpen!;
@@ -1042,11 +1100,11 @@ function MacAppButton() {
 
 /** Props for a modal backdrop that closes on a tap on the backdrop itself: one that both started and ended there.
  *  A click that only *ends* on it (iOS sends a compatibility click after the canvas tap that opened the panel) is ignored. */
+let backdropArmed = false; // outside the closure: a re-render between pointerdown and click (the store ticks) mustn't lose it
 function backdropClose(close: () => void) {
-  let armed = false;
   return {
-    onPointerDown: (e: React.PointerEvent) => { armed = e.target === e.currentTarget; },
-    onClick: (e: React.MouseEvent) => { if (armed && e.target === e.currentTarget) close(); armed = false; },
+    onPointerDown: (e: React.PointerEvent) => { backdropArmed = e.target === e.currentTarget; },
+    onClick: (e: React.MouseEvent) => { if (backdropArmed && e.target === e.currentTarget) close(); backdropArmed = false; },
   };
 }
 
@@ -1271,7 +1329,7 @@ function ActionWheel({ store, engine, pick, assets, onPerson, onClose }: { store
     }
   } else {
     const o = MAP.objects.find(o => o.id === pick.id);
-    if (!o?.use || o.use.kind === 'instrument' || o.use.kind === 'calendar' || o.use.kind === 'meetings' || o.use.kind === 'achievements' || o.use.kind === 'link' || o.use.kind === 'jukebox' || o.use.kind === 'arcade' || o.use.kind === 'records' || o.use.kind === 'presentation') return null;
+    if (!o?.use || o.use.kind === 'instrument' || o.use.kind === 'calendar' || o.use.kind === 'meetings' || o.use.kind === 'achievements' || o.use.kind === 'link' || o.use.kind === 'clock' || o.use.kind === 'jukebox' || o.use.kind === 'arcade' || o.use.kind === 'records' || o.use.kind === 'presentation') return null;
     if (o.use.kind === 'toilet') {
       const s = store.toilets[o.id], full = toiletFull(s), inside = !!s?.in.includes(store.me), queued = s?.queue.indexOf(store.me) ?? -1;
       title = full ? 'Toilet · out of order' : inside ? `Toilet · ${s!.in.length}/${TOILET_CAPACITY} inside` : queued >= 0 ? `Toilet · #${queued + 1} in line` : s?.in.length ? `Toilet · ${s.in.length}/${TOILET_CAPACITY} inside` : 'Toilet';
