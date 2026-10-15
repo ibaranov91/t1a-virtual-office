@@ -9,7 +9,6 @@ import { ITEMS, MAP, Store, type ClientUser } from './net';
 import { inNativeApp, syncNative } from './native';
 import { ACHIEVEMENTS, dayNumber, JUKEBOX_PER_PERSON, JUKEBOX_QUEUE_MAX, MAX_CHAT_LEN, MEET_LINK_RE, meetAs, normalizeMeetLink, kindName, PLANT_DIES_DAYS, PLANT_KINDS, PLANT_REVEAL, PLANT_STAGES, plantDead, plantName, REACTIONS, type JukeboxState, type Plant } from '../../shared/protocol';
 import { GENRES, TRACK, TRACKS } from '../../shared/music';
-import { hallLevel } from '../../shared/acoustics';
 import { FIXED_TYPES, KEEP_TYPES, objectName, RUG_COLORS, RUG_MAX, RUG_MIN, seatAt } from '../../shared/map';
 
 // Dev server: sign in automatically as ?as=<name> (default "Dev"); each name keeps its own session,
@@ -145,7 +144,7 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
       if (use?.kind === 'calendar') { setPick(null); return store.openCalendar(); }
       if (use?.kind === 'meetings') { setPick(null); return store.openMeetings(); }
       if (use?.kind === 'achievements') { setPick(null); return store.openAchievements(); }
-      if (use?.kind === 'link') { setPick(null); return openExternal(use.url); }
+      if (use?.kind === 'link' && openExternal(use.url)) return setPick(null); // refused (a phone's tap on the canvas): the wheel offers a real link
       setPick(cur => (p && cur?.kind === p.kind && cur.id === p.id ? null : p)); // same target again: close
     };
     e.onZoom = () => tick(n => n + 1);
@@ -812,13 +811,14 @@ function MacAppButton() {
 }
 
 /** Always opens in a new tab — never replaces the office (some shells ignore target=_blank; the Mac app hands it to the browser). */
-function openExternal(href: string) {
+function openExternal(href: string): boolean {
   const w = window.open(href, '_blank');
-  if (w) w.opener = null;
-  else { // popup blocked: fall back to a real new-tab anchor click
-    const a = document.createElement('a');
-    a.href = href; a.target = '_blank'; a.rel = 'noopener noreferrer'; a.click();
-  }
+  if (w) { w.opener = null; return true; }
+  if (inNativeApp()) return true; // the Mac app opened it in the system browser and gave us nothing back
+  // popup blocked: fall back to a real new-tab anchor click (iOS ignores this too outside a real click, hence false)
+  const a = document.createElement('a');
+  a.href = href; a.target = '_blank'; a.rel = 'noopener noreferrer'; a.click();
+  return false;
 }
 function ExternalLink({ href, onOpen, children }: { href: string; onOpen?: () => void; children: React.ReactNode }) {
   const open = (e: React.MouseEvent) => { e.preventDefault(); openExternal(href); onOpen?.(); };
@@ -878,8 +878,8 @@ function SelfPanel({ store, voice }: { store: Store; voice: Voice | null }) {
     window.addEventListener('pointerdown', outside); window.addEventListener('keydown', key);
     return () => { window.removeEventListener('pointerdown', outside); window.removeEventListener('keydown', key); };
   }, [settings]);
-  const myLevel = me && room ? hallLevel(MAP, room, store.pose(me).tile) : 0;
-  const near = me && room ? store.callPeers(me).filter(u => !u.bot && u.presence !== 'offline' && myLevel * hallLevel(MAP, room, store.pose(u).tile) > .02) : [];
+  const inside = me && room && !me.instance && store.roomOf(me)?.id === room.id;
+  const near = me && room ? store.callPeers(me).filter(u => !u.bot && u.presence !== 'offline' && inside && u.instance === me.instance && store.roomOf(u)?.id === room.id) : [];
   const status = room ? `In ${room.name} · ${near.length ? `within earshot: ${near.map(u => u.name.split(' ')[0]).join(', ')}` : 'nobody within earshot'}`
     : me?.callId ? `Talking with ${store.names(store.callPeers(me))}` : 'Not in voice';
   return <section className="self-controls" ref={ref} aria-label="Your voice controls">
@@ -969,6 +969,7 @@ function Toasts({ store }: { store: Store }) {
           {t.kind === 'knock_again' && t.userId && <button onClick={() => { store.dismiss(t.id); store.requestKnock(t.userId!); }}>
             {t.text.startsWith('Missed') ? 'Knock back' : 'Knock again'}
           </button>}
+          {t.kind === 'call_moved' && t.roomId && <button onClick={() => { store.joinRoom(t.roomId!); store.dismiss(t.id); }}>Join them</button>}
           {t.kind === 'chat' && t.userId && <button onClick={() => store.openChat(t.userId!)}>Reply</button>}
           {t.kind === 'meeting' && t.meetingKey && <button onClick={() => store.goToMeeting(t.meetingKey!)}>Go</button>}
           {t.kind === 'meeting' && t.link && <ExternalLink href={meetAs(t.link, store.meetAccount)}>Join call</ExternalLink>}
@@ -980,7 +981,7 @@ function Toasts({ store }: { store: Store }) {
   );
 }
 
-type WheelItem = { icon: string; label: string; onClick: () => void; disabled?: boolean; title?: string; active?: boolean };
+type WheelItem = { icon: string; label: string; onClick: () => void; disabled?: boolean; title?: string; active?: boolean; href?: string /* a real link: a tap on it may open a new tab where a canvas tap can't */ };
 
 /** Click a person or a thing: a ring of actions around it, following it as it moves. */
 function ActionWheel({ store, engine, pick, onPerson, onClose }: { store: Store; engine: Engine; pick: Pick; onPerson: (at: PersonMenuAt) => void; onClose: () => void }) {
@@ -1029,8 +1030,11 @@ function ActionWheel({ store, engine, pick, onPerson, onClose }: { store: Store;
     }
   } else {
     const o = MAP.objects.find(o => o.id === pick.id);
-    if (!o?.use || o.use.kind === 'calendar' || o.use.kind === 'meetings' || o.use.kind === 'achievements' || o.use.kind === 'link' || o.use.kind === 'jukebox') return null;
-    if (o.use.kind === 'toggle') {
+    if (!o?.use || o.use.kind === 'calendar' || o.use.kind === 'meetings' || o.use.kind === 'achievements' || o.use.kind === 'jukebox') return null;
+    if (o.use.kind === 'link') {
+      title = 'Vault 13';
+      items = [{ icon: '🔐', label: 'Open', title: `Open the ${o.use.label}`, href: o.use.url, onClick: onClose }];
+    } else if (o.use.kind === 'toggle') {
       const on = store.objects[o.id]?.on ?? o.on ?? true;
       title = o.use.label[0].toUpperCase() + o.use.label.slice(1);
       items = [{ icon: on ? '🌑' : '💡', label: on ? 'Turn off' : 'Turn on', onClick: act(() => store.use(o.id)) }];
@@ -1051,13 +1055,16 @@ function ActionWheel({ store, engine, pick, onPerson, onClose }: { store: Store;
       <div className="wheel-title" style={{ top: -R - 46 }}>{title}</div>
       {items.map((it, i) => {
         const a = start + (i * 2 * Math.PI) / items.length;
+        const className = `wheel-item${it.active ? ' active' : ''}${it.label ? '' : ' bare'}`;
+        const style = { left: Math.round(Math.cos(a) * R), top: Math.round(Math.sin(a) * R), animationDelay: `${i * 18}ms` };
+        const inner = <><span className="ic">{it.icon}</span>{it.label && <small>{it.label}</small>}</>;
+        if (it.href) return ( // the browser follows the link itself: that's a real click, so no popup blocker
+          <a key={i} className={className} href={it.href} target="_blank" rel="noopener noreferrer" title={it.title ?? it.label} style={style}
+            onClick={e => { e.stopPropagation(); it.onClick(); }}>{inner}</a>
+        );
         return (
-          <button key={i} className={`wheel-item${it.active ? ' active' : ''}${it.label ? '' : ' bare'}`} disabled={it.disabled} title={it.title ?? it.label}
-            style={{ left: Math.round(Math.cos(a) * R), top: Math.round(Math.sin(a) * R), animationDelay: `${i * 18}ms` }}
-            onClick={e => { e.stopPropagation(); it.onClick(); }}>
-            <span className="ic">{it.icon}</span>
-            {it.label && <small>{it.label}</small>}
-          </button>
+          <button key={i} className={className} disabled={it.disabled} title={it.title ?? it.label} style={style}
+            onClick={e => { e.stopPropagation(); it.onClick(); }}>{inner}</button>
         );
       })}
     </div>

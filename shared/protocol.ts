@@ -14,8 +14,6 @@ export type JukeboxAction =
   | { action: 'pause' | 'play' | 'skip'; playId: string };
 
 export const ROOM_VOICE_MAX = 12;
-export const ZONE_IN_TILES = 6;
-export const ZONE_OUT_TILES = 7;
 export const AFK_MS = 10 * 60_000;
 /** A toggle object's shared state. */
 export interface ObjectState { on: boolean }
@@ -164,6 +162,7 @@ export type ServerMsg =
   | { t: 'desk'; userId: string; desk: Tile | null }
   | { t: 'plant'; userId: string; plant: Plant | null; bloomed: string[]; achievements: Record<string, number> }
   | { t: 'call'; userId: string; callId: string | null; link?: string } // link: the call's Meet room, only to members
+  | { t: 'call_moved'; userId: string; roomId: string }
   | { t: 'rtc'; from: string; signal: RtcSignal }
   | { t: 'speaking'; userId: string; on: boolean }
   | { t: 'mute'; userId: string; muted: boolean }

@@ -183,6 +183,7 @@ canvas { display: block; image-rendering: pixelated; touch-action: none; }
   display: grid; place-items: center; align-content: center; gap: 0;
   background: var(--panel); color: var(--text); border: 2px solid var(--wood); box-shadow: 0 4px 14px rgba(0,0,0,.45);
   animation: wheel-in .2s steps(3) both; }
+a.wheel-item { text-decoration: none; }
 .wheel-item .ic { font-size: 18px; line-height: 1; }
 .wheel-item small { font-size: 9px; font-weight: 700; color: var(--muted); line-height: 1.1; max-width: 44px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .wheel-item.bare .ic { font-size: 21px; }

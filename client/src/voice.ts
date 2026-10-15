@@ -32,6 +32,8 @@ export class Voice {
   private handSince = 0;
   private lastActivity = Date.now();
   private afk: number;
+  private poseTimer: number;
+  private insideRect = false;
   private inst = rid();
   private dead = false;
   private unsub: () => void;
@@ -42,6 +44,7 @@ export class Voice {
     window.addEventListener('keydown', this.keyDown);
     window.addEventListener('keyup', this.keyUp);
     window.addEventListener('blur', this.releaseSpace);
+    this.poseTimer = window.setInterval(() => this.checkInside(), 100);
     this.afk = window.setInterval(() => this.checkAfk(), 15000);
     setAudioDeafened(this.deafened);
     this.unsub = subscribePrefs(() => {
@@ -88,12 +91,18 @@ export class Voice {
       if (this.store.me < id) void this.offer(id, p).catch(e => console.warn('voice offer', e));
       else this.signal(id, { kind: 'hello', inst: this.inst });
     }
-    this.sendRule();
+    this.checkInside(); this.sendRule();
     if (owner && callId && !this.local && !this.micAttempted) void this.requestMic(callId);
+  }
+  private checkInside() {
+    const me = this.store.users.get(this.store.me), room = this.store.roomCallOf(me);
+    const inside = !!me && !me.instance && (!room || this.store.roomOf(me)?.id === room.id);
+    if (inside === this.insideRect) return;
+    this.insideRect = inside; this.sendRule(); this.store.changed();
   }
   private sendRule() {
     const track = this.owner && this.callId ? this.local?.getAudioTracks()[0] ?? null : null;
-    const enabled = this.owner && !!this.callId && !!this.local && !this.muted && !this.deafened && (this.mode === 'voice' || this.spaceHeld);
+    const enabled = this.insideRect && this.owner && !!this.callId && !!this.local && !this.muted && !this.deafened && (this.mode === 'voice' || this.spaceHeld);
     for (const t of this.local?.getAudioTracks() ?? []) t.enabled = enabled;
     if (!enabled) { this.loudTicks = 0; this.quietTicks = 0; this.handSince = 0; this.setSpeaking(false); }
     for (const p of this.peers.values()) {
@@ -151,7 +160,7 @@ export class Voice {
     for (const id of [...this.peers.keys()]) this.closePeer(id);
   }
   destroy() {
-    this.dead = true; this.unsub(); this.stopVoice(); clearInterval(this.afk); this.store.onRtc = undefined;
+    this.dead = true; this.unsub(); this.stopVoice(); clearInterval(this.afk); clearInterval(this.poseTimer); this.store.onRtc = undefined;
     for (const event of ['pointerdown', 'pointermove', 'keydown', 'wheel'] as const) window.removeEventListener(event, this.activity);
     window.removeEventListener('keydown', this.keyDown); window.removeEventListener('keyup', this.keyUp); window.removeEventListener('blur', this.releaseSpace);
   }

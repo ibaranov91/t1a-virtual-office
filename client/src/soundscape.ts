@@ -1,10 +1,11 @@
-import { field, hallLevel, hallVoiceGain, reverbImpulse, soundModel } from '../../shared/acoustics';
+import { field, hallVoiceGain, reverbImpulse, soundModel } from '../../shared/acoustics';
 import { roomAt, type Room, type Tile } from '../../shared/map';
 import { audio, categoryOutput, forgetMedia, playMedia, rms, subscribeAudio, unlockOnGesture } from './audio';
 import { TRACK, trackUrl } from '../../shared/music';
 import { MAP, type Store } from './net';
 import { prefs, subscribePrefs, volumeFor, type Category } from './prefs';
-import { playJoin, playLeave } from './sounds';
+import { playDoorOpen, playDoorClose } from './sounds';
+import { roomDoors, type RoomDoor } from './doors';
 
 type Level = { id: string; gain: number; pan: number; cutoff: number; send: number };
 type Clip = { buffer: AudioBuffer };
@@ -32,9 +33,13 @@ function loadClip(name: string) {
 
 export class Soundscape {
   private sources = new Map<string, Source>();
-  private buses = new Map<string, ConvolverNode>();
+  private buses = new Map<string, { input: ConvolverNode; gate: GainNode; room: Room }>();
   private loading = new Set<string>();
-  private admitted = new Map<string, Set<string>>();
+  private previous = new Map<string, Tile>();
+  private doors: RoomDoor[] = [];
+  private layoutSeen = -1;
+  private instance: string | null | undefined;
+  doorSounds = { open: 0, close: 0 };
   private timer: number;
   private unsub: () => void;
   private unsubPrefs: () => void;
@@ -48,7 +53,7 @@ export class Soundscape {
   constructor(private store: Store) {
     store.soundscape = this;
     this.offset = store.offset;
-    this.resetAdmitted();
+    this.resetCrossings();
     this.unsub = subscribeAudio(() => {
       const running = audio().state === 'running';
       if (running && !this.running) this.restartLoops();
@@ -91,7 +96,7 @@ export class Soundscape {
   destroy() {
     this.dead = true; clearInterval(this.timer); this.unsub(); this.unsubPrefs(); this.unsubStore();
     for (const id of [...this.sources.keys()]) this.remove(id);
-    for (const b of this.buses.values()) b.disconnect();
+    for (const b of this.buses.values()) { b.input.disconnect(); b.gate.disconnect(); }
     this.buses.clear();
     if (this.store.soundscape === this) this.store.soundscape = undefined;
   }
@@ -105,15 +110,17 @@ export class Soundscape {
       level: { id, gain: 0, pan: 0, cutoff: 20000, send: 0 } };
     this.sources.set(id, s); return s;
   }
-  private bus(category: Category, room?: Room) {
-    const key = `${category}:${room?.id ?? 'hallway'}`;
+  private bus(category: Category, room: Room) {
+    const key = `${category}:${room.id}`;
     if (!this.buses.has(key)) {
-      const c = audio(), impulse = reverbImpulse(room ?? null, c.sampleRate);
+      const c = audio(), impulse = reverbImpulse(room, c.sampleRate);
       const buffer = c.createBuffer(2, impulse[0].length, c.sampleRate);
       buffer.getChannelData(0).set(impulse[0]); buffer.getChannelData(1).set(impulse[1]);
-      const bus = c.createConvolver(); bus.buffer = buffer; bus.connect(categoryOutput(category)); this.buses.set(key, bus);
+      const input = c.createConvolver(), gate = c.createGain(); gate.gain.value = 0;
+      input.buffer = buffer; input.connect(gate).connect(categoryOutput(category));
+      this.buses.set(key, { input, gate, room });
     }
-    return this.buses.get(key)!;
+    return this.buses.get(key)!.input;
   }
   private startLoop(s: Source) {
     s.loop?.stop(); s.loop?.disconnect();
@@ -200,7 +207,9 @@ export class Soundscape {
     for (const o of MAP.objects) if (o.sound?.clip) wanted.set(`obj:${o.id}`, { clip: o.sound.clip, gain: o.sound.gain, tile: { x: o.x, y: o.y } });
     for (const [id, s] of this.sources) if (s.kind === 'clip' && !wanted.has(id)) this.remove(id);
     for (const [id, e] of wanted) {
-      if (this.sources.has(id) || this.loading.has(id)) continue;
+      const existing = this.sources.get(id);
+      if (existing) { existing.tile = e.tile; existing.clipGain = e.gain; continue; }
+      if (this.loading.has(id)) continue;
       this.loading.add(id);
       void loadClip(e.clip).then(clip => {
         this.loading.delete(id);
@@ -215,6 +224,9 @@ export class Soundscape {
     this.updating = true;
     try {
     this.emitters();
+    if (this.layoutSeen !== this.store.layoutVersion) {
+      this.layoutSeen = this.store.layoutVersion; this.doors = roomDoors(MAP); this.resetCrossings();
+    }
     if (this.offset !== this.store.offset) {
       if (Math.abs(this.offset - this.store.offset) > 250) this.restartLoops();
       this.offset = this.store.offset;
@@ -234,14 +246,15 @@ export class Soundscape {
       const hall = s.kind === 'voice' && room && u?.callId === me.callId ? room : undefined;
       const model = soundModel(MAP, distances, pose, p, { room: hall, sourceMember: !!hall,
         knock: s.kind === 'voice' && !!me.callId && !room && u?.callId === me.callId });
-      const zone = hall ? hallLevel(MAP, hall, pose.tile) * hallLevel(MAP, hall, p.tile) : 1;
-      const gain = hall ? hallVoiceGain(MAP, hall, pose, p) : model.gain;
+      const visible = !me.instance && (!u || u.instance === me.instance);
+      const gain = visible ? hall ? hallVoiceGain(MAP, hall, pose, p) : model.gain : 0;
+      const send = gain ? model.send : 0;
       const v = s.clipGain * (s.kind === 'voice' ? volumeFor(id) : 1), mix = prefs.mix[s.category];
-      s.level = { id, gain: gain * v * mix, pan: model.pan, cutoff: model.cutoff, send: model.send * zone * v * mix };
-      const bus = this.bus(s.category, roomAt(MAP, p.tile.x, p.tile.y));
-      if (s.bus !== bus) { s.send.disconnect(); s.send.connect(bus); s.bus = bus; }
-      s.dry.gain.setTargetAtTime(gain * v, c.currentTime, .08);
-      s.send.gain.setTargetAtTime(model.send * zone * v, c.currentTime, .08);
+      s.level = { id, gain: gain * v * mix, pan: model.pan, cutoff: model.cutoff, send: send * v * mix };
+      const sourceRoom = roomAt(MAP, p.tile.x, p.tile.y), bus = sourceRoom ? this.bus(s.category, sourceRoom) : null;
+      if (s.bus !== bus) { s.send.disconnect(); if (bus) s.send.connect(bus); s.bus = bus; }
+      s.dry.gain.setTargetAtTime(gain * v, c.currentTime, gain ? .08 : .02);
+      s.send.gain.setTargetAtTime(send * v, c.currentTime, send ? .08 : .02);
       s.pan.pan.setTargetAtTime(model.pan, c.currentTime, .08);
       s.low.frequency.setTargetAtTime(model.cutoff, c.currentTime, .08);
       if (s.kind === 'jukebox') {
@@ -252,44 +265,39 @@ export class Soundscape {
         if (j.heard && this.store.connected && desired?.pausedAt === null && track && this.expected(id.slice(4)) < track.duration / 1000) audible = true;
       } else if (gain > 0) audible = true;
     }
+    for (const b of this.buses.values()) {
+      const inside = !me.instance && roomAt(MAP, pose.tile.x, pose.tile.y)?.id === b.room.id;
+      b.gate.gain.setTargetAtTime(inside ? 1 : 0, c.currentTime, inside ? .08 : .02);
+    }
     if (this.audible !== audible) { this.audible = audible; this.store.changed(); }
     this.crossings();
     } finally { this.updating = false; }
   }
 
-  resetAdmitted() {
-    this.admitted.clear();
-    for (const r of MAP.rooms.filter(r => r.rules.voice === 'open')) {
-      this.admitted.set(r.id, new Set([...this.store.users.values()].filter(u => u.callId === `room:${r.id}` && this.store.roomOf(u)?.id === r.id).map(u => u.id)));
-    }
-  }
+  resetCrossings(userId?: string) { if (userId) this.previous.delete(userId); else this.previous.clear(); }
   private crossings() {
-    const me = this.store.users.get(this.store.me), room = this.store.roomCallOf(me);
-    const hear = me && room && this.store.roomOf(me)?.id === room.id;
-    for (const r of MAP.rooms.filter(r => r.rules.voice === 'open')) {
-      const set = this.admitted.get(r.id) ?? new Set<string>(); this.admitted.set(r.id, set);
-      for (const id of [...set]) {
-        const u = this.store.users.get(id);
-        if (!u || u.presence === 'offline' || this.store.roomOf(u)?.id !== r.id) {
-          set.delete(id); if (hear && room.id === r.id) this.atDoor(r, playLeave);
-        }
-      }
-      for (const u of this.store.users.values()) {
-        if (u.callId !== `room:${r.id}` || u.presence === 'offline' || this.store.roomOf(u)?.id !== r.id || set.has(u.id)) continue;
-        set.add(u.id); if (hear && room.id === r.id) this.atDoor(r, playJoin);
+    const me = this.store.users.get(this.store.me); if (!me) return;
+    if (this.instance !== me.instance || !this.store.connected) this.resetCrossings();
+    this.instance = me.instance;
+    if (me.instance || !this.store.connected) return;
+    const pose = this.store.pose(me), next = new Map<string, Tile>();
+    for (const u of this.store.users.values()) {
+      if (u.presence === 'offline' || u.instance !== me.instance) continue;
+      const tile = this.store.pose(u).tile, prev = this.previous.get(u.id); next.set(u.id, { ...tile });
+      if (!prev || Math.abs(tile.x - prev.x) + Math.abs(tile.y - prev.y) > 1) continue;
+      for (const door of this.doors) {
+        const onDoor = (t: Tile) => door.tiles.some(p => p.x === t.x && p.y === t.y);
+        const inside = (t: Tile) => roomAt(MAP, t.x, t.y)?.id === door.room.id;
+        const enter = onDoor(prev) && inside(tile), exit = inside(prev) && onDoor(tile);
+        if (!(enter || exit) || (u.id !== me.id && !inside(pose.tile))) continue;
+        const p = audio().createStereoPanner();
+        p.pan.value = Math.max(-.35, Math.min(.35, (door.x + door.w / 2 - (pose.x + .5)) / 10));
+        p.connect(categoryOutput('effects'));
+        if (enter) { playDoorOpen(p); this.doorSounds.open++; }
+        else { playDoorClose(p); this.doorSounds.close++; }
+        window.setTimeout(() => p.disconnect(), 1000);
       }
     }
-  }
-  private atDoor(room: Room, play: (dest: AudioNode) => void) {
-    const me = this.store.users.get(this.store.me); if (!me) return;
-    const { x, y, w, h } = room.rect;
-    const candidates: Tile[] = [];
-    for (let xx = x; xx < x + w; xx++) candidates.push({ x: xx, y: y - 1 }, { x: xx, y: y + h });
-    for (let yy = y; yy < y + h; yy++) candidates.push({ x: x - 1, y: yy }, { x: x + w, y: yy });
-    const tile = candidates.find(t => MAP.layers.walls[t.y]?.[t.x] === 0 && !roomAt(MAP, t.x, t.y));
-    if (!tile) return;
-    const pose = this.store.pose(me), p = audio().createStereoPanner();
-    p.pan.value = soundModel(MAP, field(MAP, pose.tile), pose, { ...tile, tile }).pan;
-    p.connect(categoryOutput('effects')); play(p); window.setTimeout(() => p.disconnect(), 1000);
+    this.previous = next;
   }
 }
