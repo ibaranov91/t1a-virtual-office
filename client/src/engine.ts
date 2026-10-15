@@ -1,11 +1,12 @@
 // The floor: one <canvas>, one requestAnimationFrame loop.
 // Order: static tilemap → y-sorted furniture + sprites → nameplates & bubbles → ambient tint → UI hints.
-import { applyEdit, FIXED_TYPES, findPath, isWalkable, layoutProblem, objectById, objectName, roomAt, seatAt, withLayout, type MapObject, type Rug, type Tile } from '../../shared/map';
+import { applyEdit, FIXED_TYPES, findPath, pathTo, sampleMove, pathDuration, WALK_MS_PER_TILE, isWalkable, layoutProblem, objectById, objectName, roomAt, seatAt, withLayout, type MapObject, type Rect, type Rug, type Tile } from '../../shared/map';
+import { DungeonView } from './dungeon';
 import { roomDoors, type RoomDoor } from './doors';
 import type { Assets, Frame } from './assets';
 import { drawText, textWidth } from './font';
-import { MEETING_ROOM_ID, PLANT_REVEAL, PLANT_STAGES, plantDead, plantName, type LayoutEdit } from '../../shared/protocol';
-import { ITEMS, MAP, type ClientUser, type Pose, type Store } from './net';
+import { underground, MEETING_ROOM_ID, PLANT_REVEAL, PLANT_STAGES, plantDead, plantName, type LayoutEdit } from '../../shared/protocol';
+import { ITEMS, MAP, type ClientUser, type Pose, type Store, type DungeonFx } from './net';
 
 const TS = MAP.tileSize;
 const MW = MAP.width * TS, MH = MAP.height * TS;
@@ -37,6 +38,13 @@ const ITEM_HAND: Record<string, { dx: number; dy: number }> = { down: { dx: 13, 
 const hash = (s: string) => { let h = 0; for (const c of s) h = (h * 31 + c.charCodeAt(0)) | 0; return Math.abs(h); };
 
 export class Engine {
+  private dungeonView = new DungeonView(MAP);
+  private area: Rect = MAP.office;
+  private areaDown = false;
+  private actualDown = false;
+  private held = new Map<string, [number, number]>();
+  private stepPending: { to: Tile; at: number } | null = null;
+  private areaUnsub: () => void;
   private ctx: CanvasRenderingContext2D;
   private staticLayer: HTMLCanvasElement;
   private raf = 0;
@@ -112,11 +120,15 @@ export class Engine {
     canvas.addEventListener('gesturestart', this.onGesture);
     canvas.addEventListener('gesturechange', this.onGesture);
     window.addEventListener('keydown', this.onKey);
+    window.addEventListener('keyup', this.onKeyUp);
+    window.addEventListener('blur', this.stopKeys);
+    this.areaUnsub = store.subscribe(() => this.syncArea());
+    this.syncArea();
     this.raf = requestAnimationFrame(this.frame);
   }
 
   destroy() {
-    cancelAnimationFrame(this.raf); this.ro.disconnect();
+    cancelAnimationFrame(this.raf); this.ro.disconnect(); this.areaUnsub();
     this.canvas.removeEventListener('pointerdown', this.onDown);
     this.canvas.removeEventListener('pointermove', this.onMove);
     this.canvas.removeEventListener('pointerup', this.onUp);
@@ -126,22 +138,27 @@ export class Engine {
     this.canvas.removeEventListener('gesturestart', this.onGesture);
     this.canvas.removeEventListener('gesturechange', this.onGesture);
     window.removeEventListener('keydown', this.onKey);
+    window.removeEventListener('keyup', this.onKeyUp);
+    window.removeEventListener('blur', this.stopKeys);
   }
 
   /** Pan the camera to a person (from the room list). */
   focusUser(id: string) {
     const u = this.store.users.get(id); if (!u) return;
+    if (u.instance !== this.myInstance() || (this.areaDown && !this.dungeonView.canSee(this.store.pose(u).tile))) return;
     const p = this.store.pose(u);
     this.lookAt(p.x * TS + 8, p.y * TS);
   }
   /** Pan to a room (from the room list), out of the overview if we're in it. */
   focusRoom(id: string) {
+    if (this.areaDown) return;
     const r = MAP.rooms.find(r => r.id === id)?.rect; if (!r) return;
     this.lookAt((r.x + r.w / 2) * TS, (r.y + r.h / 2) * TS);
   }
   /** Walk into a room (from the list): the free tile nearest its middle, plain floor before a seat. */
   walkToRoom(id: string) {
     const r = MAP.rooms.find(r => r.id === id), me = this.store.users.get(this.store.me); if (!r || !me) return;
+    if (underground(me)) return this.blockDungeon();
     if (me.instance || roomAt(MAP, me.tile.x, me.tile.y)?.id === id) return this.focusRoom(id); // a meeting's room has no way out but Leave
     const { x, y, w, h } = r.rect, cx = x + (w - 1) / 2, cy = y + (h - 1) / 2, taken = this.taken();
     let best: { t: Tile; score: number } | null = null;
@@ -155,23 +172,28 @@ export class Engine {
   /** Walk up beside someone (from the list): the free neighbouring tile with the shortest path. */
   walkToUser(id: string) {
     const me = this.store.users.get(this.store.me), u = this.store.users.get(id);
-    if (!me || !u || u.id === me.id || !this.visible(u)) return this.focusUser(id);
+    if (me && u && (underground(u) && !underground(me) || underground(me) && !underground(u))) return this.blockDungeon(u);
+    if (!me || !u || u.id === me.id || u.presence === 'offline' || u.instance !== me.instance) return this.focusUser(id);
     const taken = this.taken(), inside = !!me.instance, d = u.tile;
     let best: { t: Tile; len: number } | null = null;
     for (const [dx, dy] of [[0, 1], [-1, 0], [1, 0], [0, -1]]) {
       const t = { x: d.x + dx, y: d.y + dy };
       if (t.x === me.tile.x && t.y === me.tile.y) return this.walkTo(t); // already there
-      if (!isWalkable(MAP, t.x, t.y) || taken.has(`${t.x},${t.y}`) || (inside && !inMeetingRoom(t.x, t.y))) continue;
+      if (!isWalkable(MAP, t.x, t.y) || taken.has(`${t.x},${t.y}`) || (inside && !this.inArea(t))) continue;
+      if (!this.canWalk(t)) continue;
       const len = findPath(MAP, me.tile, t).length;
       if (len && (!best || len < best.len)) best = { t, len };
     }
     if (best) this.walkTo(best.t); else this.focusUser(id);
   }
-  /** Tiles other people stand on or are heading to, in my office or meeting room. */
+  /** Tiles other people stand on or are heading to, in my instance. */
   private taken() {
-    return new Set([...this.store.users.values()].filter(u => u.id !== this.store.me && this.visible(u)).map(u => `${u.tile.x},${u.tile.y}`));
+    return new Set([...this.store.users.values()].filter(u => u.id !== this.store.me && u.presence !== 'offline' && u.instance === this.myInstance()).map(u => `${u.tile.x},${u.tile.y}`));
   }
-  private walkTo(t: Tile) { this.onPick?.(null); this.manualCam = false; if (this.overview) this.zoomTo(this.backPx()); this.store.moveTo(t); }
+  private blockDungeon(u?: ClientUser) {
+    const text = this.store.dungeonReason(u); if (text) this.store.toast({ kind: 'info', text, expires: 5000 });
+  }
+  private walkTo(t: Tile) { if (!this.canWalk(t)) return; this.onPick?.(null); this.manualCam = false; if (this.overview) this.zoomTo(this.backPx()); this.store.moveTo(t); }
   private lookAt(wx: number, wy: number) {
     this.manualCam = true;
     if (this.overview) return this.zoomTo(this.backPx(), { sx: this.canvas.width / 2, sy: this.canvas.height / 2 }, { wx, wy });
@@ -197,6 +219,7 @@ export class Engine {
 
   // ---------- edit mode (office admins) ----------
   setEditing(on: boolean) {
+    on = on && !this.areaDown && !this.falling();
     this.editing = on; this.editSel = this.placing = null; this.editDrag = this.ghost = this.editHover = null;
     this.hoverTile = null; this.hoverUser = null; this.hoverObject = null;
     this.manualCam = on; // the floor holds still under the pointer; Done follows me again
@@ -280,6 +303,7 @@ export class Engine {
     for (let y = 0; y < MAP.height; y++) for (let x = 0; x < MAP.width; x++) {
       if (walls[y][x]) this.blit(ctx, MAP.tiles[walls[y][x]], x * TS, y * TS);
     }
+    for (const o of MAP.dungeon?.decor ?? []) this.blit(ctx, o.type, o.x * TS, o.y * TS);
     // wall decor + floor-level furniture (chairs) are static
     for (const o of MAP.objects) if (o.wall || o.walkable) this.drawItem(ctx, o);
     return c;
@@ -313,7 +337,7 @@ export class Engine {
     this.canvas.style.width = w + 'px'; this.canvas.style.height = h + 'px';
     // zoom levels are whole device pixels per art pixel: crisp at every step, and on Retina that includes 1.5x, 2.5x…
     // a phone can't fit the floor even at 1: then the overview is a smoothed fraction, the one level that isn't crisp
-    const fit = Math.min(this.canvas.width / MW, this.canvas.height / MH);
+    const fit = Math.min(this.canvas.width / (this.area.w * TS), this.canvas.height / (this.area.h * TS));
     this.minPx = fit < 1 ? fit : Math.floor(fit);
     this.maxPx = Math.max(this.minPx, Math.round(4 * dpr));
     this.px = this.targetPx = this.clampPx(this.targetPx || this.savedPx());
@@ -326,7 +350,7 @@ export class Engine {
   private clampPx(px: number) { return Math.max(this.minPx, Math.min(this.maxPx, px < 1 ? this.minPx : Math.round(px))); }
   /** A comfortable level: 2-4 css pixels per art pixel, as big as the floor allows. */
   private defaultPx() {
-    const fit = Math.floor(Math.min(this.canvas.width / MW, this.canvas.height / MH) / this.dpr);
+    const fit = Math.floor(Math.min(this.canvas.width / (this.area.w * TS), this.canvas.height / (this.area.h * TS)) / this.dpr);
     return this.clampPx(Math.max(2, Math.min(4, fit)) * this.dpr);
   }
   private savedPx() {
@@ -369,8 +393,9 @@ export class Engine {
     return { sx: (e.clientX - r.left) * k, sy: (e.clientY - r.top) * k };
   }
   private clampCam(x: number, y: number) {
-    const cx = MW <= this.viewW ? -(this.viewW - MW) / 2 : Math.max(0, Math.min(MW - this.viewW, x));
-    const cy = MH <= this.viewH ? -(this.viewH - MH) / 2 : Math.max(0, Math.min(MH - this.viewH, y));
+    const r = this.area, w = r.w * TS, h = r.h * TS, left = r.x * TS, top = r.y * TS;
+    const cx = w <= this.viewW ? left - (this.viewW - w) / 2 : Math.max(left, Math.min(left + w - this.viewW, x));
+    const cy = h <= this.viewH ? top - (this.viewH - h) / 2 : Math.max(top, Math.min(top + h - this.viewH, y));
     return { x: cx, y: cy };
   }
   private toWorld(e: PointerEvent) {
@@ -379,10 +404,115 @@ export class Engine {
     return { x: ((e.clientX - r.left) * dpr) / this.px + this.cam.x, y: ((e.clientY - r.top) * dpr) / this.px + this.cam.y };
   }
 
+  private falling() {
+    const me = this.store.users.get(this.store.me);
+    return me && underground(me) ? this.store.dungeonFx.find(f => f.user.id === me.id && f.kind === 'fall' && performance.now() - f.at < 900) : undefined;
+  }
+  private clearAreaInput() {
+    this.stopKeys(); this.manualCam = false; this.hoverUser = this.hoverObject = this.hoverTile = this.hoverPlant = null;
+    this.selected = null; this.onPick?.(null); this.setEditing(false);
+    this.drag = this.pinch = this.gesture = null; this.pointers.clear(); this.wheelAcc = 0;
+    this.canvas.style.cursor = 'default';
+  }
+  private syncArea() {
+    const me = this.store.users.get(this.store.me), down = !!me && underground(me);
+    const changed = down !== this.actualDown;
+    if (changed) { this.actualDown = down; this.clearAreaInput(); }
+    const showDungeon = down && !this.falling();
+    const area = showDungeon && MAP.dungeon ? MAP.dungeon.rect : MAP.office;
+    if (area === this.area && !(changed && !this.falling())) return;
+    this.area = area; this.areaDown = showDungeon;
+    this.clearAreaInput(); this.targetPx = this.prevPx = 0; this.resize();
+    if (me) {
+      const p = this.store.pose(me);
+      this.cam = this.clampCam(p.x * TS + 8 - this.viewW / 2, p.y * TS - this.viewH / 2);
+    }
+    this.snapped = true;
+  }
+  private inArea(t: Tile) {
+    const r = this.area;
+    return t.x >= r.x && t.y >= r.y && t.x < r.x + r.w && t.y < r.y + r.h;
+  }
+  /** Match the server's mid-walk starting tile (the tile we're entering). */
+  private routeStart(u: ClientUser) {
+    const prev = u.prev && this.store.now() < (u.move?.startedAt ?? 0) ? u.prev : null;
+    return prev ? sampleMove(prev.path, prev.startedAt, this.store.now())?.next ?? u.tile
+      : u.move && u.path ? sampleMove(u.path, u.move.startedAt, this.store.now())?.next ?? u.tile : u.tile;
+  }
+  private canWalk(t: Tile) {
+    if (this.falling() || !this.inArea(t) || !isWalkable(MAP, t.x, t.y)) return false;
+    if (!this.areaDown) return !this.myInstance() || inMeetingRoom(t.x, t.y);
+    const me = this.store.users.get(this.store.me), seen = this.store.dungeon?.seen;
+    if (!me || !seen) return false;
+    const path = pathTo(MAP, this.routeStart(me), t);
+    return path.length > 0 && path.every(p => seen.has(p.y * MAP.width + p.x));
+  }
+  private clickTarget(t: Tile) {
+    const d = MAP.dungeon;
+    const target = this.areaDown && d && t.x === d.door.x && t.y === d.door.y ? d.doorFront : t;
+    return this.canWalk(target) ? target : null;
+  }
+  private keyDirection(key: string): [number, number] | undefined {
+    return ({ arrowup: [0, -1], w: [0, -1], arrowdown: [0, 1], s: [0, 1], arrowleft: [-1, 0], a: [-1, 0], arrowright: [1, 0], d: [1, 0] } as Record<string, [number, number]>)[key.toLowerCase()];
+  }
+  private stopKeys = () => { this.held.clear(); this.stepPending = null; };
+  private onKeyUp = (e: KeyboardEvent) => { this.held.delete(e.key.toLowerCase()); };
+  private keyboardStep() {
+    if (!this.areaDown || !this.held.size || this.falling() || !this.store.connected) return;
+    if (document.activeElement?.closest('input, textarea, select, [contenteditable]')) return this.stopKeys();
+    const me = this.store.users.get(this.store.me); if (!me) return;
+    if (this.stepPending) {
+      if (me.move?.to.x === this.stepPending.to.x && me.move.to.y === this.stepPending.to.y && me.move.startedAt >= this.stepPending.at - 100) this.stepPending = null;
+      else if (this.store.now() - this.stepPending.at < WALK_MS_PER_TILE * 2) return;
+      else this.stepPending = null;
+    }
+    if (me.move && me.path && me.move.startedAt + pathDuration(me.path) - this.store.now() > 60) return;
+    const [dx, dy] = [...this.held.values()].at(-1)!, from = me.move?.to ?? me.tile;
+    const to = { x: from.x + dx, y: from.y + dy };
+    if (!this.inArea(to) || !isWalkable(MAP, to.x, to.y)) return;
+    this.stepPending = { to, at: this.store.now() };
+    this.manualCam = false; this.onPick?.(null); this.store.moveTo(to);
+  }
+
+  private drawDungeon(ms: number) {
+    const d = MAP.dungeon; if (!d) return;
+    const ctx = this.ctx;
+    if (this.store.dungeonOpening) this.blit(ctx, 'dungeon_door_open', d.door.x * TS, d.door.y * TS);
+    for (const t of d.torches) this.blit(ctx, `torch_${Math.floor(ms / 160 + t.x + t.y) % 3}`, t.x * TS, t.y * TS);
+    const key = this.store.dungeon?.key;
+    if (key && this.dungeonView.canSee(key)) {
+      this.blit(ctx, 'key', key.x * TS, key.y * TS);
+      const phase = (ms / 1200) % 1;
+      if (phase < .35) {
+        const x = key.x * TS + 11, y = key.y * TS + 5, size = phase < .17 ? 2 : 1;
+        ctx.fillStyle = '#fff4bb'; ctx.fillRect(x - size, y, size * 2 + 1, 1); ctx.fillRect(x, y - size, 1, size * 2 + 1);
+      }
+    }
+  }
+  private drawDungeonFx(fx: DungeonFx, ms: number) {
+    const ctx = this.ctx, age = ms - fx.at, duration = fx.kind === 'fall' ? 500 : 650, f = Math.min(1, age / duration);
+    const x = fx.tile.x * TS, y = fx.tile.y * TS;
+    if (fx.kind === 'climb' && MAP.dungeon && fx.tile.x === MAP.dungeon.hatch.x && fx.tile.y === MAP.dungeon.hatch.y) this.blit(ctx, 'hatch_open', x, y);
+    ctx.save();
+    if (fx.kind !== 'land') { ctx.beginPath(); ctx.rect(x - 2, y - 24, TS + 4, 24 + TS / 2); ctx.clip(); }
+    const dy = fx.kind === 'fall' ? f * 28 : fx.kind === 'land' ? -((1 - f) ** 2) * 32 : (1 - f) * 28;
+    ctx.translate(0, dy);
+    this.drawSprite(fx.user, { ...fx.tile, tile: fx.tile, dir: fx.user.dir, walking: false }, ms);
+    ctx.restore();
+    if (f > .3) for (let i = 0; i < 5; i++) {
+      ctx.globalAlpha = (1 - f) * .7; ctx.fillStyle = '#b5a08a';
+      ctx.fillRect(x + 7 + Math.cos(i * 2.4) * f * 12, y + 9 + Math.sin(i * 2.4) * f * 5 - f * 3, 2, 2);
+    }
+    ctx.globalAlpha = 1;
+  }
+
   // ---------- input ----------
   /** In a meeting's own room you see only its people; in the office, nobody who's in one. */
-  private visible(u: ClientUser) { return u.presence !== 'offline' && u.instance === this.myInstance(); }
-  private myInstance() { return this.store.users.get(this.store.me)?.instance ?? null; }
+  private visible(u: ClientUser | undefined) {
+    if (!u || u.presence === 'offline' || u.instance !== this.myInstance()) return false;
+    return !this.areaDown || u.id === this.store.me || !!this.store.dungeon && this.dungeonView.canSee(this.store.pose(u).tile);
+  }
+  private myInstance() { return this.falling() ? null : this.store.users.get(this.store.me)?.instance ?? null; }
   private userAt(wx: number, wy: number): string | null {
     const t = this.store.now();
     let best: { id: string; base: number } | null = null;
@@ -415,6 +545,7 @@ export class Engine {
     return best;
   }
   private onDown = (e: PointerEvent) => {
+    if (this.falling()) return;
     try { this.canvas.setPointerCapture(e.pointerId); } catch { /* synthetic pointer (tests) */ }
     this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (this.pointers.size === 2) { // second finger: a pinch, never a tap or a drag
@@ -475,7 +606,14 @@ export class Engine {
   };
   private onKey = (e: KeyboardEvent) => {
     const t = e.target;
+    if (this.falling()) return;
     if (e.metaKey || e.ctrlKey || e.altKey || (t instanceof Element && t.closest('input, textarea, select, [contenteditable]'))) return;
+    const direction = this.keyDirection(e.key);
+    if (this.areaDown && direction) {
+      e.preventDefault();
+      if (!e.repeat) this.held.set(e.key.toLowerCase(), direction);
+      this.keyboardStep(); return;
+    }
     if (this.editing && this.onEditKey(e)) return e.preventDefault();
     if (e.key === '+' || e.key === '=') this.zoomIn();
     else if (e.key === '-' || e.key === '_') this.zoomOut();
@@ -516,7 +654,7 @@ export class Engine {
     this.hoverPlant = this.hoverUser || this.hoverObject || inside ? null
       : this.plants.find(p => w.x >= p.x - 5 && w.x < p.x + 5 && w.y >= p.y - 18 && w.y < p.y) ?? null;
     const tx = Math.floor(w.x / TS), ty = Math.floor(w.y / TS);
-    this.hoverTile = isWalkable(MAP, tx, ty) && (!inside || inMeetingRoom(tx, ty)) ? { x: tx, y: ty } : null;
+    this.hoverTile = this.clickTarget({ x: tx, y: ty });
     this.canvas.style.cursor = this.tapZooms ? 'zoom-in' : this.hoverUser || this.hoverObject ? 'pointer' : this.hoverTile ? 'crosshair' : 'default';
   };
   private onEditMove(w: { x: number; y: number }) {
@@ -564,7 +702,8 @@ export class Engine {
     if (obj) return this.onPick?.({ kind: 'object', id: obj.id });
     this.onPick?.(null);
     const tx = Math.floor(w.x / TS), ty = Math.floor(w.y / TS);
-    if (isWalkable(MAP, tx, ty) && (!inside || inMeetingRoom(tx, ty))) { this.store.moveTo({ x: tx, y: ty }); this.manualCam = false; }
+    const target = this.clickTarget({ x: tx, y: ty });
+    if (target) this.walkTo(target);
   };
 
   /** Plants stand on their owner's home desk, or on an Orangery shelf if they have none. On the desk it goes to the
@@ -593,11 +732,19 @@ export class Engine {
   private frame = (ms: number) => {
     this.raf = requestAnimationFrame(this.frame);
     if (this.layoutSeen !== this.store.layoutVersion) this.refreshLayout();
+    this.syncArea(); this.keyboardStep();
     const ctx = this.ctx, t = this.store.now();
+    const me = this.store.users.get(this.store.me);
+    if (this.areaDown && me && this.store.dungeon) {
+      const others = [...this.store.users.values()].filter(u => u.id !== me.id && underground(u) && u.presence !== 'offline').map(u => this.store.pose(u, t).tile);
+      this.dungeonView.update(this.store.pose(me, t).tile, others, this.store.dungeon.seen);
+      if (this.hoverUser && !this.visible(this.store.users.get(this.hoverUser))) this.hoverUser = null;
+      if (this.selected?.kind === 'user' && !this.visible(this.store.users.get(this.selected.id))) { this.selected = null; this.onPick?.(null); }
+      if (this.hoverTile && !this.canWalk(this.hoverTile)) this.hoverTile = null;
+    }
     const users = [...this.store.users.values()].filter(u => this.visible(u));
     const poses = new Map<string, Pose>(users.map(u => [u.id, this.store.pose(u, t)]));
 
-    const me = this.store.users.get(this.store.me);
     if (this.glide) { // zooming: the anchor point stays put while the scale eases to the next crisp level
       const g = this.glide, f = Math.min(1, (performance.now() - g.at) / 140);
       this.px = f >= 1 ? this.targetPx : g.from + (this.targetPx - g.from) * (1 - (1 - f) ** 3);
@@ -608,7 +755,7 @@ export class Engine {
     // camera follows me unless the user dragged
     else if (me && !this.manualCam && poses.get(me.id)) {
       const p = poses.get(me.id)!;
-      const target = me.instance // a meeting's room: keep the room in the middle
+      const target = me.instance && !this.areaDown // a meeting's room: keep the room in the middle
         ? this.clampCam((MEETING.x + MEETING.w / 2) * TS - this.viewW / 2, (MEETING.y + MEETING.h / 2) * TS - this.viewH / 2)
         : this.clampCam(p.x * TS + 8 - this.viewW / 2, p.y * TS - this.viewH / 2);
       const k = this.snapped ? 0.12 : 1; this.snapped = true;
@@ -620,7 +767,11 @@ export class Engine {
     ctx.fillStyle = '#1b1418'; ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
     ctx.imageSmoothingEnabled = this.px < 1;
     ctx.setTransform(this.px, 0, 0, this.px, -camX * this.px, -camY * this.px);
-    ctx.drawImage(this.staticLayer, 0, 0);
+    ctx.save();
+    ctx.beginPath(); ctx.rect(this.area.x * TS, this.area.y * TS, this.area.w * TS, this.area.h * TS); ctx.clip();
+    ctx.drawImage(this.staticLayer, this.area.x * TS, this.area.y * TS, this.area.w * TS, this.area.h * TS,
+      this.area.x * TS, this.area.y * TS, this.area.w * TS, this.area.h * TS);
+    if (this.areaDown) this.drawDungeon(ms);
 
     // hover tile + my destination marker
     if (this.hoverTile && !this.hoverUser && !this.tapZooms && !this.editing) {
@@ -637,7 +788,7 @@ export class Engine {
 
     // home-desk name tags on empty claimed chairs
     const deskOwners = new Map<string, ClientUser>();
-    for (const u of this.store.users.values()) if (u.homeDesk) deskOwners.set(`${u.homeDesk.x},${u.homeDesk.y}`, u);
+    for (const u of this.store.users.values()) if (!this.areaDown && u.homeDesk) deskOwners.set(`${u.homeDesk.x},${u.homeDesk.y}`, u);
     for (const [key, owner] of deskOwners) {
       const [dx, dy] = key.split(',').map(Number);
       const op = poses.get(owner.id);
@@ -647,14 +798,19 @@ export class Engine {
 
     // y-sorted drawables: furniture is sorted per layout (refreshLayout); people and plants are sorted here and merged in
     if (this.plantsVersion !== this.store.version) { this.plants = me?.instance ? [] : this.placePlants(); this.plantsVersion = this.store.version; }
-    type D = { base: number; u?: ClientUser; p?: Pose; plant?: PlacedPlant; door?: RoomDoor };
+    type D = { base: number; u?: ClientUser; p?: Pose; plant?: PlacedPlant; door?: RoomDoor; fx?: DungeonFx };
     const ds: D[] = [];
-    for (const door of this.doors) ds.push({ base: (door.y + door.h) * TS - .5, door });
+    for (const door of this.areaDown ? [] : this.doors) ds.push({ base: (door.y + door.h) * TS - .5, door });
     for (const u of users) { const p = poses.get(u.id)!; ds.push({ base: p.y * TS + TS, u, p }); }
+    if (!this.areaDown) for (const fx of this.store.dungeonFx) if (fx.kind === 'fall' && ms >= fx.at && ms - fx.at < 500) ds.push({ base: (fx.tile.y + 1) * TS, fx });
     for (const plant of this.plants) ds.push({ base: plant.base, plant });
     ds.sort((a, b) => a.base - b.base);
     const drawD = (d: D) => {
-      if (d.u) return this.drawSprite(d.u, d.p!, ms);
+      if (d.fx) return this.drawDungeonFx(d.fx, ms);
+      if (d.u) {
+        const fx = this.store.dungeonFx.find(f => f.user.id === d.u!.id && f.kind !== 'fall' && ms >= f.at && ms - f.at < 650 && (this.areaDown === (f.kind === 'land')));
+        return fx ? this.drawDungeonFx(fx, ms) : this.drawSprite(d.u, d.p!, ms);
+      }
       if (d.door) { // open while someone stands in or right next to the doorway
         const door = d.door, open = [...poses.values()].some(p => door.tiles.some(t => Math.abs(t.x - p.tile.x) + Math.abs(t.y - p.tile.y) <= 1));
         const name = `door_${door.horizontal ? 'h' : 'v'}_${open ? 'open' : 'closed'}`, fr = this.f(name);
@@ -664,7 +820,7 @@ export class Engine {
       this.blit(ctx, plantDead(pl, t) ? 'pot_dead' : kinded ? `pot_${pl.kind}_${pl.stage}` : `pot_${pl.stage}`, p.x - 6, p.y - 20);
     };
     let di = 0;
-    for (const f of this.furniture) {
+    for (const f of this.areaDown ? [] : this.furniture) {
       while (di < ds.length && ds[di].base <= f.base) drawD(ds[di++]);
       this.blit(ctx, f.off && !this.isOn(f.o) ? `${f.o.type}_off` : f.o.type, f.x, f.y);
     }
@@ -674,13 +830,13 @@ export class Engine {
     const coffeeBusy = users.some(u => roomAt(MAP, poses.get(u.id)!.tile.x, poses.get(u.id)!.tile.y)?.type === 'coffee');
     if (coffeeBusy) for (const o of this.steamers) this.drawSteam(o, ms);
     // fresh steam (or fridge chill) right after someone used it
-    for (const fx of this.store.objectFx) {
+    for (const fx of this.areaDown ? [] : this.store.objectFx) {
       if (ms - fx.at > 3000) continue;
       const o = objectById(MAP, fx.objectId);
       if (o && !(coffeeBusy && o.steam)) this.drawSteam(o, ms);
     }
 
-    for (const o of this.sounders) for (let i = 0; i < 3; i++) {
+    for (const o of this.areaDown ? [] : this.sounders) for (let i = 0; i < 3; i++) {
       const phase = (ms / 2200 + i / 3) % 1;
       ctx.globalAlpha = 1 - phase;
       this.blit(ctx, i % 2 ? 'note_1' : 'note_2', o.x * TS + 5 + Math.round(Math.sin(phase * 6 + i) * 4), o.y * TS - Math.round(phase * 18));
@@ -690,20 +846,24 @@ export class Engine {
     if (!me?.instance) this.drawBoardBadges(ctx, ms);
 
     // a meeting's own room: the rest of the office fades away
-    if (me?.instance) {
+    if (me?.instance && !this.areaDown && !this.falling()) {
       ctx.fillStyle = 'rgba(20,13,16,0.9)';
       ctx.beginPath(); ctx.rect(-MW, -MH, MW * 3, MH * 3);
       ctx.rect((MEETING.x - 1) * TS, (MEETING.y - 2) * TS, (MEETING.w + 2) * TS, (MEETING.h + 3) * TS);
       ctx.fill('evenodd');
     }
 
+    if (this.areaDown) {
+      if (this.store.dungeon) this.dungeonView.draw(ctx, ms);
+      else { ctx.fillStyle = '#000'; ctx.fillRect(this.area.x * TS, this.area.y * TS, this.area.w * TS, this.area.h * TS); }
+    }
     // overlays: nameplates + bubbles (never occluded)
     const sorted = users.slice().sort((a, b) => poses.get(a.id)!.y - poses.get(b.id)!.y);
     this.placedPlates = [];
     for (const u of sorted) this.drawOverlay(u, poses.get(u.id)!, ms);
     this.drawReactions(poses, ms);
 
-    this.drawAmbient(ctx, camX, camY);
+    if (!this.areaDown) this.drawAmbient(ctx, camX, camY);
     if (this.editing) this.drawEdit(ctx, camX, camY, ms);
     if (this.overview && !me?.instance) this.drawRoomTags(users, poses, camX, camY);
     // one of my meetings is on: say so over the board, readable at any zoom
@@ -714,6 +874,7 @@ export class Engine {
       this.drawLabel(`📅 ${title} · click to go`, (o.x + 0.5) * TS, o.y * TS - 6 - Math.round((Math.sin(ms / 220) + 1)), camX, camY);
     }
 
+    ctx.restore();
     // hover tooltip in screen space
     if (this.tapZooms || this.editing) { /* overview: room tags only; edit mode: its own labels */ }
     else if (this.hoverUser) this.drawTooltip(this.hoverUser, poses, camX, camY);
@@ -732,6 +893,13 @@ export class Engine {
       const owner = deskOwners.get(`${this.hoverTile.x},${this.hoverTile.y}`);
       if (owner) this.drawLabel(owner.id === this.store.me ? 'Your desk' : `${owner.name}'s desk`, this.hoverTile.x * TS + 8, this.hoverTile.y * TS, camX, camY);
     }
+    const fall = this.falling();
+    if (fall) {
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.fillStyle = `rgba(0,0,0,${Math.max(0, Math.min(1, (ms - fall.at - 500) / 400))})`;
+      ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+    }
+    this.store.dungeonFx = this.store.dungeonFx.filter(f => ms - f.at < 1600);
   };
 
   private drawSprite(u: ClientUser, p: Pose, ms: number) {
@@ -794,7 +962,7 @@ export class Engine {
     if (u.door === 'leaving') return null;
     if (u.emote === 'knock') return 'bubble_bang';
     if (u.callId) return u.deafened ? 'bubble_deaf' : 'bubble_talk';
-    if (u.instance || u.meeting) return 'bubble_meeting'; // a real calendar meeting, not just standing in the Meeting room; beats a manual "In a call"
+    if (!underground(u) && (u.instance || u.meeting)) return 'bubble_meeting'; // a real calendar meeting, not just standing in the Meeting room; beats a manual "In a call"
     if (u.presence === 'in_call') return 'bubble_headset';
     if (u.presence === 'away') return 'bubble_zzz';
     if (u.status) return 'bubble_dots';
@@ -917,8 +1085,8 @@ export class Engine {
 
   /** Edit mode: a tile grid, what's under the pointer, the selection, and where a dragged or new thing would land. */
   private drawEdit(ctx: CanvasRenderingContext2D, camX: number, camY: number, ms: number) {
-    const x0 = Math.max(0, Math.floor(camX / TS)), x1 = Math.min(MAP.width, Math.ceil((camX + this.viewW) / TS));
-    const y0 = Math.max(0, Math.floor(camY / TS)), y1 = Math.min(MAP.height, Math.ceil((camY + this.viewH) / TS));
+    const x0 = Math.max(MAP.office.x, Math.floor(camX / TS)), x1 = Math.min(MAP.office.x + MAP.office.w, Math.ceil((camX + this.viewW) / TS));
+    const y0 = Math.max(MAP.office.y, Math.floor(camY / TS)), y1 = Math.min(MAP.office.y + MAP.office.h, Math.ceil((camY + this.viewH) / TS));
     ctx.strokeStyle = 'rgba(255,240,200,0.2)'; ctx.lineWidth = 1 / this.px;
     ctx.beginPath();
     for (let x = x0; x <= x1; x++) { ctx.moveTo(x * TS, y0 * TS); ctx.lineTo(x * TS, y1 * TS); }
@@ -1030,7 +1198,7 @@ export class Engine {
     const room = roomAt(MAP, p.tile.x, p.tile.y);
     const voiceRoom = this.store.roomCallOf(u);
     const presence = voiceRoom ? `in ${voiceRoom.name} voice` : u.door === 'thinking' ? 'packing up…' : u.door === 'leaving' ? 'heading out' : u.door === 'arriving' ? 'just arrived'
-      : u.instance ? 'in the meeting' : u.meeting ? `in a meeting until ${this.store.clock(u.meeting)}`
+      : underground(u) ? 'somewhere underground' : u.instance ? 'in the meeting' : u.meeting ? `in a meeting until ${this.store.clock(u.meeting)}`
       : u.callId ? `talking with ${this.store.names(this.store.callPeers(u))}` : u.presence === 'in_call' ? 'in a call' : u.presence === 'away' ? 'away' : room?.rules.occupantLabel ?? 'around';
     const lines = [`${u.name}${u.id === this.store.me ? ' (you)' : ''} · ${presence}`];
     if (u.status) lines.push(`“${u.status}”`);
