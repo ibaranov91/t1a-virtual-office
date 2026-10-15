@@ -1327,6 +1327,16 @@ for (const blink of [0, 1]) { // a rack of servers, LEDs blinking
   t.px(12, 10, '#e8b860'); // earpiece
   frames.bouncer = t.outline();
 }
+for (const phase of [0, 1]) { // Berghain's dance floor, 4x3 tiles: a checkerboard of neon that swaps on the beat
+  const t = new Img(64, 48);
+  for (let j = 0; j < 3; j++) for (let i = 0; i < 4; i++) {
+    const on = (i + j + phase) % 2 === 0, hot = (i * 2 + j + phase) % 3 === 0;
+    t.rect(i * 16, j * 16, 16, 16, on ? '#2a1838' : '#17101f');
+    if (on) { t.rect(i * 16 + 2, j * 16 + 2, 12, 12, hot ? '#ff5ec8' : '#5ef0ff'); t.rect(i * 16 + 4, j * 16 + 4, 8, 8, hot ? '#ff9ae0' : '#a8f8ff'); }
+    else t.rect(i * 16 + 6, j * 16 + 6, 4, 4, '#3a2650');
+  }
+  frames[`dance_floor_${phase}`] = t;
+}
 const stall = (state) => { // a roomy stall for up to four: free (door open), busy (half door shut), full (overflowing, taped off)
   const t = new Img(32, 32);
   t.rect(0, 0, 32, 32, '#3a3346'); t.rect(2, 2, 28, 29, '#2a2433'); // partitions and back wall

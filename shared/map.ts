@@ -25,6 +25,7 @@ export interface UseItem { id: string; label: string; icon: string }
 export type ObjectUse = { kind: 'take'; items: UseItem[] } | { kind: 'toggle'; label: string } | { kind: 'calendar'; label: string }
   | { kind: 'instrument'; instrument: InstrumentKind; label: string }
   | { kind: 'jukebox'; label: string }
+  | { kind: 'dance'; label: string } // Berghain's dance floor: step on and dance
   | { kind: 'arcade'; label: string; game: 'park' } | { kind: 'records'; label: string }
   | { kind: 'meetings'; label: string } // the board by the Meeting room: which calendar meetings are on
   | { kind: 'achievements'; label: string } // the Lobby notice board: your plant and your badges

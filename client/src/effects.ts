@@ -3,6 +3,7 @@
 // back: drawn before the body (auras, capes); front: after it (hats, particles, critters).
 import type { Effect, Look } from '../../shared/protocol';
 import type { Pose } from './net';
+import { danceBeat } from '../../shared/effects';
 
 export interface FxCtx {
   ctx: CanvasRenderingContext2D;
@@ -33,6 +34,15 @@ function rising(c: FxCtx, frame: (i: number) => string, n: number, period: numbe
 }
 
 export const EFFECT_DRAW: Record<string, FxDraw> = {
+  dance: { // two frames on the 120 BPM beat: sway one way with the left arm up, then the other with the right
+    sway: (ms, _seed, p) => p.walking ? { dx: 0, rot: 0 } : { dx: danceBeat(Date.now()) % 2 ? 1 : -1, rot: danceBeat(Date.now()) % 2 ? 0.07 : -0.07 },
+    front(c) {
+      if (c.p.walking) return;
+      const left = danceBeat(Date.now()) % 2 === 0, ax = left ? c.x + 1 : c.x + 13;
+      c.ctx.fillStyle = '#f0c8a0'; c.ctx.fillRect(ax, c.top + 6, 2, 5); // the raised arm
+      c.ctx.fillStyle = left ? '#ff5ec8' : '#5ef0ff'; c.ctx.fillRect(ax, c.top + 4, 2, 2); // glow stick
+    },
+  },
   speed: { // a quick blur of yellow streaks trailing behind
     back(c) {
       if (!c.p.walking) return rising(c, () => 'sparkle_2', 2, 1400, 7, 10);

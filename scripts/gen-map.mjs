@@ -317,6 +317,9 @@ obj('lamp', 65, 13, 1, 1, LAMP);
 for (const x of [68, 70, 72]) obj('toilet', x, 21, 2, 2, { use: { kind: 'toilet', label: 'toilet' } });
 for (const [x, y] of [[67, 26], [70, 31], [72, 27]]) obj('tree', x, y, 1, 1); // the patch behind the hedge
 
+// Berghain's dance floor (appended: object ids stay put): step on and dance
+obj('dance_floor', 66, 15, 4, 3, { walkable: true, use: { kind: 'dance', label: 'dance floor' } });
+
 // ---- standing spots (seats follow the furniture: applyLayout in shared/map.ts) ----
 for (const r of rooms) r.stand = [];
 const stand = (id, list) => rooms.find(r => r.id === id).stand.push(...list.map(([x, y, dir]) => ({ x, y, dir })));

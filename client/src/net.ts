@@ -199,6 +199,25 @@ export class Store {
   ring(objectId: string) { this.send({ t: 'ring', objectId }); }
   use(objectId: string, item?: string) { this.send({ t: 'use', objectId, item }); }
   rackLine(objectId: string) { this.send({ t: 'toilet_shelf', objectId }); }
+  get dancing() { return !!this.users.get(this.me)?.effects?.some(e => e.kind === 'dance'); }
+  /** Dance in Berghain: on the dance floor object, walk onto a free tile of it first. Dancing already: stop. */
+  dance(floorId?: string) {
+    const me = this.users.get(this.me);
+    if (!me) return;
+    if (this.dancing) return this.setEffect(this.me, 'dance', false);
+    const o = floorId ? MAP.objects.find(o => o.id === floorId && o.use?.kind === 'dance') : undefined;
+    if (o) {
+      const taken = new Set([...this.users.values()].filter(u => u.id !== this.me && u.presence !== 'offline' && !u.instance).map(u => `${u.tile.x},${u.tile.y}`));
+      const tiles: Tile[] = [];
+      for (let y = o.y; y < o.y + o.h; y++) for (let x = o.x; x < o.x + o.w; x++) if (!taken.has(`${x},${y}`)) tiles.push({ x, y });
+      const mine = tiles.find(t => t.x === me.tile.x && t.y === me.tile.y);
+      const dist = (t: Tile) => Math.abs(t.x - me.tile.x) + Math.abs(t.y - me.tile.y);
+      const to = mine ?? tiles.sort((a, b) => dist(a) - dist(b))[0];
+      if (!to) return this.toast({ kind: 'info', text: 'The dance floor is packed 🕺', expires: 3000 });
+      if (!mine) this.moveTo(to);
+    }
+    this.setEffect(this.me, 'dance', true);
+  }
   sniffLine(objectId: string) { this.send({ t: 'toilet_sniff', objectId }); }
   drop() { this.send({ t: 'drop' }); }
   putCup(tile: Tile) { this.send({ t: 'cup_put', tile }); }
