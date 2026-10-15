@@ -3,17 +3,32 @@ import { loadAssets, type Assets } from './assets';
 import { Engine } from './engine';
 import { MAP, Store } from './net';
 
-const SESSION_KEY = 'deck.session';
+// Dev server: sign in automatically as ?as=<name> (default "Dev"); each name keeps its own session,
+// so several tabs can be different people.
+const DEV_AS = import.meta.env.DEV ? (new URLSearchParams(location.search).get('as')?.trim() || 'Dev') : null;
+const SESSION_KEY = DEV_AS ? `deck.session.dev.${DEV_AS.toLowerCase()}` : 'deck.session';
 
 export default function App() {
   const [session, setSession] = useState(() => { try { return localStorage.getItem(SESSION_KEY); } catch { return null; } });
+  const [autoLogin, setAutoLogin] = useState(!!DEV_AS);
+  const login = (s: string) => { try { localStorage.setItem(SESSION_KEY, s); } catch { /* ignore */ } setSession(s); };
   const logout = () => {
     if (session) fetch(`/api/logout?session=${encodeURIComponent(session)}`, { method: 'POST' }).catch(() => {});
     try { localStorage.removeItem(SESSION_KEY); } catch { /* ignore */ }
+    setAutoLogin(false); // after Leave, show the form instead of signing straight back in
     setSession(null);
   };
-  if (!session) return <Login onLogin={(s) => { try { localStorage.setItem(SESSION_KEY, s); } catch { /* ignore */ } setSession(s); }} />;
-  return <Office key={session} session={session} onLogout={logout} />;
+  useEffect(() => {
+    if (session || !autoLogin || !DEV_AS) return;
+    fetch('/api/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: DEV_AS, token: 'deck' }) })
+      .then(r => r.ok ? r.json() : Promise.reject())
+      .then(j => login(j.session))
+      .catch(() => setAutoLogin(false));
+  }, [session, autoLogin]);
+  if (!session && autoLogin) return <div className="login"><p className="muted">Signing in as {DEV_AS}…</p></div>;
+  if (!session) return <Login onLogin={login} />;
+  const expired = () => { try { localStorage.removeItem(SESSION_KEY); } catch { /* ignore */ } setSession(null); };
+  return <Office key={session} session={session} onLogout={logout} onExpired={expired} />;
 }
 
 type Config = { netbird: boolean; tokenLogin: boolean };
@@ -75,8 +90,8 @@ function Login({ onLogin }: { onLogin: (s: string) => void }) {
   );
 }
 
-function Office({ session, onLogout }: { session: string; onLogout: () => void }) {
-  const store = useMemo(() => new Store(session, onLogout), [session]);
+function Office({ session, onLogout, onExpired }: { session: string; onLogout: () => void; onExpired: () => void }) {
+  const store = useMemo(() => new Store(session, onExpired), [session]);
   useSyncExternalStore(store.subscribe, store.getVersion);
   const [assets, setAssets] = useState<Assets | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
