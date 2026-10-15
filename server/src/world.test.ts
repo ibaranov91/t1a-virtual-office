@@ -237,6 +237,19 @@ test('radio is always on without a shared knob; lamp toggles still broadcast and
   const restored = new World(map); restored.load(saved);
   const after = restored.snapshot() as Extract<ServerMsg, { t: 'state' }>; assert.deepEqual(after.objects[lamp.id], { on: !before.objects[lamp.id].on });
 });
+test('a saved layout from before the safe gets one at its generated spot; a blocked spot is skipped', t => {
+  const { w } = setup(t), safe = map.objects.find(o => o.type === 'safe')!;
+  const without = { objects: map.objects.filter(o => o.type !== 'safe'), rugs: map.rugs };
+  const restored = new World(structuredClone(map)); restored.load({ ...w.dump(), layout: structuredClone(without) });
+  const added = restored.map.objects.find(o => o.type === 'safe')!;
+  assert.ok(added); assert.deepEqual([added.x, added.y, added.use], [safe.x, safe.y, safe.use]);
+  // something already stands where the safe would go: the rest of the layout still loads, without a safe
+  const plant = without.objects.find(o => o.type === 'plant')!;
+  const blocked = { ...without, objects: without.objects.map(o => (o.id === plant.id ? { ...o, x: safe.x, y: safe.y } : o)) };
+  const other = new World(structuredClone(map)); other.load({ ...w.dump(), layout: structuredClone(blocked) });
+  assert.equal(other.map.objects.some(o => o.type === 'safe'), false);
+  assert.deepEqual(other.map.objects.find(o => o.id === plant.id)!.x, safe.x);
+});
 test('a pot on first login; a status a day grows it, blooms earn badges, a week without one kills it', t => {
   const { w, add, tick } = setup(t), a = add('A'), DAY = 86_400_000, stage = () => a.u.plant?.stage;
   assert.equal(stage(), 0); assert.ok(a.u.plant?.kind); // planted on connect

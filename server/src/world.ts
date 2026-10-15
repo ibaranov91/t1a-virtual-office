@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import {
-  applyEdit, applyLayout, besideObject, dirBetween, hallDistance, layoutProblem, voiceRooms, findPath, isWalkable, pathDuration, pathTo, roomAt, sampleMove, seatAt, withLayout, WALK_MS_PER_TILE,
+  applyEdit, applyLayout, besideObject, dirBetween, hallDistance, KEEP_TYPES, layoutProblem, objectName, voiceRooms, findPath, isWalkable, pathDuration, pathTo, roomAt, sampleMove, seatAt, withLayout, WALK_MS_PER_TILE,
   type Dir, type Layout, type Room, type Spot, type TileMap, type Tile,
 } from '../../shared/map';
 import {
@@ -284,7 +284,7 @@ export class World {
   /** Walk over to an object and use it: take something from it, or flip it on/off. */
   use(u: User, objectId: string, itemId?: string) {
     const o = this.map.objects.find(o => o.id === objectId);
-    if (!o?.use || o.use.kind === 'calendar' || o.use.kind === 'meetings' || o.use.kind === 'achievements' || goingOut(u) || u.instance) return;
+    if (!o?.use || o.use.kind === 'calendar' || o.use.kind === 'meetings' || o.use.kind === 'achievements' || o.use.kind === 'link' || goingOut(u) || u.instance) return;
     const item = o.use.kind === 'take' ? o.use.items.find(i => i.id === itemId) ?? o.use.items[0] : null;
     this.setFollowing(u, null);
     clearTimeout(this.errands.get(u.id));
@@ -656,6 +656,19 @@ export class World {
     if (typeof next === 'string') return this.sendTo(u.id, { t: 'notice', text: `Can't: ${next}` });
     this.setLayout(next, u, edit.op === 'add' || edit.op === 'rug_add' ? added : undefined);
   }
+  /** A saved layout plus any one-of-a-kind object a newer build added to the floor (a release puts a safe in the
+   *  Lobby; an office rearranged before that still gets one), at its generated spot when that's still free. */
+  private withNewFixtures(saved: Layout): Layout {
+    const out = { objects: [...saved.objects], rugs: saved.rugs };
+    for (const o of this.baseLayout.objects) {
+      if (!KEEP_TYPES.has(o.type) || out.objects.some(s => s.type === o.type)) continue;
+      const next = { ...out, objects: [...out.objects, structuredClone(o)] };
+      const problem = layoutProblem(withLayout(this.map, next));
+      if (problem) console.warn(`new ${objectName(o.type)} not added to the saved layout: ${problem}`);
+      else out.objects = next.objects;
+    }
+    return out;
+  }
   resetLayout(u: User) { if (this.isAdmin(u) && this.setLayout(structuredClone(this.baseLayout), u)) this.layoutEdited = false; }
   /** Check the whole floor, then put it in place for everyone: home desks go along with their chair, toggles
    *  get their state, and anyone the new furniture lands on (or whose way it blocks) steps aside. */
@@ -921,10 +934,11 @@ export class World {
   }
   load(data: ReturnType<World['dump']>) {
     if (data.layout) { // an admin rearranged the office; if it no longer fits the generated floor, start over from that
-      const problem = layoutProblem(withLayout(this.map, data.layout));
+      const layout = this.withNewFixtures(data.layout);
+      const problem = layoutProblem(withLayout(this.map, layout));
       if (problem) console.warn(`saved layout dropped: ${problem}`);
       else {
-        applyLayout(this.map, data.layout); this.layoutEdited = true;
+        applyLayout(this.map, layout); this.layoutEdited = true;
         this.syncToggles();
       }
     }
