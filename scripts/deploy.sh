@@ -70,6 +70,8 @@ setenv NETBIRD_AUTH $NETBIRD_AUTH
 setenv OPEN_LOGIN $OPEN_LOGIN
 setenv DECK_PUBLIC_URL $URL
 setenv DECK_INSTALL_URL $INSTALL_URL
+# no bots on prod: drop the setting entirely (bots are opt-in); test instances keep BOTS=1
+if [ "$NAME" = prod ]; then sudo sed -i '/^BOTS=/d;/^BOT_COUNT=/d' $ENVF; fi
 sudo sed -i '/^TOKEN_LOGIN=/d' $ENVF
 
 sudo tee /etc/systemd/system/$SVC.service >/dev/null <<UNIT
