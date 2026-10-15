@@ -326,7 +326,7 @@ export class Store {
         }
         this.users = next;
         this.objects = msg.objects ?? {};
-        this.jukebox = msg.jukebox; this.jukeboxReady = true;
+        this.jukebox = msg.jukebox ?? {}; this.jukeboxReady = true;
         this.soundscape?.resetCrossings();
         break;
       }

@@ -75,6 +75,7 @@ export class World {
   private jukeboxes = new Map<string, Jukebox>();
   private objectOn = new Map<string, boolean>();          // toggle objects (lamps)
   private chats = new Map<string, ChatMsg[]>();           // per pair of people, oldest first
+  private lastJukeboxControl = new Map<string, number>();
   private lastReact = new Map<string, number>();
   botHooks?: BotHooks;
 
@@ -679,7 +680,20 @@ export class World {
       if (have && !!have.wall === !!o.wall && have.w === o.w && have.h === o.h) { out.objects[i] = { ...structuredClone(o), id: have.id, x: have.x, y: have.y }; continue; }
       const next = { ...out, objects: [...out.objects.filter((_, j) => j !== i), structuredClone(o)] };
       const problem = layoutProblem(withLayout(this.map, next));
-      if (problem) console.warn(`${have ? 'reshaped' : 'new'} ${objectName(o.type)} not placed in the saved layout: ${problem}`);
+      let placed = !problem;
+      const room = roomAt(this.map, o.x, o.y);
+      if (problem && !o.wall && room) {
+        const positions: Tile[] = [], r = room.rect;
+        for (let y = r.y; y + o.h <= r.y + r.h; y++) for (let x = r.x; x + o.w <= r.x + r.w; x++) {
+          if (x !== o.x || y !== o.y) positions.push({ x, y });
+        }
+        positions.sort((a, b) => Math.abs(a.x - o.x) + Math.abs(a.y - o.y) - Math.abs(b.x - o.x) - Math.abs(b.y - o.y) || a.y - b.y || a.x - b.x);
+        for (const pos of positions) {
+          Object.assign(next.objects[next.objects.length - 1], pos);
+          if (!layoutProblem(withLayout(this.map, next))) { placed = true; break; }
+        }
+      }
+      if (!placed) console.warn(`${have ? 'reshaped' : 'new'} ${objectName(o.type)} not placed in the saved layout: ${problem}`);
       else out.objects = next.objects;
     }
     return out;
@@ -954,7 +968,10 @@ export class World {
         if (u.bot || u.presence === 'offline' || goingOut(u) || u.instance || !room || roomAt(this.map, p.x, p.y)?.id !== room.id) {
           this.sendTo(u.id, { t: 'notice', text: `Walk into ${room?.name ?? 'Music'} to pick music` }); break;
         }
-        const result = j.act(u.id, msg, now);
+        const control = msg.action === 'pause' || msg.action === 'play' || msg.action === 'skip';
+        if (control && now - (this.lastJukeboxControl.get(u.id) ?? -Infinity) < 400) break;
+        const last = j.state.last, result = j.act(u.id, msg, now);
+        if (control && j.state.last !== last && j.state.last?.by === u.id && j.state.last.at === now) this.lastJukeboxControl.set(u.id, now);
         if (result.changed) this.broadcast({ t: 'jukebox', id: o.id, state: j.state });
         if (result.notice) this.sendTo(u.id, { t: 'notice', text: result.notice });
         break;

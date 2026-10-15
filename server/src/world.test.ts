@@ -305,6 +305,7 @@ test('jukebox authorizes the shown mid-walk tile when entering and exiting', t =
   t.mock.timers.setTime(start + 126); a.messages.length = 0;
   w.handle(a.u, { t: 'jukebox', objectId: jukebox.id, action: 'play', playId }, a.socket);
   assert.notEqual(stateOf(w).pausedAt, null); assert.equal(a.messages.at(-1)?.t, 'notice');
+  t.mock.timers.setTime(start + 524);
   settle(a.u, { x: 53, y: 17 }); w.walk(a.u, { x: 55, y: 17 });
   const entry = Date.now(); t.mock.timers.setTime(entry + 124); a.messages.length = 0;
   w.handle(a.u, { t: 'jukebox', objectId: jukebox.id, action: 'play', playId }, a.socket); assert.equal(a.messages.at(-1)?.t, 'notice');
@@ -404,4 +405,21 @@ test('leaving a meeting for good clears busy and lets knocks through; Go puts yo
   w.handle(b.u, { t: 'meeting_out', key }, b.socket); // from inside the room: out of the room and not busy
   assert.equal(b.u.instance, null); assert.equal(b.u.meeting, null);
   tick(31 * 60_000); assert.equal(w.meetings['left'].get(b.u.id)?.has(key), false); // over: forgotten
+});
+
+test('jukebox playback controls throttle only accepted controls for 400 ms', t => {
+  const { w, add, tick } = setup(t), a = add('A', { x: 56, y: 17 }), b = add('B', { x: 57, y: 17 });
+  const skip = (playId = stateOf(w).playId) => w.handle(a.u, { t: 'jukebox', objectId: jukebox.id, action: 'skip', playId }, a.socket);
+  const before = structuredClone(stateOf(w));
+  skip('stale'); skip();
+  const first = structuredClone(stateOf(w));
+  assert.notEqual(first.track, before.track); assert.notEqual(first.playId, before.playId);
+  tick(100); a.messages.length = 0; b.messages.length = 0;
+  skip();
+  assert.deepEqual(stateOf(w), first); assert.deepEqual(a.messages, []); assert.deepEqual(b.messages, []);
+  const track = TRACKS.find(t => t.id !== first.track)!;
+  w.handle(a.u, { t: 'jukebox', objectId: jukebox.id, action: 'queue', track: track.id }, a.socket);
+  assert.equal(stateOf(w).queue[0].track, track.id);
+  tick(500); skip();
+  assert.equal(stateOf(w).track, track.id); assert.notEqual(stateOf(w).playId, first.playId);
 });

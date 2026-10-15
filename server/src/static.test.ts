@@ -1,7 +1,7 @@
 import { test, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer, request } from 'node:http';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { serveStatic } from './static';
@@ -20,7 +20,7 @@ async function setup(t: TestContext) {
       const chunks: Buffer[] = []; res.on('data', chunk => chunks.push(chunk)); res.on('end', () => resolve({ status: res.statusCode!, headers: res.headers, body: Buffer.concat(chunks) }));
     }); req.on('error', reject); req.end();
   });
-  return { get, bytes };
+  return { get, bytes, dir, port: address.port };
 }
 test('static full files, MIME, immutable cache and fallback', async t => {
   const { get, bytes } = await setup(t), r = await get();
@@ -55,4 +55,25 @@ test('HEAD ignores Range and has full headers without a body', async t => {
   for (const range of [undefined, 'bytes=0-99', 'bytes=256-']) {
     const r = await get(range, 'HEAD'); assert.equal(r.status, 200); assert.equal(r.headers['content-length'], '256'); assert.equal(r.headers['accept-ranges'], 'bytes'); assert.equal(r.headers['content-range'], undefined); assert.equal(r.body.length, 0);
   }
+});
+
+test('aborted static streams close their file descriptors', async t => {
+  const { dir, port } = await setup(t);
+  writeFileSync(join(dir, 'large.m4a'), Buffer.alloc(4 * 1024 * 1024));
+  const baseline = readdirSync('/dev/fd').length;
+  for (let i = 0; i < 5; i++) await new Promise<void>((resolve, reject) => {
+    const req = request({ host: '127.0.0.1', port, path: '/large.m4a', agent: false }, res => {
+      res.once('data', () => { req.destroy(); resolve(); });
+      res.on('error', () => {});
+    });
+    req.on('error', reject); req.end();
+  });
+  await new Promise(resolve => setTimeout(resolve, 200));
+  assert.ok(readdirSync('/dev/fd').length <= baseline + 1, 'aborted streams must release their fds');
+});
+test('missing fallback returns an empty 404', async t => {
+  const { get, dir } = await setup(t);
+  rmSync(join(dir, 'index.html'));
+  const r = await get(undefined, 'GET', '/missing');
+  assert.equal(r.status, 404); assert.equal(r.body.length, 0);
 });

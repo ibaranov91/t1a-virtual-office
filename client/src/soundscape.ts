@@ -1,7 +1,8 @@
 import { field, hallVoiceGain, reverbImpulse, soundModel } from '../../shared/acoustics';
 import { roomAt, type Room, type Tile } from '../../shared/map';
 import { audio, categoryOutput, forgetMedia, playMedia, rms, subscribeAudio, unlockOnGesture } from './audio';
-import { TRACK, trackUrl } from '../../shared/music';
+import { jukeboxPosition, TRACK, trackUrl } from '../../shared/music';
+import { canTeachLead, learnLead, playbackRateFor, seekTarget } from './jukeboxSync';
 import { MAP, type Store } from './net';
 import { prefs, subscribePrefs, volumeFor, type Category } from './prefs';
 import { playDoorOpen, playDoorClose } from './sounds';
@@ -13,6 +14,7 @@ type Jukebox = {
   el: HTMLAudioElement; loadedUrl: string | null; playId: string | null; gen: number;
   heardAt: number; heard: boolean; checkAt: number; pending: boolean; blocked: boolean; error: boolean; errorAt: number;
   lead: number; seekedAt: number; // how far ahead to aim a seek (this browser's seek latency, learned), when we last did
+  firstSeek: boolean; teachLead: boolean;
   metadata?: () => void; analyser?: AnalyserNode;
 };
 interface Source {
@@ -132,7 +134,7 @@ export class Soundscape {
   private restartLoops() { for (const s of this.sources.values()) if (s.kind === 'clip') this.startLoop(s); }
   private expected(id: string) {
     const desired = this.store.jukebox[id], track = desired && TRACK.get(desired.track);
-    return desired && track ? Math.max(0, Math.min(track.duration, desired.pausedAt ?? this.store.now() - desired.startedAt)) / 1000 : 0;
+    return desired && track ? jukeboxPosition(desired, track.duration, this.store.now()) / 1000 : 0;
   }
   private stopJukebox(j: Jukebox, unload: boolean) {
     if (!j.el.paused || j.pending || j.blocked || j.metadata || (unload && j.loadedUrl !== null)) j.gen++;
@@ -149,6 +151,7 @@ export class Soundscape {
       this.stopJukebox(j, !desired || !recent || !track); return;
     }
     if (this.expected(id) >= track.duration / 1000) { this.stopJukebox(j, false); return; }
+    if (j.el.ended && j.playId === desired.playId) return;
     const url = trackUrl(track);
     if (j.error && now - j.errorAt > 5000) this.stopJukebox(j, true); // a failed load or play: start over
     if (j.loadedUrl !== url) {
@@ -159,7 +162,7 @@ export class Soundscape {
         j.metadata = undefined; this.update();
       };
       j.el.addEventListener('loadedmetadata', j.metadata, { once: true });
-      j.loadedUrl = url; j.error = false; j.el.src = url;
+      j.loadedUrl = url; j.error = false; j.firstSeek = true; j.seekedAt = 0; j.el.src = url;
       return;
     }
     if (j.el.readyState < HTMLMediaElement.HAVE_METADATA || j.pending || j.error) return;
@@ -177,16 +180,20 @@ export class Soundscape {
       const drift = j.el.currentTime - this.expected(id);
       if (j.seekedAt) { // first look after a seek: Safari lands ~0.3 s behind, so aim that much ahead next time
         if (now - j.seekedAt < 1000) return;
-        j.lead = Math.max(0, Math.min(1, j.lead - drift)); j.seekedAt = 0;
+        if (j.teachLead) j.lead = learnLead(j.lead, drift);
+        j.seekedAt = 0;
       }
       if (Math.abs(drift) > .3) this.seek(j, id, now);
       // close the rest by playing a touch faster or slower (seeks are audible)
-      else j.el.playbackRate = Math.abs(drift) < .03 ? 1 : 1 - Math.max(-.05, Math.min(.05, drift * .25));
+      else j.el.playbackRate = playbackRateFor(drift);
     }
   }
   private seek(j: Jukebox, id: string, now: number) {
     const track = TRACK.get(this.store.jukebox[id]?.track ?? '');
-    j.el.playbackRate = 1; j.el.currentTime = Math.min(this.expected(id) + j.lead, (track?.duration ?? 0) / 1000); j.seekedAt = now; j.checkAt = now;
+    const target = seekTarget(this.expected(id), j.lead, (track?.duration ?? 0) / 1000, j.el.duration);
+    const ranges: [number, number][] = Array.from({ length: j.el.buffered.length }, (_, i) => [j.el.buffered.start(i), j.el.buffered.end(i)]);
+    j.teachLead = !j.firstSeek && canTeachLead(ranges, target); j.firstSeek = false;
+    j.el.playbackRate = 1; j.el.currentTime = target; j.seekedAt = now; j.checkAt = now;
   }
   private emitters() {
     // the jukebox can be moved (edit mode): follow it, and drop one that's gone
@@ -198,7 +205,7 @@ export class Soundscape {
       const el = new Audio(); el.preload = 'auto'; unlockOnGesture(el);
       const s = this.add(`obj:${o.id}`, 'jukebox', audio().createMediaElementSource(el), o.sound?.gain ?? 1, { x: o.x, y: o.y });
       const j: Jukebox = { el, loadedUrl: null, playId: null, gen: 0, heardAt: -Infinity, heard: false,
-        checkAt: -Infinity, pending: false, blocked: false, error: false, errorAt: 0, lead: 0, seekedAt: 0 };
+        checkAt: -Infinity, pending: false, blocked: false, error: false, errorAt: 0, lead: 0, seekedAt: 0, firstSeek: true, teachLead: false };
       el.addEventListener('error', () => { if (j.loadedUrl && el.getAttribute('src') === j.loadedUrl) { j.error = true; j.errorAt = performance.now(); } });
       if (import.meta.env.DEV) { j.analyser = audio().createAnalyser(); j.analyser.fftSize = 2048; s.low.connect(j.analyser); }
       s.jukebox = j;

@@ -77,7 +77,9 @@ npm run typecheck    # run before every commit or deploy
   Playback is server state timed by the server clock; anyone standing in the room queues, pauses and skips (controls
   name the current `playId`, so stale clicks do nothing). Clients stream a track through one `<audio>` element into
   the soundscape and only while it's audible, so nobody outside the room downloads music. Static files support HTTP
-  Range (`server/src/static.ts`), which media seeking needs.
+  Range (`server/src/static.ts`), which media seeking needs. `npm run gen:music -- --force`
+  re-encodes everything, and new content hashes add ~35 MB to git history each time, so use it only when the
+  pipeline itself changes.
 - **Edit mode** (pencil in the top bar, admins only: `DECK_ADMINS`, emails, default `ivan.baranov@t1a.com`; `npm run dev`
   adds the name `dev`, and names only count for logins without an email). Admins drag furniture and rugs, add from the
   catalog (one of each generated type), recolor/resize rugs, Reset. Walls, floors and rooms stay as generated; the
