@@ -118,6 +118,7 @@ export class Store {
       case 'status': { const u = this.users.get(msg.userId); if (u) u.status = msg.status; break; }
       case 'presence': { const u = this.users.get(msg.userId); if (u) u.presence = msg.presence; break; }
       case 'emote': { const u = this.users.get(msg.userId); if (u) u.emote = msg.emote; break; }
+      case 'door': { const u = this.users.get(msg.userId); if (u) u.door = msg.door; break; }
       case 'knock': {
         const from = this.users.get(msg.fromId), to = this.users.get(msg.toId);
         if (from && to) { // knocker turns to face the person

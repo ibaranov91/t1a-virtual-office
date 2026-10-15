@@ -1,6 +1,7 @@
 {
   "version": "0.0.1",
   "configurations": [
-    { "name": "deck", "runtimeExecutable": "npm", "runtimeArgs": ["run", "dev"], "port": 5173 }
+    { "name": "deck", "runtimeExecutable": "npm", "runtimeArgs": ["run", "dev"], "port": 5173 },
+    { "name": "deck-alt", "runtimeExecutable": "env", "runtimeArgs": ["VITE_PORT=5174", "DECK_PORT=8788", "npm", "run", "dev"], "port": 5174 }
   ]
 }
