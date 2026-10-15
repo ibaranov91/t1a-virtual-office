@@ -1,7 +1,7 @@
 // WebSocket client + the client-side mirror of server state.
 import mapJson from '../../shared/tilemap.json';
 import { applyLayout, besideObject, doorwayTiles, isWalkable, objectById, pathTo, roomAt, sampleMove, type Dir, type Tile, type TileMap } from '../../shared/map';
-import { ACHIEVEMENTS, underground, DUNGEON_INSTANCE, PLANT_STAGES, plantName, ROOM_VOICE_MAX, type JukeboxState, type JukeboxAction, type AgendaItem, type LayoutEdit, type CalEvent, type MeetingRoomInfo, type ChatMsg, type LiveDeck, type ObjectState, type ToiletState, type ClientMsg, type PublicUser, type Reaction, type RtcSignal, type ServerMsg, type Creature, type Cup, CUP_ITEMS } from '../../shared/protocol';
+import { ACHIEVEMENTS, underground, DUNGEON_INSTANCE, PLANT_STAGES, plantName, ROOM_VOICE_MAX, type JukeboxState, type JukeboxAction, type AgendaItem, type LayoutEdit, type CalEvent, type MeetingRoomInfo, type ChatMsg, type LiveDeck, type ObjectState, type ToiletState, type ClientMsg, type PublicUser, type Reaction, type RtcSignal, type ServerMsg, type Creature, type Cup, CUP_ITEMS, type LibraryState } from '../../shared/protocol';
 import { ParkLoop } from './park/loop';
 import type { CabinetSummary, ParkRecords } from '../../shared/protocol';
 import { playPark, playHand, playKnock, playPop, playDungeon, playPet } from './sounds';
@@ -290,6 +290,24 @@ export class Store {
     if (to) this.moveTo({ x: to.x, y: to.y });
   }
   achievementsOpen = false;
+  library: LibraryState = { articles: [], reads: [] };
+  libraryOpen = false;
+  fetching: string | null = null; // the article I picked, until I'm sitting down with it
+  private fetchTimer?: ReturnType<typeof setTimeout>;
+  openLibrary(open = true) { this.libraryOpen = open; this.emit(); }
+  publishArticle(url: string, title: string, topic: string) { this.send({ t: 'article_add', url, title, topic }); }
+  removeArticle(id: string) { this.send({ t: 'article_remove', id }); }
+  readArticle(id: string) {
+    this.fetching = id; this.libraryOpen = false; this.emit();
+    clearTimeout(this.fetchTimer); this.fetchTimer = setTimeout(() => { this.fetching = null; this.emit(); }, 20_000);
+    this.send({ t: 'read_start', articleId: id });
+  }
+  readDone() { this.fetching = null; this.send({ t: 'read_done' }); }
+  /** Distinct people who finished this article (not its author). */
+  readCount(articleId: string) {
+    const by = this.library.articles.find(a => a.id === articleId)?.by;
+    return new Set(this.library.reads.filter(r => r.articleId === articleId && r.userId !== by).map(r => r.userId)).size;
+  }
   openAchievements(open = true) { this.achievementsOpen = open; this.emit(); }
   closeMeetings() { this.meetingsOpen = false; this.emit(); }
   goToMeeting(key: string) {
@@ -552,6 +570,12 @@ export class Store {
       }
       case 'meeting': { const u = this.users.get(msg.userId); if (u) u.meeting = msg.until; break; }
       case 'meetings': this.meetingRooms = msg.rooms; break;
+      case 'library': this.library = { articles: msg.articles, reads: msg.reads }; break;
+      case 'reading': {
+        const u = this.users.get(msg.userId); if (u) u.reading = msg.articleId;
+        if (msg.userId === this.me) { this.fetching = null; clearTimeout(this.fetchTimer); }
+        break;
+      }
       case 'dungeon': {
         const me = this.users.get(this.me);
         if (me && underground(me)) {

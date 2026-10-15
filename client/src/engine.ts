@@ -1065,6 +1065,7 @@ export class Engine {
       ctx.fillText(icon, x + ih.dx, baseY + ih.dy + bob + (p.walking ? swing : 0));
       ctx.textAlign = 'start'; ctx.textBaseline = 'alphabetic';
     }
+    if (u.reading && seat && this.f('reading_book')) this.blit(ctx, 'reading_book', Math.round(x + 2), Math.round(baseY - 16 + bob)); // holding up the book
     // facing a desk: the chair's backrest is in front of the sitter
     if (seat?.dir === 'up' && seat.type === 'chair' && this.f('chair_up_back')) {
       this.blit(ctx, 'chair_up_back', seat.x * TS, seat.y * TS);
@@ -1441,6 +1442,7 @@ export class Engine {
     if (u.tz && u.id !== this.store.me) lines.push(localTime(u.tz));
     const extra = [u.following && `following ${this.store.name(u.following).split(' ')[0]}`, u.holding && ITEM_ICON.get(u.holding)].filter(Boolean).join(' · ');
     if (extra) lines.push(extra);
+    if (u.reading) lines.push(`📖 reading ${this.store.library.articles.find(a => a.id === u.reading)?.title ?? 'an article'}`);
     if (this.selected?.id !== id) lines.push(u.id === this.store.me ? 'click to react'
       : this.store.sameRoomCall(u) ? 'click for volume & more' : room?.rules.knock === 'disabled' ? `${room.name}: no knocking · click for more` : 'click for actions');
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);

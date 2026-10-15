@@ -249,6 +249,21 @@ const W1 = '#c8874a', W1L = '#dba066', W1D = '#9c5f30', W1DD = '#7d4a26';
   frames.bookshelf = t.outline();
 }
 {
+  const t = new Img(16, 24); // reading desk: a one-seat desk with an open book and a little lamp
+  t.rect(1, 8, 14, 8, W1); t.hline(1, 8, 14, W1L);
+  t.rect(1, 16, 14, 6, W1D); t.hline(1, 21, 14, W1DD); t.rect(6, 18, 4, 1, '#e0b070');
+  t.rect(4, 9, 8, 5, '#f4f0e6'); t.vline(8, 9, 5, '#b0a898'); t.hline(4, 9, 8, '#fffaf0');
+  for (const y of [10, 12]) { t.hline(5, y, 2, '#9a9288'); t.hline(9, y, 2, '#9a9288'); }
+  t.rect(12, 5, 2, 3, '#d0a040'); t.px(13, 4, '#fff0a0'); t.px(12, 8, '#7d4a26');
+  frames.reading_desk = t.outline();
+}
+{
+  const t = new Img(12, 8); // the book a reader holds up in front of them
+  t.rect(1, 1, 10, 6, '#b4534a'); t.vline(5, 1, 6, '#843a35'); t.vline(6, 1, 6, '#843a35');
+  t.rect(1, 1, 4, 5, '#f4f0e6'); t.rect(7, 1, 4, 5, '#f4f0e6'); t.hline(2, 2, 2, '#9a9288'); t.hline(8, 2, 2, '#9a9288'); t.hline(2, 4, 2, '#9a9288'); t.hline(8, 4, 2, '#9a9288');
+  frames.reading_book = t.outline();
+}
+{
   const t = new Img(16, 32); // potted plant
   const leaves = [[8, 9, 5, 5, '#4a7e3a'], [5, 14, 4, 4, '#4a7e3a'], [11, 14, 4, 4, '#4a7e3a'], [8, 6, 3, 4, '#5f9a48'], [5, 11, 3, 3, '#5f9a48'], [11, 11, 3, 3, '#5f9a48'], [8, 15, 4, 4, '#5f9a48']];
   for (const [x, y, rx, ry, c] of leaves) t.ellipse(x, y, rx, ry, c);

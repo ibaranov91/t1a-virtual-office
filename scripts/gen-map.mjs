@@ -182,7 +182,7 @@ for (const [dx, dy] of [[2, 4], [5, 4], [8, 4], [2, 8], [9, 8]]) {
   obj('desk', dx, dy, 2, 1);
   obj('chair', dx, dy + 1, 1, 1, { walkable: true });
 }
-obj('bookshelf', 10, 3, 2, 1);
+obj('bookshelf', 10, 3, 2, 1, { use: { kind: 'library', label: 'library' } }); // the reading room's shelf
 obj('lamp', 12, 3, 1, 1, LAMP);
 obj('plant', 1, 3, 1, 1);
 obj('lamp', 12, 9, 1, 1, LAMP);
@@ -319,6 +319,11 @@ for (const [x, y] of [[67, 26], [70, 31], [72, 27]]) obj('tree', x, y, 1, 1); //
 
 // Berghain's dance floor (appended: object ids stay put): step on and dance
 obj('dance_floor', 66, 15, 4, 3, { walkable: true, use: { kind: 'dance', label: 'dance floor' } });
+// the reading room: two one-seat desks by the library shelf (appended, so earlier object ids stay put)
+for (const x of [11, 12]) {
+  obj('reading_desk', x, 7);
+  obj('chair', x, 8, 1, 1, { walkable: true });
+}
 
 // ---- standing spots (seats follow the furniture: applyLayout in shared/map.ts) ----
 for (const r of rooms) r.stand = [];

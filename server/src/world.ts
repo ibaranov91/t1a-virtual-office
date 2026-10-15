@@ -5,7 +5,7 @@ import {
 } from '../../shared/map';
 import {
   NOTE_RATE, NOTE_BURST, ITEMS_MAX, TOILET_SHELF_ITEM, toiletFull, NOTE_HELD_MAX, SEAT_CHANGES_PER_10S, DUNGEON_INSTANCE, underground, MAX_CALL_SIZE, MEETING_ROOM_ID, MAX_CHAT_LEN, normalizeMeetLink, REACTIONS, ROOM_VOICE_MAX,
-  CUP_ITEMS, dayNumber, isTimeZone, plantDead, BOTANIST_KINDS, PLANT_KINDS, PLANT_STAGES, type Plant,
+  CUP_ITEMS, BOOK_ITEM, BOOKWORM_READS, EDITOR_READERS, dayNumber, isTimeZone, plantDead, BOTANIST_KINDS, PLANT_KINDS, PLANT_STAGES, type Plant,
   type ChatMsg, type ClientMsg, type Door, type Effect, type Knock, type LayoutEdit, type Look, type Presence, type PublicUser, type Reaction, type ServerMsg,
 } from '../../shared/protocol';
 import { INSTRUMENTS, validNote } from '../../shared/instruments';
@@ -13,6 +13,7 @@ import { ADMIN_HAT, BAT_HAT, DANCE_ROOM, EFFECTS, HAT_NAMES, JUDGE_HAT, MAX_EFFE
 import { TRACKS } from '../../shared/music';
 import { Arcade } from './arcade';
 import { Jukebox } from './jukebox';
+import { Library } from './library';
 import { Meetings } from './meetings';
 import { BAT_COOLDOWN_MS, Creatures } from './creatures';
 import type { Presenter } from './presentation';
@@ -96,6 +97,8 @@ export class World {
   private noteBuckets = new Map<string, { tokens: number; at: number }>();
   private seatChanges = new Map<string, number[]>();
   private jukeboxes = new Map<string, Jukebox>();
+  library = new Library();
+  private readPlans = new Map<string, { articleId: string; seat: Tile; seq: number }>(); // on the way to a reading desk
   private objectOn = new Map<string, boolean>();          // toggle objects (lamps)
   private chats = new Map<string, ChatMsg[]>();           // per pair of people, oldest first
   private lastJukeboxControl = new Map<string, number>();
@@ -181,7 +184,9 @@ export class World {
     send(this.snapshot());
     send(this.me(u));
     if (underground(u) && u.dungeon) send({ t: 'dungeon', ...u.dungeon });
+    if (u.reading) this.stopReading(u); // a fresh page has no overlay; the old read ends
     send({ t: 'meetings', rooms: this.meetingRooms() });
+    send({ t: 'library', ...this.library.state() });
     send({ t: 'creatures', creatures: this.creatures.all() });
     send({ t: 'cups', cups: this.creatures.cups });
     send({ t: 'arcade', cabinets: this.arcade.summary() });
@@ -246,6 +251,7 @@ export class World {
   /** Last socket closed: think it over for a moment, then grab the bag and head out. */
   private startLeaving(u: User) {
     this.setDoor(u, 'thinking');
+    this.stopReading(u);
     this.doorTimer(u, () => {
       for (const k of this.knocks.values()) if (k.fromId === u.id && (k.state === 'walking' || k.state === 'pending')) this.closeKnock(k, 'later', 'Knock cancelled');
       this.leaveCall(u);
@@ -288,7 +294,7 @@ export class World {
       email,
       id: randomUUID().slice(0, 8), name, look: lookFor(name), lookSet: false, tile: tile ?? { ...this.map.spawn }, dir: 'down',
       move: null, path: null, presence: bot ? 'online' : 'offline', status: '', emote: null, bot, homeDesk: null, door: null, callId: null, deafened: false, hand: false, muted: false,
-      following: null, holding: null, meeting: null, instance: null, game: null, plant: null, bloomed: [], achievements: {}, effects: [], items: [],
+      following: null, holding: null, meeting: null, reading: null, instance: null, game: null, plant: null, bloomed: [], achievements: {}, effects: [], items: [],
     };
     this.users.set(u.id, u);
     this.broadcast(this.snapshot());
@@ -316,6 +322,7 @@ export class World {
     const keepOut = !this.isAdmin(u); // admins-only rooms: everyone else's path goes around, and never in
     const path = pathTo(this.map, from, to, keepOut); // also sits down onto a sofa
     if (!path.length) return null; // nothing changes: the current walk (and its dungeon timers) goes on
+    if (path.length > 1 && this.readPlans.get(u.id)?.seq !== this.walkingTo) this.stopReading(u);
     if (path.length > 1) { for (const [id, seat] of this.seats) if (seat.user === u.id) this.endSeat(id); if (!this.toiletWalks.has(u.id)) this.toilets.leave(u.id, now); }
     // A due pickup belongs to the old walk even if its callback hasn't run yet.
     const keyTimer = u.dungeonTimers?.key;
@@ -513,7 +520,7 @@ export class World {
   use(u: User, objectId: string, itemId?: string) {
     this.cancelSeatWalk(u.id);
     const o = this.map.objects.find(o => o.id === objectId);
-    if (!o?.use || o.use.kind === 'instrument' || o.use.kind === 'calendar' || o.use.kind === 'meetings' || o.use.kind === 'achievements' || o.use.kind === 'link' || o.use.kind === 'clock' || o.use.kind === 'jukebox' || o.use.kind === 'dance' || o.use.kind === 'records' || o.use.kind === 'presentation' || goingOut(u) || u.instance || u.presence === 'offline' || (o.use.kind === 'arcade' && u.bot)) return;
+    if (!o?.use || o.use.kind === 'instrument' || o.use.kind === 'calendar' || o.use.kind === 'meetings' || o.use.kind === 'achievements' || o.use.kind === 'link' || o.use.kind === 'clock' || o.use.kind === 'jukebox' || o.use.kind === 'dance' || o.use.kind === 'library' || o.use.kind === 'records' || o.use.kind === 'presentation' || goingOut(u) || u.instance || u.presence === 'offline' || (o.use.kind === 'arcade' && u.bot)) return;
     const item = o.use.kind === 'take' ? o.use.items.find(i => i.id === itemId) ?? o.use.items[0] : null;
     if (o.use.kind === 'toilet') return this.useToilet(u, o);
     this.setFollowing(u, null);
@@ -562,6 +569,92 @@ export class World {
         if (o.type === 'coffee_machine') this.addEffect(u, 'speed'); // a fresh cup: quick on your feet for a while
       }
     }, Math.max(0, at - Date.now()) + (o.use.kind === 'arcade' ? 0 : USE_MS[o.use.kind])));
+  }
+  // ---------- the reading room ----------
+  private walkingTo = -1; // seq of the read plan whose own walk is under way (not a reason to stop reading)
+  private libraryChanged() { this.broadcast({ t: 'library', ...this.library.state() }); }
+  private addArticle(u: User, url: unknown, title: unknown, topic: unknown) {
+    if (u.bot || u.presence === 'offline') return;
+    const a = this.library.add(u.id, url, title, topic, Date.now());
+    if (typeof a === 'string') return this.sendTo(u.id, { t: 'notice', text: a });
+    this.libraryChanged();
+    this.sendTo(u.id, { t: 'notice', text: `On the shelf: ${a.title} 📚` });
+  }
+  /** Seats next to a reading desk, in map order. */
+  private readingSeats(): Tile[] {
+    const seats: Tile[] = [];
+    for (const d of this.map.objects) if (d.type === 'reading_desk') for (const [dx, dy] of [[0, 1], [0, -1], [-1, 0], [1, 0]]) {
+      const t = { x: d.x + dx, y: d.y + dy };
+      if (seatAt(this.map, t.x, t.y) && !seats.some(s => s.x === t.x && s.y === t.y)) seats.push(t);
+    }
+    return seats;
+  }
+  /** Click an article: fetch a book from the shelf, sit at a free reading desk, and only then is it "reading". */
+  startReading(u: User, articleId: string) {
+    const article = this.library.get(articleId), shelf = this.map.objects.find(o => o.use?.kind === 'library');
+    if (!article || !shelf || u.bot || goingOut(u) || u.instance || u.presence === 'offline') return;
+    const here = this.position(u).next, occ = this.occupied();
+    const reserved = new Set([...this.readPlans].filter(([id]) => id !== u.id).map(([, p]) => `${p.seat.x},${p.seat.y}`));
+    const free = this.readingSeats().filter(t => !reserved.has(`${t.x},${t.y}`) && (!occ.has(`${t.x},${t.y}`) || (t.x === here.x && t.y === here.y)));
+    if (!free.length) return this.sendTo(u.id, { t: 'notice', text: 'All the reading seats are taken' });
+    let at: { spot: Spot; len: number } | null = null;
+    for (const s of besideObject(this.map, shelf)) {
+      const mine = s.x === here.x && s.y === here.y;
+      if (!mine && occ.has(`${s.x},${s.y}`)) continue;
+      const len = mine ? 0 : findPath(this.map, here, s).length;
+      if (!mine && !len) continue;
+      if (!at || len < at.len) at = { spot: s, len };
+    }
+    if (!at) return this.sendTo(u.id, { t: 'notice', text: 'The shelf is crowded — try again in a moment' });
+    const spot = at.spot;
+    const seat = free.map(t => ({ t, len: t.x === spot.x && t.y === spot.y ? 0 : findPath(this.map, spot, t).length })).filter(p => p.len || (p.t.x === spot.x && p.t.y === spot.y)).sort((a, b) => a.len - b.len)[0]?.t;
+    if (!seat) return this.sendTo(u.id, { t: 'notice', text: 'Nobody can reach the reading desks' });
+    this.stopReading(u);
+    this.setFollowing(u, null);
+    clearTimeout(this.errands.get(u.id));
+    const seq = (this.readPlans.get(u.id)?.seq ?? 0) + 1 + Math.floor(Math.random() * 1e6);
+    this.readPlans.set(u.id, { articleId, seat, seq });
+    const alive = () => this.readPlans.get(u.id)?.seq === seq;
+    const abort = () => { if (alive()) this.readPlans.delete(u.id); if (u.holding === BOOK_ITEM) this.setHolding(u, null); };
+    const wait = (to: number) => Math.max(0, to - Date.now());
+    const go = (to: Tile, dir: Dir | undefined) => { this.walkingTo = seq; try { return this.walk(u, to, dir); } finally { this.walkingTo = -1; } };
+    const walked = go(spot, spot.dir);
+    if (walked === null && (here.x !== spot.x || here.y !== spot.y)) return abort();
+    const arrive = (to: Tile) => { const d = this.position(u).dest; return d.x === to.x && d.y === to.y && u.presence !== 'offline' && !goingOut(u) && !u.instance; };
+    this.errands.set(u.id, setTimeout(() => {
+      this.errands.delete(u.id);
+      if (!alive() || !arrive(spot)) return abort();
+      this.setHolding(u, BOOK_ITEM, shelf.id);
+      this.errands.set(u.id, setTimeout(() => {
+        this.errands.delete(u.id);
+        if (!alive() || u.holding !== BOOK_ITEM) return abort();
+        const sat = go(seat, undefined);
+        if (sat === null && !arrive(seat)) return abort();
+        this.errands.set(u.id, setTimeout(() => {
+          this.errands.delete(u.id);
+          if (!alive() || !arrive(seat) || !this.library.get(articleId)) return abort();
+          this.readPlans.delete(u.id);
+          this.setHolding(u, null);
+          u.reading = articleId;
+          this.library.start(u.id, articleId, Date.now());
+          this.broadcast({ t: 'reading', userId: u.id, articleId });
+        }, wait(sat ?? Date.now()) + 300));
+      }, USE_MS.take));
+    }, wait(walked ?? Date.now()) + USE_MS.take));
+  }
+  /** Done, closed the overlay, walked away or left: the read is finished and you're no longer reading. */
+  stopReading(u: User) {
+    const plan = this.readPlans.get(u.id);
+    if (plan) { this.readPlans.delete(u.id); clearTimeout(this.errands.get(u.id)); this.errands.delete(u.id); if (u.holding === BOOK_ITEM) this.setHolding(u, null); }
+    if (!u.reading) return;
+    u.reading = null;
+    this.broadcast({ t: 'reading', userId: u.id, articleId: null });
+    const read = this.library.finish(u.id);
+    if (!read) return;
+    const now = Date.now(), author = this.users.get(this.library.get(read.articleId)?.by ?? '');
+    this.libraryChanged();
+    if (this.library.articlesRead(u.id) >= BOOKWORM_READS && !u.achievements.bookworm) { this.award(u, 'bookworm', now); this.plantChanged(u); }
+    if (author && author.id !== u.id && !author.achievements.editor && this.library.readers(read.articleId).size >= EDITOR_READERS) { this.award(author, 'editor', now); this.plantChanged(author); }
   }
   /** Walk over to a table and put down the coffee or tea you're holding. */
   putCup(u: User, tile: Tile) {
@@ -1040,6 +1133,7 @@ export class World {
     if (!m || u.bot || u.presence === 'offline' || goingOut(u) || !this.meetings.canEnter(u, m) || u.instance === m.instance) return;
     if (u.instance) this.leaveInstance(u, false);
     for (const k of this.knocks.values()) if ((k.fromId === u.id || k.toId === u.id) && (k.state === 'walking' || k.state === 'pending')) this.closeKnock(k, 'later', 'Knock cancelled', k.fromId === u.id);
+    this.stopReading(u);
     this.leaveCall(u); // a knock call or room voice: they're off to the meeting
     this.setWaiting(u, null);
     clearTimeout(this.errands.get(u.id));
@@ -1369,8 +1463,8 @@ export class World {
     this.setEmote(to, 'knock');
     this.broadcast({ t: 'knock', knockId: k.id, fromId: from.id, toId: to.id });
     const stall = this.toilets.inside(to.id);
-    if (room?.rules.knock === 'later' || (to.presence === 'in_call' && !to.callId) || to.meeting || stall) {
-      const why = stall ? 'on the toilet' : to.meeting ? 'in a meeting' : room?.rules.occupantLabel ?? 'in a call';
+    if (room?.rules.knock === 'later' || (to.presence === 'in_call' && !to.callId) || to.meeting || to.reading || stall) {
+      const why = stall ? 'on the toilet' : to.meeting ? 'in a meeting' : to.reading ? 'reading' : room?.rules.occupantLabel ?? 'in a call';
       k.timer = setTimeout(() => this.closeKnock(k, 'later', `${to.name} is ${why} — sent to Later`), 1400);
     } else {
       k.timer = setTimeout(() => this.closeKnock(k, 'later', `${to.name} didn't answer — sent to Later`), 30_000);
@@ -1562,6 +1656,10 @@ export class World {
         if (result.notice) this.sendTo(u.id, { t: 'notice', text: result.notice });
         break;
       }
+      case 'article_add': this.addArticle(u, msg.url, msg.title, msg.topic); break;
+      case 'article_remove': if (typeof msg.id === 'string' && this.library.remove(msg.id, u.id, this.isAdmin(u))) this.libraryChanged(); break;
+      case 'read_start': if (typeof msg.articleId === 'string') this.startReading(u, msg.articleId); break;
+      case 'read_done': this.stopReading(u); break;
       case 'use': this.use(u, String(msg.objectId), msg.item === undefined ? undefined : String(msg.item)); break;
       case 'drop': if (u.holding) this.setHolding(u, null); break;
       case 'pet': this.petCreature(u, String(msg.creatureId)); break;
@@ -1585,6 +1683,7 @@ export class World {
       layout: this.layoutEdited ? this.layout() : undefined,
       chats: Object.fromEntries(this.chats),
       cups: this.creatures.cups,
+      library: this.library.dump(),
     };
   }
   load(data: ReturnType<World['dump']>) {
@@ -1619,7 +1718,7 @@ export class World {
       const tile = this.inDungeon(d.tile) ? this.dungeonExit(false) : isWalkable(this.map, d.tile.x, d.tile.y) || seatAt(this.map, d.tile.x, d.tile.y) ? d.tile : { ...this.map.spawn };
       const legacy = lookFor(d.name);
       const look = { ...legacy, ...d.look, eyes: d.look?.eyes ?? legacy.eyes, shoes: d.look?.shoes ?? legacy.shoes, top: d.look?.top ?? 0, bottom: d.look?.bottom ?? 0, glasses: d.look?.glasses ?? 0, hat: d.look?.hat ?? 0, glassesColor: d.look?.glassesColor ?? legacy.glassesColor, hatColor: d.look?.hatColor ?? legacy.hatColor };
-      this.users.set(d.id, { ...d, look, lookSet: d.lookSet ?? false, homeDesk: d.homeDesk ?? null, plant: d.plant ?? null, bloomed: d.bloomed ?? [], achievements: d.achievements ?? {}, items: Array.isArray(d.items) ? d.items.filter((i: unknown): i is string => typeof i === 'string') : [], effects: (d.effects ?? []).filter(e => Object.prototype.hasOwnProperty.call(EFFECTS, e.kind) && e.until === undefined), tile, move: null, path: null, emote: null, door: null, callId: null, deafened: false, hand: false, muted: false, following: null, holding: null, meeting: null, instance: null, game: null, presence: d.bot ? d.presence : 'offline' });
+      this.users.set(d.id, { ...d, look, lookSet: d.lookSet ?? false, homeDesk: d.homeDesk ?? null, plant: d.plant ?? null, bloomed: d.bloomed ?? [], achievements: d.achievements ?? {}, items: Array.isArray(d.items) ? d.items.filter((i: unknown): i is string => typeof i === 'string') : [], effects: (d.effects ?? []).filter(e => Object.prototype.hasOwnProperty.call(EFFECTS, e.kind) && e.until === undefined), tile, move: null, path: null, emote: null, door: null, callId: null, deafened: false, hand: false, muted: false, following: null, holding: null, meeting: null, reading: null, instance: null, game: null, presence: d.bot ? d.presence : 'offline' });
     }
     for (const [id, on] of Object.entries(data.objects ?? {})) if (this.objectOn.has(id)) this.objectOn.set(id, !!on);
     this.arcade.load(data.arcade);
@@ -1627,5 +1726,6 @@ export class World {
     for (const [id, saved] of Object.entries(data.jukebox ?? {})) if (this.jukeboxes.has(id)) this.jukeboxes.set(id, Jukebox.load(TRACKS, saved, now));
     for (const [key, msgs] of Object.entries(data.chats ?? {})) this.chats.set(key, msgs);
     this.creatures.cups = (data.cups ?? []).filter(c => this.creatures.tableAt(c.tile));
+    this.library.load(data.library);
   }
 }
