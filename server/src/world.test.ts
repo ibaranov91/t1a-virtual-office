@@ -317,3 +317,269 @@ test('a pot on first login; a status a day grows it, blooms earn badges, a week 
   assert.notEqual(a.u.plant?.kind, kind); // replanted as something new
   assert.ok(a.messages.some(m => m.t === 'plant' && m.achievements.bloom));
 });
+
+function instrumentSetup(t: TestContext) {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date', 'setInterval'], now: 100000 });
+  const w = new World(structuredClone(map));
+  const objects = w.map.objects.filter(o => o.use?.kind === 'instrument');
+  const add = (name: string, tile: Tile = { x: 57, y: 7 }, bot = false) => {
+    const u = w.addUser(name, bot, tile); u.presence = 'online';
+    const messages: ServerMsg[] = [], conn = w.connect(u.id, m => messages.push(m));
+    return { u, messages, ...conn };
+  };
+  const state = () => (w.snapshot() as Extract<ServerMsg, { t: 'state' }>).instruments;
+  const play = (a: ReturnType<typeof add>, o = objects[0]) => w.handle(a.u, { t: 'instrument', objectId: o.id, action: 'play' }, a.socket);
+  const leave = (a: ReturnType<typeof add>, o = objects[0]) => w.handle(a.u, { t: 'instrument', objectId: o.id, action: 'leave' }, a.socket);
+  const note = (a: ReturnType<typeof add>, change: Partial<Extract<ClientMsg, { t: 'note' }>> = {}) => w.handle(a.u, { t: 'note', objectId: objects[0].id, note: 60, on: true, vel: 100, preset: 0, at: Date.now(), ...change }, a.socket);
+  const tick = (ms = 10000) => t.mock.timers.tick(ms);
+  return { w, objects, add, state, play, leave, note, tick };
+}
+const notes = (messages: ServerMsg[]) => messages.filter(m => m.t === 'note');
+test('instrument walks behind, claims on arrival, socket-only seat, snapshot, idempotence and taken notice', t => {
+  const { w, objects, add, state, play, tick } = instrumentSetup(t), a = add('Alice Smith'), b = add('Bob');
+  const other: ServerMsg[] = []; w.connect(a.u.id, m => other.push(m));
+  play(a); assert.equal(state()[objects[0].id], null); assert.equal(a.u.tile.y, 3); assert.equal(a.u.dir, 'down');
+  tick(); assert.equal(state()[objects[0].id], a.u.id);
+  assert.ok(a.messages.some(m => m.t === 'seat' && m.id === objects[0].id)); assert.equal(other.some(m => m.t === 'seat'), false);
+  assert.ok(b.messages.some(m => m.t === 'instrument' && m.player === a.u.id));
+  a.messages.length = 0; play(a); assert.equal(a.messages.length, 0);
+  play(b); assert.ok(b.messages.some(m => m.t === 'notice' && m.text === 'Alice is playing the keys'));
+});
+test('instrument claims immediately beside it; other tab cannot leave; leave, walk and close end at once', t => {
+  const { w, objects, add, state, play, leave } = instrumentSetup(t), a = add('A', { x: 55, y: 3 });
+  const second = w.connect(a.u.id, () => {});
+  play(a); assert.equal(state()[objects[0].id], a.u.id);
+  leave({ ...a, socket: second.socket }); assert.equal(state()[objects[0].id], a.u.id);
+  leave(a); assert.equal(state()[objects[0].id], null); assert.ok(a.messages.some(m => m.t === 'seat' && m.id === null));
+  play(a); w.walk(a.u, { x: 57, y: 3 }); assert.equal(state()[objects[0].id], null);
+  a.u.move = null; a.u.path = null; a.u.tile = { x: 55, y: 3 }; play(a); a.close(); assert.equal(state()[objects[0].id], null);
+});
+test('playing from another tab of the same person moves the seat there, without a notice', t => {
+  const { w, objects, add, state, play } = instrumentSetup(t), a = add('A', { x: 55, y: 3 });
+  const seconds: ServerMsg[] = [], second = w.connect(a.u.id, m => seconds.push(m));
+  play(a); assert.equal(state()[objects[0].id], a.u.id);
+  a.messages.length = 0; play({ ...a, socket: second.socket });
+  assert.equal(w['seats'].get(objects[0].id)?.socket, second.socket); assert.equal(state()[objects[0].id], a.u.id);
+  assert.ok(a.messages.some(m => m.t === 'seat' && m.id === null)); assert.ok(seconds.some(m => m.t === 'seat' && m.id === objects[0].id));
+  assert.equal([...a.messages, ...seconds].some(m => m.t === 'notice'), false);
+});
+test('pending claims cancel on move, use, follow, another play and socket close', t => {
+  const { w, objects, add, state, play, tick } = instrumentSetup(t), a = add('A');
+  for (const msg of [{ t: 'move', to: { x: 57, y: 8 } }, { t: 'use', objectId: 'missing' }, { t: 'follow', targetId: null }] as ClientMsg[]) {
+    a.u.tile = { x: 57, y: 7 }; a.u.move = null; a.u.path = null; play(a); w.handle(a.u, msg, a.socket); tick(); assert.equal(state()[objects[0].id], null);
+  }
+  play(a); play(a, objects[1]); tick(); assert.equal(state()[objects[0].id], null); assert.equal(state()[objects[1].id], a.u.id);
+  w.walk(a.u, { x: 57, y: 7 }); tick(); play(a); a.close(); tick(); assert.equal(state()[objects[0].id], null);
+});
+test('claim arrival guards reject a redirect still walking and an ineligible user', t => {
+  const { w, objects, add, state, play, tick } = instrumentSetup(t), a = add('A');
+  play(a); const arrival = a.u.move!.startedAt + pathDuration(a.u.path!);
+  tick(100); w.walk(a.u, { x: 62, y: 10 }); w.walk(a.u, { x: 55, y: 3 });
+  tick(arrival - Date.now()); assert.equal(state()[objects[0].id], null);
+  tick(); a.u.tile = { x: 57, y: 7 }; a.u.move = null; a.u.path = null; play(a); a.u.instance = 'meeting'; tick(); assert.equal(state()[objects[0].id], null);
+});
+test('switching seats ends previous; tick backstop rejects offline, thinking, instance and missing objects', t => {
+  const { w, objects, add, state, play, tick } = instrumentSetup(t), a = add('A', { x: 55, y: 3 });
+  play(a); play(a, objects[1]); assert.equal(state()[objects[0].id], null); tick(); assert.equal(state()[objects[1].id], a.u.id);
+  // Separate users keep this independent of the per-user transition limit.
+  for (const change of ['offline','thinking','instance','object'] as const) {
+    const b = add(change, { x: 61, y: 3 }); play(b, objects[2]); assert.equal(state()[objects[2].id], b.u.id);
+    if (change === 'offline') b.u.presence = 'offline';
+    if (change === 'thinking') b.u.door = 'thinking';
+    if (change === 'instance') b.u.instance = 'meeting';
+    if (change === 'object') w.map.objects = w.map.objects.filter(o => o.id !== objects[2].id);
+    tick(250); assert.equal(w['seats'].has(objects[2].id), false);
+  }
+});
+test('seat transitions limited across seats; bots, instances and malformed actions ignored', t => {
+  const { w, objects, add, state, play, leave, tick } = instrumentSetup(t), a = add('A', { x: 55, y: 3 });
+  for (let i = 0; i < 3; i++) { play(a); leave(a); }
+  play(a); assert.equal(state()[objects[0].id], a.u.id); // spec rejects more than six recent changes
+  leave(a); play(a); assert.equal(state()[objects[0].id], null);
+  tick(10001); play(a); assert.equal(state()[objects[0].id], a.u.id);
+  leave(a);
+  for (const b of [add('Bot', { x: 55, y: 3 }, true), add('Instance', { x: 55, y: 3 })]) { if (!b.u.bot) b.u.instance = 'meeting'; play(b); assert.equal(state()[objects[0].id], null); }
+  w.handle(a.u, { t: 'instrument', objectId: objects[0].id, action: 'bad' } as unknown as ClientMsg, a.socket); assert.equal(state()[objects[0].id], null);
+  w.use(a.u, objects[0].id); tick(); assert.equal(state()[objects[0].id], null);
+});
+test('notes validate socket, types, pitch, velocity, preset; relay to other tabs and humans outside instances', t => {
+  const { w, add, play, note } = instrumentSetup(t), a = add('A', { x: 55, y: 3 }), b = add('B'), c = add('C'), bot = add('Bot', undefined, true);
+  c.u.instance = 'meeting'; const other: ServerMsg[] = [], conn = w.connect(a.u.id, m => other.push(m)); play(a);
+  const bad = [{ note: 1.5 }, { note: 128 }, { vel: 0 }, { vel: 128 }, { preset: 3 }, { at: Infinity }, { on: 1 }, { note: '60' }, { vel: 1.5 }, { preset: .5 }, { objectId: 1 }];
+  for (const change of bad) note(a, change as never);
+  note({ ...a, socket: conn.socket }); note(b); assert.equal(notes(b.messages).length, 0);
+  note(a, { at: Date.now() - 10000 });
+  assert.equal(notes(a.messages).length, 0); assert.equal(notes(other).length, 1); assert.equal(notes(b.messages).length, 1); assert.equal(notes(c.messages).length, 0); assert.equal(notes(bot.messages).length, 0);
+  assert.equal(notes(b.messages)[0].at, Date.now() - 2000);
+  note(a, { on: false, vel: -50, preset: -10, at: Date.now() + 10000 }); assert.equal(notes(b.messages).at(-1)!.at, Date.now() + 500);
+  note(a, { on: false }); assert.equal(notes(b.messages).length, 2);
+  a.u.move = { from: { x: 55, y: 3 }, to: a.u.tile, startedAt: Date.now() }; a.u.path = [{ x: 56, y: 3 }, a.u.tile];
+  note(a); assert.equal(notes(b.messages).length, 2);
+});
+test('held notes bounded and deduplicated; offs bypass bucket; note bucket persists across seats and refills', t => {
+  const { add, play, leave, note, tick } = instrumentSetup(t), a = add('A', { x: 55, y: 3 }), b = add('B'); play(a);
+  note(a); note(a); assert.equal(notes(b.messages).length, 1);
+  for (let n = 0; n < 32; n++) note(a, { note: n });
+  assert.equal(notes(b.messages).length, 32);
+  note(a, { on: false });
+  for (let n = 0; n < 32; n++) note(a, { note: n, on: false });
+  b.messages.length = 0;
+  // Exactly 32 accepted ons have spent half the bucket.
+  for (let i = 0; i < 32; i++) { note(a); note(a, { on: false }); }
+  assert.equal(notes(b.messages).length, 64);
+  leave(a); play(a); note(a); assert.equal(notes(b.messages).length, 64);
+  tick(25); note(a); note(a, { on: false }); note(a); assert.equal(notes(b.messages).length, 66);
+});
+test('drums allow repeated hits, ignore offs and validate GM pads', t => {
+  const { objects, add, play, note } = instrumentSetup(t), a = add('A', { x: 58, y: 3 }), b = add('B'); play(a, objects[1]);
+  const hit = { objectId: objects[1].id, note: 36 };
+  note(a, hit); note(a, hit); note(a, { ...hit, on: false }); note(a, { ...hit, note: 60 }); assert.equal(notes(b.messages).length, 2);
+});
+
+test('instrument arrival rechecks object existence, kind and every eligibility condition', t => {
+  const { w, objects, add, state, play, tick } = instrumentSetup(t);
+  for (const condition of ['offline', 'thinking', 'leaving', 'instance', 'bot', 'removed', 'kind'] as const) {
+    const a = add(condition); play(a);
+    const o = w.map.objects.find(o => o.id === objects[0].id)!, original = o.use;
+    if (condition === 'offline') a.u.presence = 'offline';
+    if (condition === 'thinking' || condition === 'leaving') a.u.door = condition;
+    if (condition === 'instance') a.u.instance = 'meeting';
+    if (condition === 'bot') a.u.bot = true;
+    if (condition === 'removed') w.map.objects = w.map.objects.filter(p => p !== o);
+    if (condition === 'kind') o.use = { kind: 'calendar', label: 'calendar' };
+    tick(); assert.equal(w['seats'].has(o.id), false, condition); assert.equal(w['pendingSeat'].has(a.u.id), false);
+    if (condition === 'removed') w.map.objects.push(o);
+    o.use = original; a.u.presence = 'offline';
+  }
+  assert.equal(state()[objects[0].id], null);
+});
+test('another player winning during a walk gets the seat; arriving player gets a taken notice', t => {
+  const { objects, add, state, play, tick } = instrumentSetup(t), a = add('A'), b = add('Bob Jones', { x: 56, y: 3 });
+  play(a); play(b); tick(); assert.equal(state()[objects[0].id], b.u.id);
+  assert.ok(a.messages.some(m => m.t === 'notice' && m.text === 'Bob is playing the keys'));
+  assert.equal(a.messages.some(m => m.t === 'seat'), false);
+});
+test('layout moves cancel pending claims even if a player would still be beside the object', t => {
+  const { w, objects, add, state, play, tick } = instrumentSetup(t), a = add('A'), admin = add('Ivan');
+  admin.u.email = 'ivan.baranov@t1a.com'; play(a);
+  const pending = w['pendingSeat'].get(a.u.id)!; assert.ok(pending);
+  w.edit(admin.u, { op: 'move', id: objects[0].id, x: 56, y: 4 });
+  assert.equal(w.map.objects.find(o => o.id === objects[0].id)!.x, 56);
+  assert.equal(w['pendingSeat'].has(a.u.id), false); tick(); assert.equal(state()[objects[0].id], null);
+});
+test('layout removal cancels pending claims; unrelated edits preserve them; layout backstop ends invalid seats immediately', t => {
+  const { w, objects, add, state, play, tick } = instrumentSetup(t), a = add('A'), admin = add('Ivan');
+  admin.u.email = 'ivan.baranov@t1a.com'; play(a);
+  w.edit(admin.u, { op: 'add', type: 'plant', x: 8, y: 17 }); assert.ok(w['pendingSeat'].has(a.u.id));
+  const layout = structuredClone(w.layout()); layout.objects = layout.objects.filter(o => o.id !== objects[0].id);
+  assert.ok(w['setLayout'](layout, admin.u)); assert.equal(w['pendingSeat'].has(a.u.id), false); tick(); assert.equal(w['seats'].size, 0);
+  a.u.tile = { x: 58, y: 3 }; a.u.move = null; a.u.path = null; play(a, objects[1]); assert.equal(state()[objects[1].id], a.u.id);
+  w.edit(admin.u, { op: 'move', id: objects[1].id, x: 58, y: 8 }); assert.equal(state()[objects[1].id], null);
+  assert.ok(a.messages.some(m => m.t === 'seat' && m.id === null));
+});
+test('pending socket close cancels with another tab connected; closing another tab keeps a pending claim', t => {
+  const { w, objects, add, state, play, tick } = instrumentSetup(t), a = add('A');
+  const other = w.connect(a.u.id, () => {}); play(a); other.close(); tick(); assert.equal(state()[objects[0].id], a.u.id);
+  w.walk(a.u, { x: 57, y: 7 }); tick(); const remaining = w.connect(a.u.id, () => {}); play(a); a.close();
+  assert.equal(w['pendingSeat'].has(a.u.id), false); tick(); assert.equal(state()[objects[0].id], null); remaining.close();
+});
+test('away and back before the pending timer claims only once the redirected walk has completed', t => {
+  const { w, objects, add, state, play, tick } = instrumentSetup(t), a = add('A', { x: 57, y: 15 });
+  play(a); const arrival = a.u.move!.startedAt + pathDuration(a.u.path!);
+  tick(100); w.walk(a.u, { x: 57, y: 10 }); tick(100); w.walk(a.u, { x: 56, y: 3 });
+  assert.ok(a.u.move!.startedAt + pathDuration(a.u.path!) <= arrival);
+  tick(arrival - Date.now() + 50); assert.equal(state()[objects[0].id], a.u.id); // + ARRIVAL_SLACK_MS
+});
+test('play chooses the nearest reachable behind spot, falls back to other sides, and reports a full instrument', t => {
+  const { w, objects, add, state, play } = instrumentSetup(t), keys = objects[0];
+  const a = add('A', { x: 56, y: 7 }); play(a); assert.equal(a.u.tile.x, 56); assert.equal(a.u.tile.y, 3);
+  w.handle(a.u, { t: 'instrument', objectId: keys.id, action: 'leave' }, a.socket);
+  a.u.tile = { x: 57, y: 7 }; a.u.move = null; a.u.path = null;
+  add('behind1', { x: 55, y: 3 }); add('behind2', { x: 56, y: 3 });
+  play(a); assert.notEqual(a.u.tile.y, 3); assert.equal(state()[keys.id], null);
+  w.handle(a.u, { t: 'instrument', objectId: keys.id, action: 'leave' }, a.socket);
+  a.u.tile = { x: 57, y: 7 }; a.u.move = null; a.u.path = null;
+  for (const tile of [{ x: 55, y: 5 }, { x: 56, y: 5 }, { x: 54, y: 4 }, { x: 57, y: 4 }]) add('blocking', tile);
+  play(a); assert.equal(w['pendingSeat'].has(a.u.id), false);
+  assert.ok(a.messages.some(m => m.t === 'notice' && m.text === 'No room at the keys'));
+});
+test('instrument play stops following and cancels a use errand; plain use on an instrument has no effect', t => {
+  const { w, objects, add, state, play, tick } = instrumentSetup(t), a = add('A');
+  w.use(a.u, objects[0].id); assert.equal(a.u.move, null); assert.equal(w['errands'].size, 0); assert.equal(state()[objects[0].id], null);
+  const lamp = w.map.objects.find(o => o.use?.kind === 'toggle')!;
+  w.use(a.u, lamp.id); assert.ok(w['errands'].has(a.u.id));
+  a.u.following = add('Leader').u.id; play(a); assert.equal(a.u.following, null); assert.equal(w['errands'].has(a.u.id), false);
+  tick(); assert.equal(a.u.holding, null);
+});
+test('walks triggered by follow, use, AFK and admin displacement end a held seat immediately', t => {
+  const { w, objects, add, state, play } = instrumentSetup(t);
+  for (const action of ['follow', 'use', 'afk', 'admin'] as const) {
+    const a = add(action, { x: 55, y: 3 }); play(a); assert.equal(state()[objects[0].id], a.u.id);
+    if (action === 'follow') w.handle(a.u, { t: 'follow', targetId: add('Leader', { x: 57, y: 10 }).u.id }, a.socket);
+    if (action === 'use') w.use(a.u, w.map.objects.find(o => o.type === 'coffee_machine')!.id);
+    if (action === 'afk') w['leaveRoom'](a.u);
+    if (action === 'admin') { const admin = add('Ivan'); admin.u.email = 'ivan.baranov@t1a.com'; w.edit(admin.u, { op: 'add', type: 'plant', x: 55, y: 3 }); }
+    assert.equal(state()[objects[0].id], null, action);
+  }
+});
+test('tick ends a seat after teleporting away, leaving or changing object kind', t => {
+  const { w, objects, add, state, play, tick } = instrumentSetup(t);
+  for (const condition of ['away', 'leaving', 'kind'] as const) {
+    const a = add(condition, { x: 55, y: 3 }); play(a); assert.equal(state()[objects[0].id], a.u.id);
+    if (condition === 'away') a.u.tile = { x: 57, y: 10 };
+    if (condition === 'leaving') a.u.door = 'leaving';
+    const o = w.map.objects.find(o => o.id === objects[0].id)!, use = o.use;
+    if (condition === 'kind') o.use = { kind: 'calendar', label: 'calendar' };
+    tick(250); assert.equal(w['seats'].size, 0); o.use = use;
+  }
+});
+test('state lists every instrument and seats never persist across restart', t => {
+  const { w, objects, add, play } = instrumentSetup(t), a = add('A', { x: 55, y: 3 });
+  const before = w.snapshot() as Extract<ServerMsg, { t: 'state' }>;
+  assert.deepEqual(before.instruments, Object.fromEntries(objects.map(o => [o.id, null])));
+  play(a); const fresh = new World(structuredClone(map)); fresh.load(w.dump());
+  assert.deepEqual((fresh.snapshot() as Extract<ServerMsg, { t: 'state' }>).instruments, before.instruments);
+});
+test('saved layout migration adds missing kinds at generated ids and positions and preserves existing instruments', t => {
+  const { w, objects } = instrumentSetup(t);
+  const existing = { ...objects[0], id: 'my-keys', x: 57, y: 8 };
+  const saved = { ...w.dump(), layout: { ...structuredClone(w.layout()), objects: [...w.map.objects.filter(o => o.use?.kind !== 'instrument'), existing] } };
+  const fresh = new World(structuredClone(map)); fresh.load(saved);
+  const instruments = fresh.map.objects.filter(o => o.use?.kind === 'instrument');
+  assert.deepEqual(instruments, [existing, objects[1], objects[2]]);
+  assert.equal(fresh.dump().layout?.objects.find(o => o.id === 'my-keys')?.y, 8);
+});
+test('saved layout migration resolves id clashes and uses the first valid room position when generated tiles are blocked', t => {
+  const { w, objects } = instrumentSetup(t);
+  const layout = structuredClone(w.layout()); layout.objects = layout.objects.filter(o => o.use?.kind !== 'instrument');
+  layout.objects.push({ id: objects[0].id, type: 'plant', x: 55, y: 4, w: 1, h: 1 });
+  layout.objects.push({ id: 'e1', type: 'plant', x: 62, y: 20, w: 1, h: 1 });
+  const fresh = new World(structuredClone(map)); fresh.load({ ...w.dump(), layout });
+  const keys = fresh.map.objects.find(o => o.use?.kind === 'instrument' && o.use.instrument === 'keys')!;
+  assert.ok(/^e/.test(keys.id)); assert.notEqual(keys.id, 'e1'); assert.notEqual(keys.id, objects[0].id);
+  assert.deepEqual({ x: keys.x, y: keys.y }, { x: 55, y: 3 });
+  assert.ok(fresh.map.objects.some(o => o.id === objects[0].id && o.type === 'plant'));
+  assert.equal(new Set(fresh.map.objects.map(o => o.id)).size, fresh.map.objects.length);
+});
+test('migration leaves an instrument out with a warning when its room has no valid position', t => {
+  const { w } = instrumentSetup(t), layout = structuredClone(w.layout()), r = w.map.rooms.find(r => r.id === 'music')!.rect;
+  layout.objects = layout.objects.filter(o => o.use?.kind !== 'instrument');
+  for (let y = r.y; y < r.y + r.h; y++) for (let x = r.x; x < r.x + r.w; x++) {
+    if (!layout.objects.some(o => !o.wall && x >= o.x && x < o.x + o.w && y >= o.y && y < o.y + o.h))
+      layout.objects.push({ id: `occupied-${x}-${y}`, type: 'plant', x, y, w: 1, h: 1, walkable: true });
+  }
+  const warn = t.mock.method(console, 'warn', () => {}), fresh = new World(structuredClone(map));
+  fresh.load({ ...w.dump(), layout });
+  assert.equal(fresh.map.objects.some(o => o.use?.kind === 'instrument'), false);
+  assert.deepEqual(warn.mock.calls.map(c => c.arguments[0]), ['saved layout: no room for the keyboard', 'saved layout: no room for the drum_kit', 'saved layout: no room for the bass_amp']);
+  assert.ok(fresh.dump().layout); // the otherwise-valid saved layout survives
+});
+test('note bucket permits the burst then only the sustained rate, including after changing instruments', t => {
+  const { objects, add, play, leave, note, tick } = instrumentSetup(t), a = add('A', { x: 58, y: 3 }), b = add('B'); play(a, objects[1]);
+  for (let i = 0; i < 100; i++) note(a, { objectId: objects[1].id, note: 36 });
+  assert.equal(notes(b.messages).length, 64);
+  leave(a, objects[1]); a.u.tile = { x: 55, y: 3 }; play(a); note(a); assert.equal(notes(b.messages).length, 64);
+  tick(1000);
+  for (let i = 0; i < 41; i++) { note(a); note(a, { on: false }); }
+  assert.equal(notes(b.messages).length, 144); // 40 ons + 40 offs
+});

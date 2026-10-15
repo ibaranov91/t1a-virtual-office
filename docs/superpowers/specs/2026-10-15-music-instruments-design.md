@@ -182,7 +182,8 @@ mid-walk redirect) and `u.tile` is one of `besideObject(map, o)`. Used for claim
 meeting instance. Then:
 1. This socket already holds this seat → nothing (idempotent).
 2. More than `SEAT_CHANGES_PER_10S` seat changes (takes + leaves) by this user in the last 10 s → ignored.
-3. Someone else holds it → notice `"<first name> is playing the <label>"`.
+3. Someone else holds it → notice `"<first name> is playing the <label>"`. The same person from another tab → the
+   seat moves to this tab (the old tab gets `seat: null`), no notice.
 4. Cancel this user's pending walk-over, if any. If this user holds another seat (any socket), it ends first.
 5. `atInstrument` already → take the seat now.
 6. Else, as `use` does: stop following, cancel any `use` errand, walk to the nearest free reachable spot of

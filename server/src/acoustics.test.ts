@@ -112,3 +112,21 @@ test('jukebox fills Music, leaks through its door, is silent in Lobby; knock cal
     gain: 1, cutoff: 20000, pan: 0, send: 0, apparent: { x: 37.5, y: 9.5 },
   });
 });
+
+test('each instrument fills Music and is silent throughout Lobby and Studio; keys leak only near the Desks door', () => {
+  const instruments = map.objects.filter(o => o.use?.kind === 'instrument'); assert.equal(instruments.length, 3);
+  for (const o of instruments) {
+    const src = pose(o.x, o.y);
+    for (const id of ['music', 'lobby', 'studio']) {
+      const r = map.rooms.find(r => r.id === id)!.rect;
+      for (let y = r.y; y < r.y + r.h; y++) for (let x = r.x; x < r.x + r.w; x++) {
+        const gain = model(pose(x, y), src).gain;
+        if (id === 'music') assert.ok(gain >= .4 - 1e-9, `${o.type} at ${x},${y}: ${gain}`);
+        else assert.equal(gain, 0, `${o.type} in ${id} at ${x},${y}`);
+      }
+    }
+  }
+  const keys = instruments.find(o => o.type === 'keyboard')!, src = pose(keys.x, keys.y);
+  assert.ok(model(pose(53, 17), src).gain > 0);
+  assert.equal(model(pose(50, 17), src).gain, 0);
+});

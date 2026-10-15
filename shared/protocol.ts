@@ -1,5 +1,10 @@
 import type { Dir, Layout, Move, Tile } from './map';
 
+export const NOTE_RATE = 40;
+export const NOTE_BURST = 64;
+export const NOTE_HELD_MAX = 32;
+export const SEAT_CHANGES_PER_10S = 6;
+
 export const JUKEBOX_QUEUE_MAX = 20;
 export const JUKEBOX_PER_PERSON = 3;
 export interface JukeboxEntry { id: string; track: string; by: string }
@@ -141,10 +146,13 @@ export type LayoutEdit =
 
 // server -> client
 export type ServerMsg =
+  | { t: 'instrument'; id: string; player: string | null }
+  | { t: 'seat'; id: string | null }
+  | { t: 'note'; id: string; by: string; note: number; on: boolean; vel: number; preset: number; at: number }
   // the furniture and rugs: on connect, and to everyone after each admin edit. by: who made it; added: a new thing's id
   | { t: 'layout'; layout: Layout; by?: string; added?: string }
   | { t: 'hello'; you: string; serverTime: number; build?: string } // build: the client bundle the server serves (absent in dev)
-  | { t: 'state'; users: PublicUser[]; objects: Record<string, ObjectState>; jukebox: Record<string, JukeboxState>; serverTime: number }
+  | { t: 'state'; users: PublicUser[]; objects: Record<string, ObjectState>; jukebox: Record<string, JukeboxState>; instruments: Record<string, string | null>; serverTime: number }
   | { t: 'move'; userId: string; from: Tile; to: Tile; startedAt: number; path?: Tile[]; face?: Dir }
   | { t: 'status'; userId: string; status: string }
   | { t: 'presence'; userId: string; presence: Presence }
@@ -184,6 +192,8 @@ export type ServerMsg =
 
 // client -> server
 export type ClientMsg =
+  | { t: 'instrument'; objectId: string; action: 'play' | 'leave' }
+  | { t: 'note'; objectId: string; note: number; on: boolean; vel: number; preset: number; at: number }
   | ({ t: 'jukebox'; objectId: string } & JukeboxAction)
   | { t: 'move'; to: Tile }
   | { t: 'status'; status: string }
