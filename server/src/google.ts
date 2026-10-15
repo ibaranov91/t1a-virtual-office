@@ -122,8 +122,37 @@ export const listEvents = async (userId: string, link: GoogleLink, from: Date): 
   }));
 };
 interface GEvent {
-  id?: string; status?: string; eventType?: string; summary?: string; htmlLink?: string; hangoutLink?: string;
+  id?: string; iCalUID?: string; status?: string; eventType?: string; transparency?: string; summary?: string; htmlLink?: string;
+  hangoutLink?: string; location?: string; conferenceData?: { entryPoints?: { entryPointType?: string; uri?: string }[] };
   start?: { dateTime?: string; date?: string }; end?: { dateTime?: string; date?: string };
-  attendees?: { self?: boolean; responseStatus?: string }[];
+  attendees?: { email?: string; self?: boolean; resource?: boolean; responseStatus?: string }[];
 }
+/** A meeting with other people as one calendar sees it. key is the same in every attendee's calendar. */
+export interface CalMeeting { key: string; title: string; start: number; end: number; link?: string; emails: string[] }
+/** Your meetings with others that are on now or start within `aheadMs`. Skips all-day, free, declined and solo events. */
+export const listMeetings = async (userId: string, link: GoogleLink, aheadMs: number): Promise<CalMeeting[]> => {
+  const now = Date.now();
+  const q = new URLSearchParams({
+    timeMin: new Date(now).toISOString(), timeMax: new Date(now + aheadMs).toISOString(), singleEvents: 'true', orderBy: 'startTime', maxResults: '20',
+    fields: 'items(id,iCalUID,status,eventType,transparency,summary,start,end,hangoutLink,location,conferenceData(entryPoints(entryPointType,uri)),attendees(email,self,resource,responseStatus))',
+  });
+  const r = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events?${q}`, { headers: { authorization: `Bearer ${await token(userId, link)}` } });
+  const j = await r.json().catch(() => ({})) as { items?: GEvent[]; error?: { message?: string } };
+  if (!r.ok) throw Object.assign(new Error(`calendar: ${r.status} ${j.error?.message ?? ''}`), { status: r.status });
+  const out: CalMeeting[] = [];
+  for (const e of j.items ?? []) {
+    if (e.status === 'cancelled' || e.eventType !== 'default' && e.eventType !== undefined || e.transparency === 'transparent') continue;
+    if (!e.start?.dateTime || !e.end?.dateTime) continue; // all-day
+    const people = (e.attendees ?? []).filter(a => !a.resource);
+    if (people.length < 2 || people.some(a => a.self && a.responseStatus === 'declined')) continue;
+    const start = Date.parse(e.start.dateTime), end = Date.parse(e.end.dateTime);
+    const video = e.conferenceData?.entryPoints?.find(p => p.entryPointType === 'video')?.uri;
+    const inLocation = e.location?.match(/https:\/\/\S+/)?.[0];
+    out.push({
+      key: `${e.iCalUID ?? e.id}|${start}`, title: e.summary || '(no title)', start, end, link: e.hangoutLink ?? video ?? inLocation,
+      emails: people.filter(a => a.responseStatus !== 'declined' && a.email).map(a => a.email!.toLowerCase()),
+    });
+  }
+  return out;
+};
 export const forgetAccess = (userId: string) => access.delete(userId);

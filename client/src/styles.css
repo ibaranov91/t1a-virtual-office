@@ -195,3 +195,7 @@ button:focus-visible, summary:focus-visible, input[type="range"]:focus-visible {
 .knock-people { flex-basis: 100%; min-width: 0; }
 .knock-people summary { cursor: pointer; color: var(--text); }
 .unread-btn { background: #6a8ad0; color: #fff; }
+.meeting-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.meeting-list li { display: flex; align-items: center; gap: 10px; font-size: 13px; padding: 6px 8px; border-radius: 6px; background: var(--panel2); }
+.meeting-list li > span { flex: 1; }
+.meeting-chip b { color: var(--accent); }
