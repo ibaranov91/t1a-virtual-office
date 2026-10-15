@@ -7,7 +7,7 @@ import {
   EARSHOT_TILES, MAX_CALL_SIZE, MAX_CHAT_LEN, normalizeMeetLink, REACTIONS, ROOM_VOICE_MAX,
   type CallRole, type ChatMsg, type ClientMsg, type Door, type Knock, type Look, type Presence, type PublicUser, type Reaction, type ServerMsg,
 } from '../../shared/protocol';
-import { authUrl, createSpace, forgetAccess, googleEnabled, revoke, type GoogleLink } from './google';
+import { authUrl, CALENDAR_SCOPE, createSpace, forgetAccess, googleEnabled, listEvents, revoke, type GoogleLink } from './google';
 
 export interface User extends PublicUser {
   path: Tile[] | null; // path of the current move (server-side bookkeeping)
@@ -79,7 +79,7 @@ export class World {
   // ---------- transport ----------
   broadcast(msg: ServerMsg) { for (const l of this.listeners) l(msg); }
   /** Private settings for the user themselves. */
-  me(u: User): ServerMsg { return { t: 'me', meetLink: u.meetLink ?? '', email: u.email, google: googleEnabled ? u.google?.email ?? null : undefined }; }
+  me(u: User): ServerMsg { return { t: 'me', meetLink: u.meetLink ?? '', email: u.email, google: googleEnabled ? u.google?.email ?? null : undefined, calendar: !!u.google?.scopes.includes(CALENDAR_SCOPE) }; }
   sendTo(userId: string, msg: ServerMsg) { for (const s of this.sockets.get(userId)?.values() ?? []) s(msg); }
   snapshot(): ServerMsg {
     const objects = Object.fromEntries([...new Set([...this.objectOn.keys(), ...this.objectVolume.keys()])].map(id => [id, this.objectState(id)]));
@@ -267,7 +267,7 @@ export class World {
   /** Walk over to an object and use it: take something from it, or flip it on/off. */
   use(u: User, objectId: string, itemId?: string) {
     const o = this.map.objects.find(o => o.id === objectId);
-    if (!o?.use || goingOut(u)) return;
+    if (!o?.use || o.use.kind === 'calendar' || goingOut(u)) return;
     const item = o.use.kind === 'take' ? o.use.items.find(i => i.id === itemId) ?? o.use.items[0] : null;
     this.setFollowing(u, null);
     clearTimeout(this.errands.get(u.id));
@@ -417,7 +417,9 @@ export class World {
   }
   /** OAuth came back for this user (index.ts checked the account). */
   setGoogle(u: User, link: GoogleLink | undefined) {
-    if (u.google && u.google.refresh !== link?.refresh) void revoke(u.id, u.google);
+    // only on disconnect: revoking an old token from the same grant would also kill the new one (e.g. after adding Calendar)
+    if (u.google && !link) void revoke(u.id, u.google);
+    forgetAccess(u.id);
     u.google = link;
     this.sendTo(u.id, this.me(u));
   }
@@ -658,7 +660,24 @@ export class World {
         this.sendTo(u.id, this.me(u));
         break;
       }
-      case 'google_connect': if (googleEnabled) this.sendTo(u.id, { t: 'google_auth', url: authUrl(u.id, u.google?.email ?? u.email) }); break;
+      case 'google_connect': {
+        if (!googleEnabled) break;
+        const calendar = !!msg.calendar;
+        this.sendTo(u.id, { t: 'google_auth', calendar, url: authUrl(u.id, u.google?.email ?? u.email, calendar ? [CALENDAR_SCOPE] : []) });
+        break;
+      }
+      case 'calendar': {
+        const g = u.google;
+        if (!g?.scopes.includes(CALENDAR_SCOPE)) { this.sendTo(u.id, { t: 'calendar', error: 'no_access' }); break; }
+        const asked = new Date(String(msg.from)), now = Date.now();
+        const from = Math.abs(asked.getTime() - now) < 2 * 86_400_000 ? asked : new Date(now); // the start of their local day
+        listEvents(u.id, g, from).then(events => this.sendTo(u.id, { t: 'calendar', events })).catch(e => {
+          console.warn(`google: calendar for ${u.name}:`, e.message);
+          if (e.code === 'invalid_grant' && u.google === g) { u.google = undefined; forgetAccess(u.id); this.sendTo(u.id, this.me(u)); }
+          this.sendTo(u.id, { t: 'calendar', error: e.status === 403 ? 'no_access' : 'failed' });
+        });
+        break;
+      }
       case 'google_disconnect': this.setGoogle(u, undefined); break;
       case 'presence': {
         if (!['online', 'away', 'in_call'].includes(msg.presence)) break;

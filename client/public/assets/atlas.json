@@ -508,110 +508,116 @@
    "w": 16,
    "h": 16
   },
-  "exit_door": {
+  "calendar": {
    "x": 170,
    "y": 150,
    "w": 16,
    "h": 16
   },
-  "doormat": {
+  "exit_door": {
    "x": 187,
    "y": 150,
    "w": 16,
    "h": 16
   },
-  "bubble_zzz": {
+  "doormat": {
    "x": 204,
+   "y": 150,
+   "w": 16,
+   "h": 16
+  },
+  "bubble_zzz": {
+   "x": 221,
    "y": 150,
    "w": 14,
    "h": 14
   },
   "bubble_headset": {
-   "x": 219,
+   "x": 236,
    "y": 150,
    "w": 14,
    "h": 14
   },
   "bubble_hand": {
-   "x": 234,
-   "y": 150,
-   "w": 14,
-   "h": 14
-  },
-  "bubble_deaf": {
    "x": 0,
    "y": 167,
    "w": 14,
    "h": 14
   },
-  "bubble_bang": {
+  "bubble_deaf": {
    "x": 15,
    "y": 167,
    "w": 14,
    "h": 14
   },
-  "bubble_dots": {
+  "bubble_bang": {
    "x": 30,
    "y": 167,
    "w": 14,
    "h": 14
   },
-  "bubble_think": {
+  "bubble_dots": {
    "x": 45,
    "y": 167,
    "w": 14,
    "h": 14
   },
-  "bubble_meeting": {
+  "bubble_think": {
    "x": 60,
    "y": 167,
    "w": 14,
    "h": 14
   },
-  "bubble_muted": {
+  "bubble_meeting": {
    "x": 75,
    "y": 167,
    "w": 14,
    "h": 14
   },
-  "bubble_talk_0": {
+  "bubble_muted": {
    "x": 90,
    "y": 167,
    "w": 14,
    "h": 14
   },
-  "bubble_talk_1": {
+  "bubble_talk_0": {
    "x": 105,
    "y": 167,
    "w": 14,
    "h": 14
   },
-  "bubble_talk_2": {
+  "bubble_talk_1": {
    "x": 120,
    "y": 167,
    "w": 14,
    "h": 14
   },
-  "bag": {
+  "bubble_talk_2": {
    "x": 135,
+   "y": 167,
+   "w": 14,
+   "h": 14
+  },
+  "bag": {
+   "x": 150,
    "y": 167,
    "w": 10,
    "h": 10
   },
   "note_1": {
-   "x": 146,
+   "x": 161,
    "y": 167,
    "w": 8,
    "h": 9
   },
   "note_2": {
-   "x": 155,
+   "x": 170,
    "y": 167,
    "w": 8,
    "h": 9
   },
   "marker": {
-   "x": 164,
+   "x": 179,
    "y": 167,
    "w": 10,
    "h": 8

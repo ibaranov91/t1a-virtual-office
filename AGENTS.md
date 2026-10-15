@@ -56,6 +56,9 @@ npm run typecheck    # run before every commit or deploy
   `GOOGLE_TOKEN_KEY` in `state.json`. Config lives only in `/etc/the-deck.env` (`GOOGLE_CLIENT_ID`,
   `GOOGLE_CLIENT_SECRET`, `GOOGLE_TOKEN_KEY`, `GOOGLE_HD`; redirect `<DECK_PUBLIC_URL>/api/google/callback`). Copies are
   in 1Password, never in git. Without these vars (dev, test instances) the button is hidden and calls work as before.
+- **Wall calendars** (Coffee, Co-working; `use.kind: 'calendar'` in `gen-map.mjs`): clicking one opens your own week
+  from Google Calendar (`calendar` message, only to you). Calendar access (`calendar.events.readonly`) is asked for
+  incrementally the first time, on the same sign-in. Never revoke a token when replacing it: that kills the whole grant.
 - **Room behavior is data.** Knock rules, meeting links and home-desk rooms live in `tilemap.json`
   (from `gen-map.mjs`), not in code.
 

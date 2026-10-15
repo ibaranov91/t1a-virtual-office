@@ -129,7 +129,11 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
   useEffect(() => {
     if (!assets || !canvasRef.current) return;
     const e = new Engine(canvasRef.current, store, assets);
-    e.onPick = p => setPick(cur => (p && cur?.kind === p.kind && cur.id === p.id ? null : p)); // same target again: close
+    e.onPick = p => {
+      // a wall calendar opens your calendar right away (nothing to walk over for)
+      if (p?.kind === 'object' && MAP.objects.find(o => o.id === p.id)?.use?.kind === 'calendar') { setPick(null); return store.openCalendar(); }
+      setPick(cur => (p && cur?.kind === p.kind && cur.id === p.id ? null : p)); // same target again: close
+    };
     engineRef.current = e;
     if (import.meta.env.DEV) Object.assign(window, { __deck: { store, engine: e } });
     return () => e.destroy();
@@ -150,6 +154,7 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
         {!assets && <div className="loading">Unlocking the door…</div>}
         {!store.connected && assets && <div className="loading small">Reconnecting…</div>}
         {showRooms && <RoomList store={store} onPick={(id) => engineRef.current?.focusUser(id)} onClose={() => setShowRooms(false)} />}
+        {store.calendarOpen && <CalendarPanel store={store} />}
         {(showMeet || store.pendingKnock) && <MeetSetup key={store.pendingKnock ?? 'panel'} store={store} onClose={() => setShowMeet(false)} />}
         <div className="chips">
           <VoiceChips store={store} voice={voice} />
@@ -286,6 +291,75 @@ function MeetSetup({ store, onClose }: { store: Store; onClose: () => void }) {
           <button disabled={!parsed || parsed === store.meetLink}>{knockTo ? `Save & knock` : 'Save'}</button>
         </div>
       </form>
+    </div>
+  );
+}
+
+/** Opens a Google page (Calendar, an event) as my account, like meetAs does for Meet. */
+const asAccount = (link: string, email: string | null) => {
+  if (!email) return link;
+  try { const u = new URL(link); if (/(^|\.)google\.com$/.test(u.hostname)) u.searchParams.set('authuser', email); return u.toString(); }
+  catch { return link; }
+};
+const dayKey = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+/** All-day events come as YYYY-MM-DD: that's a local date, not UTC midnight. */
+const parseWhen = (s: string, allDay: boolean) => (allDay ? new Date(`${s}T00:00:00`) : new Date(s));
+const hm = (d: Date) => d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+/** Your week from Google Calendar, opened from a wall calendar. Only you see it. */
+function CalendarPanel({ store }: { store: Store }) {
+  const account = store.meetAccount;
+  const calendarHome = asAccount('https://calendar.google.com/calendar/r', account);
+  const today = new Date(), todayKey = dayKey(today);
+  const tomorrow = new Date(today); tomorrow.setDate(today.getDate() + 1);
+  const dayLabel = (key: string, d: Date) => key === todayKey ? 'Today' : key === dayKey(tomorrow) ? 'Tomorrow'
+    : d.toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'short' });
+  let body: React.ReactNode;
+  if (store.google === undefined) body = <p className="muted small">Google isn't set up on this instance.</p>;
+  else if (!store.calendarAccess) body = <>
+    <p>See your Google Calendar here. The Deck only reads your events; it can't change them, and nobody else sees them.</p>
+    <div className="row">{store.calendarAuthUrl
+      ? <ExternalLink href={store.calendarAuthUrl} onOpen={() => store.prepareCalendarAuth()}>Connect Google Calendar</ExternalLink>
+      : <span className="muted small">…</span>}</div>
+  </>;
+  else if (store.calendarError) body = <div className="row"><span className="err">Couldn't load your calendar.</span><button className="ghost" onClick={() => store.loadCalendar()}>Retry</button></div>;
+  else if (!store.calendarEvents) body = <p className="muted small">Loading…</p>;
+  else if (!store.calendarEvents.length) body = <p className="muted small">Nothing on your calendar this week.</p>;
+  else {
+    const days = new Map<string, { date: Date; events: typeof store.calendarEvents }>();
+    for (const e of store.calendarEvents) {
+      const start = parseWhen(e.start, e.allDay);
+      const key = start < today && !e.allDay ? todayKey : dayKey(start); // started earlier and still going: today
+      if (!days.has(key)) days.set(key, { date: start, events: [] });
+      days.get(key)!.events.push(e);
+    }
+    const now = Date.now();
+    body = <div className="cal-days">{[...days].map(([key, { date, events }]) => (
+      <section key={key}>
+        <h4>{dayLabel(key, date)}</h4>
+        <ul>{events.map(e => {
+          const s = parseWhen(e.start, e.allDay), en = parseWhen(e.end, e.allDay);
+          const live = !e.allDay && s.getTime() <= now && now < en.getTime();
+          return <li key={e.id} className={`${live ? 'live' : ''}${e.declined ? ' declined' : ''}${!e.allDay && en.getTime() <= now ? ' past' : ''}`}>
+            <span className="when">{e.allDay ? 'All day' : `${hm(s)}–${hm(en)}`}</span>
+            <ExternalLink href={asAccount(e.link, account)}>{e.title}</ExternalLink>
+            {live && <span className="now">now</span>}
+            {e.meet && <ExternalLink href={meetAs(e.meet, account)}>Join</ExternalLink>}
+          </li>;
+        })}</ul>
+      </section>
+    ))}</div>;
+  }
+  return (
+    <div className="modal-backdrop" onClick={e => { if (e.target === e.currentTarget) store.closeCalendar(); }}>
+      <div className="meet-panel guided calendar-panel">
+        <div className="rooms-head">
+          <span>📅 {account ? `Calendar · ${account}` : 'Your calendar'}</span>
+          <button type="button" className="ghost" onClick={() => store.closeCalendar()}>×</button>
+        </div>
+        {body}
+        <div className="row"><ExternalLink href={calendarHome}>Open Google Calendar</ExternalLink></div>
+      </div>
     </div>
   );
 }
@@ -552,7 +626,7 @@ function ActionWheel({ store, engine, pick, onClose }: { store: Store; engine: E
     }
   } else {
     const o = MAP.objects.find(o => o.id === pick.id);
-    if (!o?.use) return null;
+    if (!o?.use || o.use.kind === 'calendar') return null;
     if (o.use.kind === 'toggle') {
       const on = store.objects[o.id]?.on ?? o.on ?? true;
       title = o.use.label[0].toUpperCase() + o.use.label.slice(1);
