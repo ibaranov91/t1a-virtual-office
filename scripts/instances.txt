@@ -1,0 +1,7 @@
+# Instances on the vOffice box (Hetzner2-vOffice, 10.200.142.211). One line each:
+#   name   port   login   owner (GitHub)   public URL (NetBird reverse proxy -> http://10.200.142.211:<port>)
+# login: sso = NetBird sign-in (proxy entry uses NetBird SSO, passes X-NetBird-User)
+#        pin = pick any name, no password (proxy entry is public, protected by a NetBird PIN)
+# Add a line + a NetBird proxy entry, then: scripts/deploy.sh <name>
+prod   8080   sso   ibaranov91   https://voffice.t1a.io
+andr   8081   pin   booandrew    https://voffice-andr.pub.t1a.cloud

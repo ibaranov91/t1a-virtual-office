@@ -25,7 +25,10 @@ const ICE_SERVERS = (() => {
   try { return process.env.DECK_ICE_SERVERS ? JSON.parse(process.env.DECK_ICE_SERVERS) : [{ urls: 'stun:stun.l.google.com:19302' }]; }
   catch { console.warn('bad DECK_ICE_SERVERS, using STUN only'); return [{ urls: 'stun:stun.l.google.com:19302' }]; }
 })();
-const TOKEN_LOGIN = process.env.TOKEN_LOGIN ? process.env.TOKEN_LOGIN === 'true' : !NETBIRD;
+// OPEN_LOGIN: pick any name, no token. Only for instances already gated in front (e.g. a NetBird PIN on a
+// public reverse proxy, where NetBird sign-in can't pass identity). Anyone past the gate can be any name.
+const OPEN_LOGIN = process.env.OPEN_LOGIN === 'true';
+const TOKEN_LOGIN = OPEN_LOGIN || (process.env.TOKEN_LOGIN ? process.env.TOKEN_LOGIN === 'true' : !NETBIRD);
 const DATA = new URL('../../data/', import.meta.url);
 const STATE_FILE = new URL('state.json', DATA);
 
@@ -118,7 +121,7 @@ const json = (res: import('node:http').ServerResponse, code: number, body: unkno
 };
 const server = createServer(async (req, res) => {
   if (req.method === 'GET' && req.url === '/api/health') return json(res, 200, { ok: true, users: world.users.size });
-  if (req.method === 'GET' && req.url === '/api/config') return json(res, 200, { netbird: NETBIRD, tokenLogin: TOKEN_LOGIN, iceServers: ICE_SERVERS });
+  if (req.method === 'GET' && req.url === '/api/config') return json(res, 200, { netbird: NETBIRD, tokenLogin: TOKEN_LOGIN, tokenRequired: !OPEN_LOGIN, iceServers: ICE_SERVERS });
   // Two-step NetBird login: GET only says who you are (so logout doesn't bounce you back in), POST signs in.
   if (req.url === '/api/auth/netbird' && (req.method === 'GET' || req.method === 'POST')) {
     const email = await netbirdEmail(req);
@@ -139,7 +142,7 @@ const server = createServer(async (req, res) => {
     req.on('end', () => {
       try {
         const { name, token } = JSON.parse(body || '{}');
-        if (token !== TOKEN) return json(res, 401, { error: 'bad token' });
+        if (!OPEN_LOGIN && token !== TOKEN) return json(res, 401, { error: 'bad token' });
         const clean = String(name ?? '').trim().slice(0, 24);
         if (!clean) return json(res, 400, { error: 'name required' });
         const existing = world.findByName(clean);
@@ -169,4 +172,4 @@ wss.on('connection', (ws, req) => {
 });
 
 server.listen(PORT, process.env.DECK_HOST ?? '0.0.0.0', () => console.log(
-  `The Deck server on :${PORT} · netbird=${NETBIRD} trusted=${TRUSTED_CIDRS.join(',')}${TRUSTED_PEER ? ` peer~${TRUSTED_PEER.source}` : ''} · token login=${TOKEN_LOGIN}${TOKEN_LOGIN ? ` (${TOKEN === 'deck' ? 'deck' : '***'})` : ''}`));
+  `The Deck server on :${PORT} · netbird=${NETBIRD} trusted=${TRUSTED_CIDRS.join(',')}${TRUSTED_PEER ? ` peer~${TRUSTED_PEER.source}` : ''} · ${OPEN_LOGIN ? 'open login (name only)' : `token login=${TOKEN_LOGIN}${TOKEN_LOGIN ? ` (${TOKEN === 'deck' ? 'deck' : '***'})` : ''}`}`));

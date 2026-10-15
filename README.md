@@ -33,6 +33,29 @@ Open http://localhost:5173, enter any name, token `deck` (override with `DECK_TO
 5. Mac wrapper (Tauri): not started. Needs a Rust toolchain.
 
 ## Deploy
-`scripts/deploy.sh` builds the client, rsyncs to `Hetzner2-vOffice:/opt/the-deck`, runs `npm ci`, and restarts the `the-deck` systemd service. The server listens on `10.200.142.211:8080` behind the reverse proxy at https://voffice.t1a.io and serves `client/dist` itself.
-Config is in `/etc/the-deck.env` (`DECK_TOKEN`, `DECK_PORT`, `DECK_HOST`, `BOTS`). The team token is generated on the first deploy; read it with `ssh Hetzner2-vOffice sudo cat /etc/the-deck.env`.
-Logs: `ssh Hetzner2-vOffice journalctl -u the-deck -f`.
+Several copies ("instances") run side by side on the vOffice box, each fully separate: own port,
+folder, data, settings and systemd service. They're listed in `scripts/instances.txt`:
+
+| instance | port | owner | URL |
+|---|---|---|---|
+| `prod` (login: sso) | 8080 | ibaranov91 | https://voffice.t1a.io |
+| `andr` (login: pin) | 8081 | booandrew | https://voffice-andr.pub.t1a.cloud |
+
+```bash
+scripts/deploy.sh andr      # your instance; no argument deploys prod
+```
+
+It builds the client locally, rsyncs your working copy to the box, runs `npm ci` and restarts
+`deck-<name>` (prod: `the-deck`). Two deploys of the same instance wait for each other, and a port
+already used by another instance is refused.
+
+- **Access:** you need SSH to the box as `Hetzner2-vOffice` in `~/.ssh/config` (or set `DECK_SSH_HOST`).
+- **New instance:** add a line to `scripts/instances.txt` with a free port, add a NetBird reverse-proxy
+  entry to `http://10.200.142.211:<port>`, then deploy.
+- **Settings:** `/etc/deck-<name>.env` (prod: `/etc/the-deck.env`), created on the first deploy:
+  `DECK_PORT`, `DECK_HOST`, `BOTS`, `BOT_COUNT`, `NETBIRD_AUTH`, `NETBIRD_TRUSTED_CIDR`, `NETBIRD_TRUSTED_PEER`,
+  `DECK_TOKEN`, `OPEN_LOGIN`.
+- **Login:** set per instance in `scripts/instances.txt` and re-applied on every deploy.
+  `sso`: NetBird sign-in ("Continue as …"); the proxy entry must use NetBird SSO so it passes `X-NetBird-User`.
+  `pin`: for public proxy entries protected by a NetBird PIN. Pick any name, no password; the PIN is the only gate.
+- **Logs:** `ssh Hetzner2-vOffice journalctl -u deck-<name> -f`.

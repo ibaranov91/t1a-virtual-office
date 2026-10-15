@@ -35,7 +35,7 @@ export default function App() {
   return <Office key={session} session={session} onLogout={logout} onExpired={expired} />;
 }
 
-type Config = { netbird: boolean; tokenLogin: boolean };
+type Config = { netbird: boolean; tokenLogin: boolean; tokenRequired?: boolean };
 
 function Login({ onLogin }: { onLogin: (s: string) => void }) {
   const [config, setConfig] = useState<Config | null>(null);
@@ -84,7 +84,7 @@ function Login({ onLogin }: { onLogin: (s: string) => void }) {
           <form onSubmit={e => { e.preventDefault(); post('/api/login', { name, token }); }} className="token-form">
             {config.netbird && <p className="or">or with the team token</p>}
             <label>Your name<input autoFocus={!nb} value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Ivan" /></label>
-            <label>Team token<input value={token} onChange={e => setToken(e.target.value)} type="password" /></label>
+            {config.tokenRequired !== false && <label>Team token<input value={token} onChange={e => setToken(e.target.value)} type="password" /></label>}
             <button disabled={!name.trim() || busy}>Walk in</button>
           </form>
         )}
