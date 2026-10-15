@@ -41,6 +41,7 @@ export class Engine {
   private hoverUser: string | null = null;
   private hoverObject: MapObject | null = null;
   private interactive: MapObject[];
+  private boards: MapObject[]; // meetings boards: a badge when meetings are on
   /** The wheel's target, ringed on the floor. */
   selected: Pick | null = null;
   onPick?: (p: Pick | null) => void;
@@ -63,6 +64,7 @@ export class Engine {
     this.lights = MAP.objects.filter(o => o.light);
     this.steamers = MAP.objects.filter(o => o.steam);
     this.interactive = MAP.objects.filter(o => o.use || o.sit || o.sound);
+    this.boards = MAP.objects.filter(o => o.use?.kind === 'meetings');
     this.ro = new ResizeObserver(() => this.resize());
     this.ro.observe(canvas.parentElement!);
     this.resize();
@@ -321,6 +323,8 @@ export class Engine {
     }
     ctx.globalAlpha = 1;
 
+    if (!me?.instance) this.drawBoardBadges(ctx, ms);
+
     // a meeting's own room: the rest of the office fades away
     if (me?.instance) {
       ctx.fillStyle = 'rgba(20,13,16,0.9)';
@@ -336,13 +340,20 @@ export class Engine {
     this.drawReactions(poses, ms);
 
     this.drawAmbient(ctx, camX, camY);
+    // one of my meetings is on: say so over the board, readable at any zoom
+    const goable = me && !me.instance && this.hoverObject?.use?.kind !== 'meetings'
+      ? this.store.agenda.find(a => a.start - 10 * 60_000 <= this.store.now() && a.end > this.store.now()) : undefined;
+    if (goable) for (const o of this.boards) {
+      const title = goable.title.length > 22 ? `${goable.title.slice(0, 21)}…` : goable.title;
+      this.drawLabel(`📅 ${title} · click to go`, (o.x + 0.5) * TS, o.y * TS - 6 - Math.round((Math.sin(ms / 220) + 1)), camX, camY);
+    }
 
     // hover tooltip in screen space
     if (this.hoverUser) this.drawTooltip(this.hoverUser, poses, camX, camY);
     else if (this.hoverObject && !this.selected) {
       const o = this.hoverObject, fr = this.f(o.type)!;
       const what = o.sound ? 'Radio · music volume in ⚙' : o.use?.kind === 'toggle' ? `${o.use.label[0].toUpperCase()}${o.use.label.slice(1)} · ${this.isOn(o) ? 'on' : 'off'}`
-        : o.use?.kind === 'calendar' ? 'Calendar · your week' : o.use?.kind === 'meetings' ? 'Meetings · who\'s in which' : o.sit ? 'Sofa · click to sit' : o.type === 'coffee_machine' ? 'Coffee machine' : o.type === 'fridge' ? 'Fridge' : o.type;
+        : o.use?.kind === 'calendar' ? 'Calendar · your week' : o.use?.kind === 'meetings' ? `Meetings · ${this.store.meetingRooms.length || 'none'} on now` : o.sit ? 'Sofa · click to sit' : o.type === 'coffee_machine' ? 'Coffee machine' : o.type === 'fridge' ? 'Fridge' : o.type;
       this.drawLabel(what, (o.x + o.w / 2) * TS, (o.y + o.h) * TS - fr.h + 4, camX, camY);
     }
     else if (this.hoverTile) {
@@ -560,6 +571,27 @@ export class Engine {
       ctx.fillStyle = g; ctx.fillRect(lx - 40, ly - 40, 80, 80);
     }
     ctx.restore();
+  }
+
+  /** The meetings board says when something's on: a count badge, bouncing and glowing when one is yours to Go to. */
+  private drawBoardBadges(ctx: CanvasRenderingContext2D, ms: number) {
+    const count = this.store.meetingRooms.length, now = this.store.now();
+    const mine = this.store.agenda.some(a => a.start - 10 * 60_000 <= now && a.end > now);
+    if (!count && !mine) return;
+    const text = count ? String(count) : '!', color = mine ? '#f2b45a' : '#7cc87c';
+    const pulse = mine ? (Math.sin(ms / 220) + 1) / 2 : 0;
+    for (const o of this.boards) {
+      const bx = o.x * TS, by = o.y * TS;
+      if (mine) { // a soft glow around the board
+        ctx.strokeStyle = `rgba(242,180,90,${0.35 + 0.45 * pulse})`; ctx.lineWidth = 1;
+        ctx.strokeRect(bx + 0.5, by + 1.5, TS - 1, TS - 3);
+      }
+      const w = textWidth(text) + 4, h = 7;
+      const x = Math.round(bx + TS - w / 2 - 1), y = Math.round(by - 4 - (mine ? Math.round(pulse * 2) : 0));
+      ctx.fillStyle = '#3a2329'; ctx.fillRect(x - 1, y - 1, w + 2, h + 2);
+      ctx.fillStyle = color; ctx.fillRect(x, y, w, h);
+      drawText(ctx, text, x + 2, y + 1, '#2a1f24');
+    }
   }
 
   private drawLabel(text: string, wx: number, wy: number, camX: number, camY: number) {
