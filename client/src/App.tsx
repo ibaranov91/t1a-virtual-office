@@ -12,7 +12,7 @@ import { inNativeApp, syncNative } from './native';
 import { LiveChip, PresentPanel, SlideOverlay } from './Presentation';
 import { ACHIEVEMENTS, underground, dayNumber, JUKEBOX_PER_PERSON, JUKEBOX_QUEUE_MAX, MAX_CHAT_LEN, MEET_LINK_RE, meetAs, normalizeMeetLink, kindName, PLANT_DIES_DAYS, PLANT_KINDS, PLANT_REVEAL, PLANT_STAGES, plantDead, plantName, REACTIONS, TOILET_CAPACITY, TOILET_SHELF_ITEM, TOILET_SHELF_MAX, TOILET_USE_MS, toiletFull, type JukeboxState, type Plant } from '../../shared/protocol';
 import { GENRES, jukeboxPosition, TRACK, TRACKS } from '../../shared/music';
-import { EFFECTS, HAT_NAMES, HAT_STYLES, effectOf } from '../../shared/effects';
+import { ALL_HATS, EFFECTS, HAT_NAMES, effectOf, hatItem, hatOf } from '../../shared/effects';
 import { FIXED_TYPES, KEEP_TYPES, objectName, RUG_COLORS, RUG_MAX, RUG_MIN, seatAt } from '../../shared/map';
 
 // Dev server: sign in automatically as ?as=<name> (default "Dev"); each name keeps its own session,
@@ -123,6 +123,7 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
   const [engine, setEngine] = useState<Engine | null>(null);
   const [editing, setEditing] = useState(false);
   const [gmOpen, setGmOpen] = useState(false);
+  const [pocketsOpen, setPocketsOpen] = useState(false);
 
   useEffect(() => { store.connect(); return () => store.close(); }, [store]);
   useEffect(() => { const s = new Soundscape(store); return () => s.destroy(); }, [store]);
@@ -178,7 +179,8 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
       <div className="office-chrome" ref={chromeRef}>
       <TopBar store={store} roomName={myRoom?.name} onToggleRooms={() => setShowRooms(s => !s)} onLogout={onLogout}
         onToggleMeet={() => setShowMeet(s => !s)} onToggleAppearance={() => setShowAppearance(s => me?.lookSet ? !s : true)} engine={engine}
-        editing={editing} onToggleEdit={() => setEditing(e => !e)} gmOpen={gmOpen} onToggleGm={() => setGmOpen(o => !o)} />
+        editing={editing} onToggleEdit={() => setEditing(e => !e)} gmOpen={gmOpen} onToggleGm={() => setGmOpen(o => !o)}
+        pocketsOpen={pocketsOpen} onTogglePockets={() => setPocketsOpen(o => !o)} />
       <div className="stage">
         <div className="canvas-wrap"><canvas ref={canvasRef} /></div>
         {!assets && <div className="loading">Unlocking the door…</div>}
@@ -189,6 +191,7 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
           onRoom={id => { engineRef.current?.walkToRoom(id); if (compact()) setShowRooms(false); }} />}
         {editing && store.admin && !down && engine && <EditPanel store={store} engine={engine} assets={assets} onDone={() => setEditing(false)} />}
         {gmOpen && store.admin && !editing && <GmPanel store={store} picked={pick?.kind === 'user' ? pick.id : null} onClose={() => setGmOpen(false)} />}
+        {pocketsOpen && me && <PocketsPanel store={store} me={me} onClose={() => setPocketsOpen(false)} />}
         {store.calendarOpen && <CalendarPanel store={store} />}
         {store.meetingsOpen && <MeetingsPanel store={store} />}
         {store.jukeboxOpen && <JukeboxPanel key={store.jukeboxOpen} store={store} id={store.jukeboxOpen} />}
@@ -309,9 +312,9 @@ function InstrumentPanel({ store, id, dialogOpen }: { store: Store; id: string; 
   </section>;
 }
 
-function TopBar({ store, roomName, onToggleRooms, onToggleMeet, onToggleAppearance, onLogout, engine, editing, onToggleEdit, gmOpen, onToggleGm }: {
+function TopBar({ store, roomName, onToggleRooms, onToggleMeet, onToggleAppearance, onLogout, engine, editing, onToggleEdit, gmOpen, onToggleGm, pocketsOpen, onTogglePockets }: {
   store: Store; roomName?: string; onToggleRooms: () => void; onToggleMeet: () => void; onToggleAppearance: () => void; onLogout: () => void; engine: Engine | null;
-  editing: boolean; onToggleEdit: () => void; gmOpen: boolean; onToggleGm: () => void;
+  editing: boolean; onToggleEdit: () => void; gmOpen: boolean; onToggleGm: () => void; pocketsOpen: boolean; onTogglePockets: () => void;
 }) {
   const me = store.users.get(store.me);
   const [draft, setDraft] = useState<string | null>(null);
@@ -364,6 +367,8 @@ function TopBar({ store, roomName, onToggleRooms, onToggleMeet, onToggleAppearan
       </button>}
       {store.admin && me && <button onClick={onToggleGm} className={`hanger-btn gm-btn${gmOpen ? ' on' : ''}`} aria-pressed={gmOpen}
         title="GM superpowers: buffs and debuffs (admins)" aria-label="GM superpowers">✨</button>}
+      <button onClick={onTogglePockets} className={`hanger-btn gm-btn${pocketsOpen ? ' on' : ''}`} aria-pressed={pocketsOpen}
+        title={`Pockets · ${store.items.length || 'nothing'} ${store.items.length === 1 ? 'thing' : 'things'}`} aria-label="Pockets">🎒</button>
       <button onClick={onToggleAppearance} className="hanger-btn" title="Character appearance" aria-label="Character appearance">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a2 2 0 0 0-2 2c0 1 .7 1.6 1.6 2.4.6.5 1.1 1 1.1 1.8V11M12 9l-7 9h14l-7-9ZM3 21h18" /></svg>
       </button>
@@ -433,11 +438,7 @@ function AppearanceMenu({ look, hat: savedHat, judge, assets, firstTime, onSave,
             {select('Top', draft.top, tops, 'top')}{colors('Top color', 'shirt')}
             {select('Bottom', draft.bottom, bottoms, 'bottom')}{colors('Bottom color', 'pants')}
             {colors('Shoe color', 'shoes')}
-            {judge ? <p className="small">You're a judge: the judge's hat stays on ✨</p>
-              : <label className="look-select">Fancy hat<select value={hat} onChange={e => setHat(e.target.value)}>
-                <option value="">None</option>
-                {HAT_STYLES.map(h => <option value={h} key={h}>{HAT_NAMES[h]}</option>)}
-              </select></label>}
+            <p className="small">Hats are in your pockets 🎒 (take one from the Lobby hat stand){judge ? ' · judges find theirs there ✨' : ''}</p>
           </>}
         </div>
         <footer className="appearance-actions">
@@ -739,6 +740,35 @@ function EditPanel({ store, engine, assets, onDone }: { store: Store; engine: En
   );
 }
 
+/** What's in your pockets: hats to wear (one at a time) and whatever the bouncer sold you. */
+function PocketsPanel({ store, me, onClose }: { store: Store; me: ClientUser; onClose: () => void }) {
+  const wearing = String(effectOf(me.effects, 'hat')?.data?.style ?? '');
+  const hats = store.items.flatMap(i => (hatOf(i) ? [hatOf(i)!] : []));
+  const rest = new Map<string, number>();
+  for (const i of store.items) if (!hatOf(i)) rest.set(i, (rest.get(i) ?? 0) + 1);
+  const names: Record<string, [string, string]> = { drugs: ['💊', 'Drugs'] };
+  return (
+    <div className="edit-panel gm-panel">
+      <div className="rooms-head"><span>🎒 Pockets</span><button className="ghost" onClick={onClose} aria-label="Close">×</button></div>
+      {!store.items.length && <p className="hint">Nothing yet. Hats hang on the stand in the Lobby.</p>}
+      {hats.length > 0 && <>
+        <h3>Hats</h3>
+        <div className="palette">
+          {hats.map(h => <button key={h} className={wearing === h ? 'on' : ''} onClick={() => store.setEffect(me.id, 'hat', wearing !== h, h)} title={wearing === h ? 'Take it off' : 'Wear it'}>
+            <b className="gm-icon">{h === 'judge' ? '✨' : h === 'admin' ? '🧢' : '🎩'}</b><span>{HAT_NAMES[h] ?? h}{wearing === h ? ' · on' : ''}</span>
+          </button>)}
+        </div>
+      </>}
+      {rest.size > 0 && <>
+        <h3>Other</h3>
+        <div className="palette">
+          {[...rest].map(([i, n]) => <button key={i} disabled title={i === 'drugs' ? 'Rack it on a shelf in a Berghain stall' : i}><b className="gm-icon">{names[i]?.[0] ?? '📦'}</b><span>{names[i]?.[1] ?? i} × {n}</span></button>)}
+        </div>
+      </>}
+    </div>
+  );
+}
+
 /** Office admins as game masters: buffs, debuffs and hats on themselves or the person they clicked. */
 function GmPanel({ store, picked, onClose }: { store: Store; picked: string | null; onClose: () => void }) {
   const [target, setTarget] = useState(picked ?? store.me);
@@ -765,7 +795,7 @@ function GmPanel({ store, picked, onClose }: { store: Store; picked: string | nu
       </div>
       <h3>Hat</h3>
       <div className="palette">
-        {HAT_STYLES.map(h => {
+        {ALL_HATS.map(h => {
           const on = effectOf(u.effects, 'hat')?.data?.style === h;
           return <button key={h} className={on ? 'on' : ''} onClick={() => store.setEffect(u.id, 'hat', !on, h)}><span>{HAT_NAMES[h]}</span></button>;
         })}
@@ -1246,9 +1276,15 @@ function ActionWheel({ store, engine, pick, onPerson, onClose }: { store: Store;
       }
       if (store.admin) items.push({ icon: '🪠', label: 'Plunge', disabled: !s?.fill, title: 'Admins: clean it right away', onClick: act(() => store.plunge(o.id)) });
     } else if (o.use.kind === 'dealer') {
-      const want = o.use.item, n = store.items.filter(i => i === want).length;
-      title = n ? `Bouncer · ${n} 💊 in your pocket` : 'Bouncer';
-      items = [{ icon: '💊', label: 'Score', title: 'Ask the bouncer for something', onClick: act(() => store.use(o.id)) }];
+      if (o.type === 'bouncer') {
+        const n = store.items.filter(i => i === 'drugs').length;
+        title = n ? `Bouncer · ${n} 💊 in your pockets` : 'Bouncer';
+        items = [{ icon: '💊', label: 'Score', title: 'Ask the bouncer for something', onClick: act(() => store.use(o.id, 'drugs')) }];
+      } else {
+        title = 'Hat stand';
+        items = o.use.items.map(it => { const h = hatOf(it) ?? it, have = store.items.includes(it);
+          return { icon: '🎩', label: (HAT_NAMES[h] ?? h).replace(/ hat$/, ''), disabled: have, title: have ? `${HAT_NAMES[h]} · already in your pockets` : `Take the ${(HAT_NAMES[h] ?? h).toLowerCase()}`, onClick: act(() => store.use(o.id, it)) }; });
+      }
     } else if (o.use.kind === 'toggle') {
       const on = store.objects[o.id]?.on ?? o.on ?? true;
       title = o.use.label[0].toUpperCase() + o.use.label.slice(1);

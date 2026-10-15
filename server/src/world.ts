@@ -9,7 +9,7 @@ import {
   type ChatMsg, type ClientMsg, type Door, type Effect, type Knock, type LayoutEdit, type Look, type Presence, type PublicUser, type Reaction, type ServerMsg,
 } from '../../shared/protocol';
 import { INSTRUMENTS, validNote } from '../../shared/instruments';
-import { EFFECTS, JUDGE_HAT, MAX_EFFECTS, walkMs } from '../../shared/effects';
+import { ADMIN_HAT, EFFECTS, HAT_NAMES, JUDGE_HAT, MAX_EFFECTS, hatItem, hatOf, walkMs } from '../../shared/effects';
 import { TRACKS } from '../../shared/music';
 import { Arcade } from './arcade';
 import { Jukebox } from './jukebox';
@@ -132,7 +132,8 @@ export class World {
   hasItem(u: User, item: string) { return u.items.includes(item); }
   /** Put one in the inventory (at most ITEMS_MAX of a kind) and tell the owner. */
   addItem(u: User, item: string) {
-    if (u.items.filter(i => i === item).length >= ITEMS_MAX) { this.sendTo(u.id, { t: 'notice', text: 'Your pockets are full' }); return false; }
+    const max = hatOf(item) ? 1 : ITEMS_MAX;
+    if (u.items.filter(i => i === item).length >= max) { this.sendTo(u.id, { t: 'notice', text: hatOf(item) ? 'You already have that hat' : 'Your pockets are full' }); return false; }
     u.items = [...u.items, item]; this.sendTo(u.id, this.me(u));
     return true;
   }
@@ -168,7 +169,7 @@ export class World {
     this.listeners.add(send);
     send({ t: 'hello', you: userId, serverTime: Date.now(), build: this.build });
     this.stayAfterAll(u);
-    this.judgeHat(u);
+    this.grantHats(u);
     if (!u.plant && !u.bot) { u.plant = this.newPlant(u, dayNumber(Date.now()) - 1); this.plantChanged(u); } // a pot on your desk from day one; today's status already grows it
     if (u.presence === 'offline') this.comeIn(u);
     send({ t: 'layout', layout: this.layout() }); // before anyone's walk, which every client paths on this floor
@@ -544,7 +545,11 @@ export class World {
       if (!current?.use || current.use.kind !== o.use!.kind) return;
       if (current.use.kind === 'arcade') { if (!u.bot && this.sockets.get(u.id)?.size) this.arcade.join(u, current.id); return; }
       if (o.use!.kind === 'toggle') this.setObject(o.id, !this.objectOn.get(o.id), u);
-      else if (current.use.kind === 'dealer') { if (this.addItem(u, current.use.item)) this.sendTo(u.id, { t: 'notice', text: 'The bouncer slips you something 💊' }); }
+      else if (current.use.kind === 'dealer') {
+        const want = itemId && current.use.items.includes(itemId) ? itemId : current.use.items[0];
+        const hat = hatOf(want);
+        if (this.addItem(u, want)) this.sendTo(u.id, { t: 'notice', text: hat ? `${HAT_NAMES[hat] ?? hat} · in your pockets 🎒` : 'The bouncer slips you something 💊' });
+      }
       else if (item) {
         this.setHolding(u, item.id, o.id);
         if (o.type === 'coffee_machine') this.addEffect(u, 'speed'); // a fresh cup: quick on your feet for a while
@@ -664,11 +669,17 @@ export class World {
       this.effectsChanged(u);
     }
   }
-  /** Judges always wear the judge's hat. */
-  private judgeHat(u: User) {
-    const hat = u.effects.find(e => e.kind === 'hat');
-    if (this.isJudge(u) && hat?.data?.style !== JUDGE_HAT) this.addEffect(u, 'hat', { data: { style: JUDGE_HAT } });
-    else if (!this.isJudge(u) && hat?.data?.style === JUDGE_HAT) this.removeEffect(u, 'hat'); // no longer judging
+  /** Judges find the judge's hat in their pockets, office admins the sysadmin cap (by sign-in email). The first time, it goes
+   *  straight on; later they wear what they like. Someone no longer on the list loses the hat. */
+  private grantHats(u: User) {
+    const wearing = u.effects.find(e => e.kind === 'hat')?.data?.style;
+    let changed = false;
+    for (const [style, should] of [[JUDGE_HAT, this.isJudge(u)], [ADMIN_HAT, this.isAdmin(u)]] as const) {
+      const item = hatItem(style), has = u.items.includes(item);
+      if (should && !has) { u.items = [...u.items, item]; changed = true; if (!wearing) this.addEffect(u, 'hat', { data: { style } }); }
+      if (!should && has) { u.items = u.items.filter(i => i !== item); changed = true; if (wearing === style) this.removeEffect(u, 'hat'); }
+    }
+    if (changed) this.sendTo(u.id, this.me(u));
   }
   /** A client asks for an effect on someone. Yourself: 'self' effects only; GMs (office admins): anything on anyone. */
   private requestEffect(u: User, msg: Extract<ClientMsg, { t: 'effect' }>) {
@@ -677,12 +688,12 @@ export class World {
     if (!rule || !target || target.presence === 'offline') return;
     const gm = this.isAdmin(u);
     if (!gm && (target.id !== u.id || rule.who !== 'self')) return;
-    if (kind === 'hat' && this.isJudge(target)) return; // the judge's hat stays on
     if (!msg.on) return this.removeEffect(target, kind);
     let data: Record<string, unknown> | undefined;
     if (rule.styles) {
       const style = String(msg.style ?? '');
       if (!(rule.styles as readonly string[]).includes(style)) return;
+      if (kind === 'hat' && !gm && !u.items.includes(hatItem(style))) return; // wear only what's in your pockets
       data = { style };
     }
     this.addEffect(target, kind, { data });

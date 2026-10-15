@@ -1103,6 +1103,19 @@ for (const open of [false, true]) {
     t.px(8, 3, '#f8e070'); t.hline(7, 4, 3, '#f8e070'); t.px(8, 5, '#f8e070'); t.px(7, 5, '#f8e070'); t.px(9, 5, '#f8e070');
     t.rect(1, 10, 14, 2, '#6a3a9a'); t.hline(2, 10, 12, '#e8b830');
   });
+  hat('admin', 16, 9, t => { // the sysadmin's dark cap with a green cursor: root@t1a
+    t.rect(3, 2, 10, 5, '#2c3440'); t.hline(4, 2, 8, '#3e4858'); t.rect(2, 6, 13, 2, '#1e2630'); t.hline(3, 7, 11, '#141a22');
+    t.px(6, 4, '#5af07a'); t.px(7, 4, '#5af07a'); t.px(8, 3, '#5af07a'); t.px(8, 5, '#5af07a'); t.hline(9, 5, 2, '#5af07a');
+  });
+  { // a hat stand in the Lobby: a pole with pegs and a couple of hats hanging
+    const t = new Img(16, 16);
+    t.rect(6, 1, 4, 14, '#7a5230'); t.vline(7, 1, 14, '#9a6a3e'); t.rect(3, 14, 10, 2, '#5a3a20'); t.hline(4, 14, 8, '#7a5230');
+    t.hline(2, 3, 4, '#5a3a20'); t.hline(10, 5, 4, '#5a3a20'); t.hline(2, 8, 4, '#5a3a20');
+    t.rect(1, 1, 4, 2, '#2a2430'); t.px(2, 0, '#2a2430'); t.px(3, 0, '#2a2430');
+    t.rect(11, 3, 3, 2, '#e8607a'); t.px(12, 2, '#f2d060');
+    t.rect(1, 6, 4, 2, '#8a5a30'); t.hline(2, 5, 2, '#8a5a30');
+    frames.hat_stand = t.outline();
+  }
   for (const n of [1, 2]) { // a twinkle: big plus, then a small one
     const t = new Img(5, 5), c = '#fff6c0';
     if (n === 1) { t.hline(0, 2, 5, c); t.vline(2, 0, 5, c); t.px(2, 2, '#ffffff'); }

@@ -7,13 +7,18 @@ import type { Effect } from './protocol';
 export type EffectWho = 'self' | 'gm' | 'server';
 export interface EffectRule { who: EffectWho; label: string; icon: string; ms?: number; styles?: readonly string[] }
 
-export const HAT_STYLES = ['top', 'party', 'wizard', 'cowboy', 'crown'] as const;
-export const JUDGE_HAT = 'judge'; // only the server hands this one out
-export const HAT_NAMES: Record<string, string> = { top: 'Top hat', party: 'Party hat', wizard: 'Wizard hat', cowboy: 'Cowboy hat', crown: 'Crown', judge: "Judge's hat" };
+export const HAT_STYLES = ['top', 'party', 'wizard', 'cowboy', 'crown'] as const; // on the Lobby hat stand
+export const JUDGE_HAT = 'judge'; // the server puts it in a judge's pockets
+export const ADMIN_HAT = 'admin'; // and this one in an office admin's
+export const ALL_HATS = [...HAT_STYLES, JUDGE_HAT, ADMIN_HAT] as const;
+export const HAT_NAMES: Record<string, string> = { top: 'Top hat', party: 'Party hat', wizard: 'Wizard hat', cowboy: 'Cowboy hat', crown: 'Crown', judge: "Judge's hat", admin: 'Sysadmin cap' };
+/** Hats are inventory items: `hat:<style>`. You wear one of the hats in your pockets. */
+export const hatItem = (style: string) => `hat:${style}`;
+export const hatOf = (item: string) => (item.startsWith('hat:') ? item.slice(4) : null);
 
 export const EFFECTS: Record<string, EffectRule> = {
   speed: { who: 'server', label: 'Caffeinated', icon: '⚡', ms: 2 * 60_000 },
-  hat: { who: 'self', label: 'Hat', icon: '🎩', styles: HAT_STYLES },
+  hat: { who: 'self', label: 'Hat', icon: '🎩', styles: ALL_HATS }, // self: only a hat from your pockets
   vampire: { who: 'gm', label: 'Vampire', icon: '🧛', ms: 2 * 60_000 },
   fire_aura: { who: 'gm', label: 'Fire aura', icon: '🔥', ms: 2 * 60_000 },
   gum: { who: 'gm', label: 'Gum', icon: '🩲', ms: 60_000 },

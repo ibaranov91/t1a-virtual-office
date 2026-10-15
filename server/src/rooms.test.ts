@@ -148,7 +148,7 @@ test('knocks on someone in a stall go to Later', t => {
 
 test('the bouncer sells drugs into the inventory (at most ITEMS_MAX); racking spends one; sniffing takes a line and shows unicorns', t => {
   const { w, add, notices, tick } = setup(t);
-  const bouncer = map.objects.find(o => o.use?.kind === 'dealer')!;
+  const bouncer = map.objects.find(o => o.type === 'bouncer')!;
   const stall = toilets[1], a = add('A', { x: 66, y: 16 }), b = add('B', { x: 67, y: 16 });
   const me = (m: ServerMsg[]) => m.filter(x => x.t === 'me').at(-1) as Extract<ServerMsg, { t: 'me' }> | undefined;
   for (let i = 0; i < ITEMS_MAX + 1; i++) walkIn(w, a, bouncer.id, tick);
