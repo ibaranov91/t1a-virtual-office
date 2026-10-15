@@ -1,12 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import {
-  besideObject, dirBetween, hallDistance, voiceRooms, findPath, isWalkable, pathDuration, pathTo, roomAt, sampleMove, seatAt, WALK_MS_PER_TILE,
-  type Dir, type Room, type Spot, type TileMap, type Tile,
+  applyEdit, applyLayout, besideObject, dirBetween, hallDistance, layoutProblem, voiceRooms, findPath, isWalkable, pathDuration, pathTo, roomAt, sampleMove, seatAt, withLayout, WALK_MS_PER_TILE,
+  type Dir, type Layout, type Room, type Spot, type TileMap, type Tile,
 } from '../../shared/map';
 import {
   ZONE_IN_TILES, ZONE_OUT_TILES, MAX_CALL_SIZE, MEETING_ROOM_ID, MAX_CHAT_LEN, normalizeMeetLink, REACTIONS, ROOM_VOICE_MAX,
   dayNumber, plantDead, BOTANIST_KINDS, PLANT_KINDS, PLANT_STAGES, type Plant,
-  type ChatMsg, type ClientMsg, type Door, type Knock, type Look, type Presence, type PublicUser, type Reaction, type ServerMsg,
+  type ChatMsg, type ClientMsg, type Door, type Knock, type LayoutEdit, type Look, type Presence, type PublicUser, type Reaction, type ServerMsg,
 } from '../../shared/protocol';
 import { Meetings } from './meetings';
 import { authUrl, CALENDAR_SCOPE, createSpace, forgetAccess, googleEnabled, listEvents, revoke, type GoogleLink } from './google';
@@ -53,6 +53,9 @@ const FOLLOW_LAG_MS = 300;   // followers set off a beat after the person they f
 const HOLD_MS = 3 * 60_000;  // a coffee lasts this long
 const USE_MS = { take: 1200, toggle: 150 }; // brewing a coffee vs flicking a switch
 
+/** Office admins rearrange the furniture: NetBird emails, or (only for name logins, so dev) plain names. */
+const ADMINS = (process.env.DECK_ADMINS ?? 'ivan.baranov@t1a.com').split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+
 /** Dev bots answer DMs and reactions so there's something to talk to when testing alone. */
 export interface BotHooks { chat(bot: User, from: User, text: string): void; react(bot: User, from: User, emoji: Reaction): void }
 
@@ -73,7 +76,11 @@ export class World {
   botHooks?: BotHooks;
 
   build?: string; // sent in hello so open pages reload after a deploy
+  private baseLayout: Layout;     // as generated, for Reset
+  private layoutEdited = false;   // saved only once someone has changed it
+  private editSeq = 0;
   constructor(public map: TileMap) {
+    this.baseLayout = structuredClone({ objects: map.objects, rugs: map.rugs });
     for (const o of map.objects) if (o.use?.kind === 'toggle') this.objectOn.set(o.id, o.on ?? true);
     setInterval(() => this.voiceTick(), 250).unref();
   }
@@ -81,7 +88,9 @@ export class World {
   // ---------- transport ----------
   broadcast(msg: ServerMsg) { for (const l of this.listeners) l(msg); }
   /** Private settings for the user themselves. */
-  me(u: User): ServerMsg { return { t: 'me', meetLink: u.meetLink ?? '', email: u.email, google: googleEnabled ? u.google?.email ?? null : undefined, calendar: !!u.google?.scopes.includes(CALENDAR_SCOPE) }; }
+  me(u: User): ServerMsg { return { t: 'me', meetLink: u.meetLink ?? '', email: u.email, google: googleEnabled ? u.google?.email ?? null : undefined, calendar: !!u.google?.scopes.includes(CALENDAR_SCOPE), admin: this.isAdmin(u) || undefined }; }
+  isAdmin(u: User) { return !u.bot && ADMINS.some(a => (a.includes('@') ? a === u.email : !u.email && a === u.name.toLowerCase())); }
+  layout(): Layout { return { objects: this.map.objects, rugs: this.map.rugs }; }
   sendTo(userId: string, msg: ServerMsg) { for (const s of this.sockets.get(userId)?.values() ?? []) s(msg); }
   snapshot(): ServerMsg {
     const objects = Object.fromEntries([...this.objectOn.keys()].map(id => [id, this.objectState(id)]));
@@ -103,6 +112,7 @@ export class World {
     this.stayAfterAll(u);
     if (!u.plant && !u.bot) { u.plant = this.newPlant(u, dayNumber(Date.now()) - 1); this.plantChanged(u); } // a pot on your desk from day one; today's status already grows it
     if (u.presence === 'offline') this.comeIn(u);
+    send({ t: 'layout', layout: this.layout() }); // before anyone's walk, which every client paths on this floor
     send(this.snapshot());
     send(this.me(u));
     send({ t: 'meetings', rooms: this.meetingRooms() });
@@ -638,6 +648,59 @@ export class World {
     this.broadcast({ t: 'emote', userId: u.id, emote });
   }
 
+  // ---------- rearranging the office (admins) ----------
+  edit(u: User, edit: LayoutEdit) {
+    if (!this.isAdmin(u)) return;
+    const added = `e${Date.now().toString(36)}${(this.editSeq++).toString(36)}`;
+    const next = applyEdit(this.map, edit, () => added);
+    if (typeof next === 'string') return this.sendTo(u.id, { t: 'notice', text: `Can't: ${next}` });
+    this.setLayout(next, u, edit.op === 'add' || edit.op === 'rug_add' ? added : undefined);
+  }
+  resetLayout(u: User) { if (this.isAdmin(u) && this.setLayout(structuredClone(this.baseLayout), u)) this.layoutEdited = false; }
+  /** Check the whole floor, then put it in place for everyone: home desks go along with their chair, toggles
+   *  get their state, and anyone the new furniture lands on (or whose way it blocks) steps aside. */
+  private setLayout(next: Layout, by: User, added?: string) {
+    const problem = layoutProblem(withLayout(this.map, next));
+    if (problem) { this.sendTo(by.id, { t: 'notice', text: `Can't: ${problem}` }); return false; }
+    const chairAt = (t: Tile) => this.map.objects.find(o => o.type === 'chair' && o.x === t.x && o.y === t.y)?.id;
+    const deskChairs = [...this.users.values()].filter(o => o.homeDesk).map(o => ({ o, id: chairAt(o.homeDesk!) }));
+    applyLayout(this.map, next);
+    this.syncToggles();
+    this.layoutEdited = true;
+    this.broadcast({ t: 'layout', layout: this.layout(), by: by.id, added });
+    for (const { o, id } of deskChairs) {
+      const chair = this.map.objects.find(c => c.id === id), seat = chair && seatAt(this.map, chair.x, chair.y);
+      if (!seat?.homeDesk) this.setDesk(o, null);
+      else if (seat.x !== o.homeDesk!.x || seat.y !== o.homeDesk!.y) this.setDesk(o, { x: seat.x, y: seat.y });
+    }
+    this.stepAside();
+    return true;
+  }
+  /** Lamps added get switched on, lamps removed are forgotten. */
+  private syncToggles() {
+    for (const o of this.map.objects) if (o.use?.kind === 'toggle' && !this.objectOn.has(o.id)) this.objectOn.set(o.id, o.on ?? true);
+    for (const id of this.objectOn.keys()) if (!this.map.objects.some(o => o.id === id)) this.objectOn.delete(id);
+  }
+  private stepAside() {
+    const ok = (t: Tile) => isWalkable(this.map, t.x, t.y) || !!seatAt(this.map, t.x, t.y);
+    for (const u of this.users.values()) {
+      if (u.presence === 'offline') { if (!ok(u.tile)) u.tile = { ...this.map.spawn }; continue; }
+      const p = this.position(u);
+      if (!ok(p.dest)) { for (const t of this.freeNear(p.dest, u.instance)) if (this.walk(u, t) !== null) break; }
+      else if ((p.tile.x !== p.dest.x || p.tile.y !== p.dest.y) && u.path?.some(t => !ok(t))) this.walk(u, p.dest, u.move?.face);
+    }
+  }
+  /** Free walkable tiles around `t`, nearest first. */
+  private freeNear(t: Tile, instance: string | null) {
+    const occ = this.occupied(instance), out: Tile[] = [];
+    for (let r = 1; r <= 6; r++) for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
+      if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+      const x = t.x + dx, y = t.y + dy;
+      if (isWalkable(this.map, x, y) && !occ.has(`${x},${y}`)) out.push({ x, y });
+    }
+    return out.sort((a, b) => Math.abs(a.x - t.x) + Math.abs(a.y - t.y) - (Math.abs(b.x - t.x) + Math.abs(b.y - t.y)));
+  }
+
   /** Tiles where nobody is standing or heading. */
   /** Tiles taken in the office, or in one meeting's room. */
   occupied(instance: string | null = null) {
@@ -765,6 +828,8 @@ export class World {
         break;
       }
       case 'claim_desk': this.claimDesk(u); break;
+      case 'edit': if (msg.edit && typeof msg.edit === 'object') this.edit(u, msg.edit); break;
+      case 'edit_reset': this.resetLayout(u); break;
       case 'release_desk': this.releaseDesk(u); break;
       case 'meet_link': {
         const raw = String(msg.link ?? '');
@@ -850,10 +915,19 @@ export class World {
         return { id: u.id, name: u.name, email: u.email, meetLink: u.meetLink, google: u.google, homeDesk: u.homeDesk, look: u.look, lookSet: u.lookSet, tile: p, dir: u.dir, status: u.status, presence: u.presence, bot: u.bot, plant: u.plant, bloomed: u.bloomed, achievements: u.achievements };
       }),
       objects: Object.fromEntries(this.objectOn),
+      layout: this.layoutEdited ? this.layout() : undefined,
       chats: Object.fromEntries(this.chats),
     };
   }
   load(data: ReturnType<World['dump']>) {
+    if (data.layout) { // an admin rearranged the office; if it no longer fits the generated floor, start over from that
+      const problem = layoutProblem(withLayout(this.map, data.layout));
+      if (problem) console.warn(`saved layout dropped: ${problem}`);
+      else {
+        applyLayout(this.map, data.layout); this.layoutEdited = true;
+        this.syncToggles();
+      }
+    }
     for (const d of data.users ?? []) {
       const tile = isWalkable(this.map, d.tile.x, d.tile.y) || seatAt(this.map, d.tile.x, d.tile.y) ? d.tile : { ...this.map.spawn };
       const legacy = lookFor(d.name);

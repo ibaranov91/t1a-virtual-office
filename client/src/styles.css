@@ -303,3 +303,27 @@ button:focus-visible, summary:focus-visible, input[type="range"]:focus-visible {
 .achievement-list li.soon { opacity: .6; }
 .achievement-list .state { color: var(--muted); white-space: nowrap; }
 .achievement-list li.got .state { color: #9ccc78; }
+
+/* edit mode (office admins) */
+.hanger-btn.on { background: var(--accent); color: #2a1a10; }
+.edit-panel { position: absolute; top: 8px; left: 8px; bottom: 8px; width: 260px; max-width: calc(100% - 16px); overflow: auto; z-index: 7;
+  background: rgba(42,31,36,.95); border: 2px solid var(--accent); border-radius: 10px; padding: 8px 10px; display: flex; flex-direction: column; gap: 8px; }
+.edit-panel .hint { margin: 0; color: var(--muted); font-size: 12px; }
+.edit-panel h3 { margin: 4px 0 0; font-size: 13px; }
+.edit-panel h3 small { display: block; color: var(--muted); font-weight: 400; }
+.edit-sel { display: grid; gap: 6px; padding: 8px; border-radius: 6px; background: var(--panel2); }
+.edit-sel h3 { margin: 0; text-transform: capitalize; color: var(--accent); }
+.edit-sel button.danger { background: var(--danger); color: #fff; justify-self: start; }
+.swatches { display: flex; gap: 6px; }
+.swatch { width: 26px; height: 22px; padding: 0; border: 2px solid transparent; }
+.swatch.on { border-color: var(--text); }
+.rug-green { background: #7a9a55; } .rug-blue { background: #5577a8; } .rug-orange { background: #d08a4a; } .rug-red { background: #b4534a; } .rug-teal { background: #4f9a92; }
+.rug-size { display: flex; align-items: center; gap: 4px; font-size: 13px; }
+.rug-size span { flex: 1; font-variant-numeric: tabular-nums; }
+.rug-size button { padding: 2px 6px; background: var(--panel); color: var(--text); font-size: 12px; }
+.palette { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; }
+.palette button { display: grid; justify-items: center; gap: 2px; padding: 4px 2px; background: var(--panel2); color: var(--text); font-weight: 500; font-size: 11px; }
+.palette button.on { outline: 2px solid var(--accent); background: #4a3428; }
+.palette button span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.palette canvas { width: 32px; height: 32px; image-rendering: pixelated; }
+.edit-panel .reset { align-self: start; font-size: 12px; }

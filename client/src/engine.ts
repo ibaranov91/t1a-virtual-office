@@ -1,9 +1,9 @@
 // The floor: one <canvas>, one requestAnimationFrame loop.
 // Order: static tilemap → y-sorted furniture + sprites → nameplates & bubbles → ambient tint → UI hints.
-import { findPath, isWalkable, roomAt, seatAt, type MapObject, type Tile } from '../../shared/map';
+import { applyEdit, FIXED_TYPES, findPath, isWalkable, layoutProblem, objectName, roomAt, seatAt, withLayout, type MapObject, type Rug, type Tile } from '../../shared/map';
 import type { Assets, Frame } from './assets';
 import { drawText, textWidth } from './font';
-import { MEETING_ROOM_ID, PLANT_REVEAL, PLANT_STAGES, plantDead, plantName } from '../../shared/protocol';
+import { MEETING_ROOM_ID, PLANT_REVEAL, PLANT_STAGES, plantDead, plantName, type LayoutEdit } from '../../shared/protocol';
 import { ITEMS, MAP, type ClientUser, type Pose, type Store } from './net';
 
 const TS = MAP.tileSize;
@@ -17,7 +17,6 @@ const SIT_FRAME = 5;
 /** Someone's plant where it stands: x = pot centre, y = pot bottom, base = y-sort key (just after its desk or shelf). */
 type PlacedPlant = { u: ClientUser; x: number; y: number; base: number };
 const FRONT: Record<string, [number, number]> = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
-const SLOTS = MAP.rooms.flatMap(r => r.plantSlots ?? []);
 
 type BubbleKind = 'bubble_bang' | 'bubble_headset' | 'bubble_zzz' | 'bubble_meeting' | 'bubble_dots' | 'bubble_think' | 'bubble_talk' | 'bubble_hand' | 'bubble_deaf';
 // where the bag hangs when carried, per facing; behind = drawn before the body
@@ -27,6 +26,8 @@ const BAG_HAND: Record<string, { dx: number; behind: boolean }> = {
 
 /** What a click landed on; the action wheel opens for it. */
 export type Pick = { kind: 'user' | 'object'; id: string };
+/** Something an admin can pick up in edit mode: a piece of furniture or a rug. */
+type Item = { id: string; x: number; y: number; w: number; h: number; type?: string; wall?: boolean; dir?: string; color?: string };
 
 // item id -> icon, from whatever the map's objects hand out
 const ITEM_ICON = new Map([...ITEMS].map(([id, i]) => [id, i.icon]));
@@ -73,15 +74,23 @@ export class Engine {
   private steamers: MapObject[];
   private placedPlates: { x: number; y: number; w: number }[] = [];
   private snapped = false;
+  private slots: Tile[] = [];
+  private layoutSeen = -1;
+  // ---- edit mode (office admins) ----
+  editing = false;
+  /** Selected furniture or rug. */
+  editSel: string | null = null;
+  /** A catalog type (or 'rug') to put down with the next click. */
+  placing: string | null = null;
+  onEditChange?: () => void;
+  private editHover: Item | null = null;
+  private editDrag: { item: Item; gx: number; gy: number; x: number; y: number; moved: boolean } | null = null;
+  private ghost: { item: Item; problem: string | null } | null = null;
 
   constructor(private canvas: HTMLCanvasElement, private store: Store, private assets: Assets) {
     this.ctx = canvas.getContext('2d')!;
-    this.staticLayer = this.buildStatic();
-    this.dynamicObjects = MAP.objects.filter(o => !o.wall && !o.walkable);
-    this.lights = MAP.objects.filter(o => o.light);
-    this.steamers = MAP.objects.filter(o => o.steam);
-    this.interactive = MAP.objects.filter(o => o.use || o.sit || o.sound);
-    this.boards = MAP.objects.filter(o => o.use?.kind === 'meetings');
+    this.staticLayer = this.dynamicObjects = this.lights = this.steamers = this.interactive = this.boards = null!;
+    this.refreshLayout();
     this.ro = new ResizeObserver(() => this.resize());
     this.ro.observe(canvas.parentElement!);
     this.resize();
@@ -177,6 +186,58 @@ export class Engine {
     return { x: r.left + ((o.x + o.w / 2) * TS - this.cam.x) * k, y: r.top + ((o.y + o.h) * TS - fr.h / 2 - this.cam.y) * k, r: (Math.max(fr.w, fr.h) / 2) * k };
   }
 
+  // ---------- edit mode (office admins) ----------
+  setEditing(on: boolean) {
+    this.editing = on; this.editSel = this.placing = null; this.editDrag = this.ghost = this.editHover = null;
+    this.hoverTile = null; this.hoverUser = null; this.hoverObject = null;
+    this.manualCam = on; // the floor holds still under the pointer; Done follows me again
+    this.onPick?.(null); this.onEditChange?.();
+  }
+  setPlacing(type: string | null) { this.placing = type; this.editSel = null; this.ghost = null; this.onEditChange?.(); }
+  select(id: string | null) { this.editSel = id; this.placing = null; this.onEditChange?.(); }
+  item(id: string): Item | undefined { return MAP.objects.find(o => o.id === id) ?? MAP.rugs.find(r => r.id === id); }
+  /** What's under this point in edit mode: the front-most sprite, else a rug. */
+  private itemAt(wx: number, wy: number): Item | null {
+    let best: MapObject | null = null, bestKey = -Infinity;
+    for (const o of MAP.objects) {
+      const s = this.sprite(o);
+      const [x, y, w, h] = s ? [s.x, s.y, s.fr.w, s.fr.h] : [o.x * TS, o.y * TS, o.w * TS, o.h * TS];
+      if (wx < x || wx >= x + w || wy < y || wy >= y + h) continue;
+      const key = (o.wall ? -1000 : 0) + (o.y + o.h) * 2 + (o.walkable ? 0 : 1); // in front wins, decor last
+      if (key > bestKey) { best = o; bestKey = key; }
+    }
+    if (best) return best;
+    const tx = Math.floor(wx / TS), ty = Math.floor(wy / TS);
+    return MAP.rugs.find(r => tx >= r.x && tx < r.x + r.w && ty >= r.y && ty < r.y + r.h) ?? null;
+  }
+  /** What clicking this tile would put down, centred under the pointer. */
+  private placeItem(tx: number, ty: number): Item {
+    const t = this.placing === 'rug' ? { w: 3, h: 2, color: 'green' } : MAP.catalog[this.placing!];
+    return { ...t, id: '', x: tx - Math.floor((t.w - 1) / 2), y: ty - Math.floor((t.h - 1) / 2) };
+  }
+  private placeEdit(it: Item): LayoutEdit { return it.color ? { op: 'rug_add', x: it.x, y: it.y } : { op: 'add', type: it.type!, x: it.x, y: it.y }; }
+  /** Why the server would turn this edit down, or null: the same checks, run here first so the ghost can say. */
+  private check(edit: LayoutEdit) {
+    const next = applyEdit(MAP, edit, () => '');
+    return typeof next === 'string' ? next : layoutProblem(withLayout(MAP, next));
+  }
+
+  /** The furniture changed (an admin moved something): redraw the floor and re-sort what's where. */
+  private refreshLayout() {
+    this.layoutSeen = this.store.layoutVersion;
+    this.staticLayer = this.buildStatic();
+    this.dynamicObjects = MAP.objects.filter(o => !o.wall && !o.walkable);
+    this.lights = MAP.objects.filter(o => o.light);
+    this.steamers = MAP.objects.filter(o => o.steam);
+    this.interactive = MAP.objects.filter(o => o.use || o.sit || o.sound);
+    this.boards = MAP.objects.filter(o => o.use?.kind === 'meetings');
+    this.slots = MAP.rooms.flatMap(r => r.plantSlots ?? []);
+    if (this.editSel && !this.item(this.editSel)) this.editSel = null;
+    if (this.store.added) { this.editSel = this.store.added; this.store.added = null; }
+    this.ghost = null;
+    this.onEditChange?.();
+  }
+
   // ---------- frames ----------
   private f(name: string): Frame { return this.assets.atlas.frames[name]; }
   private blit(ctx: CanvasRenderingContext2D, name: string, x: number, y: number) {
@@ -191,6 +252,7 @@ export class Engine {
     for (let y = 0; y < MAP.height; y++) for (let x = 0; x < MAP.width; x++) {
       if (floor[y][x]) this.blit(ctx, MAP.tiles[floor[y][x]], x * TS, y * TS);
     }
+    for (const r of MAP.rugs) this.drawRug(ctx, r);
     // soft shadows on the floor below wall faces and to the right of caps
     ctx.fillStyle = 'rgba(40,20,20,0.22)';
     for (let y = 1; y < MAP.height; y++) for (let x = 0; x < MAP.width; x++) {
@@ -204,15 +266,24 @@ export class Engine {
       if (walls[y][x]) this.blit(ctx, MAP.tiles[walls[y][x]], x * TS, y * TS);
     }
     // wall decor + floor-level furniture (chairs) are static
-    for (const o of MAP.objects) {
-      if (!o.wall && !o.walkable) continue;
-      const name = o.dir && this.f(`${o.type}_${o.dir}`) ? `${o.type}_${o.dir}` : o.type; // chairs face their desk
-      const fr = this.f(name); if (!fr) continue;
-      const x = o.x * TS + (o.w * TS - fr.w) / 2;
-      const y = o.wall ? o.y * TS : (o.y + o.h) * TS - fr.h;
-      this.blit(ctx, name, x, y);
-    }
+    for (const o of MAP.objects) if (o.wall || o.walkable) this.drawItem(ctx, o);
     return c;
+  }
+  private drawRug(ctx: CanvasRenderingContext2D, r: Rug) {
+    for (let y = r.y; y < r.y + r.h; y++) for (let x = r.x; x < r.x + r.w; x++) {
+      const v = y === r.y ? 'n' : y === r.y + r.h - 1 ? 's' : '', h = x === r.x ? 'w' : x === r.x + r.w - 1 ? 'e' : '';
+      this.blit(ctx, `rug_${r.color}_${(v + h) || 'c'}`, x * TS, y * TS);
+    }
+  }
+  /** A piece of furniture's sprite and where it goes: centred on its footprint, standing on its bottom edge (decor hangs from the top). */
+  private sprite(o: Item) {
+    const name = o.dir && this.f(`${o.type}_${o.dir}`) ? `${o.type}_${o.dir}` : o.type!; // chairs face their desk
+    const fr = this.f(name);
+    return fr && { name, fr, x: o.x * TS + (o.w * TS - fr.w) / 2, y: o.wall ? o.y * TS : (o.y + o.h) * TS - fr.h };
+  }
+  private drawItem(ctx: CanvasRenderingContext2D, o: Item) {
+    if (o.color) return this.drawRug(ctx, o as Rug);
+    const s = this.sprite(o); if (s) this.blit(ctx, s.name, s.x, s.y);
   }
 
   // ---------- layout ----------
@@ -338,6 +409,13 @@ export class Engine {
       return;
     }
     if (this.pointers.size > 2) return;
+    if (this.editing && !this.placing && !this.tapZooms) { // grab a piece of furniture (the floor still pans)
+      const w = this.toWorld(e), it = this.itemAt(w.x, w.y);
+      if (it && !(it.type && FIXED_TYPES.has(it.type))) {
+        this.editDrag = { item: { ...it }, gx: Math.floor(w.x / TS) - it.x, gy: Math.floor(w.y / TS) - it.y, x: it.x, y: it.y, moved: false };
+        return;
+      }
+    }
     this.drag = { x: e.clientX, y: e.clientY, camX: this.cam.x, camY: this.cam.y, moved: false };
   };
   private onPinch() {
@@ -351,7 +429,7 @@ export class Engine {
     pin.x = mid.x; pin.y = mid.y;
     this.zoomTo(pin.px * (Math.hypot(a.x - b.x, a.y - b.y) / pin.dist), at);
   }
-  private onCancel = (e: PointerEvent) => { this.pointers.delete(e.pointerId); if (this.pointers.size < 2) this.pinch = null; this.drag = null; };
+  private onCancel = (e: PointerEvent) => { this.pointers.delete(e.pointerId); if (this.pointers.size < 2) this.pinch = null; this.drag = null; this.editDrag = null; this.ghost = null; };
   private onLeave = (e: PointerEvent) => { this.hoverUser = null; this.hoverObject = null; this.hoverTile = null; if (!this.pointers.has(e.pointerId)) this.drag = null; };
   private onWheel = (e: WheelEvent) => {
     e.preventDefault();
@@ -383,6 +461,7 @@ export class Engine {
   private onKey = (e: KeyboardEvent) => {
     const t = e.target;
     if (e.metaKey || e.ctrlKey || e.altKey || (t instanceof Element && t.closest('input, textarea, select, [contenteditable]'))) return;
+    if (this.editing && this.onEditKey(e)) return e.preventDefault();
     if (e.key === '+' || e.key === '=') this.zoomIn();
     else if (e.key === '-' || e.key === '_') this.zoomOut();
     else if (e.key === '0') this.resetZoom();
@@ -390,6 +469,18 @@ export class Engine {
     else return;
     e.preventDefault();
   };
+  /** Edit mode keys: arrows nudge (shift+arrows resize a rug), Delete removes, Esc lets go. */
+  private onEditKey(e: KeyboardEvent) {
+    if (e.key === 'Escape' && (this.placing || this.editSel)) { if (this.placing) this.setPlacing(null); else this.select(null); return true; }
+    const sel = this.editSel ? this.item(this.editSel) : undefined;
+    if (!sel) return false;
+    const step = ({ ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0] } as Record<string, [number, number]>)[e.key];
+    if (step && e.shiftKey && sel.color) this.store.edit({ op: 'rug', id: sel.id, w: sel.w + step[0], h: sel.h + step[1] });
+    else if (step) this.store.edit({ op: 'move', id: sel.id, x: sel.x + step[0], y: sel.y + step[1] });
+    else if (e.key === 'Delete' || e.key === 'Backspace') this.store.edit({ op: 'remove', id: sel.id });
+    else return false;
+    return true;
+  }
   private onMove = (e: PointerEvent) => {
     if (this.pointers.has(e.pointerId)) this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (this.pinch && this.pointers.size >= 2) return this.onPinch();
@@ -403,6 +494,7 @@ export class Engine {
       }
     }
     const w = this.toWorld(e);
+    if (this.editing) return this.onEditMove(w);
     this.hoverUser = this.userAt(w.x, w.y);
     const inside = this.myInstance();
     this.hoverObject = this.hoverUser || inside ? null : this.objectAt(w.x, w.y);
@@ -412,15 +504,41 @@ export class Engine {
     this.hoverTile = isWalkable(MAP, tx, ty) && (!inside || inMeetingRoom(tx, ty)) ? { x: tx, y: ty } : null;
     this.canvas.style.cursor = this.tapZooms ? 'zoom-in' : this.hoverUser || this.hoverObject ? 'pointer' : this.hoverTile ? 'crosshair' : 'default';
   };
+  private onEditMove(w: { x: number; y: number }) {
+    const tx = Math.floor(w.x / TS), ty = Math.floor(w.y / TS), d = this.editDrag;
+    if (d) {
+      const x = tx - d.gx, y = ty - d.gy;
+      if (x !== d.x || y !== d.y) {
+        d.x = x; d.y = y; d.moved = true;
+        this.ghost = { item: { ...d.item, x, y }, problem: this.check({ op: 'move', id: d.item.id, x, y }) };
+      }
+    } else if (this.placing && !this.tapZooms) {
+      const it = this.placeItem(tx, ty);
+      if (!this.ghost || this.ghost.item.x !== it.x || this.ghost.item.y !== it.y || this.ghost.item.type !== it.type) this.ghost = { item: it, problem: this.check(this.placeEdit(it)) };
+    }
+    this.editHover = this.placing || d ? null : this.itemAt(w.x, w.y);
+    this.canvas.style.cursor = this.tapZooms ? 'zoom-in' : d ? 'grabbing' : this.placing ? 'copy' : this.editHover ? 'grab' : 'default';
+  }
   private onUp = (e: PointerEvent) => {
     this.pointers.delete(e.pointerId);
     if (this.pinch) { if (this.pointers.size < 2) this.pinch = null; return; }
+    const ed = this.editDrag; this.editDrag = null;
+    if (ed) { // dropped (or just clicked): select it, and move it if it went somewhere
+      this.ghost = null;
+      if (ed.moved) this.store.edit({ op: 'move', id: ed.item.id, x: ed.x, y: ed.y });
+      return this.select(ed.item.id);
+    }
     const d = this.drag; this.drag = null;
     if (!d || d.moved) return;
     const w = this.toWorld(e);
     if (this.tapZooms) { // overview: a tap zooms in right there
       this.manualCam = true; this.onPick?.(null);
       return this.zoomTo(this.backPx(), this.devicePoint(e), { wx: w.x, wy: w.y });
+    }
+    if (this.editing) {
+      if (this.placing) this.store.edit(this.placeEdit(this.placeItem(Math.floor(w.x / TS), Math.floor(w.y / TS))));
+      else this.select(this.itemAt(w.x, w.y)?.id ?? null);
+      return;
     }
     const hit = this.userAt(w.x, w.y);
     if (hit) return this.onPick?.({ kind: 'user', id: hit });
@@ -451,13 +569,15 @@ export class Engine {
       out.push({ u, x: tx * TS + 8 + side * 4, y: ty * TS + (desk.h > 1 ? 11 : 7), base: (desk.y + desk.h) * TS - 0.25 }); // a big table: inside its top edge
     }
     shelved.sort((a, b) => a.id.localeCompare(b.id));
-    shelved.slice(0, SLOTS.length).forEach((u, i) => out.push({ u, x: SLOTS[i].x * TS + 8, y: SLOTS[i].y * TS + 6, base: (SLOTS[i].y + 1) * TS - 0.25 }));
+    const slots = this.slots;
+    shelved.slice(0, slots.length).forEach((u, i) => out.push({ u, x: slots[i].x * TS + 8, y: slots[i].y * TS + 6, base: (slots[i].y + 1) * TS - 0.25 }));
     return out;
   }
 
   // ---------- render ----------
   private frame = (ms: number) => {
     this.raf = requestAnimationFrame(this.frame);
+    if (this.layoutSeen !== this.store.layoutVersion) this.refreshLayout();
     const ctx = this.ctx, t = this.store.now();
     const users = [...this.store.users.values()].filter(u => this.visible(u));
     const poses = new Map<string, Pose>(users.map(u => [u.id, this.store.pose(u, t)]));
@@ -488,7 +608,7 @@ export class Engine {
     ctx.drawImage(this.staticLayer, 0, 0);
 
     // hover tile + my destination marker
-    if (this.hoverTile && !this.hoverUser && !this.tapZooms) {
+    if (this.hoverTile && !this.hoverUser && !this.tapZooms && !this.editing) {
       ctx.strokeStyle = 'rgba(255,240,200,0.55)'; ctx.lineWidth = 1;
       ctx.strokeRect(this.hoverTile.x * TS + 0.5, this.hoverTile.y * TS + 0.5, TS - 1, TS - 1);
     }
@@ -566,6 +686,7 @@ export class Engine {
     this.drawReactions(poses, ms);
 
     this.drawAmbient(ctx, camX, camY);
+    if (this.editing) this.drawEdit(ctx, camX, camY, ms);
     if (this.overview && !me?.instance) this.drawRoomTags(users, poses, camX, camY);
     // one of my meetings is on: say so over the board, readable at any zoom
     const goable = me && !me.instance && this.hoverObject?.use?.kind !== 'meetings'
@@ -576,7 +697,7 @@ export class Engine {
     }
 
     // hover tooltip in screen space
-    if (this.tapZooms) { /* overview: room tags only */ }
+    if (this.tapZooms || this.editing) { /* overview: room tags only; edit mode: its own labels */ }
     else if (this.hoverUser) this.drawTooltip(this.hoverUser, poses, camX, camY);
     else if (this.hoverObject && !this.selected) {
       const o = this.hoverObject, fr = this.f(o.type)!;
@@ -774,6 +895,39 @@ export class Engine {
       const s = ph < 0.5 ? 1 : 2;
       ctx.fillRect(x, y, s, s);
     }
+  }
+
+  /** Edit mode: a tile grid, what's under the pointer, the selection, and where a dragged or new thing would land. */
+  private drawEdit(ctx: CanvasRenderingContext2D, camX: number, camY: number, ms: number) {
+    const x0 = Math.max(0, Math.floor(camX / TS)), x1 = Math.min(MAP.width, Math.ceil((camX + this.viewW) / TS));
+    const y0 = Math.max(0, Math.floor(camY / TS)), y1 = Math.min(MAP.height, Math.ceil((camY + this.viewH) / TS));
+    ctx.strokeStyle = 'rgba(255,240,200,0.2)'; ctx.lineWidth = 1 / this.px;
+    ctx.beginPath();
+    for (let x = x0; x <= x1; x++) { ctx.moveTo(x * TS, y0 * TS); ctx.lineTo(x * TS, y1 * TS); }
+    for (let y = y0; y <= y1; y++) { ctx.moveTo(x0 * TS, y * TS); ctx.lineTo(x1 * TS, y * TS); }
+    ctx.stroke();
+    // the footprint shaded, the whole sprite outlined
+    const outline = (it: Item, color: string, fill: string, dash: boolean) => {
+      const s = it.color ? null : this.sprite(it);
+      const x = Math.min(it.x * TS, s?.x ?? Infinity), y = Math.min(it.y * TS, s?.y ?? Infinity);
+      const r = Math.max((it.x + it.w) * TS, s ? s.x + s.fr.w : 0), b = Math.max((it.y + it.h) * TS, s ? s.y + s.fr.h : 0);
+      ctx.fillStyle = fill; ctx.fillRect(it.x * TS, it.y * TS, it.w * TS, it.h * TS);
+      ctx.strokeStyle = color; ctx.lineWidth = 1; ctx.setLineDash(dash ? [2, 2] : []);
+      ctx.strokeRect(Math.round(x) - 0.5, Math.round(y) - 0.5, Math.round(r - x) + 1, Math.round(b - y) + 1); ctx.setLineDash([]);
+    };
+    const hover = this.editHover && this.editHover.id !== this.editSel ? this.editHover : null;
+    if (hover) outline(hover, 'rgba(255,255,255,0.85)', 'rgba(255,255,255,0.1)', true);
+    const sel = this.editSel ? this.item(this.editSel) : undefined;
+    if (sel) outline(sel, `rgba(255,214,110,${(0.8 + Math.sin(ms / 180) * 0.2).toFixed(2)})`, 'rgba(255,214,110,0.22)', false);
+    const g = this.ghost;
+    if (g) {
+      ctx.globalAlpha = 0.7; this.drawItem(ctx, g.item); ctx.globalAlpha = 1;
+      ctx.fillStyle = g.problem ? 'rgba(220,60,50,0.38)' : 'rgba(90,200,110,0.3)';
+      ctx.fillRect(g.item.x * TS, g.item.y * TS, g.item.w * TS, g.item.h * TS);
+    }
+    // labels last: they draw in screen space
+    if (g?.problem) this.drawLabel(g.problem, (g.item.x + g.item.w / 2) * TS, g.item.y * TS, camX, camY);
+    else if (hover) this.drawLabel(hover.type ? objectName(hover.type) : 'rug', (hover.x + hover.w / 2) * TS, hover.y * TS, camX, camY);
   }
 
   private drawAmbient(ctx: CanvasRenderingContext2D, camX: number, camY: number) {

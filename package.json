@@ -8,7 +8,7 @@
   ],
   "scripts": {
     "test": "node --import tsx --test server/src/*.test.ts",
-    "gen": "node scripts/gen-map.mjs && node scripts/gen-assets.mjs",
+    "gen": "node --import tsx scripts/gen-map.mjs && node scripts/gen-assets.mjs",
     "dev": "concurrently -k -n server,client -c yellow,cyan \"npm run dev -w server\" \"npm run dev -w client\"",
     "typecheck": "tsc -p server --noEmit && tsc -p client --noEmit",
     "dev:mesh": "DECK_MESH=1 npm run dev"

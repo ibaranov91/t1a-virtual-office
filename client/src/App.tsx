@@ -9,7 +9,7 @@ import { ITEMS, MAP, Store, type ClientUser } from './net';
 import { inNativeApp, syncNative } from './native';
 import { ACHIEVEMENTS, dayNumber, MAX_CHAT_LEN, MEET_LINK_RE, meetAs, normalizeMeetLink, kindName, PLANT_DIES_DAYS, PLANT_KINDS, PLANT_REVEAL, PLANT_STAGES, plantDead, plantName, REACTIONS, type Plant } from '../../shared/protocol';
 import { hallLevel } from '../../shared/acoustics';
-import { seatAt } from '../../shared/map';
+import { FIXED_TYPES, KEEP_TYPES, objectName, RUG_COLORS, RUG_MAX, RUG_MIN, seatAt } from '../../shared/map';
 
 // Dev server: sign in automatically as ?as=<name> (default "Dev"); each name keeps its own session,
 // so several tabs can be different people.
@@ -115,6 +115,7 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
   const [showAppearance, setShowAppearance] = useState(false);
   const [, tick] = useState(0);
   const [engine, setEngine] = useState<Engine | null>(null);
+  const [editing, setEditing] = useState(false);
 
   useEffect(() => { store.connect(); return () => store.close(); }, [store]);
   useEffect(() => { const s = new Soundscape(store); return () => s.destroy(); }, [store]);
@@ -145,12 +146,14 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
       setPick(cur => (p && cur?.kind === p.kind && cur.id === p.id ? null : p)); // same target again: close
     };
     e.onZoom = () => tick(n => n + 1);
+    e.onEditChange = () => tick(n => n + 1);
     engineRef.current = e; setEngine(e);
     if (import.meta.env.DEV) Object.assign(window, { __deck: { store, engine: e } });
     return () => { e.destroy(); setEngine(null); };
   }, [assets, store]);
   useEffect(() => { const i = setInterval(() => { tick(n => n + 1); store.checkAgenda(); }, 1000); return () => clearInterval(i); }, [store]);
   useEffect(() => { if (engineRef.current) engineRef.current.selected = pick; }, [pick]);
+  useEffect(() => { engine?.setEditing(editing && store.admin); }, [engine, editing, store.admin]);
 
   const me = store.users.get(store.me);
   const myRoom = me ? store.roomOf(me) : undefined;
@@ -159,7 +162,8 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
   return (
     <div className="office">
       <TopBar store={store} roomName={myRoom?.name} onToggleRooms={() => setShowRooms(s => !s)} onLogout={onLogout}
-        onToggleMeet={() => setShowMeet(s => !s)} onToggleAppearance={() => setShowAppearance(s => me?.lookSet ? !s : true)} engine={engine} />
+        onToggleMeet={() => setShowMeet(s => !s)} onToggleAppearance={() => setShowAppearance(s => me?.lookSet ? !s : true)} engine={engine}
+        editing={editing} onToggleEdit={() => setEditing(e => !e)} />
       <div className="stage">
         <div className="canvas-wrap"><canvas ref={canvasRef} /></div>
         {!assets && <div className="loading">Unlocking the door…</div>}
@@ -167,6 +171,7 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
         {showRooms && <RoomList store={store} onPerson={openPerson} onClose={() => setShowRooms(false)}
           onPick={id => { engineRef.current?.walkToUser(id); if (compact()) setShowRooms(false); }}
           onRoom={id => { engineRef.current?.walkToRoom(id); if (compact()) setShowRooms(false); }} />}
+        {editing && store.admin && engine && <EditPanel store={store} engine={engine} assets={assets} onDone={() => setEditing(false)} />}
         {store.calendarOpen && <CalendarPanel store={store} />}
         {store.meetingsOpen && <MeetingsPanel store={store} />}
         {store.achievementsOpen && me && <AchievementsPanel store={store} me={me} assets={assets} />}
@@ -191,8 +196,9 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
   );
 }
 
-function TopBar({ store, roomName, onToggleRooms, onToggleMeet, onToggleAppearance, onLogout, engine }: {
+function TopBar({ store, roomName, onToggleRooms, onToggleMeet, onToggleAppearance, onLogout, engine, editing, onToggleEdit }: {
   store: Store; roomName?: string; onToggleRooms: () => void; onToggleMeet: () => void; onToggleAppearance: () => void; onLogout: () => void; engine: Engine | null;
+  editing: boolean; onToggleEdit: () => void;
 }) {
   const me = store.users.get(store.me);
   const [draft, setDraft] = useState<string | null>(null);
@@ -239,6 +245,10 @@ function TopBar({ store, roomName, onToggleRooms, onToggleMeet, onToggleAppearan
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 4h8v5a4 4 0 0 1-8 0V4ZM8 6H5v1a3 3 0 0 0 3 3M16 6h3v1a3 3 0 0 1-3 3M12 13v4M8 20h8M9 17h6" /></svg>
         {me?.plant && needsWater(me.plant, store.now()) && <b className="dot" />}
       </button>
+      {store.admin && <button onClick={onToggleEdit} className={`hanger-btn${editing ? ' on' : ''}`} aria-pressed={editing}
+        title={editing ? 'Done rearranging' : 'Rearrange the office (admins)'} aria-label="Rearrange the office">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16v4ZM13 7l4 4" /></svg>
+      </button>}
       <button onClick={onToggleAppearance} className="hanger-btn" title="Character appearance" aria-label="Character appearance">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a2 2 0 0 0-2 2c0 1 .7 1.6 1.6 2.4.6.5 1.1 1 1.1 1.8V11M12 9l-7 9h14l-7-9ZM3 21h18" /></svg>
       </button>
@@ -451,6 +461,59 @@ function MeetingChip({ store }: { store: Store }) {
 
 /** Today's status hasn't been set yet (or the plant is gone): the plant wants attention. */
 const needsWater = (p: Plant, now: number) => plantDead(p, now) || p.care < dayNumber(now);
+
+/** Office admins: what to add, and what to do with the selected thing. The floor itself is where you drag. */
+function EditPanel({ store, engine, assets, onDone }: { store: Store; engine: Engine; assets: Assets | null; onDone: () => void }) {
+  const sel = engine.editSel ? engine.item(engine.editSel) : undefined;
+  const types = Object.keys(MAP.catalog).filter(t => !KEEP_TYPES.has(t) && !FIXED_TYPES.has(t));
+  const resize = (dw: number, dh: number) => sel && store.edit({ op: 'rug', id: sel.id, w: sel.w + dw, h: sel.h + dh });
+  return (
+    <div className="edit-panel">
+      <div className="rooms-head"><span>Rearrange the office</span><button onClick={onDone}>Done</button></div>
+      <p className="hint">Drag furniture or rugs to move them. Arrows nudge, Delete removes, Esc lets go. Everyone sees changes right away.</p>
+      {sel && <section className="edit-sel">
+        <h3>{sel.type ? objectName(sel.type) : 'Rug'}</h3>
+        {sel.color && <>
+          <div className="swatches">{RUG_COLORS.map(c => <button key={c} className={`swatch rug-${c}${sel.color === c ? ' on' : ''}`} title={c} aria-label={`${c} rug`}
+            onClick={() => store.edit({ op: 'rug', id: sel.id, color: c })} />)}</div>
+          <div className="rug-size">
+            <span>{sel.w} × {sel.h}</span>
+            <button onClick={() => resize(-1, 0)} disabled={sel.w <= RUG_MIN} title="Narrower">↔−</button>
+            <button onClick={() => resize(1, 0)} disabled={sel.w >= RUG_MAX} title="Wider (shift →)">↔+</button>
+            <button onClick={() => resize(0, -1)} disabled={sel.h <= RUG_MIN} title="Shorter">↕−</button>
+            <button onClick={() => resize(0, 1)} disabled={sel.h >= RUG_MAX} title="Longer (shift ↓)">↕+</button>
+          </div>
+        </>}
+        {sel.type && FIXED_TYPES.has(sel.type) ? <p className="hint">This one stays where it is.</p>
+          : sel.type && KEEP_TYPES.has(sel.type) ? <p className="hint">The office needs this one: move it, but it stays.</p>
+          : <button className="danger" onClick={() => store.edit({ op: 'remove', id: sel.id })}>Remove</button>}
+      </section>}
+      <h3>Add <small>{engine.placing ? 'click the floor to place · Esc to stop' : 'pick one, then click the floor'}</small></h3>
+      <div className="palette">
+        <button className={engine.placing === 'rug' ? 'on' : ''} onClick={() => engine.setPlacing(engine.placing === 'rug' ? null : 'rug')} title="rug">
+          <ItemThumb assets={assets} frame="rug_green_c" /><span>rug</span>
+        </button>
+        {types.map(t => <button key={t} className={engine.placing === t ? 'on' : ''} onClick={() => engine.setPlacing(engine.placing === t ? null : t)} title={objectName(t)}>
+          <ItemThumb assets={assets} frame={t} /><span>{objectName(t)}</span>
+        </button>)}
+      </div>
+      <button className="ghost reset" onClick={() => { if (confirm('Put every piece of furniture and every rug back where it started? Everyone sees it at once.')) store.resetLayout(); }}>
+        Reset to the original layout…</button>
+    </div>
+  );
+}
+
+/** A world-atlas frame, scaled to fit a 32×32 box, crisp. */
+function ItemThumb({ assets, frame }: { assets: Assets | null; frame: string }) {
+  const ref = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const c = ref.current, f = assets?.atlas.frames[frame]; if (!c || !f || !assets) return;
+    const k = Math.max(1, Math.floor(32 / Math.max(f.w, f.h))), w = Math.min(32, f.w * k), h = Math.min(32, f.h * k);
+    const ctx = c.getContext('2d')!; ctx.imageSmoothingEnabled = false; ctx.clearRect(0, 0, 32, 32);
+    ctx.drawImage(assets.world, f.x, f.y, f.w, f.h, (32 - w) / 2, 32 - h, w, h);
+  }, [assets, frame]);
+  return <canvas ref={ref} width={32} height={32} />;
+}
 
 /** A plant sprite from the world atlas, scaled up crisply. */
 function PlantSprite({ assets, plant, now, scale = 4 }: { assets: Assets | null; plant: Plant; now: number; scale?: number }) {

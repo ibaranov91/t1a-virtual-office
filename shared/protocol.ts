@@ -1,4 +1,4 @@
-import type { Dir, Move, Tile } from './map';
+import type { Dir, Layout, Move, Tile } from './map';
 
 export const ROOM_VOICE_MAX = 12;
 export const ZONE_IN_TILES = 6;
@@ -118,8 +118,18 @@ export interface Knock {
   state: 'walking' | 'pending' | 'accept' | 'later' | 'blocked';
 }
 
+/** One change an office admin makes to the furniture or the rugs. `id` is an object's or a rug's. */
+export type LayoutEdit =
+  | { op: 'move'; id: string; x: number; y: number }
+  | { op: 'add'; type: string; x: number; y: number }
+  | { op: 'remove'; id: string }
+  | { op: 'rug_add'; x: number; y: number; color?: string; w?: number; h?: number }
+  | { op: 'rug'; id: string; color?: string; w?: number; h?: number };
+
 // server -> client
 export type ServerMsg =
+  // the furniture and rugs: on connect, and to everyone after each admin edit. by: who made it; added: a new thing's id
+  | { t: 'layout'; layout: Layout; by?: string; added?: string }
   | { t: 'hello'; you: string; serverTime: number; build?: string } // build: the client bundle the server serves (absent in dev)
   | { t: 'state'; users: PublicUser[]; objects: Record<string, ObjectState>; serverTime: number }
   | { t: 'move'; userId: string; from: Tile; to: Tile; startedAt: number; path?: Tile[]; face?: Dir }
@@ -131,7 +141,7 @@ export type ServerMsg =
   | { t: 'knock_reply'; knockId: string; fromId: string; toId: string; reply: 'accept' | 'later' | 'blocked'; link?: string; reason?: string; fallback?: boolean; cancelled?: boolean }
   // private settings, only to the user themselves. google: the connected Google account (null = not connected),
   // absent when this instance has no Google sign-in
-  | { t: 'me'; meetLink: string; email?: string; google?: string | null; calendar?: boolean } // calendar: Calendar access granted
+  | { t: 'me'; meetLink: string; email?: string; google?: string | null; calendar?: boolean; admin?: boolean } // calendar: Calendar access granted; admin: may rearrange the office
   | { t: 'google_auth'; url: string; calendar?: boolean } // open this to connect Google (in the system browser from the Mac app)
   | { t: 'calendar'; events?: CalEvent[]; error?: string } // my own events, only to me
   | { t: 'agenda'; items: AgendaItem[] } // my calendar meetings now and soon, only to me
@@ -190,4 +200,6 @@ export type ClientMsg =
   | { t: 'hand'; up: boolean }
   | { t: 'leave_room' }
   | { t: 'voice_claim' }
+  | { t: 'edit'; edit: LayoutEdit } // office admins only
+  | { t: 'edit_reset' }              // office admins only: back to the generated layout
   | { t: 'look'; look: Look };
