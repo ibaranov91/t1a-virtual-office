@@ -92,13 +92,14 @@ export class Engine {
     return { x: r.left + (p.x * TS + 8 - this.cam.x) * k, y: r.top + (p.y * TS + 4 - this.cam.y) * k };
   }
 
-  /** CSS-pixel centre of what the wheel points at, or null if it's gone. */
+  /** CSS-pixel centre of what the wheel points at and how far its sprite reaches from there, or null if it's gone. */
   anchor(p: Pick) {
-    if (p.kind === 'user') return this.screenPos(p.id);
+    const k = this.px / (this.canvas.width / this.canvas.getBoundingClientRect().width);
+    if (p.kind === 'user') { const s = this.screenPos(p.id); return s && { ...s, r: 13 * k }; }
     const o = MAP.objects.find(o => o.id === p.id), fr = o && this.f(o.type);
     if (!o || !fr) return null;
-    const r = this.canvas.getBoundingClientRect(), k = this.px / (this.canvas.width / r.width);
-    return { x: r.left + ((o.x + o.w / 2) * TS - this.cam.x) * k, y: r.top + ((o.y + o.h) * TS - fr.h / 2 - this.cam.y) * k };
+    const r = this.canvas.getBoundingClientRect();
+    return { x: r.left + ((o.x + o.w / 2) * TS - this.cam.x) * k, y: r.top + ((o.y + o.h) * TS - fr.h / 2 - this.cam.y) * k, r: (Math.max(fr.w, fr.h) / 2) * k };
   }
 
   // ---------- frames ----------

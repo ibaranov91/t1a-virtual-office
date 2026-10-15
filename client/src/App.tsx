@@ -399,14 +399,11 @@ function ActionWheel({ store, engine, pick, onClose }: { store: Store; engine: E
   const ref = useRef<HTMLDivElement>(null);
   const isMe = pick.kind === 'user' && pick.id === store.me;
   const [emoji, setEmoji] = useState(isMe);
+  // the wheel stays where it opened (a moving target is hard to hit); the floor ring shows who it's for
+  const [at] = useState(() => engine.anchor(pick));
   useEffect(() => {
     let raf = 0;
-    const tick = () => {
-      const a = engine.anchor(pick);
-      if (!a) return onClose();
-      if (ref.current) ref.current.style.transform = `translate(${Math.round(a.x)}px, ${Math.round(a.y)}px)`;
-      raf = requestAnimationFrame(tick);
-    };
+    const tick = () => { if (!engine.anchor(pick)) return onClose(); raf = requestAnimationFrame(tick); };
     tick();
     const key = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', key);
@@ -455,11 +452,15 @@ function ActionWheel({ store, engine, pick, onClose }: { store: Store; engine: E
       items = o.use.items.map(i => ({ icon: i.icon, label: i.label, onClick: act(() => store.use(o.id, i.id)) }));
     }
   }
-  const R = items.length <= 2 ? 46 : items.length <= 4 ? 56 : 66;
+  if (!at) return null;
+  // buttons ring the sprite without covering it, at any zoom; the whole wheel stays on screen
+  const R = Math.max(items.length <= 2 ? 46 : items.length <= 4 ? 56 : 66, at.r + 30);
+  const x = Math.round(Math.min(Math.max(at.x, R + 28), window.innerWidth - R - 28));
+  const y = Math.round(Math.min(Math.max(at.y, R + 70), window.innerHeight - R - 30));
   // two items sit left/right; more start at the top and go clockwise
   const start = items.length === 2 ? Math.PI : -Math.PI / 2;
   return (
-    <div className="wheel" ref={ref}>
+    <div className="wheel" ref={ref} style={{ transform: `translate(${x}px, ${y}px)` }}>
       <div className="wheel-title" style={{ top: -R - 46 }}>{title}</div>
       {items.map((it, i) => {
         const a = start + (i * 2 * Math.PI) / items.length;
