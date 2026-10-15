@@ -22,6 +22,8 @@ final class Updater: NSObject, WKDownloadDelegate {
   func offer(_ m: [String: Any]) {
     // Local builds (macos/build.sh without --dist) would otherwise "update" to whatever the instance serves.
     if Bundle.main.object(forInfoDictionaryKey: "DeckDev") as? Bool == true { return }
+    // Another instance's app (e.g. prod's app pointed at iva): not ours to install.
+    if let id = m["bundleId"] as? String, id != Bundle.main.bundleIdentifier { return }
     guard let build = m["build"] as? String, let sha = m["sha256"] as? String, let own = ownBuild, build != own else {
       if available != nil { available = nil; onChange() }
       return
@@ -67,7 +69,8 @@ final class Updater: NSObject, WKDownloadDelegate {
     guard got == want else { throw UpdateError(message: "The download didn't match its checksum. Try again.") }
     let dir = zip.deletingLastPathComponent()
     try run("/usr/bin/ditto", "-x", "-k", zip.path, dir.path)
-    let new = dir.appendingPathComponent("The Deck.app")
+    guard let new = try FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)
+      .first(where: { $0.pathExtension == "app" }) else { throw UpdateError(message: "The download has no app in it.") }
     try checkSigner(new)
     try? run("/usr/bin/xattr", "-dr", "com.apple.quarantine", new.path) // WebKit marks downloads; we verified hash + signer
     let dest = Bundle.main.bundleURL

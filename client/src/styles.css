@@ -179,3 +179,4 @@ button:focus-visible, summary:focus-visible, input[type="range"]:focus-visible {
 
 .knock-people { flex-basis: 100%; min-width: 0; }
 .knock-people summary { cursor: pointer; color: var(--text); }
+.unread-btn { background: #6a8ad0; color: #fff; }

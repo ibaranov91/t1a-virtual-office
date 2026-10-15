@@ -4,6 +4,9 @@
 import AppKit
 import WebKit
 
+/// "The Deck" for prod, "The Deck (iva)" for a test instance's app (see macos/build.sh).
+let appName = Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String ?? "The Deck"
+
 let instances: [(name: String, url: String)] = [
   ("prod", "https://voffice.t1a.io"),
   ("andr", "https://voffice-andr.pub.t1a.cloud"),
@@ -63,7 +66,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
 
     window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1100, height: 720),
                       styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
-    window.title = "The Deck"
+    window.title = appName
     window.isReleasedWhenClosed = false
     window.delegate = self
     window.center()
@@ -72,7 +75,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
 
     desk = DeskWindow(contentRect: NSRect(x: 80, y: 80, width: 640, height: 420),
                       styleMask: [.borderless, .resizable], backing: .buffered, defer: false)
-    desk.title = "The Deck (desktop)"
+    desk.title = "\(appName) (desktop)"
     desk.isReleasedWhenClosed = false
     desk.hasShadow = true
     desk.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle]
@@ -121,7 +124,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
     box.material = .hudWindow; box.blendingMode = .withinWindow; box.state = .active
     box.wantsLayer = true; box.layer?.cornerRadius = 12
     let icon = NSImageView(image: Person.image(color: .systemOrange, pixel: 3))
-    let title = NSTextField(labelWithString: "The Deck lives in your menu bar")
+    let title = NSTextField(labelWithString: "\(appName) lives in your menu bar")
     title.font = .boldSystemFont(ofSize: 15)
     let text = NSTextField(wrappingLabelWithString: "Close this window anytime and stay in the office. Click the little person at the top of your screen to open it again, right-click it for options.")
     text.font = .systemFont(ofSize: 12); text.textColor = .secondaryLabelColor; text.alignment = .center
@@ -180,7 +183,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
       let b = NSButton(image: NSImage(systemSymbolName: symbol, accessibilityDescription: tip)!, target: self, action: sel)
       b.bezelStyle = .accessoryBarAction; b.isBordered = false; b.toolTip = tip; return b
     }
-    let title = NSTextField(labelWithString: "The Deck")
+    let title = NSTextField(labelWithString: appName)
     title.font = .boldSystemFont(ofSize: 12)
     pinButton = button("pin", "Pin to desktop", #selector(togglePinned))
     updateButton = NSButton(title: "Update", target: self, action: #selector(updateClicked))
@@ -246,6 +249,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
   @objc func statusClicked() {
     card.close()
     if NSApp.currentEvent?.type == .rightMouseUp { return showMenu() }
+    if let first = state.unread.first, !popover.isShown { return openChat(first.id) } // straight to the oldest unread chat
     if popover.isShown { popover.performClose(nil) } else { showPopover() }
   }
 
@@ -270,6 +274,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
       m.addItem(updater.busy ? NSMenuItem(title: "Updating…", action: nil, keyEquivalent: "") : item("Update to \(u.version) (restarts the app)", #selector(updateClicked)))
     }
     for k in state.knocks { m.addItem(withTitle: "🚪 \(k.text)", action: nil, keyEquivalent: "") }
+    for u in state.unread {
+      let i = item("💬 \(u.name) (\(u.count))", #selector(openChatClicked(_:))); i.representedObject = u.id; m.addItem(i)
+    }
     if state.busy { m.addItem(withTitle: "Quiet: away or in a call, knocks only light the icon", action: nil, keyEquivalent: "") }
     m.addItem(.separator())
     m.addItem(item("Open in a separate window", #selector(openClicked)))
@@ -289,7 +296,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
     m.addItem(item("Reload", #selector(reloadClicked), key: "r"))
     m.addItem(item("Open in browser", #selector(openInBrowser)))
     m.addItem(.separator())
-    m.addItem(item("Quit The Deck", #selector(quit), key: "q"))
+    m.addItem(item("Quit \(appName)", #selector(quit), key: "q"))
     return m
   }
 
@@ -313,10 +320,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
 
   func renderIcon() {
     // same little person always: orange = someone's knocking, green + waves = you're in a call
-    status.button?.image = !state.knocks.isEmpty ? Person.image(color: .systemOrange)
-      : state.inCall ? Person.image(color: .systemGreen, call: true) : Person.image()
+    // blue dot = unread messages, on top of any of those
+    let dot = !state.unread.isEmpty
+    status.button?.image = !state.knocks.isEmpty ? Person.image(color: .systemOrange, dot: dot)
+      : state.inCall ? Person.image(color: .systemGreen, call: true, dot: dot) : Person.image(dot: dot)
+    let total = state.unread.reduce(0) { $0 + $1.count }
+    NSApp.dockTile.badgeLabel = total > 0 ? "\(total)" : nil // visible while the window is open (in the Dock); never bounces
     status.button?.appearsDisabled = !state.connected
-    status.button?.toolTip = state.knocks.first?.text ?? (state.inCall ? "In a call" : "The Deck")
+    status.button?.toolTip = state.knocks.first?.text
+      ?? (state.unread.isEmpty ? nil : "Unread messages from " + state.unread.map(\.name).joined(separator: ", "))
+      ?? (state.inCall ? "In a call" : appName)
   }
 
   /// The person knocks a few times on the icon, so a knock is noticeable even in quiet mode.
@@ -332,6 +345,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
   }
 
   @objc func updateClicked() { updater.start(in: web) }
+
+  func openChat(_ id: String) {
+    if window.isVisible { showWindow() } else { showPopover() }
+    js("__deckNative.openChat(\(json(id)))")
+  }
+  @objc func openChatClicked(_ sender: NSMenuItem) { if let id = sender.representedObject as? String { openChat(id) } }
 
   func renderUpdate() {
     updateButton?.isHidden = updater.available == nil
@@ -352,7 +371,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
     state = DeckState(connected: m["connected"] as? Bool ?? false, inCall: m["inCall"] as? Bool ?? false,
                       busy: m["busy"] as? Bool ?? false,
                       knocks: (m["knocks"] as? [[String: Any]] ?? []).compactMap { k in
-                        (k["id"] as? String).map { ($0, k["text"] as? String ?? "Someone is knocking") } })
+                        (k["id"] as? String).map { ($0, k["text"] as? String ?? "Someone is knocking") } },
+                      unread: (m["unread"] as? [[String: Any]] ?? []).compactMap { u in
+                        (u["id"] as? String).map { ($0, u["name"] as? String ?? "Someone", u["count"] as? Int ?? 1) } })
     renderIcon()
     updateCard(old)
     updateIfIdle()
@@ -410,11 +431,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
 
   /// Shown while the window is open (the app is in the Dock then); copy/paste shortcuts need the Edit menu always.
   func editMenu() -> NSMenu {
-    let main = NSMenu(), app = NSMenuItem(), a = NSMenu(title: "The Deck")
-    a.addItem(withTitle: "About The Deck", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
+    let main = NSMenu(), app = NSMenuItem(), a = NSMenu(title: appName)
+    a.addItem(withTitle: "About \(appName)", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
     a.addItem(.separator())
-    a.addItem(withTitle: "Hide The Deck", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
-    a.addItem(withTitle: "Quit The Deck", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+    a.addItem(withTitle: "Hide \(appName)", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
+    a.addItem(withTitle: "Quit \(appName)", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
     app.submenu = a; main.addItem(app)
     let edit = NSMenuItem(), m = NSMenu(title: "Edit")
     m.addItem(withTitle: "Undo", action: Selector(("undo:")), keyEquivalent: "z")
