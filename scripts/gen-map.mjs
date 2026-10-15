@@ -2,9 +2,11 @@
 // Layers are 2D arrays of indices into `tiles` (atlas frame names); 0 = nothing.
 // Run: npm run gen (it needs tsx, for the shared layout code)
 import { writeFileSync } from 'node:fs';
-import { applyLayout, layoutProblem } from '../shared/map.ts';
+import { applyLayout, findPath, isWalkable, layoutProblem, roomAt } from '../shared/map.ts';
 
-const W = 65, H = 34;
+const W = 65, OFFICE_H = 34;
+const dungeonRect = { x: 17, y: OFFICE_H + 2, w: 31, h: 19 };
+const H = dungeonRect.y + dungeonRect.h;
 const SOUTH = 23; // the old outer wall: now the building's back wall, the Orangery and the Garden lie beyond it
 const tiles = ['']; // index 0 = empty
 const tid = (name) => {
@@ -69,7 +71,7 @@ const rooms = [
 ];
 
 // ---- base floor everywhere inside the outer walls ----
-for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+for (let y = 0; y < OFFICE_H; y++) for (let x = 0; x < W; x++) {
   floor[y][x] = tid(`wood_${hash(x, y) % 3}`);
 }
 for (const r of rooms) {
@@ -83,8 +85,8 @@ for (const r of rooms) {
 // ---- walls ----
 const CAP = 'wall_cap';
 const setWall = (x, y, name) => { walls[y][x] = tid(name); };
-for (let x = 0; x < W; x++) { setWall(x, 0, CAP); setWall(x, H - 1, CAP); }
-for (let y = 0; y < H; y++) { setWall(0, y, CAP); setWall(W - 1, y, CAP); }
+for (let x = 0; x < W; x++) { setWall(x, 0, CAP); setWall(x, OFFICE_H - 1, CAP); }
+for (let y = 0; y < OFFICE_H; y++) { setWall(0, y, CAP); setWall(W - 1, y, CAP); }
 // tall back wall (2 rows of face)
 for (let x = 1; x < W - 1; x++) { setWall(x, 1, 'wall_face_top'); setWall(x, 2, 'wall_face_bottom'); }
 // horizontal divider: cap row 11, short face row 12, with doors
@@ -109,10 +111,10 @@ for (let x = 1; x < W - 1; x++) {
   if (sDoors.includes(x)) continue;
   setWall(x, SOUTH, CAP); setWall(x, SOUTH + 1, x < 15 ? 'wall_face_short' : x === 15 ? CAP : 'wall_face_ext');
 }
-for (let y = SOUTH; y < H; y++) { if (y === 31 || y === 32) continue; setWall(15, y, CAP); } // Orangery | Garden
+for (let y = SOUTH; y < OFFICE_H; y++) { if (y === 31 || y === 32) continue; setWall(15, y, CAP); } // Orangery | Garden
 // the garden's edge is a hedge, not a wall
-for (let x = 16; x < W; x++) setWall(x, H - 1, 'hedge');
-for (let y = SOUTH + 2; y < H; y++) setWall(W - 1, y, 'hedge');
+for (let x = 16; x < W; x++) setWall(x, OFFICE_H - 1, 'hedge');
+for (let y = SOUTH + 2; y < OFFICE_H; y++) setWall(W - 1, y, 'hedge');
 // door thresholds get plain wood
 for (const x of hDoors) for (const y of [11, 12]) floor[y][x] = tid('door_floor');
 for (const vx of [13, 26]) for (const y of [6, 7]) floor[y][vx] = tid('door_floor');
@@ -282,13 +284,106 @@ stand('music', [[57, 7, 'up'], [60, 8, 'up'], [58, 10, 'up']]);
 stand('orangery', [[7, 27, 'down'], [8, 29, 'down'], [7, 31, 'down']]);
 stand('garden', [[42, 29, 'down'], [43, 29, 'down'], [31, 27, 'left'], [56, 28, 'down'], [20, 28, 'down']]);
 
+// ---- a separate, deterministic maze under the garden (never furniture) ----
+const random = (() => { let seed = 16; return () => {
+  let t = seed += 0x6d2b79f5; t = Math.imul(t ^ t >>> 15, t | 1);
+  t ^= t + Math.imul(t ^ t >>> 7, t | 61); return ((t ^ t >>> 14) >>> 0) / 4294967296;
+}; })();
+const pick = list => list[Math.floor(random() * list.length)];
+const dirs = [[0, -1], [1, 0], [0, 1], [-1, 0]];
+const maze = Array.from({ length: 19 }, () => Array(31).fill(false));
+const stack = [[1, 1]]; maze[1][1] = true;
+while (stack.length) {
+  const [x, y] = stack.at(-1);
+  const options = dirs.map(([dx, dy]) => [x + dx * 2, y + dy * 2])
+    .filter(([x, y]) => x > 0 && x < 30 && y > 0 && y < 18 && !maze[y][x]);
+  if (!options.length) { stack.pop(); continue; }
+  const [nx, ny] = pick(options); maze[(y + ny) / 2][(x + nx) / 2] = maze[ny][nx] = true; stack.push([nx, ny]);
+}
+// Remove only separating walls, keeping the outer wall intact.
+for (let i = 0; i < 10; i++) {
+  const options = [];
+  for (let y = 1; y < 18; y++) for (let x = 1; x < 30; x++) if (!maze[y][x] &&
+    ((x % 2 === 0 && y % 2 === 1 && maze[y][x - 1] && maze[y][x + 1]) ||
+     (y % 2 === 0 && x % 2 === 1 && maze[y - 1][x] && maze[y + 1][x]))) options.push([x, y]);
+  const [x, y] = pick(options); maze[y][x] = true;
+}
+const landing = { x: 3, y: 9 };
+for (let y = 8; y <= 10; y++) for (let x = 2; x <= 4; x++) maze[y][x] = true;
+const distances = () => {
+  const dist = maze.map(row => row.map(() => -1)), queue = [landing]; dist[landing.y][landing.x] = 0;
+  for (let i = 0; i < queue.length; i++) for (const [dx, dy] of dirs) {
+    const x = queue[i].x + dx, y = queue[i].y + dy;
+    if (maze[y]?.[x] && dist[y][x] < 0) { dist[y][x] = dist[queue[i].y][queue[i].x] + 1; queue.push({ x, y }); }
+  }
+  return dist;
+};
+let dist = distances();
+const boundary = [];
+for (let y = 1; y <= 17; y += 2) for (let x = 1; x <= 29; x += 2)
+  if (x === 1 || x === 29 || y === 1 || y === 17) boundary.push({ x, y });
+const doorFront = boundary.sort((a, b) => dist[b.y][b.x] - dist[a.y][a.x])[0];
+const outward = doorFront.y === 1 ? { x: 0, y: -1 } : doorFront.y === 17 ? { x: 0, y: 1 }
+  : { x: doorFront.x === 1 ? -1 : 1, y: 0 };
+const door = { x: doorFront.x + outward.x, y: doorFront.y + outward.y, w: 1, h: 1 };
+const chamber = new Set();
+for (let depth = 0; depth < 2; depth++) for (let side = -1; side <= 1; side++) {
+  const x = doorFront.x - outward.x * depth + outward.y * side;
+  const y = doorFront.y - outward.y * depth + outward.x * side;
+  if (x > 0 && x < 30 && y > 0 && y < 18) { maze[y][x] = true; chamber.add(`${x},${y}`); }
+}
+dist = distances();
+const farthest = Math.max(...dist.flat()), keySpots = [];
+for (let y = 1; y < 18; y++) for (let x = 1; x < 30; x++) if (maze[y][x] && dist[y][x] >= farthest * .4 &&
+  !chamber.has(`${x},${y}`) && dirs.filter(([dx, dy]) => maze[y + dy]?.[x + dx]).length === 1) keySpots.push({ x, y });
+if (keySpots.length < 6) throw new Error(`maze needs at least 6 distant dead ends, got ${keySpots.length}; change seed`);
+const torches = [], torchWalls = [];
+for (let y = 1; y < 18; y++) for (let x = 1; x < 30; x++) if (!maze[y][x] && maze[y + 1]?.[x] &&
+  Math.abs(x - landing.x) + Math.abs(y - landing.y) > 4 && Math.abs(x - door.x) + Math.abs(y - door.y) > 4) torchWalls.push({ x, y });
+while (torches.length < 7) {
+  const options = torchWalls.filter(t => torches.every(p => Math.abs(p.x - t.x) + Math.abs(p.y - t.y) >= 5));
+  if (!options.length) throw new Error('not enough spaced torch walls'); torches.push(pick(options));
+}
+const decor = [{ type: 'leaves', x: landing.x, y: landing.y + 1 }], decals = ['bones', 'cobweb', 'puddle', 'rubble'];
+const decorTiles = [];
+for (let y = 1; y < 18; y++) for (let x = 1; x < 30; x++) if (maze[y][x] &&
+  ![landing, doorFront, ...keySpots].some(t => t.x === x && t.y === y)) decorTiles.push({ x, y });
+while (decor.length < 12) {
+  const t = pick(decorTiles.filter(t => !decor.some(p => p.x === t.x && p.y === t.y)));
+  const corner = !maze[t.y - 1][t.x] && (!maze[t.y][t.x - 1] || !maze[t.y][t.x + 1]);
+  decor.push({ type: corner ? 'cobweb' : pick(decals.filter(d => d !== 'cobweb')), ...t });
+}
+for (let y = OFFICE_H; y < H; y++) for (let x = 0; x < W; x++) { floor[y][x] = 0; walls[y][x] = tid('void'); }
+for (let y = 0; y < 19; y++) for (let x = 0; x < 31; x++) {
+  const xx = dungeonRect.x + x, yy = dungeonRect.y + y;
+  floor[yy][xx] = tid(`dungeon_floor_${hash(x, y) % 3}`);
+  walls[yy][xx] = maze[y][x] ? 0 : tid(maze[y + 1]?.[x] ? 'dungeon_wall_face' : 'dungeon_wall');
+}
+const absolute = t => ({ ...t, x: t.x + dungeonRect.x, y: t.y + dungeonRect.y });
+const dungeon = { rect: dungeonRect, hole: { x: 63, y: 25 }, hatch: { x: 20, y: 32 }, landing: absolute(landing),
+  door: absolute(door), doorFront: absolute(doorFront), keySpots: keySpots.map(absolute), torches: torches.map(absolute), decor: decor.map(absolute) };
+walls[dungeon.door.y][dungeon.door.x] = tid('dungeon_door_closed');
+for (const k of ['hole', 'hatch']) {
+  const t = dungeon[k];
+  if (!tiles[floor[t.y][t.x]].startsWith('grass_') || objects.some(o => t.x >= o.x && t.x < o.x + o.w && t.y >= o.y && t.y < o.y + o.h) ||
+    rooms.some(r => r.stand.some(s => s.x === t.x && s.y === t.y))) throw new Error(`${k} must be free grass off paths and spots`);
+  floor[t.y][t.x] = tid(k);
+}
+
 // one of each kind of object, for admins to add more of
 const catalog = {};
 for (const { id: _i, x: _x, y: _y, ...t } of objects) catalog[t.type] ??= t;
 
-const map = { version: 1, width: W, height: H, tileSize: 16, tiles, layers: { floor, walls, walkable: [] }, rooms, objects: [], rugs: [], spawn: { x: 7, y: 17 }, exit: EXIT, catalog };
+const map = { version: 1, width: W, height: H, tileSize: 16, office: { x: 0, y: 0, w: W, h: OFFICE_H }, dungeon, tiles, layers: { floor, walls, walkable: [] }, rooms, objects: [], rugs: [], spawn: { x: 7, y: 17 }, exit: EXIT, catalog };
 applyLayout(map, { objects, rugs });
 for (const r of rooms) for (const s of r.stand) if (!r.spots.includes(s)) throw new Error(`standing spot ${r.id} ${s.x},${s.y} is under furniture`);
+if (findPath(map, map.spawn, dungeon.landing).length) throw new Error('dungeon connected to office');
+for (const t of dungeon.decor) if (!isWalkable(map, t.x, t.y) || [dungeon.landing, dungeon.doorFront, ...dungeon.keySpots].some(p => p.x === t.x && p.y === t.y)) throw new Error('decor covers a dungeon destination');
+for (const t of [...dungeon.keySpots, dungeon.doorFront]) if (!findPath(map, dungeon.landing, t).length) throw new Error('unreachable dungeon destination');
+for (const k of ['hole', 'hatch']) {
+  const t = dungeon[k];
+  if (!isWalkable(map, t.x, t.y) || roomAt(map, t.x, t.y)?.id !== 'garden' || !findPath(map, map.spawn, t).length) throw new Error(`unreachable garden ${k}`);
+}
 const problem = layoutProblem(map);
 if (problem) throw new Error(problem);
 writeFileSync(new URL('../shared/tilemap.json', import.meta.url), JSON.stringify(map));

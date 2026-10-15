@@ -849,6 +849,103 @@ for (const axis of ['h', 'v']) for (const open of [false, true]) {
   frames[`door_${axis}_${open ? 'open' : 'closed'}`] = t;
 }
 
+// ---------- the cool stone maze under the garden ----------
+for (let v = 0; v < 3; v++) {
+  const t = new Img(16, 16); t.rect(0, 0, 16, 16, '#252d3c');
+  for (let row = 0; row < 4; row++) for (let col = -1; col < 3; col++) {
+    const x = col * 8 + (row % 2) * 4 + (v + row) % 2, y = row * 4;
+    t.rect(x, y, 7, 3, '#424e60'); t.hline(x + 1, y, 5, '#536074'); t.hline(x, y + 2, 7, '#343e50');
+    t.px(x + 2 + v, y + 1, '#48566a');
+  }
+  t.px(3 + v * 4, 6, '#263344'); frames[`dungeon_floor_${v}`] = t;
+}
+for (const face of [false, true]) {
+  const t = new Img(16, 16); t.rect(0, 0, 16, 16, OUT);
+  t.rect(1, 1, 14, face ? 6 : 14, '#596579'); t.hline(1, 1, 14, '#748095');
+  t.hline(1, face ? 6 : 14, 14, '#3b475b'); t.vline(8, 2, face ? 4 : 12, '#445064');
+  t.px(4, 4, '#67758b'); t.px(12, 3, '#48566a');
+  if (face) {
+    t.rect(1, 8, 14, 7, '#3e495d'); t.hline(1, 8, 14, '#67738a');
+    t.hline(1, 14, 14, '#2c3547'); t.vline(5, 9, 5, '#2b3445'); t.px(11, 10, '#4c596d');
+  }
+  frames[face ? 'dungeon_wall_face' : 'dungeon_wall'] = t;
+}
+for (const open of [false, true]) {
+  const t = new Img(16, 16); t.blit(frames.dungeon_wall_face, 0, 0);
+  t.rect(3, 2, 10, 14, OUT); t.rect(5, 1, 6, 2, '#818a9b');
+  t.rect(4, 4, 8, 12, open ? '#242b36' : '#936744');
+  for (const x of [3, 11]) for (let y = 3; y < 16; y += 4) { t.rect(x, y, 2, 3, '#737e91'); t.px(x, y, '#929aae'); }
+  if (open) {
+    t.rect(5, 3, 6, 3, '#f0dca1'); t.hline(6, 3, 4, '#fff1bf');
+    for (const x of [5, 10]) t.vline(x, 6, 10, '#b9905a');
+    for (const y of [7, 10, 13]) t.hline(5, y, 6, '#dbb373');
+  } else {
+    for (const x of [6, 9]) t.vline(x, 4, 12, '#63472f');
+    for (const y of [6, 12]) { t.hline(4, y, 8, '#323c4c'); t.px(5, y, '#a0a4a7'); t.px(10, y, '#a0a4a7'); }
+    t.rect(9, 9, 2, 2, '#ebc154'); t.px(10, 10, OUT);
+  }
+  frames[`dungeon_door_${open ? 'open' : 'closed'}`] = t;
+}
+for (let v = 0; v < 3; v++) {
+  const t = new Img(16, 16); t.rect(6, 8, 4, 6, '#34333e'); t.rect(7, 7, 2, 6, '#95613a');
+  t.rect(5, 8, 6, 2, '#687081'); t.rect(6, 4, 4, 4, '#d56735');
+  t.rect(7, 2 + v % 2, 2, 5, '#f1ae47'); t.px(6 + v, 1 + v, '#f1ae47');
+  t.rect(7, 5, 2, 3, '#ffe9a2'); frames[`torch_${v}`] = t.outline();
+}
+{
+  const t = new Img(16, 16); t.rect(3, 4, 5, 5, '#eebc35'); t.rect(4, 5, 3, 3, OUT);
+  t.hline(4, 4, 3, '#fff0a0'); t.rect(7, 8, 5, 2, '#f4ce4b'); t.rect(10, 9, 2, 3, '#eebc35');
+  t.px(8, 8, '#fff0a0'); frames.key = t.outline();
+}
+{
+  const t = new Img(16, 16); t.hline(4, 8, 7, '#c9c8ba'); t.px(3, 7, '#dedccf'); t.px(3, 9, '#dedccf');
+  t.px(11, 7, '#dedccf'); t.px(11, 9, '#dedccf'); t.rect(8, 3, 4, 3, '#c9c8ba'); t.px(9, 4, OUT); t.px(11, 4, OUT);
+  frames.bones = t.outline();
+}
+{
+  const t = new Img(16, 16);
+  for (let i = 1; i < 13; i++) { t.px(1, i, '#8490a1'); t.px(i, 1, '#8490a1'); t.px(i, i, '#8490a1'); }
+  for (let r = 4; r <= 12; r += 4) for (let x = 2; x < r; x++) t.px(x, r - x + 1, '#687589');
+  frames.cobweb = t;
+}
+{
+  const t = new Img(16, 16); t.ellipse(8, 10, 6, 3, '#273b51'); t.ellipse(8, 9, 5, 2, '#38556e');
+  t.hline(5, 8, 4, '#6a8b9f'); t.px(11, 10, '#54768c'); frames.puddle = t;
+}
+{
+  const t = new Img(16, 16);
+  for (const [x, y, w, h] of [[3, 9, 4, 3], [8, 6, 4, 4], [10, 11, 3, 2]]) {
+    t.rect(x, y, w, h, '#566377'); t.hline(x, y, w, '#798499'); t.px(x + w - 1, y + h - 1, '#354054');
+  }
+  frames.rubble = t.outline();
+}
+{
+  const t = new Img(16, 16);
+  for (const [x, y, c] of [[3, 9, '#a4753b'], [6, 11, '#89753e'], [9, 7, '#b68b48'], [11, 10, '#68714a'], [5, 6, '#867145']]) {
+    t.rect(x, y, 3, 2, c); t.px(x + 1, y - 1, c); t.px(x + 1, y + 1, '#534a34');
+  }
+  frames.leaves = t.outline();
+}
+{
+  const t = new Img(16, 16); t.blit(frames.grass_0, 0, 0);
+  t.ellipse(8, 9, 6, 4, '#455331'); t.ellipse(8, 9, 5, 3, OUT); t.ellipse(8, 10, 4, 2, '#222731');
+  t.hline(5, 6, 4, '#536c38'); t.px(3, 8, '#6f9e4a'); t.px(11, 7, '#6f9e4a');
+  t.vline(5, 7, 3, '#9a7950'); t.px(6, 9, '#9a7950'); t.vline(11, 8, 2, '#785d3e'); frames.hole = t;
+}
+for (const open of [false, true]) {
+  const t = new Img(16, 16); t.blit(frames.grass_0, 0, 0); t.rect(2, 4, 12, 10, OUT); t.rect(3, 5, 10, 8, '#242b31');
+  if (open) {
+    t.rect(2, 1, 12, 4, OUT); t.rect(3, 1, 10, 3, '#8c7352'); t.hline(3, 1, 10, '#b29b71');
+    for (const x of [5, 10]) t.vline(x, 7, 6, '#a98455'); t.hline(5, 9, 6, '#c4a16a'); t.hline(5, 12, 6, '#c4a16a');
+  } else {
+    t.rect(3, 5, 10, 8, '#8c7352'); t.hline(3, 5, 10, '#b29b71');
+    for (const x of [6, 10]) t.vline(x, 6, 7, '#665439');
+    for (const y of [7, 11]) { t.hline(3, y, 10, '#4c5150'); t.px(4, y, '#989c8b'); }
+    t.rect(10, 8, 2, 2, OUT); t.px(10, 8, '#b4ae91');
+  }
+  frames[open ? 'hatch_open' : 'hatch'] = t;
+}
+
 // ---------- pack world atlas (shelf packer) ----------
 const names = Object.keys(frames).sort((a, b) => frames[b].h - frames[a].h || frames[b].w - frames[a].w);
 const AW = 256; let x = 0, y = 0, rowH = 0; const rects = {};
