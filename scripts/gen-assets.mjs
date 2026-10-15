@@ -1125,6 +1125,22 @@ for (const open of [false, true]) {
     t.px(8, 3, '#f8e070'); t.hline(7, 4, 3, '#f8e070'); t.px(8, 5, '#f8e070'); t.px(7, 5, '#f8e070'); t.px(9, 5, '#f8e070');
     t.rect(1, 10, 14, 2, '#6a3a9a'); t.hline(2, 10, 12, '#e8b830');
   });
+  hat('laurel', 16, 7, t => { // a golden laurel wreath: two leafy branches meeting over the brow, a few hang by the ears
+    t.hline(3, 4, 10, '#d8a428'); t.hline(3, 5, 10, '#a87a1c');
+    for (const x of [3, 5, 7, 9, 11]) { t.px(x, 3, '#f8e070'); t.px(x + 1, 2, '#e8b830'); }
+    t.px(4, 2, '#f8e070'); t.px(11, 2, '#f8e070'); t.px(7, 1, '#f8e070'); t.px(8, 1, '#e8b830');
+    t.px(2, 5, '#e8b830'); t.px(1, 6, '#d8a428'); t.px(13, 5, '#e8b830'); t.px(14, 6, '#d8a428');
+  });
+  hat('winged', 16, 10, t => { // Hermes' helmet: a steel cap with white wings sweeping up from each side
+    t.rect(4, 3, 8, 5, '#9aa6b8'); t.hline(5, 2, 6, '#9aa6b8'); t.vline(5, 3, 4, '#c8d2e0'); t.hline(4, 7, 8, '#e8b830');
+    for (const [x, y, w] of [[0, 2, 4], [0, 3, 5], [1, 4, 4], [2, 5, 3], [0, 1, 2]]) { t.hline(x, y, w, '#f4f4f8'); t.hline(15 - x - w + 1, y, w, '#f4f4f8'); }
+    for (const [x, y, w] of [[2, 3, 2], [2, 4, 2], [3, 5, 1]]) { t.hline(x, y, w, '#c8ccd8'); t.hline(15 - x - w + 1, y, w, '#c8ccd8'); }
+  });
+  hat('crested', 16, 10, t => { // Odysseus' bronze helmet with a red horsehair crest
+    t.rect(4, 4, 8, 4, '#b8843c'); t.hline(5, 3, 6, '#b8843c'); t.vline(5, 4, 3, '#e0a850'); t.hline(4, 7, 8, '#7a5428');
+    t.hline(5, 2, 6, '#c83a3a'); t.hline(6, 1, 5, '#c83a3a'); t.hline(8, 0, 3, '#c83a3a'); t.hline(5, 3, 2, '#8a2a2a'); t.px(11, 2, '#8a2a2a');
+    t.px(7, 5, '#e8b830'); t.px(8, 5, '#e8b830');
+  });
   hat('bat', 16, 9, t => { // black cap with little ears and wing flaps, glowing eyes
     t.rect(4, 3, 8, 5, '#2a2236'); t.hline(5, 2, 6, '#2a2236'); t.hline(5, 3, 6, '#3c3250');
     t.vline(5, 0, 2, '#2a2236'); t.vline(10, 0, 2, '#2a2236'); t.px(6, 1, '#2a2236'); t.px(9, 1, '#2a2236');

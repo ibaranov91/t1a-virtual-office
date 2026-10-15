@@ -453,7 +453,7 @@ function AppearanceMenu({ look, assets, firstTime, store, onSave, onClose }: {
             {select('Top', draft.top, tops, 'top')}{colors('Top color', 'shirt')}
             {select('Bottom', draft.bottom, bottoms, 'bottom')}{colors('Bottom color', 'pants')}
             {colors('Shoe color', 'shoes')}
-            <p className="small">Hats are in your pockets 🎒 (take one from the Lobby hat stand){store.judge ? ' · judges find theirs there ✨' : ''}</p>
+            <p className="small">Hats are in your pockets 🎒 (take one from the Lobby hat stand)</p>
           </>}
         </div>
         <footer className="appearance-actions">
@@ -809,11 +809,11 @@ function GmPanel({ store, picked, assets, onClose }: { store: Store; picked: str
           </button>;
         })}
       </div>
-      <h3>Hat</h3>
+      <h3>Gift a hat <small>Goes in {u.id === store.me ? 'your' : `${u.name.split(' ')[0]}'s`} pockets and onto the head; click the worn one to take it off.</small></h3>
       <div className="palette">
         {ALL_HATS.map(h => {
           const on = effectOf(u.effects, 'hat')?.data?.style === h;
-          return <button key={h} className={on ? 'on' : ''} onClick={() => store.setEffect(u.id, 'hat', !on, h)}><HatSprite assets={assets} style={h} /><span>{HAT_NAMES[h]}</span></button>;
+          return <button key={h} className={on ? 'on' : ''} onClick={() => on ? store.setEffect(u.id, 'hat', false) : store.giftHat(u.id, h)}><HatSprite assets={assets} style={h} /><span>{HAT_NAMES[h]}</span></button>;
         })}
       </div>
       {u.effects.length > 0 && <button className="ghost reset" onClick={() => u.effects.forEach(e => store.setEffect(u.id, e.kind, false))}>Clear everything on {u.name.split(' ')[0]}</button>}

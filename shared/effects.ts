@@ -8,11 +8,12 @@ export type EffectWho = 'self' | 'gm' | 'server';
 export interface EffectRule { who: EffectWho; label: string; icon: string; ms?: number; styles?: readonly string[] }
 
 export const HAT_STYLES = ['top', 'party', 'wizard', 'cowboy', 'crown'] as const; // on the Lobby hat stand
-export const JUDGE_HAT = 'judge'; // the server puts it in a judge's pockets
-export const ADMIN_HAT = 'admin'; // and this one in an office admin's
+/** Special hats: nobody finds them, an admin gifts them to a person (the GM panel). Odyssey-style, plus the old judge hat. */
+export const SPECIAL_HATS = ['judge', 'laurel', 'winged', 'crested'] as const;
+export const ADMIN_HAT = 'admin'; // the server puts this one in an office admin's pockets
 export const BAT_HAT = 'bat';     // from catching the October bat
-export const ALL_HATS = [...HAT_STYLES, JUDGE_HAT, ADMIN_HAT, BAT_HAT] as const;
-export const HAT_NAMES: Record<string, string> = { top: 'Top hat', party: 'Party hat', wizard: 'Wizard hat', cowboy: 'Cowboy hat', crown: 'Crown', judge: "Judge's hat", admin: 'Admin cap', bat: 'Bat hat' };
+export const ALL_HATS = [...HAT_STYLES, ...SPECIAL_HATS, ADMIN_HAT, BAT_HAT] as const;
+export const HAT_NAMES: Record<string, string> = { top: 'Top hat', party: 'Party hat', wizard: 'Wizard hat', cowboy: 'Cowboy hat', crown: 'Crown', judge: "Judge's hat", laurel: 'Laurel wreath', winged: 'Winged helmet', crested: 'Crested helmet', admin: 'Admin cap', bat: 'Bat hat' };
 /** Hats are inventory items: `hat:<style>`. You wear one of the hats in your pockets. */
 export const hatItem = (style: string) => `hat:${style}`;
 export const hatOf = (item: string) => (item.startsWith('hat:') ? item.slice(4) : null);

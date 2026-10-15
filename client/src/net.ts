@@ -92,7 +92,6 @@ export class Store {
   version = 0;    // bumps on any change, including scene-only ones (the engine reads the store every frame)
   uiVersion = 0;  // bumps only when React chrome has something new to show
   admin = false;      // may rearrange the office (and is a GM: may put effects on anyone)
-  judge = false;      // a hackathon judge: wears the judge's hat
   items: string[] = []; // my inventory (what the bouncer sold me)
   layoutVersion = 0;  // bumps whenever the furniture changes; the engine redraws the floor
   added: string | null = null; // the thing I just added, to select it
@@ -252,6 +251,7 @@ export class Store {
   setStatus(status: string) { this.send({ t: 'status', status }); }
   setLook(look: PublicUser['look']) { this.send({ t: 'look', look }); }
   /** Put an effect on someone (yourself, or anyone if you're a GM), or take it off. */
+  giftHat(targetId: string, style: string) { this.send({ t: 'gift_hat', targetId, style }); }
   setEffect(targetId: string, kind: string, on: boolean, style?: string) { this.send({ t: 'effect', targetId, kind, on, style }); }
   setPresence(presence: 'online' | 'away' | 'in_call') { this.send({ t: 'presence', presence }); }
   setMeetLink(link: string) { this.send({ t: 'meet_link', link }); }
@@ -560,7 +560,7 @@ export class Store {
         if (this.google === null && msg.google) this.toast({ kind: 'info', text: `Google connected as ${msg.google}`, hint: 'Calls you start now get their own Meet room', expires: 6000 });
         if (!this.calendarAccess && msg.calendar && this.google) this.toast({ kind: 'info', text: 'Google Calendar connected', expires: 4000 });
         const calendarNow = !!msg.calendar && !this.calendarAccess;
-        this.meetLink = msg.meetLink; this.email = msg.email ?? null; this.google = msg.google; this.calendarAccess = !!msg.calendar; this.admin = !!msg.admin; this.judge = !!msg.judge; this.items = msg.items ?? [];
+        this.meetLink = msg.meetLink; this.email = msg.email ?? null; this.google = msg.google; this.calendarAccess = !!msg.calendar; this.admin = !!msg.admin; this.items = msg.items ?? [];
         if (msg.google !== null) this.googleAuthUrl = null;
         if (this.calendarAccess) this.calendarAuthUrl = null;
         if (calendarNow && this.calendarOpen) this.loadCalendar(); // just granted from the open panel
