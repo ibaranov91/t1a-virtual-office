@@ -395,7 +395,7 @@ function MeetSetup({ store, onClose }: { store: Store; onClose: () => void }) {
   const google = store.google;
   useEffect(() => { if (google === null) store.prepareGoogle(); }, [store, google]);
   return (
-    <div className={knockTo ? 'modal-backdrop' : ''} onClick={e => { if (knockTo && e.target === e.currentTarget) done('cancel'); }}>
+    <div className={knockTo ? 'modal-backdrop' : ''} {...(knockTo ? backdropClose(() => done('cancel')) : {})}>
       <form className={`meet-panel${knockTo ? ' guided' : ''}`} onSubmit={e => { e.preventDefault(); if (parsed) save(parsed); }}>
         <div className="rooms-head">
           <span>{knockTo ? `Before you knock on ${knockTo.name.split(' ')[0]}…` : google ? 'Google Meet' : 'Your Google Meet room'}</span>
@@ -556,7 +556,7 @@ function AchievementsPanel({ store, me, assets }: { store: Store; me: ClientUser
   const dead = p && plantDead(p, now), left = p ? PLANT_DIES_DAYS - (today - p.care) : 0;
   const when = (ms: number) => new Date(ms).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
   return (
-    <div className="modal-backdrop" onClick={e => { if (e.target === e.currentTarget) close(); }}>
+    <div className="modal-backdrop" {...backdropClose(close)}>
       <div className="meet-panel guided calendar-panel achievements">
         <div className="rooms-head"><span>🏆 Achievements</span><button type="button" className="ghost" aria-label="Close" onClick={close}>×</button></div>
         <section className="plant-card">
@@ -600,7 +600,7 @@ function MeetingsPanel({ store }: { store: Store }) {
   const now = store.now();
   const goable = store.agenda.filter(a => a.start - 10 * 60_000 <= now && a.end > now && a.instance !== me?.instance && !store.meetingRooms.some(r => r.id === a.instance));
   return (
-    <div className="modal-backdrop" onClick={e => { if (e.target === e.currentTarget) store.closeMeetings(); }}>
+    <div className="modal-backdrop" {...backdropClose(() => store.closeMeetings())}>
       <div className="meet-panel guided calendar-panel">
         <div className="rooms-head"><span>🚪 Meetings on now</span><button type="button" className="ghost" onClick={() => store.closeMeetings()}>×</button></div>
         {!store.meetingRooms.length && !goable.length && <p className="muted small">No meetings in their rooms right now. When a calendar meeting starts, its people get a Go button.</p>}
@@ -627,7 +627,7 @@ function LinkPanel({ store }: { store: Store }) {
   const { label, url } = store.linkOpen!;
   const host = url.replace(/^https?:\/\//, '').replace(/\/$/, '');
   return (
-    <div className="modal-backdrop" onClick={e => { if (e.target === e.currentTarget) store.closeLink(); }}>
+    <div className="modal-backdrop" {...backdropClose(() => store.closeLink())}>
       <div className="meet-panel guided">
         <div className="rooms-head"><span>🔐 Vault 13</span><button type="button" className="ghost" onClick={() => store.closeLink()}>×</button></div>
         <p className="small muted">The team's {label} is at <b>{host}</b>. It opens in a new tab.</p>
@@ -682,7 +682,7 @@ function CalendarPanel({ store }: { store: Store }) {
     ))}</div>;
   }
   return (
-    <div className="modal-backdrop" onClick={e => { if (e.target === e.currentTarget) store.closeCalendar(); }}>
+    <div className="modal-backdrop" {...backdropClose(() => store.closeCalendar())}>
       <div className="meet-panel guided calendar-panel">
         <div className="rooms-head">
           <span>📅 {account ? `Calendar · ${account}` : 'Your calendar'}</span>
@@ -747,6 +747,16 @@ function MacAppButton() {
       )}
     </div>
   );
+}
+
+/** Props for a modal backdrop that closes on a tap on the backdrop itself: one that both started and ended there.
+ *  A click that only *ends* on it (iOS sends a compatibility click after the canvas tap that opened the panel) is ignored. */
+function backdropClose(close: () => void) {
+  let armed = false;
+  return {
+    onPointerDown: (e: React.PointerEvent) => { armed = e.target === e.currentTarget; },
+    onClick: (e: React.MouseEvent) => { if (armed && e.target === e.currentTarget) close(); armed = false; },
+  };
 }
 
 /** Always opens in a new tab — never replaces the office (some shells ignore target=_blank; the Mac app hands it to the browser). */
