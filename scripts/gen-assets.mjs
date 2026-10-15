@@ -314,13 +314,14 @@ const counterSeg = (t, y0) => {
   frames.fridge = t.outline();
 }
 {
-  const t = new Img(16, 16); // safe: a steel box with a dial, a handle and four bolts
-  t.rect(1, 1, 14, 14, '#5a5e6a'); t.rect(2, 2, 12, 12, '#6e7482'); t.hline(2, 2, 12, '#8a909e'); t.vline(2, 2, 12, '#8a909e');
-  t.rect(3, 3, 10, 10, '#4a4e5a');
-  t.ellipse(7, 8, 2, 2, '#c8ccd4'); t.px(7, 7, '#3a3e48'); // the dial
-  t.vline(11, 6, 4, '#e0c060'); t.px(11, 6, '#f0d880'); // the handle
-  for (const [x, y] of [[3, 3], [12, 3], [3, 12], [12, 12]]) t.px(x, y, '#a8aeb8');
-  t.hline(1, 15, 14, '#3a3e48');
+  const t = new Img(32, 16); // the vault door, set in the wall: a riveted steel frame, a round cog-shaped door, a yellow 13
+  t.rect(0, 0, 32, 16, '#3c4048'); t.rect(1, 1, 30, 14, '#50555f'); t.hline(1, 1, 30, '#6a7079'); t.vline(1, 1, 14, '#6a7079');
+  for (const [x, y] of [[2, 2], [29, 2], [2, 13], [29, 13], [2, 7], [29, 7]]) t.px(x, y, '#8a909c'); // rivets
+  t.rect(5, 6, 4, 4, '#767c88'); t.px(6, 7, '#9aa0ac'); t.px(7, 8, '#9aa0ac'); // the hinge arm
+  for (const [x, y] of [[16, 0], [16, 15], [9, 8], [23, 8], [11, 3], [21, 3], [11, 13], [21, 13]]) t.rect(x - 1, y, 2, 1, '#6e7482'); // cog teeth
+  t.ellipse(16, 8, 7, 7, '#6e7482'); t.ellipse(16, 8, 6, 6, '#8a909c'); t.ellipse(16, 8, 5, 5, '#5a5f6a'); // the door and its rim
+  t.vline(14, 6, 5, '#f0c040'); t.px(13, 7, '#f0c040'); t.hline(13, 10, 3, '#f0c040'); // 1
+  t.hline(17, 6, 3, '#f0c040'); t.px(19, 7, '#f0c040'); t.hline(18, 8, 2, '#f0c040'); t.px(19, 9, '#f0c040'); t.hline(17, 10, 3, '#f0c040'); // 3
   frames.safe = t.outline();
 }
 {
