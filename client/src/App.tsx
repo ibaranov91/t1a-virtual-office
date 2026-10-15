@@ -190,7 +190,7 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
         {store.linkOpen && <LinkPanel store={store} />}
         {store.achievementsOpen && me && <AchievementsPanel store={store} me={me} assets={assets} />}
         {(showMeet || store.pendingKnock) && <MeetSetup key={store.pendingKnock ?? 'panel'} store={store} onClose={() => setShowMeet(false)} />}
-        {showAppearance && me && <AppearanceMenu key={me.id} look={me.look} assets={assets} firstTime={!me.lookSet} shareTz={store.shareTz} onShareTz={on => store.setShareTz(on)}
+        {showAppearance && me && <AppearanceMenu key={me.id} look={me.look} assets={assets} firstTime={!me.lookSet} store={store}
           onSave={(look) => { store.setLook(look); setShowAppearance(false); }} onClose={() => setShowAppearance(false)} />}
         <div className="chips">
           <MeetingChip store={store} />
@@ -367,8 +367,23 @@ const LOOK_COLORS = {
   hatColor: ['#3e5a8a', '#b4534a', '#3a5a4a', '#282832', '#d0a040', '#e8e0d0', '#6b3e26'],
 };
 
-function AppearanceMenu({ look, assets, firstTime, shareTz, onShareTz, onSave, onClose }: {
-  look: PublicLook; assets: Assets | null; firstTime: boolean; shareTz: boolean; onShareTz: (on: boolean) => void; onSave: (look: PublicLook) => void; onClose: () => void;
+/** Whether colleagues see my local time, and which zone: the browser's, or one picked by hand (a laptop set to the wrong zone, a VPN). */
+function TimeZoneField({ store }: { store: Store }) {
+  const zones = useMemo(() => { try { return Intl.supportedValuesOf('timeZone'); } catch { return []; } }, []);
+  const picked = store.pickedTz, shown = picked ?? store.detectedTz;
+  return (
+    <div className="tz-field small muted" title="Colleagues see your local time when they hover over you. Only the time zone is shared, not your location.">
+      <label><input type="checkbox" checked={store.shareTz} onChange={e => store.setShareTz(e.target.checked)} /> Show my local time</label>
+      <select value={picked ?? ''} disabled={!store.shareTz} onChange={e => store.setPickedTz(e.target.value || null)} aria-label="Time zone">
+        <option value="">Automatic: {store.detectedTz}</option>
+        {zones.filter(z => z !== store.detectedTz || picked).map(z => <option key={z} value={z}>{z}</option>)}
+      </select>
+      {store.shareTz && <span>{new Intl.DateTimeFormat([], { timeZone: shown, hour: '2-digit', minute: '2-digit' }).format(new Date())} now</span>}
+    </div>
+  );
+}
+function AppearanceMenu({ look, assets, firstTime, store, onSave, onClose }: {
+  look: PublicLook; assets: Assets | null; firstTime: boolean; store: Store; onSave: (look: PublicLook) => void; onClose: () => void;
 }) {
   const [draft, setDraft] = useState(look);
   const [tab, setTab] = useState<'body' | 'clothes'>('body');
@@ -420,7 +435,7 @@ function AppearanceMenu({ look, assets, firstTime, shareTz, onShareTz, onSave, o
           </>}
         </div>
         <footer className="appearance-actions">
-          <label className="small muted" title="Colleagues see your local time when they hover over you. Only the time zone is shared, not your location."><input type="checkbox" checked={shareTz} onChange={e => onShareTz(e.target.checked)} /> Show my local time</label>
+          <TimeZoneField store={store} />
           {!firstTime && <button className="ghost" onClick={onClose}>Cancel</button>}
           <button onClick={() => onSave(draft)}>{firstTime ? 'Save & enter office' : 'Save changes'}</button>
         </footer>

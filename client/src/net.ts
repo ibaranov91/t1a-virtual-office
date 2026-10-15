@@ -209,7 +209,11 @@ export class Store {
   /** My time zone, shown to colleagues in the hover card; on unless switched off (kept on this device only). */
   get shareTz() { try { return localStorage.getItem('deck.shareTz') !== 'off'; } catch { return true; } }
   setShareTz(on: boolean) { try { localStorage.setItem('deck.shareTz', on ? 'on' : 'off'); } catch { /* storage unavailable */ } this.sendTz(); this.emit(); }
-  private sendTz() { this.send({ t: 'tz', tz: this.shareTz ? Intl.DateTimeFormat().resolvedOptions().timeZone : null }); }
+  /** The zone the browser reports, and the one picked by hand instead (null = follow the browser). */
+  detectedTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  get pickedTz(): string | null { try { return localStorage.getItem('deck.tz'); } catch { return null; } }
+  setPickedTz(tz: string | null) { try { if (tz) localStorage.setItem('deck.tz', tz); else localStorage.removeItem('deck.tz'); } catch { /* storage unavailable */ } this.sendTz(); this.emit(); }
+  private sendTz() { this.send({ t: 'tz', tz: this.shareTz ? this.pickedTz ?? this.detectedTz : null }); }
   setStatus(status: string) { this.send({ t: 'status', status }); }
   setLook(look: PublicUser['look']) { this.send({ t: 'look', look }); }
   setPresence(presence: 'online' | 'away' | 'in_call') { this.send({ t: 'presence', presence }); }
