@@ -55,7 +55,7 @@ export interface Knock {
 
 // server -> client
 export type ServerMsg =
-  | { t: 'hello'; you: string; serverTime: number }
+  | { t: 'hello'; you: string; serverTime: number; build?: string } // build: the client bundle the server serves (absent in dev)
   | { t: 'state'; users: PublicUser[]; objects: Record<string, { on: boolean }>; serverTime: number }
   | { t: 'move'; userId: string; from: Tile; to: Tile; startedAt: number; path?: Tile[]; face?: Dir }
   | { t: 'status'; userId: string; status: string }

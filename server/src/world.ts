@@ -62,6 +62,7 @@ export class World {
   private lastReact = new Map<string, number>();
   botHooks?: BotHooks;
 
+  build?: string; // sent in hello so open pages reload after a deploy
   constructor(public map: TileMap) {
     for (const o of map.objects) if (o.use?.kind === 'toggle') this.objectOn.set(o.id, o.on ?? true);
   }
@@ -84,7 +85,7 @@ export class World {
     if (!this.sockets.has(userId)) this.sockets.set(userId, new Set());
     this.sockets.get(userId)!.add(send);
     this.listeners.add(send);
-    send({ t: 'hello', you: userId, serverTime: Date.now() });
+    send({ t: 'hello', you: userId, serverTime: Date.now(), build: this.build });
     this.stayAfterAll(u);
     if (u.presence === 'offline') this.comeIn(u);
     send(this.snapshot());

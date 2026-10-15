@@ -35,6 +35,12 @@
       "port": 5176
     },
     {
+      "name": "deck-prod-local",
+      "runtimeExecutable": "env",
+      "runtimeArgs": ["DECK_PORT=8791", "npm", "run", "start", "-w", "server"],
+      "port": 8791
+    },
+    {
       "name": "deck-interactions",
       "runtimeExecutable": "env",
       "runtimeArgs": ["VITE_PORT=5175", "DECK_PORT=8789", "npm", "run", "dev"],

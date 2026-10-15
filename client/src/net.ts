@@ -37,6 +37,8 @@ export class Store {
   toasts: Toast[] = [];
   connected = false;
   meetLink: string | null = null; // null = not loaded yet, '' = not set
+  build: string | undefined;  // the server's client build when this page loaded
+  staleBuild = false;         // server now serves a newer build; reload when not in a call
   objects: Record<string, { on: boolean }> = {};
   chats = new Map<string, ChatMsg[]>(); // by the other person's id
   unread = new Map<string, number>();
@@ -166,7 +168,10 @@ export class Store {
   private onMessage(msg: ServerMsg) {
     switch (msg.t) {
       case 'hello':
-        this.me = msg.you; this.offset = msg.serverTime - Date.now(); break;
+        this.me = msg.you; this.offset = msg.serverTime - Date.now();
+        if (msg.build && this.build && msg.build !== this.build) this.staleBuild = true;
+        this.build ??= msg.build;
+        break;
       case 'state': {
         this.offset = msg.serverTime - Date.now();
         const next = new Map<string, ClientUser>();
@@ -252,5 +257,7 @@ export class Store {
       }
     }
     this.emit();
+    // A deploy happened while this page was open: reload into the new build, but never mid-call.
+    if (this.staleBuild && !this.users.get(this.me)?.callId) location.reload();
   }
 }
