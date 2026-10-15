@@ -4,7 +4,7 @@ import { applyLayout, besideObject, doorwayTiles, isWalkable, objectById, pathTo
 import { FOOD_ITEMS } from '../../shared/lunch';
 import { ACHIEVEMENTS, underground, DUNGEON_INSTANCE, PLANT_STAGES, plantName, ROOM_VOICE_MAX, type JukeboxState, type JukeboxAction, type AgendaItem, type LayoutEdit, type CalEvent, type MeetingRoomInfo, type ChatMsg, type LiveDeck, type ObjectState, type ToiletState, type ClientMsg, type PublicUser, type Reaction, type RtcSignal, type ServerMsg, type Creature, type Cup, CUP_ITEMS, type LibraryState } from '../../shared/protocol';
 import { ParkLoop } from './park/loop';
-import type { CabinetSummary, JudgeEntry, ParkRecords } from '../../shared/protocol';
+import type { CabinetSummary, ParkRecords } from '../../shared/protocol';
 import { playPark, playHand, playKnock, playPop, playDungeon, playPet } from './sounds';
 import type { Soundscape } from './soundscape';
 
@@ -92,8 +92,6 @@ export class Store {
   version = 0;    // bumps on any change, including scene-only ones (the engine reads the store every frame)
   uiVersion = 0;  // bumps only when React chrome has something new to show
   admin = false;      // may rearrange the office (and is a GM: may put effects on anyone)
-  judge = false;      // a hackathon judge: wears the hat an admin picked for them
-  judges: JudgeEntry[] = []; // admins only: who the judges are and their hats
   items: string[] = []; // my inventory (what the bouncer sold me)
   layoutVersion = 0;  // bumps whenever the furniture changes; the engine redraws the floor
   added: string | null = null; // the thing I just added, to select it
@@ -253,7 +251,7 @@ export class Store {
   setStatus(status: string) { this.send({ t: 'status', status }); }
   setLook(look: PublicUser['look']) { this.send({ t: 'look', look }); }
   /** Put an effect on someone (yourself, or anyone if you're a GM), or take it off. */
-  setJudge(who: string, hat: string | null) { this.send({ t: 'judge_set', who, hat }); }
+  giftHat(targetId: string, style: string) { this.send({ t: 'gift_hat', targetId, style }); }
   setEffect(targetId: string, kind: string, on: boolean, style?: string) { this.send({ t: 'effect', targetId, kind, on, style }); }
   setPresence(presence: 'online' | 'away' | 'in_call') { this.send({ t: 'presence', presence }); }
   setMeetLink(link: string) { this.send({ t: 'meet_link', link }); }
@@ -562,13 +560,12 @@ export class Store {
         if (this.google === null && msg.google) this.toast({ kind: 'info', text: `Google connected as ${msg.google}`, hint: 'Calls you start now get their own Meet room', expires: 6000 });
         if (!this.calendarAccess && msg.calendar && this.google) this.toast({ kind: 'info', text: 'Google Calendar connected', expires: 4000 });
         const calendarNow = !!msg.calendar && !this.calendarAccess;
-        this.meetLink = msg.meetLink; this.email = msg.email ?? null; this.google = msg.google; this.calendarAccess = !!msg.calendar; this.admin = !!msg.admin; this.judge = !!msg.judge; this.items = msg.items ?? [];
+        this.meetLink = msg.meetLink; this.email = msg.email ?? null; this.google = msg.google; this.calendarAccess = !!msg.calendar; this.admin = !!msg.admin; this.items = msg.items ?? [];
         if (msg.google !== null) this.googleAuthUrl = null;
         if (this.calendarAccess) this.calendarAuthUrl = null;
         if (calendarNow && this.calendarOpen) this.loadCalendar(); // just granted from the open panel
         break;
       }
-      case 'judges': this.judges = msg.judges; break;
       case 'agenda': {
         this.agenda = msg.items;
         const keys = new Set(msg.items.map(a => a.key)); // cancelled or declined: drop its heads-up

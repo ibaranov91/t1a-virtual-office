@@ -227,9 +227,6 @@ export const PRESENT_MAX_BYTES = 30 * 1024 * 1024; // one upload, all slides tog
 export const slideUrl = (d: DeckInfo, i: number) => `/api/present/${d.id}/${i + 1}.${d.ext[i]}`;
 
 // server -> client
-/** A hackathon judge, by sign-in email (or plain name for name logins). `name` is who they are right now, when online. */
-export interface JudgeEntry { who: string; hat: string; name?: string }
-
 export type ServerMsg =
   | ParkIncoming
   | CreatureServerMsg
@@ -255,8 +252,7 @@ export type ServerMsg =
   | { t: 'knock_reply'; knockId: string; fromId: string; toId: string; reply: 'accept' | 'later' | 'blocked'; link?: string; reason?: string; fallback?: boolean; cancelled?: boolean }
   // private settings, only to the user themselves. google: the connected Google account (null = not connected),
   // absent when this instance has no Google sign-in
-  | { t: 'me'; meetLink: string; email?: string; google?: string | null; calendar?: boolean; admin?: boolean; judge?: boolean; items?: string[] } // calendar: Calendar access granted; admin: may rearrange the office
-  | { t: 'judges'; judges: JudgeEntry[] } // the hackathon judges and their hats, only to office admins (emails are private)
+  | { t: 'me'; meetLink: string; email?: string; google?: string | null; calendar?: boolean; admin?: boolean; items?: string[] } // calendar: Calendar access granted; admin: may rearrange the office
   | { t: 'google_auth'; url: string; calendar?: boolean } // open this to connect Google (in the system browser from the Mac app)
   | { t: 'calendar'; events?: CalEvent[]; error?: string } // my own events, only to me
   | { t: 'agenda'; items: AgendaItem[] } // my calendar meetings now and soon, only to me
@@ -351,7 +347,7 @@ export type ClientMsg =
   | { t: 'toilet_sniff'; objectId: string }  // inside, a line on the shelf: take it (and see unicorns)
   | { t: 'look'; look: Look }
   // put an effect on someone (on: true) or take it off. Yourself: 'self' effects; office admins (GMs): anyone, any effect.
-  | { t: 'judge_set'; who: string; hat: string | null } // office admins only: mark a judge (sign-in email) with one of JUDGE_HATS, or null to unmark
+  | { t: 'gift_hat'; targetId: string; style: string } // office admins only: put a hat in someone's pockets and on their head
   | { t: 'effect'; targetId: string; kind: string; on: boolean; style?: string }
   | { t: 'present_slide'; slide: number } // presenter only
   | { t: 'present_stop' };                // presenter only

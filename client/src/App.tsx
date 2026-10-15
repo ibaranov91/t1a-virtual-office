@@ -13,7 +13,7 @@ import { LiveChip, PresentPanel, SlideOverlay, WatchPrompt } from './Presentatio
 import { LibraryPanel, ReadingOverlay } from './Library';
 import { ACHIEVEMENTS, underground, dayNumber, JUKEBOX_PER_PERSON, JUKEBOX_QUEUE_MAX, MAX_CHAT_LEN, MEET_LINK_RE, meetAs, normalizeMeetLink, kindName, PLANT_DIES_DAYS, PLANT_KINDS, PLANT_REVEAL, PLANT_STAGES, plantDead, plantName, REACTIONS, TOILET_CAPACITY, TOILET_SHELF_ITEM, TOILET_SHELF_MAX, TOILET_USE_MS, toiletFull, type JukeboxState, type Plant } from '../../shared/protocol';
 import { GENRES, jukeboxPosition, TRACK, TRACKS } from '../../shared/music';
-import { ALL_HATS, DANCE_ROOM, EFFECTS, HAT_NAMES, JUDGE_HATS, effectOf, hatItem, hatOf } from '../../shared/effects';
+import { ALL_HATS, DANCE_ROOM, EFFECTS, HAT_NAMES, effectOf, hatItem, hatOf } from '../../shared/effects';
 import { FIXED_TYPES, KEEP_TYPES, objectName, RUG_COLORS, RUG_MAX, RUG_MIN, routes, seatAt } from '../../shared/map';
 import { LUNCH_MS, picnicSeat } from '../../shared/lunch';
 
@@ -452,7 +452,7 @@ function AppearanceMenu({ look, assets, firstTime, store, onSave, onClose }: {
             {select('Top', draft.top, tops, 'top')}{colors('Top color', 'shirt')}
             {select('Bottom', draft.bottom, bottoms, 'bottom')}{colors('Bottom color', 'pants')}
             {colors('Shoe color', 'shoes')}
-            <p className="small">Hats are in your pockets 🎒 (take one from the Lobby hat stand){store.judge ? ' · judges find theirs there ✨' : ''}</p>
+            <p className="small">Hats are in your pockets 🎒 (take one from the Lobby hat stand)</p>
           </>}
         </div>
         <footer className="appearance-actions">
@@ -808,43 +808,15 @@ function GmPanel({ store, picked, assets, onClose }: { store: Store; picked: str
           </button>;
         })}
       </div>
-      <h3>Hat</h3>
+      <h3>Gift a hat <small>Goes in {u.id === store.me ? 'your' : `${u.name.split(' ')[0]}'s`} pockets and onto the head; click the worn one to take it off.</small></h3>
       <div className="palette">
         {ALL_HATS.map(h => {
           const on = effectOf(u.effects, 'hat')?.data?.style === h;
-          return <button key={h} className={on ? 'on' : ''} onClick={() => store.setEffect(u.id, 'hat', !on, h)}><HatSprite assets={assets} style={h} /><span>{HAT_NAMES[h]}</span></button>;
+          return <button key={h} className={on ? 'on' : ''} onClick={() => on ? store.setEffect(u.id, 'hat', false) : store.giftHat(u.id, h)}><HatSprite assets={assets} style={h} /><span>{HAT_NAMES[h]}</span></button>;
         })}
       </div>
       {u.effects.length > 0 && <button className="ghost reset" onClick={() => u.effects.forEach(e => store.setEffect(u.id, e.kind, false))}>Clear everything on {u.name.split(' ')[0]}</button>}
-      <JudgesSection store={store} assets={assets} />
     </div>
-  );
-}
-
-/** Admins mark the hackathon judges by sign-in email and give each their own Odyssey hat; it lands in their pockets. */
-function JudgesSection({ store, assets }: { store: Store; assets: Assets | null }) {
-  const [who, setWho] = useState('');
-  const taken = new Set(store.judges.map(j => j.hat)), free = JUDGE_HATS.find(h => !taken.has(h)) ?? JUDGE_HATS[0];
-  const add = () => { const w = who.trim(); if (!w) return; store.setJudge(w, free); setWho(''); };
-  return (
-    <>
-      <h3>Judges <small>Each gets their own hat in their pockets.</small></h3>
-      {store.judges.map(j => (
-        <div className="judge-row" key={j.who}>
-          <span className="judge-who" title={j.who}>{j.name ?? j.who}{j.name && <small>{j.who}</small>}</span>
-          <span className="judge-hats">{JUDGE_HATS.map(h => (
-            <button key={h} className={j.hat === h ? 'on' : ''} onClick={() => store.setJudge(j.who, h)} title={HAT_NAMES[h] + (j.hat !== h && taken.has(h) ? ' (someone has it)' : '')} aria-label={HAT_NAMES[h]} aria-pressed={j.hat === h}>
-              <HatSprite assets={assets} style={h} />
-            </button>
-          ))}</span>
-          <button className="ghost" onClick={() => store.setJudge(j.who, null)} title="Not a judge" aria-label={`Remove ${j.who}`}>×</button>
-        </div>
-      ))}
-      <form className="judge-add" onSubmit={e => { e.preventDefault(); add(); }}>
-        <input value={who} onChange={e => setWho(e.target.value)} placeholder="name@t1a.com" maxLength={120} aria-label="Judge's sign-in email" />
-        <button type="submit" disabled={!who.trim()}>Add</button>
-      </form>
-    </>
   );
 }
 

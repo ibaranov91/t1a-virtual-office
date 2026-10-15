@@ -10,7 +10,7 @@ import {
 } from '../../shared/protocol';
 import { FOOD_ITEMS, LUNCH_MS, PLATE_PREFIX, picnicSeat, type Eating } from '../../shared/lunch';
 import { INSTRUMENTS, validNote } from '../../shared/instruments';
-import { ADMIN_HAT, BAT_HAT, DANCE_ROOM, EFFECTS, HAT_NAMES, JUDGE_HAT, JUDGE_HATS, MAX_EFFECTS, RAVER_MS, hatItem, hatOf, isJudgeHat, walkMs } from '../../shared/effects';
+import { ADMIN_HAT, ALL_HATS, BAT_HAT, DANCE_ROOM, EFFECTS, HAT_NAMES, MAX_EFFECTS, RAVER_MS, hatItem, hatOf, walkMs } from '../../shared/effects';
 import { TRACKS } from '../../shared/music';
 import { Arcade } from './arcade';
 import { Jukebox } from './jukebox';
@@ -68,7 +68,6 @@ const LEAVE_GRACE_MS = 5000; // a dropped tab or quick re-login shouldn't send a
 const DOOR_PAUSE_MS = 400;   // a beat at the door before vanishing
 /** Packing up or walking out: not around any more, as far as knocks go. */
 const goingOut = (u: User) => u.door === 'thinking' || u.door === 'leaving';
-const MAX_JUDGES = 50;
 const FOLLOW_LAG_MS = 300;   // followers set off a beat after the person they follow
 const HOLD_MS = 3 * 60_000;  // a coffee lasts this long
 const USE_MS = { take: 1200, toggle: 150, toilet: 300, dealer: 350, bell: 100 }; // brewing a coffee vs flicking a switch
@@ -76,9 +75,6 @@ const ARRIVAL_SLACK_MS = 50; // timers can fire a millisecond before the walk is
 
 /** Office admins rearrange the furniture: NetBird emails, or (only for name logins, so dev) plain names. */
 const ADMINS = (process.env.DECK_ADMINS ?? 'ivan.baranov@t1a.com').split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
-/** Hackathon judges each wear their own hat, which an admin assigns in the Judges panel (kept in state.json). This list only
- *  seeds a fresh state with the first hats in turn; same rules as admins: emails, or plain names for name logins (dev). */
-const JUDGE_SEED = (process.env.DECK_JUDGES ?? 'oleg.mikhov@t1a.com').split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
 const listed = (list: string[], u: User) => !u.bot && list.some(a => (a.includes('@') ? a === u.email : !u.email && a === u.name.toLowerCase()));
 
 /** Dev bots answer DMs and reactions so there's something to talk to when testing alone. */
@@ -126,7 +122,6 @@ export class World {
   private batTries = new Map<string, number>();                             // last try at the bat, per person
   build?: string; // sent in hello so open pages reload after a deploy
   private baseLayout: Layout;     // as generated, for Reset
-  private judges: { who: string; hat: string }[] = JUDGE_SEED.map((who, i) => ({ who, hat: JUDGE_HATS[i % JUDGE_HATS.length] }));
   private layoutEdited = false;   // saved only once someone has changed it
   private editSeq = 0;
   constructor(public map: TileMap) {
@@ -139,11 +134,8 @@ export class World {
   // ---------- transport ----------
   broadcast(msg: ServerMsg) { for (const l of this.listeners) l(msg); }
   /** Private settings for the user themselves. */
-  me(u: User): ServerMsg { return { t: 'me', meetLink: u.meetLink ?? '', email: u.email, google: googleEnabled ? u.google?.email ?? null : undefined, calendar: !!u.google?.scopes.includes(CALENDAR_SCOPE), admin: this.isAdmin(u) || undefined, judge: this.isJudge(u) || undefined, items: u.items.length ? u.items : undefined }; }
+  me(u: User): ServerMsg { return { t: 'me', meetLink: u.meetLink ?? '', email: u.email, google: googleEnabled ? u.google?.email ?? null : undefined, calendar: !!u.google?.scopes.includes(CALENDAR_SCOPE), admin: this.isAdmin(u) || undefined, items: u.items.length ? u.items : undefined }; }
   isAdmin(u: User) { return listed(ADMINS, u); }
-  judgeHat(u: User) { return this.judges.find(j => listed([j.who], u))?.hat; }
-  isJudge(u: User) { return !!this.judgeHat(u); }
-  private judgeList(): ServerMsg { return { t: 'judges', judges: this.judges.map(j => ({ ...j, name: [...this.users.values()].find(u => listed([j.who], u))?.name })) }; }
   hasItem(u: User, item: string) { return u.items.includes(item); }
   /** Put one in the inventory (at most ITEMS_MAX of a kind) and tell the owner. */
   addItem(u: User, item: string) {
@@ -190,7 +182,6 @@ export class World {
     send({ t: 'layout', layout: this.layout() }); // before anyone's walk, which every client paths on this floor
     send(this.snapshot());
     send(this.me(u));
-    if (this.isAdmin(u)) send(this.judgeList());
     if (underground(u) && u.dungeon) send({ t: 'dungeon', ...u.dungeon });
     if (u.reading) this.stopReading(u); // a fresh page has no overlay; the old read ends
     send({ t: 'meetings', rooms: this.meetingRooms() });
@@ -893,30 +884,21 @@ export class World {
       this.effectsChanged(u);
     }
   }
-  /** Judges find their own hat in their pockets (the one an admin picked), office admins the sysadmin cap (by sign-in email).
-   *  The first time, it goes straight on; later they wear what they like. Someone no longer on the list loses the hat. */
+  /** Office admins find the sysadmin cap in their pockets (by sign-in email). The first time, it goes straight on; later they
+   *  wear what they like. Someone no longer an admin loses it. */
   private grantHats(u: User) {
-    let wearing = u.effects.find(e => e.kind === 'hat')?.data?.style, changed = false;
-    const judge = this.judgeHat(u);
-    for (const [style, should] of [[JUDGE_HAT, false], ...JUDGE_HATS.map(h => [h, judge === h] as const), [ADMIN_HAT, this.isAdmin(u)]] as const) {
-      const item = hatItem(style), has = u.items.includes(item);
-      if (should && !has) { u.items = [...u.items, item]; changed = true; if (!wearing) this.addEffect(u, 'hat', { data: { style } }); }
-      if (!should && has) { u.items = u.items.filter(i => i !== item); changed = true; if (wearing === style) { this.removeEffect(u, 'hat'); wearing = undefined; } }
-    }
-    if (changed) this.sendTo(u.id, this.me(u));
+    const wearing = u.effects.find(e => e.kind === 'hat')?.data?.style, item = hatItem(ADMIN_HAT), has = u.items.includes(item), should = this.isAdmin(u);
+    if (should && !has) { u.items = [...u.items, item]; if (!wearing) this.addEffect(u, 'hat', { data: { style: ADMIN_HAT } }); this.sendTo(u.id, this.me(u)); }
+    if (!should && has) { u.items = u.items.filter(i => i !== item); if (wearing === ADMIN_HAT) this.removeEffect(u, 'hat'); this.sendTo(u.id, this.me(u)); }
   }
-  /** An admin marks someone as a judge with one of the judge hats, or (hat null) takes the mark away. */
-  private setJudge(u: User, msg: Extract<ClientMsg, { t: 'judge_set' }>) {
-    if (!this.isAdmin(u)) return;
-    const who = String(msg.who ?? '').trim().toLowerCase();
-    if (!who || who.length > 120 || (msg.hat !== null && !isJudgeHat(msg.hat))) return;
-    const at = this.judges.findIndex(j => j.who === who);
-    if (msg.hat === null) { if (at < 0) return; this.judges.splice(at, 1); }
-    else if (at >= 0) this.judges[at].hat = msg.hat;
-    else if (this.judges.length < MAX_JUDGES) this.judges.push({ who, hat: msg.hat });
-    else return;
-    for (const p of this.users.values()) if (!p.bot && listed([who], p)) this.grantHats(p);
-    for (const p of this.users.values()) if (this.isAdmin(p)) this.sendTo(p.id, this.judgeList());
+  /** An admin gifts a hat: it goes into the person's pockets (even offline) and straight onto their head. */
+  private giftHat(u: User, msg: Extract<ClientMsg, { t: 'gift_hat' }>) {
+    const target = this.users.get(String(msg.targetId)), style = String(msg.style ?? '');
+    if (!this.isAdmin(u) || !target || target.bot || !(ALL_HATS as readonly string[]).includes(style)) return;
+    const item = hatItem(style);
+    if (!target.items.includes(item)) { target.items = [...target.items, item]; this.sendTo(target.id, this.me(target)); }
+    this.addEffect(target, 'hat', { data: { style } });
+    if (target.id !== u.id) this.sendTo(target.id, { t: 'notice', text: `🎁 ${u.name} gave you the ${(HAT_NAMES[style] ?? style).toLowerCase()}` });
   }
   /** A client asks for an effect on someone. Yourself: 'self' effects only; GMs (office admins): anything on anyone. */
   private requestEffect(u: User, msg: Extract<ClientMsg, { t: 'effect' }>) {
@@ -1588,7 +1570,7 @@ export class World {
       }
       case 'status': this.setStatus(u, String(msg.status ?? '')); break;
       case 'effect': this.requestEffect(u, msg); break;
-      case 'judge_set': this.setJudge(u, msg); break;
+      case 'gift_hat': this.giftHat(u, msg); break;
       case 'tz': {
         const tz = isTimeZone(msg.tz) ? msg.tz : undefined;
         if (tz === u.tz || (msg.tz != null && !tz)) break;
@@ -1741,7 +1723,6 @@ export class World {
       layout: this.layoutEdited ? this.layout() : undefined,
       chats: Object.fromEntries(this.chats),
       cups: this.creatures.cups,
-      judges: this.judges,
       library: this.library.dump(),
     };
   }
@@ -1785,7 +1766,6 @@ export class World {
     for (const [id, saved] of Object.entries(data.jukebox ?? {})) if (this.jukeboxes.has(id)) this.jukeboxes.set(id, Jukebox.load(TRACKS, saved, now));
     for (const [key, msgs] of Object.entries(data.chats ?? {})) this.chats.set(key, msgs);
     this.creatures.cups = (data.cups ?? []).filter(c => this.creatures.tableAt(c.tile));
-    if (Array.isArray(data.judges)) this.judges = data.judges.filter(j => j && typeof j.who === 'string' && isJudgeHat(j.hat)).slice(0, MAX_JUDGES);
     this.library.load(data.library);
   }
 }

@@ -131,10 +131,10 @@ npm run typecheck    # run before every commit or deploy
 - **Reception bell** (Lobby, `use.kind: 'bell'`, `onTop` so it shares the counter's tile): `ring` → `bell` broadcast, one ring a second per person; from farther away the server walks you over first. Bots never ring. The sound is panned and faded by `Soundscape.ringBell` (never silent: a faint carry from other rooms).
 - **Pockets (inventory)** are `User.items` (strings): `drugs` from the bouncer and hats as `hat:<style>` from the Lobby hat rack by reception
   (`use.kind: 'dealer'` hands out one of its `items`; one of each hat). The 🎒 button lists them; wearing a hat is the `hat`
-  effect, and a non-GM may only wear a hat that's in their pockets. Judges find their own Odyssey hat (`hat:laurel`, `hat:winged` or
-  `hat:crested`, `JUDGE_HATS`) and office admins `hat:admin` in their pockets on connect (`grantHats`, by sign-in email; put on the first
-  time, removable after). Admins mark judges and pick each hat in the GM panel's Judges section (`judge_set`; the list is saved in
-  `state.json`, sent only to admins, and applies at once to people online). `DECK_JUDGES` only seeds a fresh state.
+  effect, and a non-GM may only wear a hat that's in their pockets. Office admins find `hat:admin` in their
+  pockets on connect (`grantHats`, by sign-in email; put on the first time, removable after). Special hats (`SPECIAL_HATS`: the judge's
+  hat and the Odyssey laurel, winged and crested helmets) are gifted: in the GM panel an admin picks a person and clicks a hat under
+  "Gift a hat" (`gift_hat`), which puts `hat:<style>` in their pockets (even offline) and on their head.
 - **Room behavior is data.** Knock rules, meeting links and home-desk rooms live in `tilemap.json`
   (from `gen-map.mjs`), not in code.
 
