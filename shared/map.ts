@@ -26,7 +26,7 @@ export type ObjectUse = { kind: 'take'; items: UseItem[] } | { kind: 'toggle'; l
   | { kind: 'instrument'; instrument: InstrumentKind; label: string }
   | { kind: 'jukebox'; label: string }
   | { kind: 'dance'; label: string } // Berghain's dance floor: step on and dance
-  | { kind: 'library'; label: string } // the Focus room's shelf: publish and pick articles; reading happens at the reading desks
+  | { kind: 'library'; label: string } // the Library's shelf: publish and pick articles; reading happens at its reading tables
   | { kind: 'arcade'; label: string; game: 'park' } | { kind: 'records'; label: string }
   | { kind: 'meetings'; label: string } // the board by the Meeting room: which calendar meetings are on
   | { kind: 'achievements'; label: string } // the Lobby notice board: your plant and your badges
@@ -67,7 +67,7 @@ export interface MapObject {
 }
 /** A rug, drawn over the floor (9-slice). Never blocks. */
 export interface Rug { id: string; color: string; x: number; y: number; w: number; h: number }
-export const RUG_COLORS = ['green', 'blue', 'orange', 'red', 'teal'] as const;
+export const RUG_COLORS = ['green', 'blue', 'orange', 'red', 'teal', 'burgundy'] as const;
 /** What office admins can rearrange: the furniture and the rugs. Walls, floors and rooms stay as generated. */
 export interface Layout { objects: MapObject[]; rugs: Rug[] }
 /** A kind of object an admin can add: everything but its id and position. */
@@ -293,7 +293,7 @@ export function doorwayTiles(m: TileMap, room: Room): Tile[][] {
 }
 
 // ---------- layout: what the furniture decides ----------
-const inRect = (o: { x: number; y: number; w: number; h: number }, x: number, y: number) => x >= o.x && x < o.x + o.w && y >= o.y && y < o.y + o.h;
+export const inRect = (o: { x: number; y: number; w: number; h: number }, x: number, y: number) => x >= o.x && x < o.x + o.w && y >= o.y && y < o.y + o.h;
 const footprint = (o: { x: number; y: number; w: number; h: number }) => {
   const out: Tile[] = [];
   for (let y = o.y; y < o.y + o.h; y++) for (let x = o.x; x < o.x + o.w; x++) out.push({ x, y });
@@ -371,7 +371,7 @@ export function layoutProblem(m: TileMap, checkDungeonReach = true): string | nu
 
 /** What to call an object type in the UI: "big table", not table_big. */
 export const objectName = (type: string) => ({ table_long: 'long table', table_big: 'big table', table_round: 'round table', plant_shelf: 'plant shelf',
-  painting_small: 'small painting', coffee_machine: 'coffee machine', meetings_board: 'meetings board', noticeboard: 'notice board', table_picnic: 'picnic table', food_cart: 'food cart', exit_door: 'exit door', server_rack: 'server rack', dj_booth: 'DJ booth', neon_sign: 'neon sign' } as Record<string, string>)[type] ?? type.replace(/_/g, ' ');
+  painting_small: 'small painting', coffee_machine: 'coffee machine', meetings_board: 'meetings board', noticeboard: 'notice board', table_picnic: 'picnic table', food_cart: 'food cart', exit_door: 'exit door', server_rack: 'server rack', dj_booth: 'DJ booth', neon_sign: 'neon sign', bookshelf_tall: 'tall bookshelf' } as Record<string, string>)[type] ?? type.replace(/_/g, ' ');
 
 /** Types that are one of a kind (the way out, the coffee machine…): they can be moved but not removed. */
 export const KEEP_TYPES = new Set(['exit_door', 'coffee_machine', 'fridge', 'jukebox', 'arcade', 'records', 'meetings_board', 'noticeboard', 'clock_nyc', 'clock_berlin', 'clock_moscow', 'safe', 'keyboard', 'drum_kit', 'bass_amp', 'screen', 'toilet', 'bouncer', 'hat_rack', 'bell', 'food_cart']);
