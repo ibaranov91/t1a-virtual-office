@@ -3,11 +3,12 @@ import { INSTRUMENTS } from '../../shared/instruments';
 // Order: static tilemap → y-sorted furniture + sprites → nameplates & bubbles → ambient tint → UI hints.
 import { applyEdit, FIXED_TYPES, findPath, pathTo, sampleMove, pathDuration, WALK_MS_PER_TILE, isWalkable, layoutProblem, objectById, objectName, roomAt, seatAt, withLayout, type MapObject, type Rect, type Rug, type Tile } from '../../shared/map';
 import { DungeonView } from './dungeon';
+import { CreatureLayer } from './creatures';
 import { roomDoors, type RoomDoor } from './doors';
 import type { Assets, Frame } from './assets';
 import { drawText, textWidth } from './font';
 import { TRACK } from '../../shared/music';
-import { underground, MEETING_ROOM_ID, PLANT_REVEAL, PLANT_STAGES, plantDead, plantName, type LayoutEdit } from '../../shared/protocol';
+import { cupTableAt, CUP_ITEMS, underground, MEETING_ROOM_ID, PLANT_REVEAL, PLANT_STAGES, plantDead, plantName, type LayoutEdit } from '../../shared/protocol';
 import { ITEMS, MAP, type ClientUser, type Pose, type Store, type DungeonFx } from './net';
 
 const TS = MAP.tileSize;
@@ -75,6 +76,9 @@ export class Engine {
   onPick?: (p: Pick | null) => void;
   private hoverTile: { x: number; y: number } | null = null;
   private hoverPlant: PlacedPlant | null = null;
+  private hoverCritter: { text: string; x: number; y: number } | null = null;
+  private cupTile: Tile | null = null; // a table I can put my cup down on, under the pointer
+  critters: CreatureLayer;
   private plants: PlacedPlant[] = [];
   private plantsVersion = -1; // store.version the plants were placed for
   private glow: HTMLCanvasElement; // one lamp's halo at full strength; drawn with alpha per frame
@@ -107,6 +111,7 @@ export class Engine {
   constructor(private canvas: HTMLCanvasElement, private store: Store, private assets: Assets) {
     this.ctx = canvas.getContext('2d')!;
     this.staticLayer = this.furniture = this.lights = this.steamers = this.sounders = this.interactive = this.boards = null!;
+    this.critters = new CreatureLayer(store, () => this.ctx, n => this.f(n), (n, x, y) => this.blit(this.ctx, n, x, y));
     this.refreshLayout();
     this.glow = document.createElement('canvas'); this.glow.width = this.glow.height = 80;
     const gc = this.glow.getContext('2d')!, g = gc.createRadialGradient(40, 40, 2, 40, 40, 40);
@@ -539,6 +544,12 @@ export class Engine {
     return seats[0] ?? { x: Math.max(o.x, Math.min(o.x + o.w - 1, x)), y: o.y };
   }
   /** Sprite of an object you can use under this point. */
+  /** Holding a coffee or tea over a free table tile in the office: that's where it can go. */
+  private cupTarget(t: Tile): Tile | null {
+    const me = this.store.users.get(this.store.me);
+    if (!me?.holding || !CUP_ITEMS.includes(me.holding) || me.instance || this.areaDown || !cupTableAt(MAP.objects, t)) return null;
+    return this.store.cups.some(c => c.tile.x === t.x && c.tile.y === t.y) ? null : t;
+  }
   private objectAt(wx: number, wy: number): MapObject | null {
     let best: MapObject | null = null;
     for (const o of this.interactive) {
@@ -663,7 +674,9 @@ export class Engine {
       : this.plants.find(p => w.x >= p.x - 5 && w.x < p.x + 5 && w.y >= p.y - 18 && w.y < p.y) ?? null;
     const tx = Math.floor(w.x / TS), ty = Math.floor(w.y / TS);
     this.hoverTile = this.clickTarget({ x: tx, y: ty });
-    this.canvas.style.cursor = this.tapZooms ? 'zoom-in' : this.hoverUser || this.hoverObject ? 'pointer' : this.hoverTile ? 'crosshair' : 'default';
+    this.hoverCritter = this.hoverUser || this.hoverObject || inside || this.areaDown ? null : this.critters.at(w.x, w.y, this.store.now());
+    this.cupTile = this.hoverUser || this.hoverObject ? null : this.cupTarget({ x: tx, y: ty });
+    this.canvas.style.cursor = this.tapZooms ? 'zoom-in' : this.hoverUser || this.hoverObject || this.cupTile ? 'pointer' : this.hoverTile ? 'crosshair' : 'default';
   };
   private onEditMove(w: { x: number; y: number }) {
     const tx = Math.floor(w.x / TS), ty = Math.floor(w.y / TS), d = this.editDrag;
@@ -710,6 +723,8 @@ export class Engine {
     if (obj) return this.onPick?.({ kind: 'object', id: obj.id });
     this.onPick?.(null);
     const tx = Math.floor(w.x / TS), ty = Math.floor(w.y / TS);
+    const cup = this.cupTarget({ x: tx, y: ty });
+    if (cup) { this.manualCam = false; return this.store.putCup(cup); }
     const target = this.clickTarget({ x: tx, y: ty });
     if (target) this.walkTo(target);
   };
@@ -806,14 +821,16 @@ export class Engine {
 
     // y-sorted drawables: furniture is sorted per layout (refreshLayout); people and plants are sorted here and merged in
     if (this.plantsVersion !== this.store.version) { this.plants = me?.instance ? [] : this.placePlants(); this.plantsVersion = this.store.version; }
-    type D = { base: number; u?: ClientUser; p?: Pose; plant?: PlacedPlant; door?: RoomDoor; fx?: DungeonFx };
+    type D = { base: number; u?: ClientUser; p?: Pose; plant?: PlacedPlant; door?: RoomDoor; fx?: DungeonFx; draw?: () => void };
     const ds: D[] = [];
+    if (!this.areaDown && !me?.instance) for (const c of this.critters.placed(t, ms)) ds.push(c);
     for (const door of this.areaDown ? [] : this.doors) ds.push({ base: (door.y + door.h) * TS - .5, door });
     for (const u of users) { const p = poses.get(u.id)!; ds.push({ base: p.y * TS + TS, u, p }); }
     if (!this.areaDown) for (const fx of this.store.dungeonFx) if (fx.kind === 'fall' && ms >= fx.at && ms - fx.at < 500) ds.push({ base: (fx.tile.y + 1) * TS, fx });
     for (const plant of this.plants) ds.push({ base: plant.base, plant });
     ds.sort((a, b) => a.base - b.base);
     const drawD = (d: D) => {
+      if (d.draw) return d.draw();
       if (d.fx) return this.drawDungeonFx(d.fx, ms);
       if (d.u) {
         const fx = this.store.dungeonFx.find(f => f.user.id === d.u!.id && f.kind !== 'fall' && ms >= f.at && ms - f.at < 650 && (this.areaDown === (f.kind === 'land')));
@@ -833,6 +850,7 @@ export class Engine {
       this.blit(ctx, f.o.type === 'arcade' && this.store.cabinets.some(c => c.cabinet === f.o.id) ? `arcade_on_${1 + Math.floor(ms / 320) % 2}` : f.off && !this.isOn(f.o) ? `${f.o.type}_off` : f.o.type, f.x, f.y);
     }
     while (di < ds.length) drawD(ds[di++]);
+    if (!this.areaDown && !me?.instance) this.critters.drawAbove(t, ms);
 
     // coffee steam when someone is in the Coffee room
     const coffeeBusy = users.some(u => roomAt(MAP, poses.get(u.id)!.tile.x, poses.get(u.id)!.tile.y)?.type === 'coffee');
@@ -906,6 +924,11 @@ export class Engine {
         : o.use?.kind === 'calendar' ? 'Calendar · your week' : o.use?.kind === 'achievements' ? 'Notice board · your plant and achievements' : o.use?.kind === 'link' ? `Vault 13 · click to open the ${o.use.label}` : o.use?.kind === 'meetings' ? `Meetings · ${this.store.meetingRooms.length || 'none'} on now` : o.sit ? `${o.type === 'bench' ? 'Bench' : 'Sofa'} · click to sit` : o.type === 'coffee_machine' ? 'Coffee machine' : o.type === 'fridge' ? 'Fridge' : o.type);
       this.drawLabel(what, (o.x + o.w / 2) * TS, (o.y + o.h) * TS - fr.h + 4, camX, camY);
     }
+    else if (this.cupTile) {
+      const held = me?.holding ? ITEMS.get(me.holding) : undefined;
+      this.drawLabel(`${held?.icon ?? '☕'} Put your ${held?.label.toLowerCase() ?? 'cup'} down here`, this.cupTile.x * TS + 8, this.cupTile.y * TS + 4, camX, camY);
+    }
+    else if (this.hoverCritter) this.drawLabel(this.hoverCritter.text, this.hoverCritter.x, this.hoverCritter.y, camX, camY);
     else if (this.hoverPlant) {
       const { u, x, y } = this.hoverPlant, mine = u.id === this.store.me, p = u.plant!;
       const state = plantDead(p, t) ? (mine ? 'withered · set a status to replant' : 'withered') : PLANT_STAGES[p.stage] + (mine ? ' · set a status each day' : '');

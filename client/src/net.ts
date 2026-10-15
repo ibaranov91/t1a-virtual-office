@@ -1,7 +1,7 @@
 // WebSocket client + the client-side mirror of server state.
 import mapJson from '../../shared/tilemap.json';
 import { applyLayout, besideObject, doorwayTiles, isWalkable, pathTo, roomAt, sampleMove, type Dir, type Tile, type TileMap } from '../../shared/map';
-import { ACHIEVEMENTS, underground, DUNGEON_INSTANCE, PLANT_STAGES, plantName, ROOM_VOICE_MAX, type JukeboxState, type JukeboxAction, type AgendaItem, type LayoutEdit, type CalEvent, type MeetingRoomInfo, type ChatMsg, type ObjectState, type ClientMsg, type PublicUser, type Reaction, type RtcSignal, type ServerMsg } from '../../shared/protocol';
+import { ACHIEVEMENTS, underground, DUNGEON_INSTANCE, PLANT_STAGES, plantName, ROOM_VOICE_MAX, type JukeboxState, type JukeboxAction, type AgendaItem, type LayoutEdit, type CalEvent, type MeetingRoomInfo, type ChatMsg, type ObjectState, type ClientMsg, type PublicUser, type Reaction, type RtcSignal, type ServerMsg, type Creature, type Cup, CUP_ITEMS } from '../../shared/protocol';
 import { ParkLoop } from './park/loop';
 import type { CabinetSummary, ParkRecords } from '../../shared/protocol';
 import { playPark, playHand, playKnock, playPop, playDungeon } from './sounds';
@@ -36,7 +36,7 @@ export interface DungeonFx { kind: 'fall' | 'land' | 'climb'; user: ClientUser; 
 export interface Pose { x: number; y: number; dir: Dir; walking: boolean; tile: Tile }
 
 type Listener = () => void;
-const SCENE_ONLY = new Set<ServerMsg['t']>(['move', 'speaking', 'emote', 'react']);
+const SCENE_ONLY = new Set<ServerMsg['t']>(['move', 'speaking', 'emote', 'react', 'creatures', 'creature', 'cups']);
 
 export class Store {
   users = new Map<string, ClientUser>();
@@ -82,6 +82,8 @@ export class Store {
   dungeon: { key: Tile | null; hasKey: boolean; seen: Set<number> } | null = null;
   dungeonOpening = false;
   dungeonFx: DungeonFx[] = [];
+  creatures = new Map<string, Creature>(); // the office animals and the cleaner (never people)
+  cups: Cup[] = [];                        // left on tables
   version = 0;    // bumps on any change, including scene-only ones (the engine reads the store every frame)
   uiVersion = 0;  // bumps only when React chrome has something new to show
   admin = false;      // may rearrange the office
@@ -190,6 +192,7 @@ export class Store {
   react(targetId: string, emoji: Reaction) { this.send({ t: 'react', targetId, emoji }); }
   use(objectId: string, item?: string) { this.send({ t: 'use', objectId, item }); }
   drop() { this.send({ t: 'drop' }); }
+  putCup(tile: Tile) { this.send({ t: 'cup_put', tile }); }
   give(targetId: string) { this.send({ t: 'give', targetId }); }
   openChat(withId: string) {
     this.chatWith = withId; this.unread.delete(withId);
@@ -421,8 +424,12 @@ export class Store {
           this.reactions.push({ fromId: msg.fromId, toId: msg.userId, emoji: it.icon, at: performance.now() });
           if (msg.userId === this.me) { playPop(); this.toast({ kind: 'info', text: `${this.name(msg.fromId)} handed you ${it.label.toLowerCase()} ${it.icon}`, expires: 5000 }); }
         }
+        if (msg.objectId && it && msg.userId === this.me && CUP_ITEMS.includes(it.id)) this.toast({ kind: 'info', text: `${it.icon} Click a table to put your cup down`, expires: 5000 });
         break;
       }
+      case 'creatures': this.creatures = new Map(msg.creatures.map(c => [c.id, c])); break;
+      case 'creature': this.creatures.set(msg.creature.id, msg.creature); break;
+      case 'cups': this.cups = msg.cups; break;
       case 'instrument': this.setInstruments({ ...this.instruments, [msg.id]: msg.player }); break;
       case 'seat': this.seat = msg.id; break;
       case 'note': this.soundscape?.receiveNote(msg.id, msg.by, msg.note, msg.on, msg.vel, msg.preset, msg.at); return;

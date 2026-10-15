@@ -111,6 +111,28 @@ export interface PublicUser {
   achievements: Record<string, number>; // achievement id → when it was earned (ms)
 }
 
+/** Office animals and helpers. Not people: never in the user list, never knock, never counted.
+ *  ms: milliseconds per tile of the current walk (they amble, fly or drift at their own pace). */
+export type CreatureKind = 'cat' | 'dog' | 'bat' | 'cleaner';
+export type CreaturePose = 'idle' | 'sit' | 'nap' | 'clean' | 'hang';
+export interface Creature {
+  id: string; kind: CreatureKind; name: string;
+  tile: Tile; dir: Dir; pose: CreaturePose;
+  walk: { path: Tile[]; startedAt: number; ms: number } | null;
+}
+/** A cup someone left on a table; the cleaner takes it away. */
+export interface Cup { id: string; tile: Tile; item: string; at: number }
+export const MAX_CUPS = 12;
+export const CUP_ITEMS = ['coffee', 'tea'];
+/** Furniture you can put a cup on. */
+export const CUP_TABLES = ['table_long', 'table_round', 'table_big', 'desk', 'counter'];
+export const cupTableAt = <O extends { type: string; x: number; y: number; w: number; h: number }>(objects: O[], t: Tile) =>
+  objects.find(o => CUP_TABLES.includes(o.type) && t.x >= o.x && t.x < o.x + o.w && t.y >= o.y && t.y < o.y + o.h);
+export type CreatureServerMsg =
+  | { t: 'creatures'; creatures: Creature[] } // everyone, on connect and when one appears or leaves
+  | { t: 'creature'; creature: Creature }     // one of them set off, sat down, fell asleep…
+  | { t: 'cups'; cups: Cup[] };
+
 /** Quick reactions you can toss at someone; they float up over their head for everyone to see. */
 export const REACTIONS = ['👋', '👍', '❤️', '😂', '🎉', '☕'] as const;
 export type Reaction = typeof REACTIONS[number];
@@ -157,6 +179,7 @@ export type LayoutEdit =
 // server -> client
 export type ServerMsg =
   | ParkIncoming
+  | CreatureServerMsg
   | { t: 'game_status'; userId: string; game: PublicUser['game'] }
   | { t: 'game_cheer'; userId: string; kind: number }
   | { t: 'arcade'; cabinets: CabinetSummary[] }
@@ -210,6 +233,7 @@ export type ServerMsg =
 // client -> server
 export type ClientMsg =
   | ParkOutgoing
+  | { t: 'cup_put'; tile: Tile } // put the coffee or tea you're holding down on this table tile
   | { t: 'game_play'; epoch: number }
   | { t: 'game_leave' }
   | { t: 'game_menu'; epoch: number; op: 'lobby' | 'restart' }

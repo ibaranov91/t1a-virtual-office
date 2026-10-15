@@ -1064,6 +1064,96 @@ for (const open of [false, true]) {
   frames[open ? 'hatch_open' : 'hatch'] = t;
 }
 
+// ---------- creatures (cat, dog, bat, the cleaner, a ghost) and cups left on tables; no shared random calls ----------
+// Side views facing right; the engine mirrors them for left.
+{
+  const C = '#e0924a', CD = '#b86a2e', CL = '#f4c088', PINK = '#e8909a';
+  const cat = (draw) => { const t = new Img(16, 12); draw(t); return t.outline(); };
+  for (const f of [0, 1]) frames[`cat_walk_${f}`] = cat(t => {
+    t.ellipse(7.5, 7, 5, 2.5, C); t.hline(4, 6, 6, CD);
+    for (const [x, up] of [[4, f], [6, 1 - f], [9, f], [11, 1 - f]]) t.vline(x, 9, up ? 1 : 2, CD);
+    t.ellipse(12.5, 4.5, 2.6, 2.3, C); t.px(11, 2, C); t.px(14, 2, C); t.px(11, 1, CD); t.px(14, 1, CD);
+    t.px(13, 4, OUT); t.px(15, 5, PINK); t.px(12, 6, CL);
+    t.vline(2, 3, 4, C); t.px(1, 2, CD); t.px(3, 7, C);
+  });
+  frames.cat_sit = cat(t => {
+    t.ellipse(8, 7.5, 3.5, 3.5, C); t.ellipse(9, 8, 1.5, 2.5, CL); t.hline(4, 10, 8, CD);
+    t.ellipse(9, 3.5, 2.6, 2.3, C); t.px(7, 1, C); t.px(11, 1, C); t.px(7, 0, CD); t.px(11, 0, CD);
+    t.px(8, 3, OUT); t.px(10, 3, OUT); t.px(9, 4, PINK);
+    t.hline(1, 10, 4, C); t.px(1, 9, CD);
+  });
+  frames.cat_nap = cat(t => {
+    t.ellipse(7.5, 8.5, 5.5, 2.6, C); t.hline(3, 7, 8, CD);
+    t.ellipse(12, 8.5, 2.4, 2, C); t.px(11, 6, C); t.px(13, 6, CD); t.hline(11, 8, 2, OUT);
+    t.hline(3, 10, 8, CL);
+  });
+  const D = '#c89a64', DD = '#8a5e36', DL = '#ecc890';
+  const dog = (draw) => { const t = new Img(16, 14); draw(t); return t.outline(); };
+  for (const f of [0, 1]) frames[`dog_walk_${f}`] = dog(t => {
+    t.ellipse(7, 8, 5.5, 3, D); t.ellipse(7, 9.5, 3.5, 1.2, DL);
+    for (const [x, up] of [[3, f], [5, 1 - f], [9, f], [11, 1 - f]]) t.vline(x, 11, up ? 2 : 3, DD);
+    t.ellipse(12.5, 5, 2.8, 2.6, D); t.rect(14, 6, 2, 2, DL); t.px(15, 6, OUT);
+    t.rect(11, 3, 2, 4, DD); t.px(13, 4, OUT);
+    t.vline(1, 4 + f, 4, D); t.px(1, 3 + f, DL);
+    t.hline(9, 6, 3, '#d04848');
+  });
+  frames.dog_sit = dog(t => {
+    t.ellipse(8, 9, 3.5, 4, D); t.ellipse(9, 9.5, 1.6, 3, DL); t.hline(4, 13, 9, DD);
+    t.ellipse(9.5, 4, 2.8, 2.6, D); t.rect(11, 5, 2, 2, DL); t.px(12, 5, OUT);
+    t.rect(7, 2, 2, 4, DD); t.px(10, 3, OUT); t.hline(7, 6, 4, '#d04848');
+    t.hline(2, 12, 3, D); t.px(1, 11, D);
+  });
+  frames.dog_nap = dog(t => {
+    t.ellipse(7.5, 10, 6, 3, D); t.hline(3, 12, 9, DL);
+    t.ellipse(13, 10, 2.4, 2.2, D); t.rect(11, 8, 2, 4, DD); t.hline(13, 9, 2, OUT);
+  });
+  const B = '#4a3a5a', BD = '#2e2438', BW = '#6a5880';
+  for (const f of [0, 1]) {
+    const t = new Img(14, 8);
+    t.ellipse(7, 4, 1.8, 2.2, B); t.px(6, 1, B); t.px(8, 1, B); t.px(6, 3, '#f0d060'); t.px(8, 3, '#f0d060');
+    if (f === 0) for (const s of [-1, 1]) { t.hline(7 + s * 2, 3, 1, BW); t.hline(7 + s * 3, 2, 1, BW); t.hline(7 + s * 4, 1, 1, BW); t.hline(7 + s * 5, 2, 1, BD); t.px(7 + s * 4, 2, BW); t.px(7 + s * 3, 3, BW); }
+    else for (const s of [-1, 1]) { t.hline(7 + s * 2, 4, 1, BW); t.px(7 + s * 3, 5, BW); t.px(7 + s * 4, 5, BW); t.px(7 + s * 5, 6, BD); t.px(7 + s * 3, 4, BW); t.px(7 + s * 4, 4, BD); }
+    frames[`bat_fly_${f}`] = t.outline();
+  }
+  {
+    const t = new Img(8, 10); // hanging upside down, wings folded
+    t.vline(4, 0, 2, BD); t.ellipse(4, 5, 2.4, 3.2, B); t.vline(2, 3, 4, BD); t.vline(6, 3, 4, BD);
+    t.px(3, 7, '#f0d060'); t.px(5, 7, '#f0d060'); t.px(3, 9, B); t.px(5, 9, B);
+    frames.bat_hang = t.outline();
+  }
+  // the cleaner: headscarf, blue smock, white apron, a mop
+  const SK = '#e8b890', SC = '#c8484a', SM = '#4a6aa0', SMD = '#36507e', AP = '#f0ece0';
+  const cleaner = (legs, wipe) => {
+    const t = new Img(18, 24);
+    t.vline(14 + wipe, 6, 17, '#8a6a40'); t.rect(12 + wipe, 21, 5, 2, '#d8d0b8');
+    t.rect(5, 9, 7, 9, SM); t.vline(5, 9, 9, SMD); t.rect(6, 11, 5, 7, AP); t.hline(6, 11, 5, '#d8d0c0');
+    t.rect(5, 18, 7, 2, SMD);
+    for (const [x, d] of [[6, legs], [9, 1 - legs]]) t.rect(x, 20, 2, 3 - d, SK), t.rect(x, 23 - d, 2, 1, '#3a2a2a');
+    t.ellipse(8.5, 5.5, 3.2, 3.4, SK); t.px(10, 5, OUT); t.px(11, 7, '#d89878');
+    t.ellipse(8, 3.5, 3.6, 2.4, SC); t.rect(5, 3, 2, 5, SC); t.px(4, 8, SC); t.px(9, 1, '#e86a6a');
+    t.rect(11, 10, 2, 4 - wipe, SM); t.rect(12 + wipe, 13 - wipe, 2, 2, SK);
+    return t.outline();
+  };
+  frames.cleaner_0 = cleaner(0, 0); frames.cleaner_1 = cleaner(1, 0);
+  frames.cleaner_clean_0 = cleaner(0, 1); frames.cleaner_clean_1 = cleaner(0, 2);
+  // the ghost of Mazurkevich, the old office manager: a sheet, a moustache, a little clipboard
+  for (const f of [0, 1]) {
+    const t = new Img(16, 22), G = '#eef2ff', GS = '#c8d0ea';
+    t.ellipse(8, 7, 6, 6, G); t.rect(2, 7, 12, 11, G); t.vline(2, 8, 10, GS);
+    for (let x = 2; x < 14; x++) if ((x + f) % 4 < 2) t.rect(x, 18, 1, 2, G); else t.px(x, 18, GS);
+    t.rect(5, 6, 2, 3, '#2a2a3a'); t.rect(9, 6, 2, 3, '#2a2a3a');
+    t.hline(5, 10, 6, '#6a5040'); t.px(4, 11, '#6a5040'); t.px(11, 11, '#6a5040');
+    t.rect(11, 12, 4, 5, '#c8a070'); t.hline(12, 14, 2, '#6a6a7a'); t.hline(12, 15, 2, '#6a6a7a');
+    frames[`ghost_${f}`] = t.outline('#8a90b8');
+  }
+  // cups on a table
+  for (const [k, c] of [['coffee', '#5a3420'], ['tea', '#b88a3a']]) {
+    const t = new Img(6, 6);
+    t.rect(0, 1, 4, 4, '#f4f0e8'); t.hline(0, 1, 4, c); t.px(4, 2, '#f4f0e8'); t.px(5, 3, '#f4f0e8'); t.px(4, 4, '#f4f0e8'); t.hline(0, 5, 4, '#c8c0b0');
+    frames[`cup_${k}`] = t.outline();
+  }
+}
+
 // ---------- pack world atlas (shelf packer) ----------
 const names = Object.keys(frames).sort((a, b) => frames[b].h - frames[a].h || frames[b].w - frames[a].w);
 const AW = 256; let x = 0, y = 0, rowH = 0; const rects = {};
