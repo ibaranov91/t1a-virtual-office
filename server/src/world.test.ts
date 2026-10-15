@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { World, type User } from './world';
 import { hallDistance, pathDuration, roomAt, sampleMove, seatAt, voiceRooms, WALK_MS_PER_TILE, type TileMap, type Tile } from '../../shared/map';
-import { ROOM_VOICE_MAX, type ServerMsg } from '../../shared/protocol';
+import { PLANT_DIES_DAYS, PLANT_STAGES, plantDead, ROOM_VOICE_MAX, type ServerMsg } from '../../shared/protocol';
 const map: TileMap = JSON.parse(readFileSync(new URL('../../shared/tilemap.json', import.meta.url), 'utf8'));
 const coffee = map.rooms.find(r => r.id === 'coffee')!;
 function setup(t: TestContext) {
@@ -236,4 +236,17 @@ test('radio is always on without a shared knob; lamp toggles still broadcast and
   const saved = w.dump(); assert.equal('objectVolumes' in saved, false);
   const restored = new World(map); restored.load(saved);
   const after = restored.snapshot() as Extract<ServerMsg, { t: 'state' }>; assert.deepEqual(after.objects[lamp.id], { on: !before.objects[lamp.id].on });
+});
+test('a status a day grows your plant one stage; a week without one kills it and the next status replants', t => {
+  const { w, add, tick } = setup(t), a = add('A'), DAY = 86_400_000, stage = () => a.u.plant?.stage;
+  assert.equal(stage(), undefined);
+  w.handle(a.u, { t: 'status', status: '' }, a.socket); assert.equal(stage(), undefined); // clearing it isn't tending
+  w.handle(a.u, { t: 'status', status: 'hi' }, a.socket); assert.equal(stage(), 0);
+  w.handle(a.u, { t: 'status', status: 'again' }, a.socket); assert.equal(stage(), 0); // once a day
+  tick(DAY); w.handle(a.u, { t: 'status', status: 'day 2' }, a.socket); assert.equal(stage(), 1);
+  for (let i = 0; i < 9; i++) { tick(DAY); w.handle(a.u, { t: 'status', status: `day ${i + 3}` }, a.socket); }
+  assert.equal(stage(), PLANT_STAGES.length - 1); // stays in bloom
+  tick(PLANT_DIES_DAYS * DAY); assert.ok(plantDead(a.u.plant!, Date.now()));
+  w.handle(a.u, { t: 'status', status: 'back' }, a.socket); assert.equal(stage(), 0);
+  assert.ok(a.messages.some(m => m.t === 'plant'));
 });

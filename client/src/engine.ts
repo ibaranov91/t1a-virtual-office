@@ -3,7 +3,7 @@
 import { findPath, isWalkable, roomAt, seatAt, type MapObject, type Tile } from '../../shared/map';
 import type { Assets, Frame } from './assets';
 import { drawText, textWidth } from './font';
-import { MEETING_ROOM_ID } from '../../shared/protocol';
+import { MEETING_ROOM_ID, PLANT_STAGES, plantDead } from '../../shared/protocol';
 import { ITEMS, MAP, type ClientUser, type Pose, type Store } from './net';
 
 const TS = MAP.tileSize;
@@ -13,6 +13,11 @@ const inMeetingRoom = (x: number, y: number) => x >= MEETING.x && x < MEETING.x 
 const DIR_ROW: Record<string, number> = { down: 0, left: 1, right: 2, up: 3 };
 const WALK_FPS = 8; // 4 frames per tile at 4 tiles/s
 const SIT_FRAME = 5;
+
+/** Someone's plant where it stands: x = pot centre, y = pot bottom, base = y-sort key (just after its desk or shelf). */
+type PlacedPlant = { u: ClientUser; x: number; y: number; base: number };
+const FRONT: Record<string, [number, number]> = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
+const SLOTS = MAP.rooms.flatMap(r => r.plantSlots ?? []);
 
 type BubbleKind = 'bubble_bang' | 'bubble_headset' | 'bubble_zzz' | 'bubble_meeting' | 'bubble_dots' | 'bubble_think' | 'bubble_talk' | 'bubble_hand' | 'bubble_deaf';
 // where the bag hangs when carried, per facing; behind = drawn before the body
@@ -57,6 +62,8 @@ export class Engine {
   selected: Pick | null = null;
   onPick?: (p: Pick | null) => void;
   private hoverTile: { x: number; y: number } | null = null;
+  private hoverPlant: PlacedPlant | null = null;
+  private plants: PlacedPlant[] = [];
   private drag: { x: number; y: number; camX: number; camY: number; moved: boolean } | null = null;
   private bubbleState = new Map<string, { kind: BubbleKind | null; at: number }>();
   private nameplates = new Map<string, HTMLCanvasElement>();
@@ -399,6 +406,8 @@ export class Engine {
     this.hoverUser = this.userAt(w.x, w.y);
     const inside = this.myInstance();
     this.hoverObject = this.hoverUser || inside ? null : this.objectAt(w.x, w.y);
+    this.hoverPlant = this.hoverUser || this.hoverObject || inside ? null
+      : this.plants.find(p => w.x >= p.x - 5 && w.x < p.x + 5 && w.y >= p.y - 18 && w.y < p.y) ?? null;
     const tx = Math.floor(w.x / TS), ty = Math.floor(w.y / TS);
     this.hoverTile = isWalkable(MAP, tx, ty) && (!inside || inMeetingRoom(tx, ty)) ? { x: tx, y: ty } : null;
     this.canvas.style.cursor = this.tapZooms ? 'zoom-in' : this.hoverUser || this.hoverObject ? 'pointer' : this.hoverTile ? 'crosshair' : 'default';
@@ -424,6 +433,23 @@ export class Engine {
     const tx = Math.floor(w.x / TS), ty = Math.floor(w.y / TS);
     if (isWalkable(MAP, tx, ty) && (!inside || inMeetingRoom(tx, ty))) { this.store.moveTo({ x: tx, y: ty }); this.manualCam = false; }
   };
+
+  /** Plants stand on their owner's home desk (the edge nearest the chair), or on an Orangery shelf if they have none. */
+  private placePlants(): PlacedPlant[] {
+    const out: PlacedPlant[] = [], shelved: ClientUser[] = [];
+    for (const u of this.store.users.values()) {
+      if (!u.plant) continue;
+      const seat = u.homeDesk && seatAt(MAP, u.homeDesk.x, u.homeDesk.y);
+      const [dx, dy] = FRONT[seat ? seat.dir : 'up'], fx = (seat?.x ?? 0) + dx, fy = (seat?.y ?? 0) + dy;
+      const desk = seat && MAP.objects.find(o => !o.walkable && !o.wall && fx >= o.x && fx < o.x + o.w && fy >= o.y && fy < o.y + o.h);
+      if (!desk) { shelved.push(u); continue; }
+      const out_ = Math.sign(fx + 0.5 - (desk.x + desk.w / 2)) || 1; // toward the desk's outer edge, clear of the monitor
+      out.push({ u, x: fx * TS + 8 + out_ * 4, y: fy * TS + 7, base: (desk.y + desk.h) * TS - 0.25 });
+    }
+    shelved.sort((a, b) => a.id.localeCompare(b.id));
+    shelved.slice(0, SLOTS.length).forEach((u, i) => out.push({ u, x: SLOTS[i].x * TS + 8, y: SLOTS[i].y * TS + 6, base: (SLOTS[i].y + 1) * TS - 0.25 }));
+    return out;
+  }
 
   // ---------- render ----------
   private frame = (ms: number) => {
@@ -493,6 +519,11 @@ export class Engine {
       const p = poses.get(u.id)!;
       ds.push({ base: p.y * TS + TS, draw: () => this.drawSprite(u, p, ms) });
     }
+    this.plants = me?.instance ? [] : this.placePlants();
+    for (const p of this.plants) {
+      const name = plantDead(p.u.plant!, t) ? 'pot_dead' : `pot_${p.u.plant!.stage}`;
+      ds.push({ base: p.base, draw: () => this.blit(ctx, name, p.x - 6, p.y - 20) });
+    }
     ds.sort((a, b) => a.base - b.base);
     for (const d of ds) d.draw();
 
@@ -545,8 +576,13 @@ export class Engine {
     else if (this.hoverObject && !this.selected) {
       const o = this.hoverObject, fr = this.f(o.type)!;
       const what = o.sound ? 'Radio · music volume in ⚙' : o.use?.kind === 'toggle' ? `${o.use.label[0].toUpperCase()}${o.use.label.slice(1)} · ${this.isOn(o) ? 'on' : 'off'}`
-        : o.use?.kind === 'calendar' ? 'Calendar · your week' : o.use?.kind === 'meetings' ? `Meetings · ${this.store.meetingRooms.length || 'none'} on now` : o.sit ? 'Sofa · click to sit' : o.type === 'coffee_machine' ? 'Coffee machine' : o.type === 'fridge' ? 'Fridge' : o.type;
+        : o.use?.kind === 'calendar' ? 'Calendar · your week' : o.use?.kind === 'meetings' ? `Meetings · ${this.store.meetingRooms.length || 'none'} on now` : o.sit ? `${o.type === 'bench' ? 'Bench' : 'Sofa'} · click to sit` : o.type === 'coffee_machine' ? 'Coffee machine' : o.type === 'fridge' ? 'Fridge' : o.type;
       this.drawLabel(what, (o.x + o.w / 2) * TS, (o.y + o.h) * TS - fr.h + 4, camX, camY);
+    }
+    else if (this.hoverPlant) {
+      const { u, x, y } = this.hoverPlant, mine = u.id === this.store.me, p = u.plant!;
+      const state = plantDead(p, t) ? (mine ? 'withered · set a status to replant' : 'withered') : PLANT_STAGES[p.stage] + (mine ? ' · set a status each day' : '');
+      this.drawLabel(`${mine ? 'Your' : `${u.name.split(' ')[0]}'s`} plant · ${state}`, x, y - 18, camX, camY);
     }
     else if (this.hoverTile) {
       const owner = deskOwners.get(`${this.hoverTile.x},${this.hoverTile.y}`);

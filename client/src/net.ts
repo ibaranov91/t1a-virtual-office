@@ -1,7 +1,7 @@
 // WebSocket client + the client-side mirror of server state.
 import mapJson from '../../shared/tilemap.json';
 import { besideObject, pathTo, roomAt, sampleMove, type Dir, type Tile, type TileMap } from '../../shared/map';
-import { ROOM_VOICE_MAX, type AgendaItem, type CalEvent, type MeetingRoomInfo, type ChatMsg, type ObjectState, type ClientMsg, type PublicUser, type Reaction, type RtcSignal, type ServerMsg } from '../../shared/protocol';
+import { PLANT_STAGES, ROOM_VOICE_MAX, type AgendaItem, type CalEvent, type MeetingRoomInfo, type ChatMsg, type ObjectState, type ClientMsg, type PublicUser, type Reaction, type RtcSignal, type ServerMsg } from '../../shared/protocol';
 import { playHand, playKnock, playPop } from './sounds';
 import type { Soundscape } from './soundscape';
 
@@ -329,6 +329,14 @@ export class Store {
         break;
       }
       case 'desk': { const u = this.users.get(msg.userId); if (u) u.homeDesk = msg.desk; break; }
+      case 'plant': {
+        const u = this.users.get(msg.userId); if (!u) break;
+        const was = u.plant; u.plant = msg.plant;
+        if (u.id === this.me && msg.plant) this.toast({ kind: 'info', expires: 5000,
+          text: msg.plant.stage === 0 ? '🌱 You planted a new plant' : `🌱 Your plant grew: ${PLANT_STAGES[msg.plant.stage]}`,
+          hint: msg.plant.stage === 0 && was ? 'The old one withered after a week without a status' : 'It grows once a day you set a status' });
+        break;
+      }
       case 'to_meet': {
         if (!this.callLink) break;
         this.toasts = this.toasts.filter(t => t.kind !== 'link');
