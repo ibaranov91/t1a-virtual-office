@@ -1,6 +1,6 @@
 // WebSocket client + the client-side mirror of server state.
 import mapJson from '../../shared/tilemap.json';
-import { applyLayout, besideObject, doorwayTiles, findPath, isWalkable, pathDuration, pathTo, roomAt, sampleMove, type Dir, type MapObject, type Tile, type TileMap } from '../../shared/map';
+import { applyLayout, besideObject, doorwayTiles, isWalkable, pathTo, roomAt, sampleMove, type Dir, type Tile, type TileMap } from '../../shared/map';
 import { ACHIEVEMENTS, PLANT_STAGES, plantName, ROOM_VOICE_MAX, type AgendaItem, type LayoutEdit, type CalEvent, type MeetingRoomInfo, type ChatMsg, type ObjectState, type ClientMsg, type PublicUser, type Reaction, type RtcSignal, type ServerMsg } from '../../shared/protocol';
 import { playHand, playKnock, playPop } from './sounds';
 import type { Soundscape } from './soundscape';
@@ -18,7 +18,6 @@ export interface Toast {
   // knock_out: my knock is waiting (Cancel); knock_again: it didn't land, or I missed one (Knock again / back)
   id: number; kind: 'knock_in' | 'knock_out' | 'knock_again' | 'chat' | 'info' | 'link' | 'meeting' | 'call_moved';
   text: string; link?: string; knockId?: string; expires?: number; hint?: string;
-  linkLabel?: string; // link: the button's text when it's not a Meet link
   roomId?: string;
   meetingKey?: string; // meeting: one-click Go into its room
   userId?: string; // the other person, for knock_again and chat
@@ -64,7 +63,6 @@ export class Store {
   unread = new Map<string, number>();
   chatWith: string | null = null;       // open conversation
   reactions: Flying[] = [];             // the engine draws and prunes these
-  private errand: { spot: Tile; timer: number; then: () => void } | null = null; // walking over to use something
   objectFx: { objectId: string; at: number }[] = []; // someone just used it (coffee steam)
   version = 0;    // bumps on any change, including scene-only ones (the engine reads the store every frame)
   uiVersion = 0;  // bumps only when React chrome has something new to show
@@ -211,25 +209,10 @@ export class Store {
   setHand(up: boolean) { this.send({ t: 'hand', up }); }
   setDeafen(on: boolean) { this.send({ t: 'deafen', on }); }
   claimVoice() { this.send({ t: 'voice_claim' }); }
-  /** Walk up to an object that opens a page (the vault door) and offer the link on arrival: a phone's tap on the floor
-   *  can't open a tab, but a tap on the toast's link can. `opened` says the click already opened it (desktop), so the
-   *  walk is just for show. */
-  goToLink(o: MapObject & { use: { kind: 'link'; label: string; url: string } }, opened: boolean) {
-    const me = this.users.get(this.me); if (!me || me.instance) return;
-    const from = this.pose(me).tile, spots = besideObject(MAP, o);
-    let best: { t: Tile; len: number } | null = null;
-    for (const t of spots) {
-      const len = t.x === from.x && t.y === from.y ? 1 : findPath(MAP, from, t).length;
-      if (len && (!best || len < best.len)) best = { t, len };
-    }
-    if (!best) return;
-    this.clearErrand();
-    const then = () => this.toast({ kind: 'link', link: o.use.url, linkLabel: 'Open', text: `🔐 Vault 13`, hint: `Open the ${o.use.label}: ${o.use.url.replace(/^https?:\/\//, '').replace(/\/$/, '')}`, expires: 20000 });
-    if (best.len === 1) { if (!opened) then(); return; } // already there
-    this.errand = { spot: best.t, timer: 0, then: opened ? () => {} : then };
-    this.moveTo(best.t);
-  }
-  private clearErrand() { if (this.errand) { clearTimeout(this.errand.timer); this.errand = null; } }
+  /** The vault door: a panel with the link, which works from a tap anywhere (a tap on the floor can't open a tab on a phone). */
+  linkOpen: { label: string; url: string } | null = null;
+  openLink(use: { label: string; url: string }) { this.linkOpen = use; this.emit(); }
+  closeLink() { this.linkOpen = null; this.emit(); }
   roomCallOf(u?: ClientUser) {
     return u?.callId?.startsWith('room:') ? MAP.rooms.find(r => r.id === u.callId!.slice(5)) : undefined;
   }
@@ -349,18 +332,7 @@ export class Store {
         break;
       }
       case 'chat_history': this.chats.set(msg.withId, msg.messages); break;
-      case 'move': {
-        const u = this.users.get(msg.userId); if (u) this.applyMove(u, msg);
-        if (u && msg.userId === this.me && this.errand) { // my walk: the errand ends where it ends, or is called off
-          const e = this.errand;
-          if (msg.to.x !== e.spot.x || msg.to.y !== e.spot.y) this.clearErrand();
-          else {
-            clearTimeout(e.timer);
-            e.timer = window.setTimeout(() => { if (this.errand === e) { this.errand = null; e.then(); } }, Math.max(0, msg.startedAt + pathDuration(u.path ?? []) - this.now()) + 150);
-          }
-        }
-        break;
-      }
+      case 'move': { const u = this.users.get(msg.userId); if (u) this.applyMove(u, msg); break; }
       case 'layout':
         applyLayout(MAP, msg.layout); this.layoutVersion++;
         if (msg.by === this.me && msg.added) this.added = msg.added;

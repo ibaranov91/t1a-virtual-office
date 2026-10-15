@@ -131,6 +131,7 @@ canvas { display: block; image-rendering: pixelated; touch-action: none; }
 .meet-panel .small { font-size: 12px; }
 .meet-panel a { color: var(--accent); }
 .meet-panel .row { display: flex; justify-content: flex-end; gap: 6px; }
+.meet-panel a.button { display: inline-block; padding: 8px 14px; border: 2px solid var(--wood); border-radius: 8px; background: var(--panel2); color: var(--accent); font-weight: 700; text-decoration: none; min-height: 40px; box-sizing: border-box; }
 .toast .hint { display: block; color: var(--muted); font-size: 12px; }
 
 /* dialogs sit above everything on the stage: voice stack 6, chips and toasts 7-8, sheets 8, person menu 9 */
