@@ -1,9 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import {
-  findPath, isWalkable, pathDuration, roomAt, sampleMove, seatAt, WALK_MS_PER_TILE,
-  type Dir, type TileMap, type Tile,
+  besideObject, dirBetween, findPath, isWalkable, pathDuration, pathTo, roomAt, sampleMove, seatAt, WALK_MS_PER_TILE,
+  type Dir, type Spot, type TileMap, type Tile,
 } from '../../shared/map';
-import { MAX_CALL_SIZE, normalizeMeetLink, type ClientMsg, type Door, type Knock, type Look, type Presence, type PublicUser, type ServerMsg } from '../../shared/protocol';
+import {
+  MAX_CALL_SIZE, MAX_CHAT_LEN, normalizeMeetLink, REACTIONS,
+  type ChatMsg, type ClientMsg, type Door, type Knock, type Look, type Presence, type PublicUser, type Reaction, type ServerMsg,
+} from '../../shared/protocol';
 
 export interface User extends PublicUser {
   path: Tile[] | null; // path of the current move (server-side bookkeeping)
@@ -38,6 +41,12 @@ const LEAVE_GRACE_MS = 5000; // a dropped tab or quick re-login shouldn't send a
 const DOOR_PAUSE_MS = 400;   // a beat at the door before vanishing
 /** Packing up or walking out: not around any more, as far as knocks go. */
 const goingOut = (u: User) => u.door === 'thinking' || u.door === 'leaving';
+const FOLLOW_LAG_MS = 300;   // followers set off a beat after the person they follow
+const HOLD_MS = 3 * 60_000;  // a coffee lasts this long
+const USE_MS = { take: 1200, toggle: 150 }; // brewing a coffee vs flicking a switch
+
+/** Dev bots answer DMs and reactions so there's something to talk to when testing alone. */
+export interface BotHooks { chat(bot: User, from: User, text: string): void; react(bot: User, from: User, emoji: Reaction): void }
 
 export class World {
   users = new Map<string, User>();
@@ -46,14 +55,24 @@ export class World {
   private listeners = new Set<Send>();
   private doorTimers = new Map<string, NodeJS.Timeout>();
   private callTimers = new Map<string, NodeJS.Timeout>(); // per member: when they hang up
+  private holdTimers = new Map<string, NodeJS.Timeout>(); // per person: when the coffee's finished
+  private errands = new Map<string, NodeJS.Timeout>();    // per person: walking over to use an object
+  private objectOn = new Map<string, boolean>();          // toggle objects (lamps)
+  private chats = new Map<string, ChatMsg[]>();           // per pair of people, oldest first
+  private lastReact = new Map<string, number>();
+  botHooks?: BotHooks;
 
-  constructor(public map: TileMap) {}
+  build?: string; // sent in hello so open pages reload after a deploy
+  constructor(public map: TileMap) {
+    for (const o of map.objects) if (o.use?.kind === 'toggle') this.objectOn.set(o.id, o.on ?? true);
+  }
 
   // ---------- transport ----------
   broadcast(msg: ServerMsg) { for (const l of this.listeners) l(msg); }
   sendTo(userId: string, msg: ServerMsg) { for (const s of this.sockets.get(userId) ?? []) s(msg); }
   snapshot(): ServerMsg {
-    return { t: 'state', serverTime: Date.now(), users: [...this.users.values()].map(this.toPublic) };
+    const objects = Object.fromEntries([...this.objectOn].map(([id, on]) => [id, { on }]));
+    return { t: 'state', serverTime: Date.now(), users: [...this.users.values()].map(this.toPublic), objects };
   }
   private toPublic = (u: User): PublicUser => {
     const { path: _p, email: _e, meetLink: _m, ...pub } = u;
@@ -66,7 +85,7 @@ export class World {
     if (!this.sockets.has(userId)) this.sockets.set(userId, new Set());
     this.sockets.get(userId)!.add(send);
     this.listeners.add(send);
-    send({ t: 'hello', you: userId, serverTime: Date.now() });
+    send({ t: 'hello', you: userId, serverTime: Date.now(), build: this.build });
     this.stayAfterAll(u);
     if (u.presence === 'offline') this.comeIn(u);
     send(this.snapshot());
@@ -114,6 +133,8 @@ export class World {
     this.doorTimer(u, () => {
       for (const k of this.knocks.values()) if (k.fromId === u.id && (k.state === 'walking' || k.state === 'pending')) this.closeKnock(k, 'later', 'Knock cancelled');
       this.leaveCall(u);
+      this.setFollowing(u, null);
+      for (const f of this.users.values()) if (f.following === u.id) this.setFollowing(f, null);
       this.setDoor(u, 'leaving');
       u.lastSpot = this.position(u).dest;
       const at = this.walk(u, this.map.exit, 'up') ?? Date.now();
@@ -149,6 +170,7 @@ export class World {
       email,
       id: randomUUID().slice(0, 8), name, look: lookFor(name), tile: tile ?? { ...this.map.spawn }, dir: 'down',
       move: null, path: null, presence: bot ? 'online' : 'offline', status: '', emote: null, bot, homeDesk: null, door: null, callId: null, muted: false,
+      following: null, holding: null,
     };
     this.users.set(u.id, u);
     this.broadcast(this.snapshot());
@@ -169,10 +191,9 @@ export class World {
 
   /** Start a walk. Mid-walk, the new path starts at the tile being entered, timed for when we get there. */
   walk(u: User, to: Tile, face?: Dir, now = Date.now()): number | null {
-    if (!isWalkable(this.map, to.x, to.y)) return null;
     const pos = this.position(u, now);
     const from = pos.next;
-    const path = findPath(this.map, from, to);
+    const path = pathTo(this.map, from, to); // also sits down onto a sofa
     if (!path.length) return null;
     const startedAt = Math.round(now + pos.remainingMs);
     face ??= seatAt(this.map, to.x, to.y)?.dir; // sit facing the desk/table
@@ -180,7 +201,113 @@ export class World {
     if (face) u.dir = face;
     else if (path.length > 1) { const a = path[path.length - 2], b = path[path.length - 1]; u.dir = b.x > a.x ? 'right' : b.x < a.x ? 'left' : b.y > a.y ? 'down' : 'up'; }
     this.broadcast({ t: 'move', userId: u.id, from, to, startedAt, face });
+    for (const f of this.users.values()) if (f.following === u.id) this.trail(f, to, startedAt + FOLLOW_LAG_MS);
     return startedAt + pathDuration(path);
+  }
+
+  /** Nearest free tile beside `target` for someone at `from` (their own tile counts as free). */
+  private nextTo(target: Tile, from: Tile): Tile | null {
+    const occ = this.occupied();
+    let best: { tile: Tile; len: number } | null = null;
+    for (const [dx, dy] of [[0, 1], [-1, 0], [1, 0], [0, -1]]) {
+      const t = { x: target.x + dx, y: target.y + dy };
+      if (!isWalkable(this.map, t.x, t.y)) continue;
+      const mine = from.x === t.x && from.y === t.y;
+      if (!mine && occ.has(`${t.x},${t.y}`)) continue;
+      const len = mine ? 0 : findPath(this.map, from, t).length;
+      if (!mine && !len) continue;
+      if (!best || len < best.len) best = { tile: t, len };
+    }
+    return best?.tile ?? null;
+  }
+
+  // ---------- follow ----------
+  follow(u: User, target: User | null) {
+    if (target) {
+      if (target.id === u.id || target.presence === 'offline' || goingOut(target) || goingOut(u)) return;
+      for (let t: User | undefined = target; t; t = t.following ? this.users.get(t.following) : undefined) if (t.id === u.id) return; // no circles
+    }
+    this.setFollowing(u, target?.id ?? null);
+    if (target) this.trail(u, this.position(target).dest);
+  }
+  private setFollowing(u: User, id: string | null) {
+    if (u.following === id) return;
+    u.following = id;
+    this.broadcast({ t: 'follow', userId: u.id, targetId: id });
+  }
+  /** Walk up beside where the leader is heading, facing them. A conga line follows on by itself (walk → trail). */
+  private trail(f: User, to: Tile, now = Date.now()) {
+    const spot = this.nextTo(to, this.position(f, now).next);
+    if (spot) this.walk(f, spot, dirBetween(spot, to), now);
+  }
+
+  // ---------- objects ----------
+  /** Walk over to an object and use it: take something from it, or flip it on/off. */
+  use(u: User, objectId: string, itemId?: string) {
+    const o = this.map.objects.find(o => o.id === objectId);
+    if (!o?.use || goingOut(u)) return;
+    const item = o.use.kind === 'take' ? o.use.items.find(i => i.id === itemId) ?? o.use.items[0] : null;
+    this.setFollowing(u, null);
+    clearTimeout(this.errands.get(u.id));
+    const here = this.position(u).next, occ = this.occupied();
+    let best: { spot: Spot; len: number } | null = null;
+    for (const s of besideObject(this.map, o)) {
+      const mine = s.x === here.x && s.y === here.y;
+      if (!mine && occ.has(`${s.x},${s.y}`)) continue;
+      const len = mine ? 0 : findPath(this.map, here, s).length;
+      if (!mine && !len) continue;
+      if (!best || len < best.len) best = { spot: s, len };
+    }
+    if (!best) return; // crowded: nowhere to stand
+    const spot = best.spot;
+    const at = this.walk(u, spot, spot.dir) ?? Date.now();
+    this.errands.set(u.id, setTimeout(() => {
+      this.errands.delete(u.id);
+      const d = this.position(u).dest;
+      if (d.x !== spot.x || d.y !== spot.y) return; // wandered off on the way
+      if (o.use!.kind === 'toggle') this.setObject(o.id, !this.objectOn.get(o.id), u);
+      else if (item) this.setHolding(u, item.id, o.id);
+    }, Math.max(0, at - Date.now()) + USE_MS[o.use.kind]));
+  }
+  private setObject(id: string, on: boolean, by: User) {
+    this.objectOn.set(id, on);
+    this.broadcast({ t: 'object', id, on, by: by.id });
+  }
+  give(u: User, to: User) {
+    if (!u.holding || to.id === u.id || to.holding || to.presence === 'offline' || goingOut(to)) return;
+    const item = u.holding;
+    this.setHolding(u, null);
+    this.setHolding(to, item, undefined, u.id);
+  }
+  setHolding(u: User, item: string | null, objectId?: string, fromId?: string) {
+    clearTimeout(this.holdTimers.get(u.id)); this.holdTimers.delete(u.id);
+    if (item) this.holdTimers.set(u.id, setTimeout(() => this.setHolding(u, null), HOLD_MS));
+    u.holding = item;
+    this.broadcast({ t: 'holding', userId: u.id, item, objectId, fromId });
+  }
+
+  // ---------- reactions & chat ----------
+  react(u: User, to: User, emoji: string) {
+    if (!(REACTIONS as readonly string[]).includes(emoji) || to.presence === 'offline') return;
+    const now = Date.now();
+    if (now - (this.lastReact.get(u.id) ?? 0) < 400) return; // no confetti cannons
+    this.lastReact.set(u.id, now);
+    this.broadcast({ t: 'react', fromId: u.id, toId: to.id, emoji: emoji as Reaction });
+    if (to.bot && !u.bot) this.botHooks?.react(to, u, emoji as Reaction);
+  }
+  private pairKey = (a: string, b: string) => (a < b ? `${a}|${b}` : `${b}|${a}`);
+  chat(u: User, to: User, raw: string) {
+    const text = raw.trim().slice(0, MAX_CHAT_LEN);
+    if (!text || to.id === u.id) return;
+    const msg: ChatMsg = { id: randomUUID().slice(0, 8), fromId: u.id, toId: to.id, text, at: Date.now() };
+    const key = this.pairKey(u.id, to.id);
+    this.chats.set(key, [...(this.chats.get(key) ?? []), msg].slice(-100));
+    this.sendTo(u.id, { t: 'chat', msg });
+    this.sendTo(to.id, { t: 'chat', msg });
+    if (to.bot && !u.bot) this.botHooks?.chat(to, u, text);
+  }
+  private chatHistory(u: User, withId: string) {
+    this.sendTo(u.id, { t: 'chat_history', withId, messages: this.chats.get(this.pairKey(u.id, withId)) ?? [] });
   }
 
   // ---------- home desks ----------
@@ -274,6 +401,7 @@ export class World {
   knock(from: User, to: User) {
     if (from.id === to.id || to.presence === 'offline' || goingOut(from)) return;
     if (from.callId && from.callId === to.callId) return; // already talking
+    this.setFollowing(from, null);
     for (const k of this.knocks.values()) if (k.fromId === from.id && (k.state === 'walking' || k.state === 'pending')) this.closeKnock(k, 'later');
     const k: Knock & { timer?: NodeJS.Timeout } = { id: randomUUID().slice(0, 8), fromId: from.id, toId: to.id, state: 'walking' };
     this.knocks.set(k.id, k);
@@ -284,20 +412,9 @@ export class World {
       return this.closeKnock(k, 'blocked', `${to.name} is in ${room.name} — ${room.rules.label ?? 'no knocking'}`);
     }
     // walk next to them (nearest free neighbouring tile)
-    const target = this.position(to).dest;
     const here = this.position(from).next;
-    const occ = this.occupied();
-    let best: { tile: Tile; len: number } | null = null;
-    for (const [dx, dy] of [[0, 1], [-1, 0], [1, 0], [0, -1]]) {
-      const t = { x: target.x + dx, y: target.y + dy };
-      if (!isWalkable(this.map, t.x, t.y)) continue;
-      const mine = here.x === t.x && here.y === t.y;
-      if (!mine && occ.has(`${t.x},${t.y}`)) continue;
-      const len = mine ? 0 : findPath(this.map, here, t).length;
-      if (!mine && !len) continue;
-      if (!best || len < best.len) best = { tile: t, len };
-    }
-    const arriveAt = best && best.len > 0 ? this.walk(from, best.tile) ?? Date.now() : Date.now();
+    const spot = this.nextTo(this.position(to).dest, here);
+    const arriveAt = spot && (spot.x !== here.x || spot.y !== here.y) ? this.walk(from, spot) ?? Date.now() : Date.now();
     k.timer = setTimeout(() => this.arrive(k), Math.max(0, arriveAt - Date.now()) + 50);
   }
 
@@ -327,13 +444,13 @@ export class World {
     this.closeKnock(k, reply);
   }
 
-  private closeKnock(k: Knock & { timer?: NodeJS.Timeout }, reply: 'accept' | 'later' | 'blocked', reason?: string) {
+  private closeKnock(k: Knock & { timer?: NodeJS.Timeout }, reply: 'accept' | 'later' | 'blocked', reason?: string, cancelled?: boolean) {
     if (k.timer) clearTimeout(k.timer);
     const wasPending = k.state === 'pending';
     k.state = reply;
     const to = this.users.get(k.toId);
     if (to && wasPending && to.emote === 'knock') this.setEmote(to, null);
-    const base = { t: 'knock_reply', knockId: k.id, fromId: k.fromId, toId: k.toId, reply, reason } as const;
+    const base = { t: 'knock_reply', knockId: k.id, fromId: k.fromId, toId: k.toId, reply, reason, cancelled } as const;
     if (reply === 'accept' && to) {
       // join (or start) the call; whoever they knocked, everyone in it shares the same Meet link
       const from = this.users.get(k.fromId);
@@ -350,8 +467,9 @@ export class World {
   handle(u: User, msg: ClientMsg) {
     switch (msg.t) {
       case 'move': {
-        for (const k of this.knocks.values()) if (k.fromId === u.id && k.state === 'walking') this.closeKnock(k, 'later', 'Knock cancelled');
+        for (const k of this.knocks.values()) if (k.fromId === u.id && k.state === 'walking') this.closeKnock(k, 'later', 'Knock cancelled', true);
         if (u.door === 'arriving') { this.doorTimer(u, null); this.setDoor(u, null); } // off on their own way: bag's put away
+        this.setFollowing(u, null);
         this.walk(u, { x: msg.to.x | 0, y: msg.to.y | 0 });
         break;
       }
@@ -383,6 +501,22 @@ export class World {
       case 'mute': if (u.callId) { u.muted = !!msg.muted; this.broadcast({ t: 'mute', userId: u.id, muted: u.muted }); } break;
       case 'knock': { const to = this.users.get(msg.targetId); if (to) this.knock(u, to); break; }
       case 'knock_reply': this.reply(u, msg.knockId, msg.reply === 'accept' ? 'accept' : 'later'); break;
+      case 'knock_cancel': {
+        const k = this.knocks.get(String(msg.knockId));
+        if (k?.fromId === u.id && (k.state === 'walking' || k.state === 'pending')) this.closeKnock(k, 'later', 'Knock cancelled', true);
+        break;
+      }
+      case 'follow': {
+        const to = msg.targetId ? this.users.get(String(msg.targetId)) : null;
+        if (to !== undefined) this.follow(u, to);
+        break;
+      }
+      case 'react': { const to = this.users.get(String(msg.targetId)); if (to) this.react(u, to, String(msg.emoji)); break; }
+      case 'chat': { const to = this.users.get(String(msg.toId)); if (to) this.chat(u, to, String(msg.text ?? '')); break; }
+      case 'chat_history': this.chatHistory(u, String(msg.withId)); break;
+      case 'use': this.use(u, String(msg.objectId), msg.item === undefined ? undefined : String(msg.item)); break;
+      case 'drop': if (u.holding) this.setHolding(u, null); break;
+      case 'give': { const to = this.users.get(String(msg.targetId)); if (to) this.give(u, to); break; }
     }
   }
 
@@ -393,12 +527,16 @@ export class World {
         const p = this.position(u).dest;
         return { id: u.id, name: u.name, email: u.email, meetLink: u.meetLink, homeDesk: u.homeDesk, look: u.look, tile: p, dir: u.dir, status: u.status, presence: u.presence, bot: u.bot };
       }),
+      objects: Object.fromEntries(this.objectOn),
+      chats: Object.fromEntries(this.chats),
     };
   }
   load(data: ReturnType<World['dump']>) {
     for (const d of data.users ?? []) {
-      const tile = isWalkable(this.map, d.tile.x, d.tile.y) ? d.tile : { ...this.map.spawn };
-      this.users.set(d.id, { ...d, homeDesk: d.homeDesk ?? null, tile, move: null, path: null, emote: null, door: null, callId: null, muted: false, presence: d.bot ? d.presence : 'offline' });
+      const tile = isWalkable(this.map, d.tile.x, d.tile.y) || seatAt(this.map, d.tile.x, d.tile.y) ? d.tile : { ...this.map.spawn };
+      this.users.set(d.id, { ...d, homeDesk: d.homeDesk ?? null, tile, move: null, path: null, emote: null, door: null, callId: null, muted: false, following: null, holding: null, presence: d.bot ? d.presence : 'offline' });
     }
+    for (const [id, on] of Object.entries(data.objects ?? {})) if (this.objectOn.has(id)) this.objectOn.set(id, !!on);
+    for (const [key, msgs] of Object.entries(data.chats ?? {})) this.chats.set(key, msgs);
   }
 }

@@ -8,6 +8,10 @@ const STATUSES = [
   'debugging a flaky pipeline', 'client call prep', 'on the Lakehouse migration', 'heads down till 3',
   'coffee refill ☕', 'drafting the proposal', 'happy to chat', 'onboarding the new joiner', '',
 ];
+const REPLIES = [
+  'Hey! 👋', 'On it, give me 5 min', 'Sure, knock any time', 'Haha, nice', 'Grabbing a coffee first ☕',
+  'Can we sync after lunch?', 'Thanks!', 'Sounds good to me', 'Ooh, tell me more',
+];
 // how much each room attracts wandering bots
 const ROOM_WEIGHT: Record<string, number> = { focus: 3, cowork: 4, coffee: 2.5, lobby: 1.2, meeting: 1.5 };
 
@@ -31,6 +35,11 @@ export function startBots(world: World, count = 4) {
     u.tile = { x: spot.x, y: spot.y }; u.dir = spot.dir;
     u.status = pick(STATUSES);
   }
+  world.botHooks = {
+    chat: (b, from) => setTimeout(() => world.chat(b, from, pick(REPLIES)), 1200 + Math.random() * 2000),
+    react: (b, from) => { if (Math.random() < 0.6) setTimeout(() => world.react(b, from, pick(['👋', '👍', '❤️', '😂'])), 700 + Math.random() * 1200); },
+  };
+  const treats = map.objects.filter(o => o.use?.kind === 'take');
   const bots = () => [...world.users.values()].filter(u => u.bot);
   const next = new Map<string, number>();
   const presenceUntil = new Map<string, number>();
@@ -66,7 +75,8 @@ export function startBots(world: World, count = 4) {
       if (r < 0.55) goSomewhere(b);
       else if (r < 0.7) world.setStatus(b, pick(STATUSES));
       else if (r < 0.8) { world.setPresence(b, 'away'); presenceUntil.set(b.id, now + 25000 + Math.random() * 50000); }
-      else if (r < 0.88) { world.setPresence(b, 'in_call'); presenceUntil.set(b.id, now + 25000 + Math.random() * 40000); if (Math.random() < 0.6) goSomewhere(b, 'meeting'); }
+      else if (r < 0.84) { world.setPresence(b, 'in_call'); presenceUntil.set(b.id, now + 25000 + Math.random() * 40000); if (Math.random() < 0.6) goSomewhere(b, 'meeting'); }
+      else if (r < 0.88 && treats.length) world.use(b, pick(treats).id); // coffee break
       else if (r < 0.92) {
         // bots only knock on each other (never on real people), so the floor has some life
         const others = bots().filter(o => o.id !== b.id && o.presence === 'online');

@@ -2,7 +2,7 @@ import { createServer, type IncomingMessage } from 'node:http';
 import { createReadStream, existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { extname, join, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { reverse as dnsReverse } from 'node:dns/promises';
 import { WebSocketServer } from 'ws';
 import type { TileMap } from '../../shared/map';
@@ -58,6 +58,8 @@ if (process.env.BOTS !== '0') startBots(world, Number(process.env.BOT_COUNT ?? 4
 // ---------- static client (production: client/dist) ----------
 const STATIC_DIR = fileURLToPath(new URL('../../client/dist/', import.meta.url));
 const STATIC = existsSync(join(STATIC_DIR, 'index.html'));
+// index.html names the hashed bundles, so its hash changes whenever the client does.
+if (STATIC) world.build = createHash('sha1').update(readFileSync(join(STATIC_DIR, 'index.html'))).digest('hex').slice(0, 12);
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json',
   '.png': 'image/png', '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.woff2': 'font/woff2',

@@ -99,6 +99,10 @@ floor[EXIT.y][EXIT.x] = tid('doormat');
 const objects = [];
 let oid = 0;
 const obj = (type, x, y, w = 1, h = 1, extra = {}) => objects.push({ id: `o${++oid}`, type, x, y, w, h, ...extra });
+// what clicking an object offers (see ObjectUse in shared/map.ts)
+const LAMP = { light: true, use: { kind: 'toggle', label: 'lamp' }, on: true };
+const COFFEE = { kind: 'take', items: [{ id: 'coffee', label: 'Coffee', icon: '☕' }, { id: 'tea', label: 'Tea', icon: '🍵' }] };
+const FRIDGE = { kind: 'take', items: [{ id: 'snack', label: 'Snack', icon: '🥪' }, { id: 'juice', label: 'Juice', icon: '🧃' }, { id: 'icecream', label: 'Ice cream', icon: '🍦' }] };
 
 // outer windows & wall decor
 for (const wx of [3, 9, 29, 36]) obj('window', wx, 1, 2, 2, { wall: true });
@@ -114,9 +118,9 @@ for (const [dx, dy] of [[2, 4], [5, 4], [8, 4], [2, 8], [9, 8]]) {
   obj('chair', dx, dy + 1, 1, 1, { walkable: true });
 }
 obj('bookshelf', 10, 3, 2, 1);
-obj('lamp', 12, 3, 1, 1, { light: true });
+obj('lamp', 12, 3, 1, 1, LAMP);
 obj('plant', 1, 3, 1, 1);
-obj('lamp', 12, 9, 1, 1, { light: true });
+obj('lamp', 12, 9, 1, 1, LAMP);
 
 // Meeting: long table, chairs around, plants
 obj('table_long', 17, 5, 6, 2);
@@ -129,19 +133,19 @@ obj('plant', 25, 10, 1, 1);
 
 // Coffee: counter + machine + fridge, tables with stools, sofa
 for (const x of [28, 29, 30, 31, 33, 34]) obj('counter', x, 3, 1, 1);
-obj('coffee_machine', 32, 3, 1, 1, { steam: true });
-obj('fridge', 36, 3, 1, 1);
+obj('coffee_machine', 32, 3, 1, 1, { steam: true, use: COFFEE });
+obj('fridge', 36, 3, 1, 1, { use: FRIDGE });
 obj('plant', 38, 3, 1, 1);
 obj('table_round', 30, 6, 1, 1);
 obj('table_round', 35, 6, 1, 1);
 for (const x of [29, 31, 34, 36]) obj('stool', x, 6, 1, 1, { walkable: true });
-obj('sofa', 29, 9, 3, 1);
+obj('sofa', 29, 9, 3, 1, { sit: true, dir: 'down' }); // each tile is a seat; you sit down from the tile in front
 obj('plant', 38, 10, 1, 1);
 
 // Lobby: plants, sofa, reception, coffee table
 obj('plant', 1, 13, 1, 1);
 obj('plant', 14, 13, 1, 1);
-obj('sofa', 5, 21, 3, 1);
+obj('sofa', 5, 21, 3, 1, { sit: true, dir: 'down' });
 obj('table_round', 6, 19, 1, 1);
 obj('reception', 10, 14, 3, 1);
 obj('plant', 1, 22, 1, 1);
@@ -155,10 +159,14 @@ for (const tx of [18, 23, 28, 33]) for (const ty of [14, 19]) {
 }
 obj('plant', 38, 13, 1, 1);
 obj('plant', 16, 22, 1, 1);
-obj('lamp', 38, 22, 1, 1, { light: true });
+obj('lamp', 38, 22, 1, 1, LAMP);
 
 // Lobby exit door (last, so earlier object ids stay put)
 obj('exit_door', EXIT.x, 12, 1, 1, { wall: true });
+// more lamps to flick on and off (after the door, same reason)
+obj('lamp', 1, 14, 1, 1, LAMP);
+obj('lamp', 27, 10, 1, 1, LAMP);
+obj('lamp', 14, 10, 1, 1, LAMP);
 
 // ---- walkable mask ----
 const walkable = grid(1);
@@ -181,6 +189,11 @@ const seatDir = (o) => {
 };
 for (const r of rooms) r.spots = [];
 for (const o of objects) {
+  if (o.sit) { // sofas: every tile is a seat
+    const r = roomOf(o.x, o.y);
+    for (let x = o.x; x < o.x + o.w; x++) if (r) r.spots.push({ x, y: o.y, dir: o.dir });
+    continue;
+  }
   if (o.type !== 'chair' && o.type !== 'stool') continue;
   const r = roomOf(o.x, o.y);
   o.dir = seatDir(o);
@@ -194,7 +207,8 @@ stand('meeting', [[19, 9, 'up'], [24, 8, 'left']]);
 stand('cowork', [[25, 17, 'down'], [31, 18, 'down'], [36, 13, 'down']]);
 if (!walkable[EXIT.y][EXIT.x]) throw new Error('exit not walkable');
 for (const r of rooms) for (const s of r.spots) {
-  if (!walkable[s.y][s.x]) throw new Error(`spot ${r.id} ${s.x},${s.y} not walkable`);
+  const sofa = objects.find(o => o.sit && s.x >= o.x && s.x < o.x + o.w && s.y >= o.y && s.y < o.y + o.h);
+  if (!walkable[s.y][s.x] && !sofa) throw new Error(`spot ${r.id} ${s.x},${s.y} not walkable`);
 }
 
 const map = { version: 1, width: W, height: H, tileSize: 16, tiles, layers: { floor, walls, walkable }, rooms, objects, spawn: { x: 7, y: 17 }, exit: EXIT };
