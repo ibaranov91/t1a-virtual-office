@@ -160,4 +160,6 @@ scripts/deploy.sh <name>   # no argument = prod. Deploys your WORKING COPY (unco
 - TypeScript strict, both sides. Match the surrounding style: compact, comments only where the *why* isn't obvious.
 - Protocol changes go in `shared/protocol.ts` first. The server validates everything a client sends.
 - Keep REQUIREMENTS.md's "not now" list in mind: design for it (data, not code), don't build it.
-- Commit only when asked, and write descriptive messages. `main` is the shared branch, so pull before you push.
+- **Never work in `main` and never commit or push to it directly.** `main` is the shared branch. Before editing, pull
+  `main` and branch off it (or use a worktree), then land changes through a pull request.
+- Commit only when asked, and write descriptive messages.
