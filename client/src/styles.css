@@ -33,13 +33,19 @@ button.netbird { display: grid; gap: 2px; padding: 10px 12px; font-size: 15px; t
 button.netbird small { font-weight: 500; font-size: 11px; opacity: .75; }
 
 .office { height: 100%; display: flex; flex-direction: column; }
-.topbar { display: flex; align-items: center; gap: 8px; padding: 6px 10px; background: var(--panel); border-bottom: 2px solid var(--line); flex-wrap: wrap; }
+.topbar { display: flex; align-items: center; gap: 8px; background: var(--panel); border-bottom: 2px solid var(--line); flex-wrap: wrap; position: relative; z-index: 9;
+  padding: max(6px, env(safe-area-inset-top)) max(10px, env(safe-area-inset-right)) 6px max(10px, env(safe-area-inset-left)); }
+.top-more { display: contents; }
+.more-btn { display: none; font-size: 18px; line-height: 1; }
 .brand { font-weight: 800; color: var(--accent); letter-spacing: .5px; }
 .where { color: var(--muted); font-size: 12px; min-width: 70px; }
 .status { flex: 1 1 160px; display: flex; }
 .status input { width: 100%; }
 .zoom { display: flex; gap: 2px; }
-.zoom button { padding: 4px 9px; background: var(--panel2); color: var(--text); }
+.zoom button { padding: 4px 9px; background: var(--panel2); color: var(--text); min-width: 30px; }
+.zoom button.on { background: var(--accent); color: #2a1a10; }
+.rooms h3 { cursor: pointer; }
+.rooms h3:hover { color: var(--accent); }
 
 .stage { position: relative; flex: 1; min-height: 0; }
 .canvas-wrap { position: absolute; inset: 0; overflow: hidden; }
@@ -71,12 +77,48 @@ canvas { display: block; image-rendering: pixelated; touch-action: none; }
 @keyframes pop { 0% { transform: translateY(8px) scale(.96); opacity: 0; } 100% { transform: none; opacity: 1; } }
 @keyframes wiggle { 50% { transform: translateY(-2px); } }
 
-@media (max-width: 560px) {
-  .where { display: none; }
-  .topbar { gap: 6px; padding: 6px; }
-  .status { order: 10; flex-basis: 100%; }
-  .zoom { display: none; }
+/* thumb dock: only on phones and small windows (see COMPACT in App.tsx) */
+.dock { display: none; }
+@media (max-width: 560px), (max-height: 500px) {
+  .where, .brand, .zoom, .rooms-btn { display: none; }
+  .topbar { gap: 6px; flex-wrap: nowrap; padding-top: max(4px, env(safe-area-inset-top)); padding-bottom: 4px; }
+  .topbar button, .topbar select, .topbar input { min-height: 40px; }
+  .topbar select { max-width: 112px; }
+  .status { flex: 1 1 auto; min-width: 0; }
+  .more-btn { display: block; min-width: 44px; }
+  .top-more { display: none; }
+  .top-more.open { display: grid; gap: 6px; position: absolute; top: calc(100% + 4px); right: max(8px, env(safe-area-inset-right)); min-width: 180px;
+    padding: 8px; background: var(--panel); border: 2px solid var(--wood); border-radius: 10px; box-shadow: 0 8px 30px rgba(0,0,0,.5); animation: pop .18s steps(2) both; }
+  .top-more.open > button, .top-more.open .mac-app > button { width: 100%; min-height: 44px; text-align: left; padding-left: 12px; }
+  .top-more.open .mac-app-pop { position: fixed; top: 60px; left: 8px; right: auto; }
+
+  .dock { display: flex; position: absolute; left: 50%; transform: translateX(-50%); bottom: calc(8px + env(safe-area-inset-bottom)); z-index: 6; gap: 4px; padding: 4px;
+    background: rgba(42,31,36,.96); border: 2px solid var(--wood); border-radius: 14px; box-shadow: 0 6px 20px rgba(0,0,0,.45); }
+  .dock button { position: relative; width: 60px; height: 48px; padding: 0; display: grid; place-items: center; align-content: center; gap: 1px;
+    background: transparent; color: var(--muted); box-shadow: none; border-radius: 10px; }
+  .dock button.on { background: var(--panel2); color: var(--accent); }
+  .dock .ic { font-size: 19px; line-height: 1; }
+  .dock small { font-size: 10px; font-weight: 700; }
+  .dock .badge { position: absolute; top: 2px; right: 8px; min-width: 16px; padding: 0 4px; border-radius: 8px; background: #6a8ad0; color: #fff; font-size: 10px; line-height: 16px; }
+
+  /* Rooms and chat become bottom sheets over the dock */
+  .stage .rooms { left: 0; right: 0; bottom: 0; top: auto; width: auto; max-width: none; z-index: 8; border-radius: 14px 14px 0 0; border-width: 2px 0 0;
+    padding: 10px max(12px, env(safe-area-inset-right)) calc(10px + env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
+    box-shadow: 0 -8px 30px rgba(0,0,0,.5); animation: sheet .2s steps(3) both; }
+  .stage .rooms { max-height: 62%; }
+  /* chat and my voice panel sit just above the dock */
+  .stage .self-stack { left: max(8px, env(safe-area-inset-left)); right: max(8px, env(safe-area-inset-right)); width: auto; bottom: calc(72px + env(safe-area-inset-bottom)); max-height: calc(100% - 84px); }
+  .rooms-head button.ghost { min-width: 44px; min-height: 40px; font-size: 18px; }
+  .rooms li { padding: 8px 6px; font-size: 14px; }
+  .rooms h3 { padding: 4px 0; }
+  .chat-input input, .chat-input button { min-height: 44px; }
+  .toasts { top: 52px; bottom: auto; } /* the bottom belongs to the dock and my voice panel */
+  .loading.small { bottom: calc(76px + env(safe-area-inset-bottom)); }
+  .toast button { min-height: 40px; }
+  .chips { top: 6px; }
 }
+@media (max-height: 500px) { .stage .rooms { max-height: 85%; } .stage .self-stack { width: min(360px, calc(100% - 16px)); right: auto; } }
+@keyframes sheet { 0% { transform: translateY(30%); opacity: 0; } 100% { transform: none; opacity: 1; } }
 
 .meet-btn { background: var(--panel2); color: var(--text); position: relative; }
 .meet-btn.unset::after { content: ''; position: absolute; top: 3px; right: 3px; width: 7px; height: 7px; border-radius: 2px; background: var(--danger); }
