@@ -90,6 +90,8 @@ export class World {
     if (u.presence === 'offline') this.comeIn(u);
     send(this.snapshot());
     send({ t: 'me', meetLink: u.meetLink ?? '', email: u.email });
+    const call = u.callId ? this.calls.get(u.callId) : undefined; // a reloaded page gets its call's Meet link back
+    if (call) send({ t: 'call', userId: u.id, callId: call.id, link: call.link });
     return () => {
       this.listeners.delete(send);
       const set = this.sockets.get(userId)!; set.delete(send);
@@ -349,9 +351,11 @@ export class World {
       for (const u of [from, to]) this.joinCall(u, existing);
       return existing;
     }
-    // new call: the knocker's own Meet room, so everyone lands in the same place; else the room's generic link
+    // new call: the knocker's own Meet room, else the other person's, so everyone lands in the same place;
+    // with neither, the room's generic link (and no Move to Meet button)
     const room = this.roomOf(to) ?? this.map.rooms.find(r => r.id === 'lobby')!;
-    const call: Call = { id: randomUUID().slice(0, 8), members: new Set(), link: from.meetLink ?? room.meeting.url, fallback: !from.meetLink };
+    const own = from.meetLink ?? to.meetLink;
+    const call: Call = { id: randomUUID().slice(0, 8), members: new Set(), link: own ?? room.meeting.url, fallback: !own };
     this.calls.set(call.id, call);
     for (const u of [from, to]) this.joinCall(u, call);
     return call;
