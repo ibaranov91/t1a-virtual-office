@@ -274,3 +274,27 @@ test('a pot on first login; a status a day grows it, blooms earn badges, a week 
   assert.notEqual(a.u.plant?.kind, kind); // replanted as something new
   assert.ok(a.messages.some(m => m.t === 'plant' && m.achievements.bloom));
 });
+test('leaving a meeting for good clears busy and lets knocks through; Go puts you back in', t => {
+  const { w, add, tick } = setup(t), a = add('A', { x: 7, y: 17 }), b = add('B', { x: 8, y: 17 });
+  b.u.email = 'b@t1a.com';
+  const now = Date.now(), key = 'evt1';
+  w.meetings.poll = async () => {}; // no Google here: the 5 s poll would wipe the injected meeting
+  w.meetings.events.set(key, { key, title: 'Standup', start: now - 60_000, end: now + 30 * 60_000, emails: ['b@t1a.com'], instance: 'inst1', owners: new Set() });
+  w.meetings.tick(); assert.equal(b.u.meeting, now + 30 * 60_000);
+  assert.deepEqual(w.meetings.agendaOf(b.u).map(i => i.left), [undefined]);
+  w.enterMeeting(b.u, key); assert.equal(b.u.instance, 'inst1');
+  w.handle(b.u, { t: 'meeting_leave' }, b.socket); assert.equal(b.u.instance, null); assert.ok(b.u.meeting); // still in the meeting
+  w.knock(a.u, b.u); for (let i = 0; i < 10; i++) tick(500); // A walks up, then B's Later timer runs (timers set mid-tick need another tick)
+  assert.ok(a.messages.some(m => m.t === 'knock_reply' && m.reply === 'later' && /in a meeting/.test(m.reason ?? '')));
+  a.messages.length = 0;
+  w.handle(b.u, { t: 'meeting_out', key }, b.socket);
+  assert.equal(b.u.meeting, null); assert.deepEqual(w.meetings.agendaOf(b.u).map(i => i.left), [true]);
+  assert.ok(b.messages.some(m => m.t === 'agenda' && m.items[0]?.left));
+  w.knock(a.u, b.u); for (let i = 0; i < 10; i++) tick(500);
+  assert.ok(!a.messages.some(m => m.t === 'knock_reply' && m.reply === 'later'), 'knock stays pending: B is free');
+  w.handle(b.u, { t: 'meeting_out', key }, b.socket); w.enterMeeting(b.u, key); // Go after leaving: in the meeting again, busy again
+  assert.equal(b.u.instance, 'inst1'); assert.equal(b.u.meeting, now + 30 * 60_000); assert.deepEqual(w.meetings.agendaOf(b.u).map(i => i.left), [undefined]);
+  w.handle(b.u, { t: 'meeting_out', key }, b.socket); // from inside the room: out of the room and not busy
+  assert.equal(b.u.instance, null); assert.equal(b.u.meeting, null);
+  tick(31 * 60_000); assert.equal(w.meetings['left'].get(b.u.id)?.has(key), false); // over: forgotten
+});

@@ -450,7 +450,16 @@ const hm = (d: Date) => d.toLocaleTimeString([], { hour: '2-digit', minute: '2-d
 /** In a meeting's own room: what it is, its call link, and the way back. */
 function MeetingChip({ store }: { store: Store }) {
   const me = store.users.get(store.me);
-  if (!me?.instance) return null;
+  if (!me) return null;
+  if (!me.instance) { // out of the room but still in the meeting: rejoin, or leave it for good
+    const a = me.meeting ? store.myBusyMeeting : null;
+    if (!a) return null;
+    return <div className="desk-chip call-chip meeting-chip">
+      <span>📅 <b>{a.title}</b> <small>· in the meeting until {store.clock(a.end)} · knocks go to Later</small></span>
+      <button onClick={() => store.goToMeeting(a.key)}>Rejoin</button>
+      <button className="end" title="You're no longer busy: knocks come through again" onClick={() => store.leaveMeetingForGood(a.key)}>Leave meeting</button>
+    </div>;
+  }
   const m = store.myMeeting, room = store.meetingRooms.find(r => r.id === me.instance);
   const others = (room?.members ?? []).filter(id => id !== me.id).map(id => store.users.get(id)).filter((u): u is ClientUser => !!u);
   return <div className="desk-chip call-chip meeting-chip">

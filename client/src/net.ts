@@ -161,6 +161,10 @@ export class Store {
     this.toasts = this.toasts.filter(t => t.meetingKey !== key); this.meetingsOpen = false; this.emit();
   }
   leaveMeeting() { this.send({ t: 'meeting_leave' }); }
+  /** Out of the meeting for good: not busy, knocks come through again (Go puts you back in). */
+  leaveMeetingForGood(key: string) { this.send({ t: 'meeting_out', key }); this.toasts = this.toasts.filter(t => t.meetingKey !== key); this.emit(); }
+  /** The calendar meeting I'm in right now while out of its room (busy: knocks go to Later). */
+  get myBusyMeeting() { const now = this.now(); return this.agenda.find(a => a.start <= now && a.end > now && !a.left) ?? null; }
   /** A server timestamp as local "10:30". */
   clock(serverMs: number) { return new Date(serverMs - this.offset).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); }
   /** The calendar meeting whose room I'm in. */
@@ -169,7 +173,7 @@ export class Store {
   checkAgenda() {
     const now = this.now(), mine = this.users.get(this.me)?.instance;
     for (const a of this.agenda) {
-      if (this.headsUp.has(a.key) || now < a.start - 60_000 || now >= a.end || a.instance === mine) continue;
+      if (a.left || this.headsUp.has(a.key) || now < a.start - 60_000 || now >= a.end || a.instance === mine) continue;
       this.headsUp.add(a.key);
       const soon = a.start > now ? `starts at ${this.clock(a.start)}` : 'is on now';
       this.toast({ kind: 'meeting', meetingKey: a.key, link: a.link, text: `📅 ${a.title} ${soon}`, hint: 'Go: step into its room with the others', expires: a.end - now });

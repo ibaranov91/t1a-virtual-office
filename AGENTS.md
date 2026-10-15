@@ -65,7 +65,8 @@ npm run typecheck    # run before every commit or deploy
   heads-up a minute before with **Go** and the event's own call link. Go puts you in the meeting's **instance**: a copy
   of the Meeting room (same tiles), where only people with the same `instance` see each other; the office sees them on
   the board by the Meeting room and under "In meetings". No voice inside. Leave, or the meeting's end, puts you back
-  where you were. Instances live in memory only.
+  where you were, still in the meeting (busy). The chip then offers **Rejoin** or **Leave meeting** (`meeting_out`): no longer
+  busy, knocks come through again, Go puts you back in. Instances and who left live in memory only.
 - **Zoom** is whole device pixels per art pixel (crisp; on Retina that includes 1.5×, 2.5×), glides 140 ms between levels
   and is remembered per device (`deck.zoom`). The lowest level fits the whole floor: the overview, with room tags and a
   "You" pin; when it's small, a tap zooms in instead of walking. Pinch, ⌘/ctrl-scroll, `+ − 0`, `M`. Phones and short
