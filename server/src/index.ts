@@ -55,6 +55,40 @@ for (const sig of ['SIGINT', 'SIGTERM'] as const) process.on(sig, () => { save()
 
 if (process.env.BOTS !== '0') startBots(world, Number(process.env.BOT_COUNT ?? 4));
 
+// ---------- macOS app (macos/dist, built by `macos/build.sh --dist` during deploy) ----------
+// One-command install: curl -fsSL <base>/api/mac/install.sh | bash. curl doesn't quarantine what it
+// downloads, so Gatekeeper never blocks the app. The instance's proxy (NetBird SSO / PIN) is the gate.
+const MAC_DIR = fileURLToPath(new URL('../../macos/dist/', import.meta.url));
+const MAC_ZIP = join(MAC_DIR, 'The-Deck.zip');
+const macManifest = (() => {
+  try { return JSON.parse(readFileSync(join(MAC_DIR, 'manifest.json'), 'utf8')) as { build: string; version: string; sha256: string }; }
+  catch { return null; }
+})();
+const PUBLIC_URL = process.env.DECK_PUBLIC_URL;   // where the app should open (the instance's public URL)
+const INSTALL_URL = process.env.DECK_INSTALL_URL; // where curl can reach us (PIN instances: the NetBird address)
+/** The origin this request came in on (behind the proxy: its forwarded proto/host). */
+const originOf = (req: IncomingMessage) => {
+  const proto = String(req.headers['x-forwarded-proto'] ?? 'http').split(',')[0].trim() === 'https' ? 'https' : 'http';
+  const host = String(req.headers['x-forwarded-host'] ?? req.headers.host ?? '').split(',')[0].trim();
+  return /^[\w.-]+(:\d+)?$/.test(host) ? `${proto}://${host}` : null; // also keeps the shell script below safe
+};
+const installScript = (base: string, appUrl: string, sha: string) => `#!/bin/bash
+# Installs The Deck for macOS. Served by ${base}
+set -euo pipefail
+tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
+echo "→ Downloading The Deck…"
+curl -fsSL '${base}/api/mac/The-Deck.zip' -o "$tmp/The-Deck.zip"
+echo '${sha}  '"$tmp/The-Deck.zip" | shasum -a 256 -c - >/dev/null || { echo "Download is corrupted, try again." >&2; exit 1; }
+ditto -x -k "$tmp/The-Deck.zip" "$tmp"
+dest=/Applications; [ -w "$dest" ] || { dest="$HOME/Applications"; mkdir -p "$dest"; }
+pkill -x Deck 2>/dev/null && sleep 1 || true
+rm -rf "$dest/The Deck.app"
+ditto "$tmp/The Deck.app" "$dest/The Deck.app"
+defaults write io.t1a.deck url '${appUrl}'
+open "$dest/The Deck.app"
+echo "✓ The Deck is installed in $dest and running in your menu bar (the door icon)."
+`;
+
 // ---------- static client (production: client/dist) ----------
 const STATIC_DIR = fileURLToPath(new URL('../../client/dist/', import.meta.url));
 const STATIC = existsSync(join(STATIC_DIR, 'index.html'));
@@ -154,6 +188,20 @@ const server = createServer(async (req, res) => {
       } catch { json(res, 400, { error: 'bad json' }); }
     });
     return;
+  }
+  if (req.method === 'GET' && req.url?.startsWith('/api/mac')) {
+    const origin = originOf(req);
+    if (!macManifest || !origin) return json(res, 404, { error: 'no mac app on this instance' });
+    if (req.url === '/api/mac') return json(res, 200, { ...macManifest, install: `curl -fsSL ${INSTALL_URL ?? origin}/api/mac/install.sh | bash` });
+    if (req.url === '/api/mac/install.sh') {
+      res.writeHead(200, { 'content-type': 'text/x-shellscript; charset=utf-8', 'cache-control': 'no-store' });
+      return res.end(installScript(origin, PUBLIC_URL ?? origin, macManifest.sha256));
+    }
+    if (req.url === '/api/mac/The-Deck.zip' && existsSync(MAC_ZIP)) {
+      res.writeHead(200, { 'content-type': 'application/zip', 'content-length': statSync(MAC_ZIP).size, 'cache-control': 'no-store' });
+      return createReadStream(MAC_ZIP).pipe(res);
+    }
+    return json(res, 404, { error: 'not found' });
   }
   if (req.method === 'GET' && STATIC) return serveStatic(req.url ?? '/', res);
   json(res, 404, { error: 'not found' });

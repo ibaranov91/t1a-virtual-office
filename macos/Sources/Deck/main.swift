@@ -30,6 +30,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
   var arranging = false
   var state = DeckState()
   let card = KnockCard()
+  let updater = Updater()
+  var updateButton: NSButton!
   var ringing: Timer?
 
   var url: String {
@@ -87,6 +89,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
     renderIcon()
 
     card.onLater = { [weak self] id in self?.js("__deckNative.reply(\(json(id)), 'later')") }
+    updater.onChange = { [weak self] in self?.renderUpdate() }
     card.onOpen = { [weak self] in self?.showPopover() }
 
     load()
@@ -125,10 +128,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
     let title = NSTextField(labelWithString: "The Deck")
     title.font = .boldSystemFont(ofSize: 12)
     pinButton = button("pin", "Pin to desktop", #selector(togglePinned))
+    updateButton = NSButton(title: "Update", target: self, action: #selector(updateClicked))
+    updateButton.bezelStyle = .accessoryBarAction; updateButton.contentTintColor = .systemOrange; updateButton.isHidden = true
     pinButton.setButtonType(.pushOnPushOff)
     let more = button("ellipsis.circle", "More", #selector(moreClicked(_:)))
     let open = button("macwindow.on.rectangle", "Open in a separate window", #selector(openClicked))
-    let bar = NSStackView(views: [title, NSView(), pinButton, open, more])
+    let bar = NSStackView(views: [title, NSView(), updateButton, pinButton, open, more])
     bar.edgeInsets = NSEdgeInsets(top: 4, left: 10, bottom: 4, right: 8)
     bar.translatesAutoresizingMaskIntoConstraints = false
     slot = NSView()
@@ -201,6 +206,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
       let i = NSMenuItem(title: title, action: sel, keyEquivalent: key); i.target = self; i.state = on ? .on : .off; return i
     }
     m.addItem(withTitle: state.connected ? (state.inCall ? "In a call" : "Connected") : "Not connected", action: nil, keyEquivalent: "")
+    if let u = updater.available {
+      m.addItem(updater.busy ? NSMenuItem(title: "Updating…", action: nil, keyEquivalent: "") : item("Update to \(u.version) (restarts the app)", #selector(updateClicked)))
+    }
     for k in state.knocks { m.addItem(withTitle: "🚪 \(k.text)", action: nil, keyEquivalent: "") }
     if state.busy { m.addItem(withTitle: "Quiet: away or in a call, knocks only light the icon", action: nil, keyEquivalent: "") }
     m.addItem(.separator())
@@ -267,12 +275,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
     }
   }
 
+  @objc func updateClicked() { updater.start(in: web) }
+
+  func renderUpdate() {
+    updateButton?.isHidden = updater.available == nil
+    updateButton?.title = updater.busy ? "Updating…" : "Update"
+    updateButton?.isEnabled = !updater.busy
+    updateButton?.toolTip = updater.available.map { "Update to \($0.version); the app restarts" }
+  }
+
   func js(_ code: String) { web.evaluateJavaScript(code) }
 
   // MARK: page → app (client/src/native.ts)
 
   func userContentController(_ c: WKUserContentController, didReceive message: WKScriptMessage) {
-    guard let m = message.body as? [String: Any], m["type"] as? String == "state" else { return }
+    guard let m = message.body as? [String: Any] else { return }
+    if m["type"] as? String == "macApp" { updater.offer(m); return updateIfIdle() }
+    guard m["type"] as? String == "state" else { return }
     let old = state
     state = DeckState(connected: m["connected"] as? Bool ?? false, inCall: m["inCall"] as? Bool ?? false,
                       busy: m["busy"] as? Bool ?? false,
@@ -280,6 +299,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
                         (k["id"] as? String).map { ($0, k["text"] as? String ?? "Someone is knocking") } })
     renderIcon()
     updateCard(old)
+    updateIfIdle()
+  }
+
+  /// Updates install themselves when you won't notice the restart: not in a call, The Deck not in front.
+  func updateIfIdle() {
+    guard updater.available != nil, state.connected, !state.inCall, state.knocks.isEmpty,
+          !popover.isShown, !(window.isVisible && NSApp.isActive) else { return }
+    updater.startAutomatically(in: web)
   }
 
   /// New knock → card under the icon (or just a ringing icon when busy / the Deck is already in front).
