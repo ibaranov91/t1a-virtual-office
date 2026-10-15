@@ -2,6 +2,7 @@ import { INSTRUMENTS } from '../../shared/instruments';
 // The floor: one <canvas>, one requestAnimationFrame loop.
 // Order: static tilemap → y-sorted furniture + sprites → nameplates & bubbles → ambient tint → UI hints.
 import { adminOnly, applyEdit, FIXED_TYPES, findPath, pathTo, sampleMove, pathDuration, WALK_MS_PER_TILE, isWalkable, layoutProblem, objectById, objectName, roomAt, seatAt, withLayout, type MapObject, type Rect, type Rug, type Tile } from '../../shared/map';
+import { FOOD_ITEMS, picnicSeat } from '../../shared/lunch';
 import { DungeonView } from './dungeon';
 import { danceBeat } from '../../shared/effects';
 import { drawEffects, effectLook, effectSway } from './effects';
@@ -93,6 +94,7 @@ export class Engine {
   private hoverTile: { x: number; y: number } | null = null;
   private hoverPlant: PlacedPlant | null = null;
   private hoverCritter: { text: string; x: number; y: number; id?: string } | null = null;
+  private lunchTile: Tile | null = null; // a picnic chair I can eat my food at, under the pointer
   private cupTile: Tile | null = null; // a table I can put my cup down on, under the pointer
   critters: CreatureLayer;
   private plants: PlacedPlant[] = [];
@@ -604,6 +606,12 @@ export class Engine {
     if (!me?.holding || !CUP_ITEMS.includes(me.holding) || me.instance || this.areaDown || !cupTableAt(MAP.objects, t)) return null;
     return this.store.cups.some(c => c.tile.x === t.x && c.tile.y === t.y) ? null : t;
   }
+  /** Holding food over a chair at a picnic table: that's where lunch happens. */
+  private lunchChair(t: Tile): MapObject | null {
+    const me = this.store.users.get(this.store.me);
+    if (!me?.holding || !FOOD_ITEMS.includes(me.holding) || me.instance || this.areaDown || !picnicSeat(MAP, t)) return null;
+    return MAP.objects.find(o => o.type === 'chair' && o.x === t.x && o.y === t.y) ?? null;
+  }
   private objectAt(wx: number, wy: number): MapObject | null {
     let best: MapObject | null = null;
     for (const o of this.interactive) {
@@ -731,6 +739,7 @@ export class Engine {
     this.hoverCritter = this.hoverUser || this.hoverObject || inside || this.areaDown ? null : this.critters.at(w.x, w.y, this.store.now());
     this.cupTile = this.hoverUser || this.hoverObject ? null : this.cupTarget({ x: tx, y: ty });
     this.canvas.style.cursor = this.tapZooms ? 'zoom-in' : this.hoverUser || this.hoverObject || this.cupTile || this.hoverCritter?.id ? 'pointer' : this.hoverTile ? 'crosshair' : 'default';
+  private lunchTile: Tile | null = null; // a picnic chair I can eat my food at, under the pointer
   };
   private onEditMove(w: { x: number; y: number }) {
     const tx = Math.floor(w.x / TS), ty = Math.floor(w.y / TS), d = this.editDrag;
@@ -781,6 +790,8 @@ export class Engine {
     const tx = Math.floor(w.x / TS), ty = Math.floor(w.y / TS);
     const cup = this.cupTarget({ x: tx, y: ty });
     if (cup) { this.manualCam = false; return this.store.putCup(cup); }
+    const chair = this.lunchChair({ x: tx, y: ty });
+    if (chair) { this.manualCam = false; return this.onPick?.({ kind: 'object', id: chair.id }); }
     const target = this.clickTarget({ x: tx, y: ty });
     if (target) this.walkTo(target);
     else if (!this.store.admin && !this.areaDown && adminOnly(MAP, tx, ty)) this.denyDoor(tx, ty);
@@ -999,6 +1010,7 @@ export class Engine {
       const held = me?.holding ? ITEMS.get(me.holding) : undefined;
       this.drawLabel(`${held?.icon ?? '☕'} Put your ${held?.label.toLowerCase() ?? 'cup'} down here`, this.cupTile.x * TS + 8, this.cupTile.y * TS + 4, camX, camY);
     }
+    else if (this.lunchTile) this.drawLabel(`${ITEMS.get(me?.holding ?? '')?.icon ?? '🍽'} Eat lunch here`, this.lunchTile.x * TS + 8, this.lunchTile.y * TS + 4, camX, camY);
     else if (this.hoverCritter) this.drawLabel(this.hoverCritter.text, this.hoverCritter.x, this.hoverCritter.y, camX, camY);
     else if (this.hoverPlant) {
       const { u, x, y } = this.hoverPlant, mine = u.id === this.store.me, p = u.plant!;
@@ -1066,6 +1078,11 @@ export class Engine {
       ctx.textAlign = 'start'; ctx.textBaseline = 'alphabetic';
     }
     if (u.reading && seat && this.f('reading_book')) this.blit(ctx, 'reading_book', Math.round(x + 2), Math.round(baseY - 16 + bob)); // holding up the book
+    if (u.eating && seat) { // fork down to the plate and up to the mouth; 💬 when they don't mind company
+      const up = Math.floor(ms / 450) % 2, fx = seat.dir === 'left' ? x + 4 : seat.dir === 'right' ? x + 11 : x + 11;
+      if (seat.dir !== 'up') { ctx.fillStyle = '#e8e8f0'; ctx.fillRect(fx, baseY - (up ? 11 : 7), 1, 3); ctx.fillStyle = '#6a6a76'; ctx.fillRect(fx, baseY - (up ? 8 : 4), 1, 1); }
+      if (u.eating.open) { ctx.font = '7px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = '#000'; ctx.fillText('💬', x + 14, top + 2); ctx.textAlign = 'start'; ctx.textBaseline = 'alphabetic'; }
+    }
     // facing a desk: the chair's backrest is in front of the sitter
     if (seat?.dir === 'up' && seat.type === 'chair' && this.f('chair_up_back')) {
       this.blit(ctx, 'chair_up_back', seat.x * TS, seat.y * TS);
@@ -1435,7 +1452,7 @@ export class Engine {
     const voiceRoom = this.store.roomCallOf(u);
     const presence = voiceRoom ? `in ${voiceRoom.name} voice` : u.door === 'thinking' ? 'packing up…' : u.door === 'leaving' ? 'heading out' : u.door === 'arriving' ? 'just arrived'
       : underground(u) ? 'somewhere underground' : u.instance ? 'in the meeting' : u.meeting ? `in a meeting until ${this.store.clock(u.meeting)}`
-      : u.callId ? `talking with ${this.store.names(this.store.callPeers(u))}` : u.presence === 'in_call' ? 'in a call' : u.presence === 'away' ? 'away' : room?.rules.occupantLabel ?? 'around';
+      : u.eating ? `eating ${ITEMS.get(u.eating.item)?.label.toLowerCase() ?? 'lunch'}${u.eating.open ? ' · open to talk' : ''}` : u.callId ? `talking with ${this.store.names(this.store.callPeers(u))}` : u.presence === 'in_call' ? 'in a call' : u.presence === 'away' ? 'away' : room?.rules.occupantLabel ?? 'around';
     const lines = [`${u.name}${u.id === this.store.me ? ' (you)' : ''} · ${presence}`];
     if (u.game) lines.push(this.store.gameDescription(u.game.cabinet, u.id));
     if (u.status) lines.push(`“${u.status}”`);

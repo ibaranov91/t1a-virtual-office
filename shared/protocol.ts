@@ -7,6 +7,7 @@ export type ParkRecords = Record<number, Partial<Record<1 | 2 | 3 | 4, ParkRecor
 export interface CabinetSummary { cabinet: string; phase: 'lobby' | 'level' | 'clear'; level: number; players: string[]; spectators: number }
 
 import type { Dir, Layout, Move, Tile } from './map';
+import type { Eating } from './lunch';
 
 export const NOTE_RATE = 40;
 export const NOTE_BURST = 64;
@@ -143,6 +144,7 @@ export interface PublicUser {
   following: string | null; // walks along with this person
   holding: string | null;   // a UseItem id (coffee, snack…) in hand for a while
   reading: string | null;   // library article id they're reading at a reading desk; knocks go to Later
+  eating?: Eating;          // having lunch at a picnic table (see shared/lunch.ts)
   meeting: number | null;   // in a calendar meeting until then (ms); knocks go to Later
   instance: string | null;  // meeting room or dungeon: only people in the same instance see each other
   plant: Plant | null;      // on their home desk, or in the Orangery if they have none
@@ -165,7 +167,7 @@ export interface Cup { id: string; tile: Tile; item: string; at: number }
 export const MAX_CUPS = 12;
 export const CUP_ITEMS = ['coffee', 'tea'];
 /** Furniture you can put a cup on. */
-export const CUP_TABLES = ['table_long', 'table_round', 'table_big', 'desk', 'counter'];
+export const CUP_TABLES = ['table_long', 'table_round', 'table_big', 'desk', 'counter', 'table_picnic'];
 export const cupTableAt = <O extends { type: string; x: number; y: number; w: number; h: number }>(objects: O[], t: Tile) =>
   objects.find(o => CUP_TABLES.includes(o.type) && t.x >= o.x && t.x < o.x + o.w && t.y >= o.y && t.y < o.y + o.h);
 export type CreatureServerMsg =
@@ -269,6 +271,7 @@ export type ServerMsg =
   | { t: 'mute'; userId: string; muted: boolean }
   | { t: 'to_meet'; fromId: string } // someone in your call opened its Meet room; come along
   | { t: 'follow'; userId: string; targetId: string | null }
+  | { t: 'eating'; userId: string; eating: Eating | null }
   | { t: 'holding'; userId: string; item: string | null; objectId?: string; fromId?: string } // objectId: just taken; fromId: handed over
   | { t: 'jukebox'; id: string; state: JukeboxState }
   | { t: 'object'; id: string; on: boolean; by: string }
@@ -288,6 +291,8 @@ export type ServerMsg =
 // client -> server
 export type ClientMsg =
   | ParkOutgoing
+  | { t: 'lunch'; tile: Tile; open: boolean } // eat the food you're holding in this picnic chair; open: knocks from the table are welcome
+  | { t: 'lunch_open'; open: boolean }       // change that while eating
   | { t: 'cup_put'; tile: Tile } // put the coffee or tea you're holding down on this table tile
   | { t: 'pet'; creatureId: string } // pet the cat or dog, or try to catch the hanging bat (walks you over first)
   | { t: 'dev_bat' } // dev only (BAT=1): bring the bat out now

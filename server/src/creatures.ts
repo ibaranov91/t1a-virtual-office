@@ -2,6 +2,7 @@
 // who takes away the cups people leave on tables. They are not users: their own `creatures` message, never knocked on,
 // never counted. Cups are server state, saved with the rest.
 import { dirBetween, findPath, isWalkable, type Tile, type TileMap } from '../../shared/map';
+import { isPlate, LUNCH_MS, MAX_PLATES } from '../../shared/lunch';
 import { cupTableAt, MAX_CUPS, type Creature, type CreatureKind, type CreaturePose, type Cup, type ServerMsg } from '../../shared/protocol';
 
 export const CUP_LINGER_MS = 12_000;       // the cleaner leaves a fresh cup alone for a bit
@@ -84,16 +85,17 @@ export class Creatures {
   // ---------- cups ----------
   /** The table (or desk, or counter) under this tile, if a cup can go on it. */
   tableAt(t: Tile) { return cupTableAt(this.map.objects, t); }
-  cupProblem(t: Tile): string | null {
-    if (!this.tableAt(t)) return 'Cups go on a table';
+  cupProblem(t: Tile, item = ''): string | null {
+    const plate = isPlate(item);
+    if (!this.tableAt(t)) return plate ? 'Plates go on a table' : 'Cups go on a table';
     if (this.cups.some(c => c.tile.x === t.x && t.y === c.tile.y)) return 'There\'s a cup there already';
-    if (this.cups.length >= MAX_CUPS) return 'The tables are full of cups: wait for the cleaner';
+    if (this.cups.filter(c => isPlate(c.item) === plate).length >= (plate ? MAX_PLATES : MAX_CUPS)) return plate ? 'The tables are full of plates: wait for the cleaner' : 'The tables are full of cups: wait for the cleaner';
     return null;
   }
   /** Walkable tiles touching this tile, from where you can reach across to it. */
   beside(t: Tile) { return N4.map(d => ({ x: t.x + d.x, y: t.y + d.y })).filter(p => isWalkable(this.map, p.x, p.y)); }
   addCup(t: Tile, item: string, now: number): Cup | string {
-    const problem = this.cupProblem(t);
+    const problem = this.cupProblem(t, item);
     if (problem) return problem;
     const cup = { id: `cup${now.toString(36)}${(this.seq++).toString(36)}`, tile: { x: t.x, y: t.y }, item, at: now };
     this.cups = [...this.cups, cup]; this.announceCups();
@@ -206,7 +208,7 @@ export class Creatures {
   planClean(from: Tile, now: number) {
     let best: { cup: Cup; spot: Tile; path: Tile[] } | null = null;
     for (const cup of this.cups) {
-      if (now - cup.at < CUP_LINGER_MS) continue;
+      if (now - cup.at < CUP_LINGER_MS + (isPlate(cup.item) ? LUNCH_MS : 0)) continue; // a plate stays while its owner eats
       for (const spot of this.beside(cup.tile)) {
         const path = findPath(this.map, from, spot);
         if (path.length && (!best || path.length < best.path.length)) best = { cup, spot, path };

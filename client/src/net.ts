@@ -1,6 +1,7 @@
 // WebSocket client + the client-side mirror of server state.
 import mapJson from '../../shared/tilemap.json';
 import { applyLayout, besideObject, doorwayTiles, isWalkable, objectById, pathTo, roomAt, sampleMove, type Dir, type Tile, type TileMap } from '../../shared/map';
+import { FOOD_ITEMS } from '../../shared/lunch';
 import { ACHIEVEMENTS, underground, DUNGEON_INSTANCE, PLANT_STAGES, plantName, ROOM_VOICE_MAX, type JukeboxState, type JukeboxAction, type AgendaItem, type LayoutEdit, type CalEvent, type MeetingRoomInfo, type ChatMsg, type LiveDeck, type ObjectState, type ToiletState, type ClientMsg, type PublicUser, type Reaction, type RtcSignal, type ServerMsg, type Creature, type Cup, CUP_ITEMS, type LibraryState } from '../../shared/protocol';
 import { ParkLoop } from './park/loop';
 import type { CabinetSummary, ParkRecords } from '../../shared/protocol';
@@ -223,6 +224,8 @@ export class Store {
   putCup(tile: Tile) { this.send({ t: 'cup_put', tile }); }
   pet(creatureId: string) { this.send({ t: 'pet', creatureId }); }
   devBat() { this.send({ t: 'dev_bat' }); }
+  lunch(tile: Tile, open: boolean) { this.send({ t: 'lunch', tile, open }); }
+  lunchOpen(open: boolean) { this.send({ t: 'lunch_open', open }); }
   give(targetId: string) { this.send({ t: 'give', targetId }); }
   openChat(withId: string) {
     this.chatWith = withId; this.unread.delete(withId);
@@ -493,6 +496,7 @@ export class Store {
         break;
       }
       case 'follow': { const u = this.users.get(msg.userId); if (u) u.following = msg.targetId; break; }
+      case 'eating': { const u = this.users.get(msg.userId); if (u) { if (msg.eating) u.eating = msg.eating; else delete u.eating; } break; }
       case 'holding': {
         const u = this.users.get(msg.userId); if (u) u.holding = msg.item;
         if (msg.objectId) this.objectFx = [...this.objectFx.filter(f => performance.now() - f.at < 4000), { objectId: msg.objectId, at: performance.now() }];
@@ -502,6 +506,7 @@ export class Store {
           if (msg.userId === this.me) { playPop(); this.toast({ kind: 'info', text: `${this.name(msg.fromId)} handed you ${it.label.toLowerCase()} ${it.icon}`, expires: 5000 }); }
         }
         if (msg.objectId && it && msg.userId === this.me && CUP_ITEMS.includes(it.id)) this.toast({ kind: 'info', text: `${it.icon} Click a table to put your cup down`, expires: 5000 });
+        if (msg.objectId && it && msg.userId === this.me && FOOD_ITEMS.includes(it.id)) this.toast({ kind: 'info', text: `${it.icon} Click a chair at a picnic table to eat`, expires: 5000 });
         break;
       }
       case 'creatures': this.creatures = new Map(msg.creatures.map(c => [c.id, c])); break;

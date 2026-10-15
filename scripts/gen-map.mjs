@@ -81,6 +81,11 @@ const rooms = [
     floor: 'club', rug: 'red',
     rules: { knock: 'allow', label: 'club · knock to talk' },
     meeting: { provider: 'meet', url: 'https://meet.google.com/new' } },
+  // the dining terrace in the middle of the Garden (last, so it wins the tiles it covers): picnic tables, a food cart
+  { id: 'terrace', name: 'Terrace', type: 'garden', rect: { x: 28, y: 26, w: 11, h: 6 }, capacity: 8,
+    floor: 'grass', rug: 'orange',
+    rules: { knock: 'allow', label: 'lunch outside · knock to talk' },
+    meeting: { provider: 'meet', url: 'https://meet.google.com/new' } },
 ];
 
 // ---- base floor everywhere inside the outer walls ----
@@ -168,6 +173,7 @@ const obj = (type, x, y, w = 1, h = 1, extra = {}) => objects.push({ id: `o${++o
 // what clicking an object offers (see ObjectUse in shared/map.ts)
 const LAMP = { light: true, use: { kind: 'toggle', label: 'lamp' }, on: true };
 const COFFEE = { kind: 'take', items: [{ id: 'coffee', label: 'Coffee', icon: '☕' }, { id: 'tea', label: 'Tea', icon: '🍵' }] };
+const FOOD = { kind: 'take', items: [{ id: 'sandwich', label: 'Sandwich', icon: '🥪' }, { id: 'ramen', label: 'Ramen', icon: '🍜' }, { id: 'salad', label: 'Salad', icon: '🥗' }, { id: 'pizza', label: 'Pizza', icon: '🍕' }] };
 const FRIDGE = { kind: 'take', items: [{ id: 'snack', label: 'Snack', icon: '🥪' }, { id: 'juice', label: 'Juice', icon: '🧃' }, { id: 'icecream', label: 'Ice cream', icon: '🍦' }] };
 
 // outer windows & wall decor
@@ -324,6 +330,15 @@ for (const x of [11, 12]) {
   obj('reading_desk', x, 7);
   obj('chair', x, 8, 1, 1, { walkable: true });
 }
+// the dining terrace (last, so earlier object ids stay put): two picnic tables with chairs on both sides, staggered so
+// the plates in front of facing diners land on different tiles, and a food cart
+for (const tx of [29, 34]) {
+  obj('table_picnic', tx, 27, 3, 1);
+  obj('chair', tx, 26, 1, 1, { walkable: true });
+  obj('chair', tx + 2, 26, 1, 1, { walkable: true });
+  obj('chair', tx + 1, 28, 1, 1, { walkable: true });
+}
+obj('food_cart', 32, 31, 2, 1, { use: FOOD });
 
 // ---- standing spots (seats follow the furniture: applyLayout in shared/map.ts) ----
 for (const r of rooms) r.stand = [];
@@ -340,7 +355,7 @@ stand('arcade', [[55, 16, 'up'], [61, 16, 'up'], [58, 19, 'up']]);
 stand('orangery', [[7, 27, 'down'], [8, 29, 'down'], [7, 31, 'down']]);
 stand('admin', [[70, 9, 'left']]);
 stand('berghain', [[69, 16, 'down'], [71, 17, 'left'], [66, 19, 'right']]);
-stand('garden', [[42, 29, 'down'], [43, 29, 'down'], [31, 27, 'left'], [56, 28, 'down'], [20, 28, 'down']]);
+stand('garden', [[42, 29, 'down'], [43, 29, 'down'], [33, 29, 'left'], [56, 28, 'down'], [20, 28, 'down']]);
 
 // ---- a separate, deterministic maze under the garden (never furniture) ----
 const random = (() => { let seed = 16; return () => {

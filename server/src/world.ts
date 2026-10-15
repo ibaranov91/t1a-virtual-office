@@ -8,6 +8,7 @@ import {
   CUP_ITEMS, BOOK_ITEM, BOOKWORM_READS, EDITOR_READERS, dayNumber, isTimeZone, plantDead, BOTANIST_KINDS, PLANT_KINDS, PLANT_STAGES, type Plant,
   type ChatMsg, type ClientMsg, type Door, type Effect, type Knock, type LayoutEdit, type Look, type Presence, type PublicUser, type Reaction, type ServerMsg,
 } from '../../shared/protocol';
+import { FOOD_ITEMS, LUNCH_MS, PLATE_PREFIX, picnicSeat, type Eating } from '../../shared/lunch';
 import { INSTRUMENTS, validNote } from '../../shared/instruments';
 import { ADMIN_HAT, BAT_HAT, DANCE_ROOM, EFFECTS, HAT_NAMES, JUDGE_HAT, MAX_EFFECTS, RAVER_MS, hatItem, hatOf, walkMs } from '../../shared/effects';
 import { TRACKS } from '../../shared/music';
@@ -128,7 +129,7 @@ export class World {
     this.baseLayout = structuredClone({ objects: map.objects, rugs: map.rugs });
     for (const o of map.objects) if (o.use?.kind === 'toggle') this.objectOn.set(o.id, o.on ?? true);
     this.syncJukeboxes();
-    setInterval(() => { const now = Date.now(); this.voiceTick(now); this.jukeboxTick(now); this.instrumentTick(now); this.effectsTick(now); this.toilets.tick(now); }, 250).unref();
+    setInterval(() => { const now = Date.now(); this.voiceTick(now); this.jukeboxTick(now); this.instrumentTick(now); this.effectsTick(now); this.lunchTick(now); this.toilets.tick(now); }, 250).unref();
   }
 
   // ---------- transport ----------
@@ -323,7 +324,7 @@ export class World {
     const path = pathTo(this.map, from, to, keepOut); // also sits down onto a sofa
     if (!path.length) return null; // nothing changes: the current walk (and its dungeon timers) goes on
     if (path.length > 1 && this.readPlans.get(u.id)?.seq !== this.walkingTo) this.stopReading(u);
-    if (path.length > 1) { for (const [id, seat] of this.seats) if (seat.user === u.id) this.endSeat(id); if (!this.toiletWalks.has(u.id)) this.toilets.leave(u.id, now); }
+    if (path.length > 1) { for (const [id, seat] of this.seats) if (seat.user === u.id) this.endSeat(id); if (!this.toiletWalks.has(u.id)) this.toilets.leave(u.id, now); this.endLunch(u); }
     // A due pickup belongs to the old walk even if its callback hasn't run yet.
     const keyTimer = u.dungeonTimers?.key;
     if (underground(u) && keyTimer && keyTimer.at <= now) keyTimer.run();
@@ -725,6 +726,45 @@ export class World {
     seen.kinds.add(c.kind); this.petDays.set(u.id, seen);
     if (seen.kinds.has('cat') && seen.kinds.has('dog') && !u.achievements.whisperer) { this.award(u, 'whisperer', now); this.plantChanged(u); }
   }
+  // ---------- lunch on the terrace ----------
+  /** Eat the food you're holding in this picnic chair: walk over, sit, and for LUNCH_MS you're eating (a plate on the table). */
+  lunch(u: User, tile: Tile, open: boolean) {
+    if (!u.holding || !FOOD_ITEMS.includes(u.holding) || u.instance || goingOut(u) || u.presence === 'offline') return;
+    const spot = picnicSeat(this.map, tile);
+    if (!spot) return this.sendTo(u.id, { t: 'notice', text: 'Eat at a chair by a picnic table' });
+    const here = this.position(u).next, mine = here.x === tile.x && here.y === tile.y;
+    if (!mine && this.occupied().has(`${tile.x},${tile.y}`)) return this.sendTo(u.id, { t: 'notice', text: 'Someone is sitting there' });
+    this.setFollowing(u, null);
+    clearTimeout(this.errands.get(u.id));
+    const at = mine ? Date.now() : this.walk(u, tile, spot.seat.dir);
+    if (at === null) return this.sendTo(u.id, { t: 'notice', text: "Can't get to that chair" });
+    const item = u.holding;
+    this.errands.set(u.id, setTimeout(() => {
+      this.errands.delete(u.id);
+      const d = this.position(u).dest;
+      if (d.x !== tile.x || d.y !== tile.y || u.holding !== item || u.instance || u.presence === 'offline' || goingOut(u)) return; // changed their mind
+      this.setHolding(u, null);
+      const now = Date.now();
+      this.setEating(u, { item, until: now + LUNCH_MS, open });
+      const { table, front } = spot, tiles = [front];
+      for (let y = table.y; y < table.y + table.h; y++) for (let x = table.x; x < table.x + table.w; x++) tiles.push({ x, y });
+      for (const t of tiles) if (typeof this.creatures.addCup(t, PLATE_PREFIX + item, now) !== 'string') break; // in front of you, else anywhere free on the table
+    }, Math.max(0, at - Date.now()) + 300));
+  }
+  private setEating(u: User, eating: Eating | null) {
+    if (eating) u.eating = eating; else delete u.eating;
+    this.broadcast({ t: 'eating', userId: u.id, eating });
+  }
+  private endLunch(u: User) { if (u.eating) this.setEating(u, null); }
+  lunchTick(now = Date.now()) { for (const u of this.users.values()) if (u.eating && u.eating.until <= now) this.endLunch(u); }
+  private lunchOpen(u: User, open: boolean) { if (u.eating && u.eating.open !== open) this.setEating(u, { ...u.eating, open }); }
+  /** Which picnic table someone is sitting at (not walking). */
+  private tableOf(u: User) {
+    const p = this.position(u);
+    return p.tile.x === p.dest.x && p.tile.y === p.dest.y && !u.instance ? picnicSeat(this.map, p.tile)?.table.id ?? null : null;
+  }
+  private eatingNow(u: User) { return !!u.eating && u.eating.until > Date.now(); }
+
   // ---------- Berghain's toilets ----------
   /** Walk to the stall's door; there, go in or join the line. */
   private useToilet(u: User, o: MapObject) {
@@ -1122,7 +1162,7 @@ export class World {
   }
   /** Jump straight to a tile (into or out of a meeting's room); no walking between the two. */
   private place(u: User, tile: Tile) {
-    this.bumpWalk(u);
+    this.bumpWalk(u); this.endLunch(u);
     u.tile = { ...tile }; u.move = null; u.path = null; u.prev = undefined;
     u.dir = seatAt(this.map, tile.x, tile.y)?.dir ?? 'down';
     this.broadcast({ t: 'instance', userId: u.id, instance: u.instance, tile: u.tile, dir: u.dir });
@@ -1441,6 +1481,8 @@ export class World {
     if (room?.rules.knock === 'disabled') {
       return this.closeKnock(k, 'blocked', `${to.name} is in ${room.name} — ${room.rules.label ?? 'no knocking'}`);
     }
+    const shared = this.tableOf(from);
+    if (shared && shared === this.tableOf(to)) return this.arrive(k); // already side by side at the table
     // walk next to them (nearest free neighbouring tile)
     const here = this.position(from).next;
     const spot = this.nextTo(this.position(to).dest, here);
@@ -1462,9 +1504,11 @@ export class World {
     k.state = 'pending';
     this.setEmote(to, 'knock');
     this.broadcast({ t: 'knock', knockId: k.id, fromId: from.id, toId: to.id });
-    const stall = this.toilets.inside(to.id);
-    if (room?.rules.knock === 'later' || (to.presence === 'in_call' && !to.callId) || to.meeting || to.reading || stall) {
-      const why = stall ? 'on the toilet' : to.meeting ? 'in a meeting' : to.reading ? 'reading' : room?.rules.occupantLabel ?? 'in a call';
+    const table = this.tableOf(from);
+    if (table && table === this.tableOf(to) && this.eatingNow(to) && to.eating!.open) return this.reply(to, k.id, 'accept'); // sharing a table with someone open to talk
+    const stall = this.toilets.inside(to.id), lunch = this.eatingNow(to) && !to.eating!.open;
+    if (room?.rules.knock === 'later' || (to.presence === 'in_call' && !to.callId) || to.meeting || to.reading || stall || lunch) {
+      const why = stall ? 'on the toilet' : to.meeting ? 'in a meeting' : to.reading ? 'reading' : lunch ? 'at lunch' : room?.rules.occupantLabel ?? 'in a call';
       k.timer = setTimeout(() => this.closeKnock(k, 'later', `${to.name} is ${why} — sent to Later`), 1400);
     } else {
       k.timer = setTimeout(() => this.closeKnock(k, 'later', `${to.name} didn't answer — sent to Later`), 30_000);
@@ -1664,6 +1708,8 @@ export class World {
       case 'drop': if (u.holding) this.setHolding(u, null); break;
       case 'pet': this.petCreature(u, String(msg.creatureId)); break;
       case 'dev_bat': if (this.creatures.batAlways) { this.creatures.batBackAt = 0; this.creatures.wantBat(Date.now()); } break;
+      case 'lunch': if (msg.tile) this.lunch(u, { x: msg.tile.x | 0, y: msg.tile.y | 0 }, !!msg.open); break;
+      case 'lunch_open': this.lunchOpen(u, !!msg.open); break;
       case 'cup_put': if (msg.tile) this.putCup(u, { x: msg.tile.x | 0, y: msg.tile.y | 0 }); break;
       case 'give': { const to = this.users.get(String(msg.targetId)); if (to) this.give(u, to); break; }
       case 'present_slide': this.present?.slide(u.id, msg.slide); break;
