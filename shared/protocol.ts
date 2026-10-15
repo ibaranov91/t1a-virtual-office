@@ -18,6 +18,7 @@ export const JUKEBOX_PER_PERSON = 3;
 export interface JukeboxEntry { id: string; track: string; by: string }
 export interface JukeboxState {
   playId: string; track: string; by: string | null; startedAt: number; pausedAt: number | null;
+  next?: string; // what plays after this one unless the queue changes (the queue's head, else a shuffle pick made ahead), for prefetching
   queue: JukeboxEntry[];
   last: { kind: 'pause' | 'play' | 'skip'; by: string; at: number } | null;
 }
