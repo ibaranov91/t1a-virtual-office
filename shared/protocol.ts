@@ -1,5 +1,12 @@
 import type { Dir, Move, Tile } from './map';
 
+export const ROOM_VOICE_MAX = 12;
+export const EARSHOT_TILES = 5;
+export const AFK_MS = 10 * 60_000;
+export type CallRole = 'member' | 'listener';
+/** A map object's shared state. volume: only for objects with a sound — one knob everybody hears (0..1). */
+export interface ObjectState { on: boolean; volume?: number }
+
 export type Presence = 'online' | 'away' | 'in_call' | 'offline';
 export type Emote = 'knock' | null;
 /** Coming and going through the exit door: arrive bag in hand; when disconnected, think for a moment
@@ -22,7 +29,8 @@ export interface PublicUser {
   tile: Tile; dir: Dir; move: Move | null;
   presence: Presence; status: string; emote: Emote; bot: boolean; door: Door;
   homeDesk: Tile | null;
-  callId: string | null; // in a knock-started call; everyone with the same callId is talking together
+  callId: string | null;
+  callRole: CallRole | null; deafened: boolean; hand: boolean;
   muted: boolean;        // mic muted in that call
   following: string | null; // walks along with this person
   holding: string | null;   // a UseItem id (coffee, snack…) in hand for a while
@@ -56,7 +64,7 @@ export interface Knock {
 // server -> client
 export type ServerMsg =
   | { t: 'hello'; you: string; serverTime: number; build?: string } // build: the client bundle the server serves (absent in dev)
-  | { t: 'state'; users: PublicUser[]; objects: Record<string, { on: boolean }>; serverTime: number }
+  | { t: 'state'; users: PublicUser[]; objects: Record<string, ObjectState>; serverTime: number }
   | { t: 'move'; userId: string; from: Tile; to: Tile; startedAt: number; path?: Tile[]; face?: Dir }
   | { t: 'status'; userId: string; status: string }
   | { t: 'presence'; userId: string; presence: Presence }
@@ -66,16 +74,21 @@ export type ServerMsg =
   | { t: 'knock_reply'; knockId: string; fromId: string; toId: string; reply: 'accept' | 'later' | 'blocked'; link?: string; reason?: string; fallback?: boolean; cancelled?: boolean }
   | { t: 'me'; meetLink: string } // private settings, only to the user themselves
   | { t: 'desk'; userId: string; desk: Tile | null }
-  | { t: 'call'; userId: string; callId: string | null; link?: string } // link: the call's Meet room, only to members
+  | { t: 'call'; userId: string; callId: string | null; role?: CallRole; link?: string } // link: the call's Meet room, only to members
   | { t: 'rtc'; from: string; signal: RtcSignal }
   | { t: 'speaking'; userId: string; on: boolean }
   | { t: 'mute'; userId: string; muted: boolean }
   | { t: 'follow'; userId: string; targetId: string | null }
   | { t: 'holding'; userId: string; item: string | null; objectId?: string; fromId?: string } // objectId: just taken; fromId: handed over
-  | { t: 'object'; id: string; on: boolean; by: string }
+  | { t: 'object'; id: string; on: boolean; volume?: number; by: string }
   | { t: 'react'; fromId: string; toId: string; emoji: Reaction }
   | { t: 'chat'; msg: ChatMsg }
-  | { t: 'chat_history'; withId: string; messages: ChatMsg[] };
+  | { t: 'chat_history'; withId: string; messages: ChatMsg[] }
+  | { t: 'deafen'; userId: string; on: boolean }
+  | { t: 'hand'; userId: string; up: boolean }
+  | { t: 'notice'; text: string }
+  | { t: 'voice_wait'; roomId: string | null }
+  | { t: 'voice_owner'; owner: boolean };
 
 // client -> server
 export type ClientMsg =
@@ -98,4 +111,9 @@ export type ClientMsg =
   | { t: 'chat_history'; withId: string }
   | { t: 'use'; objectId: string; item?: string } // walk over to an object and use it
   | { t: 'drop' }                    // finish what you're holding
-  | { t: 'give'; targetId: string }; // hand it to someone with empty hands
+  | { t: 'give'; targetId: string } // hand it to someone with empty hands
+  | { t: 'deafen'; on: boolean }
+  | { t: 'hand'; up: boolean }
+  | { t: 'leave_room' }
+  | { t: 'voice_claim' }
+  | { t: 'object_volume'; id: string; volume: number } // a sound object's shared volume knob (the radio); only standing next to it;

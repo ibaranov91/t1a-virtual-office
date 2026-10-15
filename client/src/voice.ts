@@ -1,194 +1,218 @@
-// Built-in voice for knock calls: audio-only WebRTC mesh between the people in my call.
-// The server only relays signaling between members of the same call; audio goes browser to browser (DTLS-SRTP).
-import type { RtcSignal } from '../../shared/protocol';
-import type { Store } from './net';
+import { AFK_MS, type RtcSignal } from '../../shared/protocol';
+import { audio, forgetMedia, needsGesture, playMedia, resume, setAudioDeafened } from './audio';
+import { prefs, savePrefs } from './prefs';
+import type { ClientUser, Store } from './net';
 
 interface Peer {
-  pc: RTCPeerConnection;
-  audio: HTMLAudioElement;
-  pendingIce: RTCIceCandidateInit[];
-  conn: string | null;       // the connection attempt this pc belongs to
-  remoteInst: string | null; // which of their pages we're connected to (offerer side)
-  awaiting: boolean;         // offer sent, answer not yet applied
+  pc: RTCPeerConnection; audio: HTMLAudioElement; transceiver?: RTCRtpTransceiver;
+  pendingIce: RTCIceCandidateInit[]; conn: string | null; remoteInst: string | null;
+  replacing: boolean;
 }
-
 const rid = () => Math.random().toString(36).slice(2, 10);
-
-const SPEAK_ON = 0.018;   // RMS above this counts as talking
-const TICK_MS = 80;
+const around = (u: ClientUser) => !u.bot && u.presence !== 'offline' && u.door !== 'thinking' && u.door !== 'leaving';
 
 export class Voice {
-  muted = false;
-  micError: string | null = null;  // set when the mic is unavailable: we're listen-only
-  needsGesture = false;            // browser blocked autoplay: a click resumes audio
+  muted = prefs.muted;
+  deafened = prefs.deafened;
+  mode = prefs.mode;
+  spaceHeld = false;
+  micError: string | null = null;
   private callId: string | null = null;
-  private ready = false;           // mic settled (granted or refused) for the current call
+  private role: string | null = null;
+  private owner = false;
   private local: MediaStream | null = null;
   private peers = new Map<string, Peer>();
-  private queued: { from: string; signal: RtcSignal }[] = [];
-  private ctx: AudioContext | null = null;
+  private micRequest = 0;
+  private micAttempted = false;
   private meter: number | undefined;
+  private meterSource: MediaStreamAudioSourceNode | null = null;
+  private analyser: AnalyserNode | null = null;
   private speaking = false;
   private loudTicks = 0;
   private quietTicks = 0;
-  private inst = rid();          // this page's voice session for the current call
+  private handSince = 0;
+  private lastActivity = Date.now();
+  private afk: number;
+  private inst = rid();
+  private dead = false;
 
   constructor(private store: Store, private iceServers: RTCIceServer[]) {
-    store.onRtc = (from, signal) => this.onSignal(from, signal);
+    store.onRtc = (from, signal) => { void this.onSignal(from, signal); };
+    for (const event of ['pointerdown', 'pointermove', 'keydown', 'wheel'] as const) window.addEventListener(event, this.activity, { passive: true });
+    window.addEventListener('keydown', this.keyDown);
+    window.addEventListener('keyup', this.keyUp);
+    window.addEventListener('blur', this.releaseSpace);
+    this.afk = window.setInterval(() => this.checkAfk(), 15000);
+    setAudioDeafened(this.deafened);
   }
+  get needsGesture() { return needsGesture(); }
+  resumeAudio() { void resume(); }
 
-  /** Call on every store change: start/stop with my call, connect to new members, drop leavers. */
-  sync() {
+  // Used for creation, incoming signals, pruning and both UI counts.
+  private eligible(u: ClientUser) {
     const me = this.store.users.get(this.store.me);
-    const callId = me?.callId ?? null;
-    if (callId !== this.callId) {
-      // record the new call FIRST: stop() re-renders, which calls sync() again; with the old id still
-      // recorded that re-entered stop() forever, and the next call never started (no sound on a re-call)
-      const was = this.callId;
-      this.callId = callId;
-      if (was) this.stop();
-      if (callId) void this.start(callId);
-      return;
+    return !!me && this.owner && this.store.connected && around(me) && around(u) && u.id !== me.id && !!me.callId && me.callId === u.callId
+      && (me.callRole === 'member' || u.callRole === 'member');
+  }
+  eligiblePeers() { return [...this.store.users.values()].filter(u => this.eligible(u)); }
+  sync() {
+    if (this.dead) return;
+    const me = this.store.users.get(this.store.me), owner = this.store.connected && this.store.voiceOwner;
+    const callId = me?.callId ?? null, role = me?.callRole ?? null;
+    const newOwner = owner && !this.owner, newCall = callId !== this.callId, newRole = role !== this.role;
+    const wasOwner = this.owner;
+    this.owner = owner; this.callId = callId; this.role = role;
+    if (!owner || newCall) this.stopVoice();
+    if (newOwner) this.inst = rid();
+    if (owner && (newOwner || newCall || newRole)) {
+      if (newCall || newOwner) {
+        this.muted = this.store.roomCallOf(me) ? prefs.muted : false;
+        this.deafened = prefs.deafened;
+      }
+      if (role !== 'member') this.stopMic();
+      else this.lastActivity = Date.now();
+      if (callId) {
+        this.store.send({ t: 'mute', muted: this.muted });
+        this.store.setDeafen(this.deafened);
+      }
     }
-    if (!callId || !this.ready || !me) return;
-    const humans = this.store.callPeers(me).filter(u => !u.bot && u.presence !== 'offline').map(u => u.id);
-    for (const id of humans) {
-      if (this.peers.has(id)) continue;
+    if (wasOwner && !owner) this.spaceHeld = false;
+    setAudioDeafened(this.deafened);
+    const ids = new Set(this.eligiblePeers().map(u => u.id));
+    for (const id of [...this.peers.keys()]) if (!ids.has(id)) this.closePeer(id);
+    for (const id of ids) if (!this.peers.has(id)) {
       const p = this.createPeer(id);
-      if (this.store.me < id) void this.offer(id, p); // lower id makes the offer: no glare
-      else this.signal(id, { kind: 'hello', inst: this.inst }); // they may still hold a connection to my old page
+      if (this.store.me < id) void this.offer(id, p).catch(e => console.warn('voice offer', e));
+      else this.signal(id, { kind: 'hello', inst: this.inst });
     }
-    for (const id of [...this.peers.keys()]) if (!humans.includes(id)) this.closePeer(id);
+    this.sendRule();
+    if (owner && role === 'member' && callId && !this.local && !this.micAttempted) void this.requestMic(callId);
   }
-
-  toggleMute() {
-    this.muted = !this.muted;
-    for (const t of this.local?.getAudioTracks() ?? []) t.enabled = !this.muted;
-    this.store.send({ t: 'mute', muted: this.muted });
-    if (this.muted) this.setSpeaking(false);
-    this.store.changed();
+  private sendRule() {
+    const track = this.owner && this.role === 'member' ? this.local?.getAudioTracks()[0] ?? null : null;
+    const enabled = this.owner && this.role === 'member' && !this.muted && !this.deafened && (this.mode === 'voice' || this.spaceHeld);
+    for (const t of this.local?.getAudioTracks() ?? []) t.enabled = enabled;
+    if (!enabled) { this.loudTicks = 0; this.quietTicks = 0; this.handSince = 0; this.setSpeaking(false); }
+    for (const p of this.peers.values()) {
+      const sender = p.transceiver?.sender;
+      if (!sender || p.replacing || sender.track === track) continue;
+      p.replacing = true;
+      void sender.replaceTrack(track).then(() => {
+        p.replacing = false;
+        if (p.pc.signalingState !== 'closed') this.sendRule();
+      }).catch(e => { p.replacing = false; console.warn('voice replaceTrack', e); });
+    }
   }
-
-  /** After a click: retry playback the browser blocked. */
-  resumeAudio() {
-    void this.ctx?.resume();
-    for (const p of this.peers.values()) void p.audio.play().catch(() => {});
-    this.needsGesture = false;
-    this.store.changed();
-  }
-
-  destroy() { this.stop(); this.store.onRtc = undefined; }
-
-  // ---------- lifecycle ----------
-  private async start(callId: string) {
-    this.inst = rid();
-    this.ready = false; this.muted = false; this.micError = null;
-    let local: MediaStream | null = null, micError: string | null = null;
+  private async requestMic(callId: string) {
+    this.micAttempted = true;
+    const token = ++this.micRequest;
+    let local: MediaStream | null = null, error: string | null = null;
     try {
-      local = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-      });
+      local = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
     } catch (e) {
-      micError = (e as Error)?.name === 'NotAllowedError' ? 'Microphone blocked: you can listen but not talk' : 'No microphone: listen-only';
+      error = (e as Error)?.name === 'NotAllowedError' ? 'Microphone blocked: you can listen but not talk' : 'No microphone: listen-only';
     }
-    if (this.callId !== callId) { // left (or switched calls) while the permission prompt was open
-      for (const t of local?.getTracks() ?? []) t.stop();
-      return;
+    if (token !== this.micRequest || !this.owner || this.role !== 'member' || this.callId !== callId || this.dead) {
+      for (const t of local?.getTracks() ?? []) t.stop(); return;
     }
-    this.local = local; this.micError = micError;
+    this.local = local; this.micError = error;
+    this.sendRule();
     if (local) this.startMeter(local);
-    else this.store.toast({ kind: 'info', text: micError!, expires: 6000 });
-    this.ready = true;
+    else this.store.toast({ kind: 'info', text: error!, expires: 6000 });
     this.store.changed();
-    this.sync();
-    const q = this.queued; this.queued = [];
-    for (const m of q) await this.onSignal(m.from, m.signal);
   }
-
-  private stop() {
+  toggleMute() {
+    this.muted = !this.muted; prefs.muted = this.muted; savePrefs();
+    this.store.send({ t: 'mute', muted: this.muted }); this.sendRule(); this.store.changed();
+  }
+  toggleDeafen() {
+    this.deafened = !this.deafened; prefs.deafened = this.deafened; savePrefs();
+    setAudioDeafened(this.deafened); this.store.setDeafen(this.deafened); this.sendRule(); this.store.changed();
+  }
+  toggleMode() {
+    this.mode = this.mode === 'voice' ? 'ptt' : 'voice'; prefs.mode = this.mode; savePrefs();
+    this.releaseSpace(); this.sendRule(); this.store.changed();
+  }
+  private stopMic() {
+    ++this.micRequest; this.micAttempted = false;
+    for (const t of this.local?.getTracks() ?? []) t.stop(); this.local = null;
+    clearInterval(this.meter); this.meter = undefined;
+    this.meterSource?.disconnect(); this.analyser?.disconnect(); this.meterSource = null; this.analyser = null;
+    this.setSpeaking(false); this.loudTicks = 0; this.quietTicks = 0; this.handSince = 0; this.micError = null;
+  }
+  private stopVoice() {
+    this.stopMic();
     for (const id of [...this.peers.keys()]) this.closePeer(id);
-    for (const t of this.local?.getTracks() ?? []) t.stop();
-    this.local = null;
-    if (this.meter) clearInterval(this.meter);
-    this.meter = undefined;
-    void this.ctx?.close().catch(() => {});
-    this.ctx = null;
-    this.speaking = false; this.loudTicks = 0; this.quietTicks = 0;
-    this.ready = false; this.queued = []; this.muted = false; this.micError = null; this.needsGesture = false;
-    this.store.changed();
+  }
+  destroy() {
+    this.dead = true; this.stopVoice(); clearInterval(this.afk); this.store.onRtc = undefined;
+    for (const event of ['pointerdown', 'pointermove', 'keydown', 'wheel'] as const) window.removeEventListener(event, this.activity);
+    window.removeEventListener('keydown', this.keyDown); window.removeEventListener('keyup', this.keyUp); window.removeEventListener('blur', this.releaseSpace);
+    setAudioDeafened(false);
   }
 
-  // ---------- peers ----------
   private createPeer(id: string): Peer {
-    const pc = new RTCPeerConnection({ iceServers: this.iceServers });
-    if (this.local) for (const t of this.local.getAudioTracks()) pc.addTrack(t, this.local);
-    else pc.addTransceiver('audio', { direction: 'recvonly' });
-    const audio = new Audio();
-    audio.autoplay = true;
-    const peer: Peer = { pc, audio, pendingIce: [], conn: null, remoteInst: null, awaiting: false };
+    const pc = new RTCPeerConnection({ iceServers: this.iceServers }), el = new Audio();
+    el.autoplay = true; el.muted = true;
+    const p: Peer = { pc, audio: el, pendingIce: [], conn: null, remoteInst: null, replacing: false };
+    if (this.store.me < id) {
+      p.transceiver = pc.addTransceiver('audio', { direction: 'sendrecv' });
+      pc.createDataChannel('deck');
+    }
+    this.peers.set(id, p);
     pc.onicecandidate = e => {
-      if (peer.conn) this.signal(id, { kind: 'ice', candidate: e.candidate ? e.candidate.toJSON() : null, conn: peer.conn });
+      if (this.current(id, p) && p.conn) this.signal(id, { kind: 'ice', candidate: e.candidate?.toJSON() ?? null, conn: p.conn });
     };
     pc.ontrack = e => {
-      audio.srcObject = e.streams[0] ?? new MediaStream([e.track]);
-      audio.play().catch(() => { this.needsGesture = true; this.store.changed(); });
+      if (!this.current(id, p)) return;
+      const stream = e.streams[0] ?? new MediaStream([e.track]);
+      el.srcObject = stream; void playMedia(el); this.store.soundscape?.addVoice(id, stream);
     };
     pc.onconnectionstatechange = () => {
-      if (pc.connectionState === 'failed' && this.store.me < id) { pc.restartIce(); void this.offer(id, peer); }
+      if (!this.current(id, p)) return;
+      if (pc.connectionState === 'failed' && this.store.me < id) {
+        pc.restartIce(); void this.offer(id, p).catch(e => console.warn('voice ICE restart', e));
+      }
       this.store.changed();
     };
-    this.peers.set(id, peer);
-    return peer;
+    this.sendRule(); return p;
   }
-
+  private current(id: string, p: Peer) { return this.peers.get(id) === p && p.pc.signalingState !== 'closed'; }
   private closePeer(id: string) {
-    const p = this.peers.get(id);
-    if (!p) return;
-    p.pc.close();
-    p.audio.pause(); p.audio.srcObject = null;
-    this.peers.delete(id);
+    const p = this.peers.get(id); if (!p) return;
+    this.peers.delete(id); p.pc.close(); p.audio.pause(); p.audio.srcObject = null;
+    this.store.soundscape?.remove(id); forgetMedia(p.audio);
   }
-
   private async offer(id: string, p: Peer) {
-    // a data channel keeps the connection up even when nobody's mic is on (listen-only on both ends)
-    if (!p.pc.sctp) p.pc.createDataChannel('deck');
     p.conn ??= rid();
-    p.awaiting = true;
-    const offer = await p.pc.createOffer();
-    await p.pc.setLocalDescription(offer);
+    const offer = await p.pc.createOffer(); if (!this.current(id, p)) return;
+    await p.pc.setLocalDescription(offer); if (!this.current(id, p)) return;
     this.signal(id, { kind: 'offer', sdp: offer.sdp ?? '', conn: p.conn });
   }
-
-  private signal(to: string, signal: RtcSignal) { this.store.send({ t: 'rtc', to, signal }); }
-
+  private signal(to: string, signal: RtcSignal) { if (this.owner) this.store.send({ t: 'rtc', to, signal }); }
   private async onSignal(from: string, signal: RtcSignal) {
-    if (!this.callId) return;
-    if (!this.ready) { this.queued.push({ from, signal }); return; }
-    const sender = this.store.users.get(from);
-    if (!sender || sender.callId !== this.callId) return;
+    const u = this.store.users.get(from); if (!u || !this.eligible(u)) return;
     let p = this.peers.get(from);
     try {
       if (signal.kind === 'hello') {
-        if (this.store.me > from) return; // only the offerer acts on hellos
-        // our offer is still on its way to their current page, or we're already connected to that page: nothing to do
-        if (p && (p.awaiting || p.remoteInst === signal.inst)) return;
-        this.closePeer(from); // connected to an old page of theirs (they reloaded): start over
-        await this.offer(from, this.createPeer(from));
+        if (this.store.me > from || p?.remoteInst === signal.inst) return;
+        this.closePeer(from); p = this.createPeer(from); p.remoteInst = signal.inst;
+        await this.offer(from, p);
       } else if (signal.kind === 'offer') {
-        if (p && p.conn && p.conn !== signal.conn) { this.closePeer(from); p = undefined; } // a new attempt from them
-        p ??= this.createPeer(from);
-        p.conn = signal.conn;
-        await p.pc.setRemoteDescription({ type: 'offer', sdp: signal.sdp });
-        await this.flushIce(p);
-        const answer = await p.pc.createAnswer();
-        await p.pc.setLocalDescription(answer);
+        if (this.store.me < from) return;
+        if (p?.conn && p.conn !== signal.conn) { this.closePeer(from); p = undefined; }
+        p ??= this.createPeer(from); p.conn = signal.conn;
+        await p.pc.setRemoteDescription({ type: 'offer', sdp: signal.sdp }); if (!this.current(from, p)) return;
+        p.transceiver = p.pc.getTransceivers().find(t => t.receiver.track.kind === 'audio');
+        if (!p.transceiver) throw new Error('Missing audio transceiver');
+        p.transceiver.direction = 'sendrecv'; this.sendRule(); await this.flushIce(p);
+        const answer = await p.pc.createAnswer(); if (!this.current(from, p)) return;
+        await p.pc.setLocalDescription(answer); if (!this.current(from, p)) return;
         this.signal(from, { kind: 'answer', sdp: answer.sdp ?? '', conn: signal.conn, inst: this.inst });
       } else if (signal.kind === 'answer') {
-        // an answer to an older offer (or for a pc we've since replaced) would wire up mismatched credentials
         if (!p || p.conn !== signal.conn || p.pc.signalingState !== 'have-local-offer') return;
-        await p.pc.setRemoteDescription({ type: 'answer', sdp: signal.sdp });
-        p.awaiting = false; p.remoteInst = signal.inst;
-        await this.flushIce(p);
+        await p.pc.setRemoteDescription({ type: 'answer', sdp: signal.sdp }); if (!this.current(from, p)) return;
+        p.remoteInst = signal.inst; await this.flushIce(p); this.sendRule();
       } else {
         if (!p || p.conn !== signal.conn || !signal.candidate) return;
         if (p.pc.remoteDescription) await p.pc.addIceCandidate(signal.candidate);
@@ -196,38 +220,49 @@ export class Voice {
       }
     } catch (e) { console.warn('voice signaling', e); }
   }
+  private async flushIce(p: Peer) { for (const c of p.pendingIce.splice(0)) await p.pc.addIceCandidate(c).catch(() => {}); }
 
-  private async flushIce(p: Peer) {
-    for (const c of p.pendingIce.splice(0)) await p.pc.addIceCandidate(c).catch(() => {});
-  }
-
-  // ---------- "am I talking?" for the bubbles ----------
   private startMeter(stream: MediaStream) {
-    this.ctx = new AudioContext();
-    const src = this.ctx.createMediaStreamSource(stream);
-    const analyser = this.ctx.createAnalyser();
-    analyser.fftSize = 512;
-    src.connect(analyser);
-    const buf = new Float32Array(analyser.fftSize);
+    this.meterSource = audio().createMediaStreamSource(stream); this.analyser = audio().createAnalyser();
+    this.analyser.fftSize = 512; this.meterSource.connect(this.analyser);
+    const buf = new Float32Array(this.analyser.fftSize);
     this.meter = window.setInterval(() => {
-      if (this.muted) return;
-      analyser.getFloatTimeDomainData(buf);
+      if (!this.local?.getAudioTracks()[0]?.enabled) return;
+      this.analyser!.getFloatTimeDomainData(buf);
       let sum = 0; for (const v of buf) sum += v * v;
-      const loud = Math.sqrt(sum / buf.length) > SPEAK_ON;
-      this.loudTicks = loud ? this.loudTicks + 1 : 0;
-      this.quietTicks = loud ? 0 : this.quietTicks + 1;
-      if (!this.speaking && this.loudTicks >= 2) this.setSpeaking(true);       // ~160 ms of voice
-      else if (this.speaking && this.quietTicks >= 6) this.setSpeaking(false); // ~0.5 s of quiet
-    }, TICK_MS);
+      const loud = Math.sqrt(sum / buf.length) > .018;
+      this.loudTicks = loud ? this.loudTicks + 1 : 0; this.quietTicks = loud ? 0 : this.quietTicks + 1;
+      if (loud) this.lastActivity = Date.now();
+      if (!this.speaking && this.loudTicks >= 2) this.setSpeaking(true);
+      else if (this.speaking && this.quietTicks >= 6) this.setSpeaking(false);
+      const me = this.store.users.get(this.store.me);
+      if (this.speaking && me?.hand && this.store.roomCallOf(me)) {
+        this.handSince ||= Date.now();
+        if (Date.now() - this.handSince >= 1500) { this.store.setHand(false); this.handSince = 0; }
+      } else this.handSince = 0;
+    }, 80);
   }
-
   private setSpeaking(on: boolean) {
     if (this.speaking === on) return;
     this.speaking = on;
-    this.store.send({ t: 'speaking', on });
+    if (this.owner) this.store.send({ t: 'speaking', on });
   }
+  connectedCount() { return this.eligiblePeers().filter(u => this.peers.get(u.id)?.pc.connectionState === 'connected').length; }
+  peerCount() { return this.eligiblePeers().length; }
 
-  /** For the UI: how many people I'm actually connected to. */
-  connectedCount() { return [...this.peers.values()].filter(p => p.pc.connectionState === 'connected').length; }
-  peerCount() { return this.peers.size; }
+  private activity = () => { this.lastActivity = Date.now(); };
+  private keyDown = (e: KeyboardEvent) => {
+    if (e.code !== 'Space' || e.repeat || this.mode !== 'ptt' || !this.owner || this.role !== 'member') return;
+    const target = e.target instanceof Element ? e.target : null;
+    if (target?.closest('input, textarea, select, [contenteditable]')) return;
+    e.preventDefault(); this.spaceHeld = true; this.sendRule(); this.store.changed();
+  };
+  private keyUp = (e: KeyboardEvent) => { if (e.code === 'Space') this.releaseSpace(); };
+  private releaseSpace = () => { if (this.spaceHeld) { this.spaceHeld = false; this.sendRule(); this.store.changed(); } };
+  private checkAfk() {
+    const me = this.store.users.get(this.store.me), room = this.store.roomCallOf(me);
+    if (!this.owner || me?.callRole !== 'member' || !room || Date.now() - this.lastActivity < AFK_MS) return;
+    this.lastActivity = Date.now(); this.store.leaveRoom();
+    this.store.toast({ kind: 'info', text: `Left ${room.name} after 10 minutes of silence`, expires: 6000 });
+  }
 }

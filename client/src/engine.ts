@@ -11,7 +11,7 @@ const DIR_ROW: Record<string, number> = { down: 0, left: 1, right: 2, up: 3 };
 const WALK_FPS = 8; // 4 frames per tile at 4 tiles/s
 const SIT_FRAME = 5;
 
-type BubbleKind = 'bubble_bang' | 'bubble_headset' | 'bubble_zzz' | 'bubble_meeting' | 'bubble_dots' | 'bubble_think' | 'bubble_talk';
+type BubbleKind = 'bubble_bang' | 'bubble_headset' | 'bubble_zzz' | 'bubble_meeting' | 'bubble_dots' | 'bubble_think' | 'bubble_talk' | 'bubble_hand' | 'bubble_deaf';
 // where the bag hangs when carried, per facing; behind = drawn before the body
 const BAG_HAND: Record<string, { dx: number; behind: boolean }> = {
   down: { dx: 10, behind: false }, up: { dx: -3, behind: false }, left: { dx: 7, behind: true }, right: { dx: -1, behind: true },
@@ -303,6 +303,13 @@ export class Engine {
       if (o && !(coffeeBusy && o.steam)) this.drawSteam(o, ms);
     }
 
+    for (const o of MAP.objects.filter(o => o.sound && this.isOn(o))) for (let i = 0; i < 3; i++) {
+      const phase = (ms / 2200 + i / 3) % 1;
+      ctx.globalAlpha = 1 - phase;
+      this.blit(ctx, i % 2 ? 'note_1' : 'note_2', o.x * TS + 5 + Math.round(Math.sin(phase * 6 + i) * 4), o.y * TS - Math.round(phase * 18));
+    }
+    ctx.globalAlpha = 1;
+
     // overlays: nameplates + bubbles (never occluded)
     const sorted = users.slice().sort((a, b) => poses.get(a.id)!.y - poses.get(b.id)!.y);
     this.placedPlates = [];
@@ -379,10 +386,12 @@ export class Engine {
   }
 
   private bubbleFor(u: ClientUser, p: Pose): BubbleKind | null {
+    if (u.hand) return 'bubble_hand';
     if (u.door === 'thinking') return 'bubble_think';
     if (u.door === 'leaving') return null;
     if (u.emote === 'knock') return 'bubble_bang';
-    if (u.callId) return 'bubble_talk';
+    if (u.callId && u.callRole === 'member') return u.deafened ? 'bubble_deaf' : 'bubble_talk';
+    if (u.callRole === 'listener') return null;
     if (u.presence === 'in_call') return 'bubble_headset';
     if (u.presence === 'away') return 'bubble_zzz';
     if (!p.walking && roomAt(MAP, p.tile.x, p.tile.y)?.rules.occupantLabel) return 'bubble_meeting';
@@ -438,7 +447,7 @@ export class Engine {
 
   /** Fake turn-taking for two people on a call, from server time so every viewer sees the same conversation. */
   private isSpeaking(u: ClientUser) {
-    if (!u.callId || u.muted) return false;
+    if (!u.callId || u.muted || u.deafened || u.callRole !== 'member') return false;
     if (!u.bot) return !!u.speaking; // real people: their actual mic activity (voice calls)
     const members = [u, ...this.store.callPeers(u)].map(m => m.id).sort();
     const turn = Math.floor(this.store.now() / 1800); // ~1.8 s turns
@@ -552,13 +561,15 @@ export class Engine {
     const ctx = this.ctx;
     const dpr = window.devicePixelRatio || 1;
     const room = roomAt(MAP, p.tile.x, p.tile.y);
-    const presence = u.door === 'thinking' ? 'packing up…' : u.door === 'leaving' ? 'heading out' : u.door === 'arriving' ? 'just arrived'
+    const voiceRoom = this.store.roomCallOf(u);
+    const presence = voiceRoom ? u.callRole === 'member' ? `in ${voiceRoom.name} voice` : `passing ${voiceRoom.name}` : u.door === 'thinking' ? 'packing up…' : u.door === 'leaving' ? 'heading out' : u.door === 'arriving' ? 'just arrived'
       : u.callId ? `talking with ${this.store.names(this.store.callPeers(u))}` : u.presence === 'in_call' ? 'in a call' : u.presence === 'away' ? 'away' : room?.rules.occupantLabel ?? 'around';
     const lines = [`${u.name}${u.id === this.store.me ? ' (you)' : ''} · ${presence}`];
     if (u.status) lines.push(`“${u.status}”`);
     const extra = [u.following && `following ${this.store.name(u.following).split(' ')[0]}`, u.holding && ITEM_ICON.get(u.holding)].filter(Boolean).join(' · ');
     if (extra) lines.push(extra);
-    if (this.selected?.id !== id) lines.push(u.id === this.store.me ? 'click to react' : room?.rules.knock === 'disabled' ? `${room.name}: no knocking · click for more` : 'click for actions');
+    if (this.selected?.id !== id) lines.push(u.id === this.store.me ? 'click to react'
+      : this.store.sameRoomCall(u) ? 'click for volume & more' : room?.rules.knock === 'disabled' ? `${room.name}: no knocking · click for more` : 'click for actions');
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.font = '600 12px ui-rounded, system-ui, sans-serif';
     const w = Math.max(...lines.map(l => ctx.measureText(l).width)) + 16, lh = 16, hgt = lines.length * lh + 10;

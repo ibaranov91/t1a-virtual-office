@@ -1,3 +1,5 @@
+import { EARSHOT_TILES } from './protocol';
+
 // Shared floor logic: used by the server AND every client, so paths are identical everywhere.
 
 export type Dir = 'down' | 'left' | 'right' | 'up';
@@ -9,7 +11,7 @@ export interface Room {
   rect: { x: number; y: number; w: number; h: number };
   capacity: number; floor: string; rug: string; spots: Spot[];
   homeDesks?: boolean; // seats here can be claimed as someone's home desk
-  rules: { knock: KnockRule; label?: string; occupantLabel?: string };
+  rules: { voice?: 'open'; knock: KnockRule; label?: string; occupantLabel?: string };
   meeting: { provider: 'meet' | 'teams'; url: string };
 }
 /** Something you can hold for a while, taken from an object (a coffee from the machine). */
@@ -18,6 +20,7 @@ export interface UseItem { id: string; label: string; icon: string }
 export type ObjectUse = { kind: 'take'; items: UseItem[] } | { kind: 'toggle'; label: string };
 export interface MapObject {
   id: string; type: string; x: number; y: number; w: number; h: number;
+  sound?: { clip: string; gain: number };
   wall?: boolean; walkable?: boolean; light?: boolean; steam?: boolean; dir?: Dir;
   use?: ObjectUse; on?: boolean; // on: starting state of a toggle
   sit?: boolean; // a sofa: blocks walking, but every tile is a seat facing `dir`, reached from the tile in front
@@ -144,4 +147,32 @@ export function seatAt(m: TileMap, x: number, y: number): (Spot & { homeDesk: bo
   const o = m.objects.find(o => (SEAT_TYPES.has(o.type) && o.x === x && o.y === y) || (o.sit && x >= o.x && x < o.x + o.w && y >= o.y && y < o.y + o.h));
   if (!o) return null;
   return { x, y, dir: o.dir ?? 'down', homeDesk: o.type === 'chair' && !!roomAt(m, x, y)?.homeDesks };
+}
+
+export const voiceRooms = (m: TileMap) => m.rooms.filter(r => r.rules.voice === 'open');
+const earshots = new WeakMap<TileMap, Map<Room, number[][]>>();
+export function earshotDistance(m: TileMap, room: Room, x: number, y: number): number {
+  let rooms = earshots.get(m);
+  if (!rooms) earshots.set(m, rooms = new Map());
+  let distances = rooms.get(room);
+  if (!distances) {
+    distances = Array.from({ length: m.height }, () => Array(m.width).fill(Infinity));
+    const queue: Tile[] = [];
+    const { x, y, w, h } = room.rect;
+    for (let yy = y; yy < y + h; yy++) for (let xx = x; xx < x + w; xx++) {
+      if (isWalkable(m, xx, yy)) { distances[yy][xx] = 0; queue.push({ x: xx, y: yy }); }
+    }
+    for (let i = 0; i < queue.length; i++) {
+      const p = queue[i], d = distances[p.y][p.x];
+      if (d === EARSHOT_TILES) continue;
+      for (const [dx, dy] of NEIGH) {
+        const x = p.x + dx, y = p.y + dy;
+        if (isWalkable(m, x, y) && distances[y][x] === Infinity) {
+          distances[y][x] = d + 1; queue.push({ x, y });
+        }
+      }
+    }
+    rooms.set(room, distances);
+  }
+  return distances[y]?.[x] ?? Infinity;
 }

@@ -216,11 +216,11 @@ wss.on('connection', (ws, req) => {
   const userId = sessions.get(session);
   const user = userId ? world.users.get(userId) : undefined;
   if (!user) { ws.close(4001, 'unauthorized'); return; }
-  const disconnect = world.connect(user.id, msg => { if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(msg)); });
+  const { socket, close } = world.connect(user.id, msg => { if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(msg)); });
   ws.on('message', raw => {
-    try { world.handle(user, JSON.parse(String(raw)) as ClientMsg); } catch (e) { console.warn('bad message', e); }
+    try { world.handle(user, JSON.parse(String(raw)) as ClientMsg, socket); } catch (e) { console.warn('bad message', e); }
   });
-  ws.on('close', disconnect);
+  ws.on('close', close);
 });
 
 server.listen(PORT, process.env.DECK_HOST ?? '0.0.0.0', () => console.log(

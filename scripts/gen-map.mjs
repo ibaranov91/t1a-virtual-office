@@ -31,7 +31,7 @@ const rooms = [
     meeting: { provider: 'teams', url: 'https://teams.microsoft.com/l/meeting/new' } },
   { id: 'coffee', name: 'Coffee', type: 'coffee', rect: { x: 27, y: 3, w: 12, h: 8 }, capacity: 10,
     floor: 'tile_check', rug: 'orange',
-    rules: { knock: 'allow', label: 'social' },
+    rules: { voice: 'open', knock: 'allow', label: 'open voice — walk in to talk' },
     meeting: { provider: 'meet', url: 'https://meet.google.com/new' } },
   { id: 'lobby', name: 'Lobby', type: 'lobby', rect: { x: 1, y: 13, w: 14, h: 10 }, capacity: 30,
     floor: 'wood', rug: 'red',
@@ -168,6 +168,8 @@ obj('lamp', 1, 14, 1, 1, LAMP);
 obj('lamp', 27, 10, 1, 1, LAMP);
 obj('lamp', 14, 10, 1, 1, LAMP);
 
+obj('radio', 13, 14, 1, 1, { sound: { clip: 'radio', gain: 0.8 }, use: { kind: 'toggle', label: 'radio' }, on: true });
+
 // ---- walkable mask ----
 const walkable = grid(1);
 for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (walls[y][x]) walkable[y][x] = 0;
@@ -212,5 +214,18 @@ for (const r of rooms) for (const s of r.spots) {
 }
 
 const map = { version: 1, width: W, height: H, tileSize: 16, tiles, layers: { floor, walls, walkable }, rooms, objects, spawn: { x: 7, y: 17 }, exit: EXIT };
+const reached = new Set([`${map.spawn.x},${map.spawn.y}`]), queue = [map.spawn];
+for (let i = 0; i < queue.length; i++) for (const [dx, dy] of [[0, -1], [1, 0], [0, 1], [-1, 0]]) {
+  const x = queue[i].x + dx, y = queue[i].y + dy, key = `${x},${y}`;
+  if (walkable[y]?.[x] === 1 && !reached.has(key)) { reached.add(key); queue.push({ x, y }); }
+}
+// a sofa seat isn't walkable: you sit down onto it from the tile in front, so that tile must be reachable
+const FRONT = { down: [0, 1], up: [0, -1], left: [-1, 0], right: [1, 0] };
+const reachable = (t) => {
+  const sofa = objects.find(o => o.sit && t.x >= o.x && t.x < o.x + o.w && t.y >= o.y && t.y < o.y + o.h);
+  const [dx, dy] = sofa ? FRONT[sofa.dir] : [0, 0];
+  return reached.has(`${t.x + dx},${t.y + dy}`);
+};
+for (const t of [map.spawn, EXIT, ...rooms.flatMap(r => r.spots)]) if (!reachable(t)) throw new Error(`unreachable tile ${t.x},${t.y}`);
 writeFileSync(new URL('../shared/tilemap.json', import.meta.url), JSON.stringify(map));
 console.log(`tilemap: ${W}x${H}, ${tiles.length - 1} tile kinds, ${objects.length} objects, ${rooms.reduce((n, r) => n + r.spots.length, 0)} spots`);

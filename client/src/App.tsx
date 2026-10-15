@@ -2,8 +2,11 @@ import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'reac
 import { loadAssets, type Assets } from './assets';
 import { Engine, type Pick } from './engine';
 import { Voice } from './voice';
+import { Soundscape } from './soundscape';
+import { needsGesture, resume } from './audio';
+import { prefs, savePrefs } from './prefs';
 import { playKnock, setSoundsOn, soundsOn } from './sounds';
-import { ITEMS, MAP, Store } from './net';
+import { ITEMS, MAP, Store, type ClientUser } from './net';
 import { inNativeApp, syncNative } from './native';
 import { MAX_CHAT_LEN, MEET_LINK_RE, normalizeMeetLink, REACTIONS } from '../../shared/protocol';
 import { seatAt } from '../../shared/map';
@@ -107,18 +110,20 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
   const [, tick] = useState(0);
 
   useEffect(() => { store.connect(); return () => store.close(); }, [store]);
-  // built-in voice for knock calls
+  useEffect(() => { const s = new Soundscape(store); return () => s.destroy(); }, [store]);
+  // Receive connections start before microphone permission settles.
   const [voice, setVoice] = useState<Voice | null>(null);
   useEffect(() => syncNative(store), [store]);
   useEffect(() => {
-    let v: Voice | null = null, unsub = () => {};
+    let v: Voice | null = null, unsub = () => {}, cancelled = false;
     fetch('/api/config').then(r => r.json()).then(c => {
+      if (cancelled) return;
       v = new Voice(store, c.iceServers ?? []);
       unsub = store.subscribe(() => v!.sync());
       v.sync(); setVoice(v);
       if (import.meta.env.DEV) Object.assign(window, { __voice: v });
     }).catch(() => {});
-    return () => { unsub(); v?.destroy(); };
+    return () => { cancelled = true; unsub(); v?.destroy(); };
   }, [store]);
   useEffect(() => { loadAssets().then(setAssets); }, []);
   useEffect(() => {
@@ -147,7 +152,7 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
         {showRooms && <RoomList store={store} onPick={(id) => engineRef.current?.focusUser(id)} onClose={() => setShowRooms(false)} />}
         {(showMeet || store.pendingKnock) && <MeetSetup key={store.pendingKnock ?? 'panel'} store={store} onClose={() => setShowMeet(false)} />}
         <div className="chips">
-          <CallChip store={store} voice={voice} />
+          <VoiceChips store={store} voice={voice} />
           <DeskChip store={store} />
         </div>
         <Toasts store={store} />
@@ -217,7 +222,7 @@ function RoomList({ store, onPick, onClose }: { store: Store; onPick: (id: strin
                 return (
                   <li key={id} onClick={() => onPick(id)} title={u.status || undefined}>
                     <i style={{ background: PRESENCE_COLOR[u.presence] }} />
-                    <span className={id === store.me ? 'me' : ''}>{u.name}</span>
+                    <span className={id === store.me ? 'me' : ''}>{u.name}{store.roomCallOf(u) && u.callRole === 'member' ? ` 🎙${userIcons(u)}` : ''}</span>
                     {!!store.unread.get(id) && <b className="unread" title="Unread messages" onClick={e => { e.stopPropagation(); store.openChat(id); }}>💬 {store.unread.get(id)}</b>}
                     {u.door ? <em>{{ arriving: 'just arrived', thinking: 'packing up…', leaving: 'heading out' }[u.door]}</em> : u.status && <em>{u.status}</em>}
                   </li>
@@ -301,7 +306,7 @@ function MacAppButton() {
 function SoundToggle() {
   const [on, setOn] = useState(soundsOn);
   return (
-    <button className="ghost sound-btn" title={on ? 'Knock sound on (click to mute)' : 'Knock sound off'}
+    <button className="ghost sound-btn" title={on ? 'UI sounds on (click to mute)' : 'UI sounds off'}
       onClick={() => { setSoundsOn(!on); setOn(!on); if (!on) playKnock(); }}>
       {on ? '🔔' : '🔕'}
     </button>
@@ -323,32 +328,107 @@ function ExternalLink({ href, onOpen, children }: { href: string; onOpen?: () =>
   return <a href={href} target="_blank" rel="noopener noreferrer" onClick={open}>{children}</a>;
 }
 
-/** While you're on a knock call: who with, rejoin, hang up. */
-function CallChip({ store, voice }: { store: Store; voice: Voice | null }) {
+const userIcons = (u: ClientUser) => `${u.muted ? ' 🔇' : ''}${u.deafened ? ' 🎧' : ''}${u.hand ? ' ✋' : ''}`;
+
+function EnableSound() {
+  return needsGesture() ? <button onClick={() => void resume()}>Enable sound</button> : null;
+}
+
+function VolumeRow({ store, id, label, user }: { store: Store; id: string; label: string; user?: ClientUser }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => { if (store.voiceFocus === id) ref.current?.scrollIntoView({ block: 'nearest' }); }, [store.voiceFocus, store.voiceFocusSeq, id]);
+  // people: your own mix (0-200%); a sound object (the radio): its shared knob, everyone hears the change
+  const object = id.startsWith('obj:') ? MAP.objects.find(o => `obj:${o.id}` === id) : undefined;
+  const value = object ? store.objects[object.id]?.volume ?? object.sound?.gain ?? 1 : prefs.volumes[id] ?? 1;
+  const near = !!object && store.besideObject(object.id);
+  const setVolume = (n: number) => {
+    if (object) return store.setObjectVolume(object.id, n);
+    prefs.volumes[id] = n; savePrefs(); store.changed();
+  };
+  const mute = () => { if (prefs.localMuted[id]) delete prefs.localMuted[id]; else prefs.localMuted[id] = true; savePrefs(); store.changed(); };
+  const speaking = user?.speaking;
+  return <div ref={ref} className={`volume-row${store.voiceFocus === id ? ' focused' : ''}`}>
+    <div className="voice-person"><i className={`dot${speaking ? ' live' : ''}`} /><span>{label}{user && userIcons(user)}</span></div>
+    <label className="volume-control"><span className="sr-only">{label} volume</span>
+      <input type="range" min="0" max={object ? 100 : 200} step="5" value={Math.round(value * 100)} onChange={e => setVolume(Number(e.target.value) / 100)}
+        disabled={!!object && !near} title={object ? near ? 'Shared: everyone hears this volume' : 'Walk up to it to turn the knob' : 'Only for you'} />
+      <output>{Math.round(value * 100)}%</output>
+    </label>
+    {object && !near && <button className="ghost" onClick={() => store.walkToObject(object.id)} title="The knob only turns from right next to it">Walk over</button>}
+    <button className={prefs.localMuted[id] ? 'muted-btn' : 'ghost'} aria-pressed={!!prefs.localMuted[id]} onClick={mute}>Mute for me</button>
+  </div>;
+}
+
+function VoiceControls({ store, voice, room = false }: { store: Store; voice: Voice | null; room?: boolean }) {
   const me = store.users.get(store.me);
-  if (!me?.callId) return null;
-  const peers = store.callPeers(me);
-  const humans = peers.filter(u => !u.bot).length;
-  const state = !voice ? 'starting…'
-    : voice.micError ? 'listen-only'
-    : humans === 0 ? 'no one to hear you'
-    : voice.connectedCount() < humans ? 'connecting…' : voice.muted ? 'muted' : 'live';
-  // only offer Meet when the call has a real shared room (not meet.google.com/new)
+  return <div className="voice-controls">
+    {voice && !voice.micError && <button className={voice.muted ? 'muted-btn' : 'ghost'} aria-pressed={voice.muted} onClick={() => voice.toggleMute()}>{voice.muted ? '🔇 Unmute' : '🎙 Mute'}</button>}
+    {voice && <>
+      <button className={voice.deafened ? 'muted-btn' : 'ghost'} aria-pressed={voice.deafened} onClick={() => voice.toggleDeafen()}>{voice.deafened ? 'Undeafen' : 'Deafen'}</button>
+      {room && <button className="ghost" aria-label={me?.hand ? 'Lower hand' : 'Raise hand'} aria-pressed={!!me?.hand} onClick={() => store.setHand(!me?.hand)}>✋</button>}
+      <button className="ghost" onClick={() => voice.toggleMode()}>{voice.mode === 'voice' ? 'Voice activity' : 'Push-to-talk'}</button>
+    </>}
+    <EnableSound />
+    <button className="end" onClick={() => room ? store.leaveRoom() : store.endCall()}>Leave</button>
+  </div>;
+}
+
+function voiceState(voice: Voice | null) {
+  if (!voice) return 'connecting…';
+  if (voice.deafened) return 'deafened';
+  if (voice.micError) return 'listen-only';
+  if (voice.muted) return 'muted';
+  if (voice.connectedCount() < voice.peerCount()) return 'connecting…';
+  if (voice.mode === 'ptt') return 'hold Space to talk';
+  return 'live';
+}
+
+function VoiceChips({ store, voice }: { store: Store; voice: Voice | null }) {
+  const me = store.users.get(store.me), room = store.roomCallOf(me);
+  const [expanded, setExpanded] = useState(false);
+  const peers = me ? store.callPeers(me) : [];
+  const people = peers.filter(u => u.presence !== 'offline');
+  const members = people.filter(u => u.callRole === 'member'), listeners = people.filter(u => u.callRole === 'listener');
+  const rows = [...members, ...listeners];
+  const inPanel = !!room && me?.callRole === 'member' && rows.some(u => u.id === store.voiceFocus);
+  useEffect(() => { if (inPanel) setExpanded(true); }, [store.voiceFocus, store.voiceFocusSeq, inPanel]);
+  const focused = store.voiceFocus ? store.users.get(store.voiceFocus) : undefined;
+  const object = MAP.objects.find(o => o.sound && `obj:${o.id}` === store.voiceFocus);
+  const label = (u: ClientUser) => `${u.name}${u.callRole === 'listener' ? ' · passing by' : ''}`;
+  const state = voiceState(voice);
+  return <>
+    {store.voiceFocus && !inPanel && (focused || object) && <div className="desk-chip call-chip volume-popover">
+      <div className="rooms-head"><span>Volume</span><button className="ghost" aria-label="Close volume" onClick={() => store.focusVoice(null)}>×</button></div>
+      <VolumeRow store={store} id={store.voiceFocus} label={focused ? label(focused) : `${object!.type === 'radio' ? 'Radio' : object!.type} · for everyone`} user={focused} />
+    </div>}
+    {me?.callId && !store.voiceOwner && <div className="desk-chip call-chip"><span>Voice is on in another tab</span><button onClick={() => store.claimVoice()}>Use voice here</button><EnableSound /></div>}
+    {room && me?.callRole === 'member' && <div className="desk-chip call-chip voice-panel">
+      <div className="voice-heading"><span>🎙 {room.name} · {members.length + 1} in voice <small>· {store.voiceOwner ? state : 'another tab'}</small></span>
+        <button className="ghost" aria-expanded={expanded} onClick={() => setExpanded(v => !v)}>People {expanded ? '▴' : '▾'}</button>
+      </div>
+      {store.voiceOwner ? <VoiceControls store={store} voice={voice} room /> : <EnableSound />}
+      {voice?.mode === 'ptt' && store.voiceOwner && <small>Hold Space to talk</small>}
+      {expanded && <div className="voice-people">{rows.map(u => <VolumeRow key={u.id} store={store} id={u.id} label={label(u)} user={u} />)}{rows.length === 0 && <small>No one else here yet</small>}</div>}
+    </div>}
+    {room && me?.callRole === 'listener' && <div className="desk-chip call-chip"><span>🔈 Passing {room.name}</span>{store.voiceOwner && voice && <button className="ghost" onClick={() => voice.toggleDeafen()}>{voice.deafened ? 'Undeafen' : 'Deafen'}</button>}<EnableSound /></div>}
+    {me?.callId && !room && store.voiceOwner && <CallChip store={store} voice={voice} />}
+    {store.voiceWait && <div className="desk-chip"><span>Waiting for a spot in {MAP.rooms.find(r => r.id === store.voiceWait)?.name ?? 'room'} voice</span><EnableSound /></div>}
+    {needsGesture() && store.soundscape?.audible && <div className="desk-chip"><span>🔈 Click to enable sound</span><EnableSound /></div>}
+  </>;
+}
+
+/** Knock calls keep the shared Meet link. */
+function CallChip({ store, voice }: { store: Store; voice: Voice | null }) {
+  const me = store.users.get(store.me); if (!me?.callId) return null;
+  const state = voiceState(voice), peers = store.callPeers(me);
   const meet = store.callLink && MEET_LINK_RE.test(store.callLink) ? store.callLink : null;
-  return (
-    <div className="desk-chip call-chip">
-      <span className={`dot ${state === 'live' ? 'live' : ''}`} />
-      <span>Talking with {store.names(peers)} <small className="muted">· {state}</small></span>
-      {voice?.needsGesture && <button onClick={() => voice.resumeAudio()}>Enable sound</button>}
-      {voice && !voice.micError && (
-        <button className={voice.muted ? 'muted-btn' : 'ghost'} onClick={() => voice.toggleMute()} title={voice.muted ? 'Unmute' : 'Mute'}>
-          {voice.muted ? '🔇 Unmute' : '🎙 Mute'}
-        </button>
-      )}
-      {meet && <ExternalLink href={meet}>Move to Meet</ExternalLink>}
-      <button className="end" onClick={() => store.endCall()}>Leave</button>
-    </div>
-  );
+  return <div className="desk-chip call-chip knock-panel">
+    <span className={`dot ${state === 'live' ? 'live' : ''}`} />
+    <span>Talking with {store.names(peers)} <small>· {state}</small></span>
+    <VoiceControls store={store} voice={voice} />
+    {meet && <ExternalLink href={meet}>Move to Meet</ExternalLink>}
+    {peers.some(u => !u.bot) && <details className="knock-people"><summary>People</summary><div className="voice-people">{peers.filter(u => !u.bot).map(u => <VolumeRow key={u.id} store={store} id={u.id} label={u.name} user={u} />)}</div></details>}
+  </div>;
 }
 
 /** When you're sitting at a desk chair: claim it, see whose it is, or release yours. */
@@ -431,13 +511,18 @@ function ActionWheel({ store, engine, pick, onClose }: { store: Store; engine: E
       const talking = !!me?.callId && me.callId === u.callId;
       const away = u.door === 'thinking' || u.door === 'leaving';
       const following = me?.following === u.id;
+      // voice rooms: you just walk in, so no knocking into or out of one
+      const myVoiceRoom = me?.callRole === 'member' ? store.roomCallOf(me) : undefined;
+      const noKnock = room?.rules.voice === 'open' ? `In ${room.name} — just walk in`
+        : myVoiceRoom ? `You're in ${myVoiceRoom.name} voice — step out to knock` : room?.rules.knock === 'disabled' ? `${room.name}: ${room.rules.label}` : null;
       items = [
-        { icon: '✊', label: 'Knock', onClick: act(() => store.requestKnock(u.id)), disabled: talking || away || room?.rules.knock === 'disabled',
-          title: talking ? 'Already talking' : away ? 'Heading out' : room?.rules.knock === 'disabled' ? `${room.name}: ${room.rules.label}` : 'Knock for a voice call' },
+        { icon: '✊', label: 'Knock', onClick: act(() => store.requestKnock(u.id)), disabled: talking || away || !!noKnock,
+          title: talking ? 'Already talking' : away ? 'Heading out' : noKnock ?? 'Knock for a voice call' },
         { icon: '👣', label: following ? 'Unfollow' : 'Follow', active: following, onClick: act(() => store.follow(following ? null : u.id)), disabled: away },
         { icon: '😊', label: 'React', onClick: () => setEmoji(true) },
         { icon: '💬', label: 'Message', onClick: act(() => store.openChat(u.id)) },
       ];
+      if (store.sameRoomCall(u)) items.push({ icon: '🔊', label: 'Volume', onClick: act(() => store.focusVoice(u.id)) });
       const held = me?.holding ? ITEMS.get(me.holding) : undefined;
       if (held) items.push({ icon: held.icon, label: 'Give', disabled: !!u.holding || away,
         title: u.holding ? `${u.name.split(' ')[0]}'s hands are full` : `Give ${u.name.split(' ')[0]} your ${held.label.toLowerCase()}`,
@@ -450,6 +535,7 @@ function ActionWheel({ store, engine, pick, onClose }: { store: Store; engine: E
       const on = store.objects[o.id]?.on ?? o.on ?? true;
       title = o.use.label[0].toUpperCase() + o.use.label.slice(1);
       items = [{ icon: on ? '🌑' : '💡', label: on ? 'Turn off' : 'Turn on', onClick: act(() => store.use(o.id)) }];
+      if (o.sound) items.push({ icon: '🔊', label: 'Volume', onClick: act(() => { if (!store.besideObject(o.id)) store.walkToObject(o.id); store.focusVoice(`obj:${o.id}`); }) });
     } else {
       title = o.type === 'coffee_machine' ? 'Coffee machine' : o.type === 'fridge' ? 'Fridge' : o.type;
       items = o.use.items.map(i => ({ icon: i.icon, label: i.label, onClick: act(() => store.use(o.id, i.id)) }));

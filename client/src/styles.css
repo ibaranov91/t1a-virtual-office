@@ -152,3 +152,30 @@ canvas { display: block; image-rendering: pixelated; touch-action: none; }
   display: flex; flex-direction: column; gap: 8px; padding: 12px; background: var(--panel); border: 2px solid var(--wood); border-radius: 8px; }
 .mac-app-pop p { margin: 0; font-size: 12px; }
 .mac-app-pop code { display: block; padding: 8px; background: var(--bg); border-radius: 6px; font-size: 12px; word-break: break-all; cursor: copy; user-select: all; }
+.voice-panel, .volume-popover { display: grid; gap: 6px; width: min(580px, 100%); white-space: normal; padding: 8px 10px; }
+.voice-heading, .voice-controls, .voice-person, .volume-control { display: flex; align-items: center; gap: 6px; }
+.voice-heading { justify-content: space-between; }
+.voice-heading small, .voice-panel > small, .call-chip small { color: var(--muted); }
+.voice-controls, .knock-panel { flex-wrap: wrap; }
+.voice-people { max-height: min(260px, 35vh); overflow: auto; border-top: 1px solid var(--line); }
+.volume-row { display: grid; grid-template-columns: minmax(110px, 1fr) minmax(100px, 160px) auto; align-items: center; gap: 8px; padding: 6px 2px; border-bottom: 1px solid var(--line); scroll-margin: 4px; }
+.volume-row:last-child { border-bottom: 0; }
+.volume-row.focused { background: var(--panel2); }
+.voice-person { min-width: 0; }
+.voice-person span { overflow-wrap: anywhere; }
+.volume-control input { min-width: 0; width: 100%; padding: 0; accent-color: var(--accent2); }
+.volume-control output { width: 4ch; flex: none; font-size: 11px; text-align: right; font-variant-numeric: tabular-nums; }
+.volume-popover { width: min(520px, 100%); }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
+button:focus-visible, summary:focus-visible, input[type="range"]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (max-width: 560px) {
+  .volume-row { grid-template-columns: minmax(0, 1fr) auto; }
+  .volume-control { grid-column: 1; grid-row: 2; }
+  .volume-row > button { grid-column: 2; grid-row: 1 / 3; }
+  .voice-heading { align-items: flex-start; }
+  .voice-controls { gap: 4px; }
+  .call-chip { white-space: normal; }
+}
+
+.knock-people { flex-basis: 100%; min-width: 0; }
+.knock-people summary { cursor: pointer; color: var(--text); }

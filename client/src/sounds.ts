@@ -1,33 +1,22 @@
 // Tiny synthesized UI sounds (no audio files). Meant to be noticed, not to startle:
 // short, low, quiet, and never repeating on their own.
 
-const KEY = 'deck.sounds';
-let ctx: AudioContext | null = null;
+import { audio, output } from './audio';
 
+const KEY = 'deck.sounds';
 export const soundsOn = () => { try { return localStorage.getItem(KEY) !== 'off'; } catch { return true; } };
 export const setSoundsOn = (on: boolean) => { try { localStorage.setItem(KEY, on ? 'on' : 'off'); } catch { /* ignore */ } };
 
-const audio = () => {
-  ctx ??= new AudioContext();
-  if (ctx.state === 'suspended') void ctx.resume().catch(() => {});
-  return ctx;
-};
-// Browsers only start audio after a user gesture; warm the context on the first click so a later knock can play.
-if (typeof window !== 'undefined') {
-  const warm = () => { audio(); window.removeEventListener('pointerdown', warm); window.removeEventListener('keydown', warm); };
-  window.addEventListener('pointerdown', warm);
-  window.addEventListener('keydown', warm);
-}
-
 /** One soft knuckle tap on wood: a low body thump plus a filtered click, decaying in ~0.1 s. */
-function tap(c: AudioContext, at: number, pitch: number, level: number) {
+function tap(c: AudioContext, at: number, pitch: number, level: number, dest: AudioNode) {
   const out = c.createGain();
   out.gain.setValueAtTime(0, at);
   out.gain.linearRampToValueAtTime(level, at + 0.004);
   out.gain.exponentialRampToValueAtTime(0.0001, at + 0.12);
   const lp = c.createBiquadFilter();
   lp.type = 'lowpass'; lp.frequency.value = 1400;
-  out.connect(lp).connect(c.destination);
+  out.connect(lp).connect(dest);
+  const cleanup = () => { out.disconnect(); lp.disconnect(); };
 
   // body: a quick downward-bending sine
   const body = c.createOscillator();
@@ -36,6 +25,7 @@ function tap(c: AudioContext, at: number, pitch: number, level: number) {
   body.frequency.exponentialRampToValueAtTime(pitch * 0.6, at + 0.1);
   body.connect(out);
   body.start(at); body.stop(at + 0.14);
+  body.onended = () => { body.disconnect(); cleanup(); };
 
   // click: a few ms of band-passed noise for the "wood" texture
   const len = Math.floor(c.sampleRate * 0.02);
@@ -49,16 +39,17 @@ function tap(c: AudioContext, at: number, pitch: number, level: number) {
   const ng = c.createGain(); ng.gain.value = 0.35;
   noise.connect(bp).connect(ng).connect(out);
   noise.start(at);
+  noise.onended = () => { noise.disconnect(); bp.disconnect(); ng.disconnect(); };
 }
 
 /** "tok-tok": two gentle knocks, the second a touch softer and lower. */
-export function playKnock() {
+export function playKnock(dest: AudioNode = output()) {
   if (!soundsOn()) return;
   try {
     const c = audio();
     const t = c.currentTime + 0.02;
-    tap(c, t, 210, 0.16);
-    tap(c, t + 0.16, 190, 0.12);
+    tap(c, t, 210, 0.16, dest);
+    tap(c, t + 0.16, 190, 0.12, dest);
   } catch { /* audio unavailable: stay silent */ }
 }
 
@@ -78,4 +69,26 @@ export function playPop() {
     o.frequency.exponentialRampToValueAtTime(880, at + 0.08);
     o.connect(g); o.start(at); o.stop(at + 0.18);
   } catch { /* audio unavailable: stay silent */ }
+}
+
+export function playJoin(dest: AudioNode = output()) {
+  if (!soundsOn()) return;
+  const c = audio(), t = c.currentTime + .02;
+  tap(c, t, 260, .10, dest); tap(c, t + .13, 240, .08, dest);
+}
+export function playLeave(dest: AudioNode = output()) {
+  if (!soundsOn()) return;
+  const c = audio(); tap(c, c.currentTime + .02, 150, .10, dest);
+}
+export function playHand(dest: AudioNode = output()) {
+  if (!soundsOn()) return;
+  const c = audio(), t = c.currentTime + .02;
+  for (const [delay, hz] of [[0, 660], [.12, 880]]) {
+    const osc = c.createOscillator(), gain = c.createGain(), at = t + delay;
+    osc.frequency.value = hz; gain.gain.setValueAtTime(0, at);
+    gain.gain.linearRampToValueAtTime(.055, at + .008);
+    gain.gain.exponentialRampToValueAtTime(.0001, at + .18);
+    osc.connect(gain).connect(dest); osc.start(at); osc.stop(at + .2);
+    osc.onended = () => { osc.disconnect(); gain.disconnect(); };
+  }
 }
