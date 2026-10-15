@@ -320,7 +320,7 @@ export class Store {
         const next = new Map<string, ClientUser>();
         for (const p of msg.users) {
           const old = this.users.get(p.id);
-          const u: ClientUser = { ...p, path: old?.path ?? null, prev: old?.prev ?? null, faceOverride: old?.faceOverride ?? null, speaking: !!p.callId && p.callId === old?.callId ? old?.speaking ?? false : false };
+          const u: ClientUser = { ...p, game: p.game ?? null, path: old?.path ?? null, prev: old?.prev ?? null, faceOverride: old?.faceOverride ?? null, speaking: !!p.callId && p.callId === old?.callId ? old?.speaking ?? false : false };
           if (p.move && (!old?.move || old.move.startedAt !== p.move.startedAt)) { u.move = null; this.applyMove(u, p.move); }
           next.set(p.id, u);
         }

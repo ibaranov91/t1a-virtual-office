@@ -272,7 +272,7 @@ test('room calls have no two-hour expiry; disconnect retains grace then leaves',
 const jukebox = map.objects.find(o => o.use?.kind === 'jukebox')!;
 const stateOf = (w: World) => (w.snapshot() as Extract<ServerMsg, { t: 'state' }>).jukebox[jukebox.id];
 test('jukebox snapshot, actions, private refusals, broadcasts and tick', t => {
-  const { w, add, tick } = setup(t), a = add('A', { x: 56, y: 17 }), b = add('B', { x: 57, y: 17 });
+  const { w, add, tick } = setup(t), a = add('A', { x: 57, y: 7 }), b = add('B', { x: 60, y: 8 });
   const before = stateOf(w); assert.ok(TRACKS.some(t => t.id === before.track));
   const track = TRACKS.find(t => t.id !== before.track)!;
   a.messages.length = 0; b.messages.length = 0;
@@ -287,7 +287,7 @@ test('jukebox snapshot, actions, private refusals, broadcasts and tick', t => {
   assert.ok(b.messages.some(m => m.t === 'jukebox' && m.state.track === track.id));
 });
 test('jukebox requires a human online in its room, with no meeting instance or outgoing door', t => {
-  const { w, add } = setup(t), a = add('A', { x: 56, y: 17 }), b = add('B');
+  const { w, add } = setup(t), a = add('A', { x: 57, y: 7 }), b = add('B');
   const before = structuredClone(stateOf(w)), original = { ...a.u };
   for (const patch of [{ tile: { x: 52, y: 17 } }, { bot: true }, { instance: 'meeting' }, { presence: 'offline' as const }, { door: 'thinking' as const }, { door: 'leaving' as const }]) {
     Object.assign(a.u, original, patch); a.messages.length = 0; b.messages.length = 0;
@@ -296,8 +296,8 @@ test('jukebox requires a human online in its room, with no meeting instance or o
   }
 });
 test('jukebox authorizes the shown mid-walk tile when entering and exiting', t => {
-  const { w, add, settle } = setup(t), a = add('A', { x: 54, y: 17 });
-  const start = Date.now(); w.walk(a.u, { x: 53, y: 17 });
+  const { w, add, settle } = setup(t), a = add('A', { x: 58, y: 10 });
+  const start = Date.now(); w.walk(a.u, { x: 58, y: 11 });
   const playId = stateOf(w).playId;
   t.mock.timers.setTime(start + 124);
   w.handle(a.u, { t: 'jukebox', objectId: jukebox.id, action: 'pause', playId }, a.socket);
@@ -305,7 +305,7 @@ test('jukebox authorizes the shown mid-walk tile when entering and exiting', t =
   t.mock.timers.setTime(start + 126); a.messages.length = 0;
   w.handle(a.u, { t: 'jukebox', objectId: jukebox.id, action: 'play', playId }, a.socket);
   assert.notEqual(stateOf(w).pausedAt, null); assert.equal(a.messages.at(-1)?.t, 'notice');
-  settle(a.u, { x: 53, y: 17 }); w.walk(a.u, { x: 55, y: 17 });
+  settle(a.u, { x: 58, y: 11 }); w.walk(a.u, { x: 58, y: 9 });
   const entry = Date.now(); t.mock.timers.setTime(entry + 124); a.messages.length = 0;
   w.handle(a.u, { t: 'jukebox', objectId: jukebox.id, action: 'play', playId }, a.socket); assert.equal(a.messages.at(-1)?.t, 'notice');
   t.mock.timers.setTime(entry + 126);
