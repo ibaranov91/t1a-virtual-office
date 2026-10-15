@@ -84,6 +84,13 @@ page answers curl with 401); deploy.sh sets `DECK_PUBLIC_URL` / `DECK_INSTALL_UR
   **Everyone who deploys must use the same identity** (`make-cert.sh import <p12>`), or installed apps
   refuse the update. Without it, builds are ad-hoc and every update re-asks for the mic.
 - Only a Mac can build the app; deploying from elsewhere ships the instance without it.
+- **One app per instance.** prod's app is "The Deck" (`io.t1a.deck`); every other instance builds its own,
+  e.g. "The Deck (iva)" (`io.t1a.deck.iva`), with its own settings and login and a small purple mark on its
+  menu bar person. They install side by side, and each only updates from its own instance, so trying a
+  branch on a test instance never touches the prod app. `macos/build.sh` alone makes a local build that
+  never self-updates.
+- **Unread messages:** a blue dot on the menu bar person and a count on the Dock icon (no bouncing).
+  Clicking the person opens the oldest unread chat; the web top bar has the same as a 💬 N button.
 
 ## Testing tips and limits
 - The Claude app's browser pane **blocks the microphone** and won't open self-signed HTTPS. It can still verify

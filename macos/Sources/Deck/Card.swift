@@ -5,6 +5,7 @@ import AppKit
 struct DeckState {
   var connected = false, inCall = false, busy = false
   var knocks: [(id: String, text: String)] = []
+  var unread: [(id: String, name: String, count: Int)] = [] // oldest first
 }
 
 /// The card isn't key when it appears (we don't steal focus), so its buttons must take the first click.
