@@ -3,7 +3,7 @@
 import { findPath, isWalkable, roomAt, seatAt, type MapObject, type Tile } from '../../shared/map';
 import type { Assets, Frame } from './assets';
 import { drawText, textWidth } from './font';
-import { MEETING_ROOM_ID, PLANT_STAGES, plantDead } from '../../shared/protocol';
+import { MEETING_ROOM_ID, PLANT_REVEAL, PLANT_STAGES, plantDead, plantName } from '../../shared/protocol';
 import { ITEMS, MAP, type ClientUser, type Pose, type Store } from './net';
 
 const TS = MAP.tileSize;
@@ -434,7 +434,9 @@ export class Engine {
     if (isWalkable(MAP, tx, ty) && (!inside || inMeetingRoom(tx, ty))) { this.store.moveTo({ x: tx, y: ty }); this.manualCam = false; }
   };
 
-  /** Plants stand on their owner's home desk (the edge nearest the chair), or on an Orangery shelf if they have none. */
+  /** Plants stand on their owner's home desk, or on an Orangery shelf if they have none. On the desk it goes to the
+   *  far end from the chair along the edge you sit at (a desk's other end, a shared table's back corner on your side),
+   *  pushed to the outer edge so it clears the monitor or laptops. */
   private placePlants(): PlacedPlant[] {
     const out: PlacedPlant[] = [], shelved: ClientUser[] = [];
     for (const u of this.store.users.values()) {
@@ -442,9 +444,11 @@ export class Engine {
       const seat = u.homeDesk && seatAt(MAP, u.homeDesk.x, u.homeDesk.y);
       const [dx, dy] = FRONT[seat ? seat.dir : 'up'], fx = (seat?.x ?? 0) + dx, fy = (seat?.y ?? 0) + dy;
       const desk = seat && MAP.objects.find(o => !o.walkable && !o.wall && fx >= o.x && fx < o.x + o.w && fy >= o.y && fy < o.y + o.h);
-      if (!desk) { shelved.push(u); continue; }
-      const out_ = Math.sign(fx + 0.5 - (desk.x + desk.w / 2)) || 1; // toward the desk's outer edge, clear of the monitor
-      out.push({ u, x: fx * TS + 8 + out_ * 4, y: fy * TS + 7, base: (desk.y + desk.h) * TS - 0.25 });
+      if (!seat || !desk) { shelved.push(u); continue; }
+      const far = (lo: number, n: number, from: number) => (Math.abs(lo - from) > Math.abs(lo + n - 1 - from) ? lo : lo + n - 1);
+      const tx = dx ? fx : far(desk.x, desk.w, seat.x), ty = dy ? fy : far(desk.y, desk.h, seat.y);
+      const side = Math.sign(tx + 0.5 - (desk.x + desk.w / 2)) || 1;
+      out.push({ u, x: tx * TS + 8 + side * 4, y: ty * TS + (desk.h > 1 ? 11 : 7), base: (desk.y + desk.h) * TS - 0.25 }); // a big table: inside its top edge
     }
     shelved.sort((a, b) => a.id.localeCompare(b.id));
     shelved.slice(0, SLOTS.length).forEach((u, i) => out.push({ u, x: SLOTS[i].x * TS + 8, y: SLOTS[i].y * TS + 6, base: (SLOTS[i].y + 1) * TS - 0.25 }));
@@ -521,7 +525,8 @@ export class Engine {
     }
     this.plants = me?.instance ? [] : this.placePlants();
     for (const p of this.plants) {
-      const name = plantDead(p.u.plant!, t) ? 'pot_dead' : `pot_${p.u.plant!.stage}`;
+      const pl = p.u.plant!, kinded = pl.kind && pl.stage >= PLANT_REVEAL;
+      const name = plantDead(pl, t) ? 'pot_dead' : kinded ? `pot_${pl.kind}_${pl.stage}` : `pot_${pl.stage}`;
       ds.push({ base: p.base, draw: () => this.blit(ctx, name, p.x - 6, p.y - 20) });
     }
     ds.sort((a, b) => a.base - b.base);
@@ -576,13 +581,13 @@ export class Engine {
     else if (this.hoverObject && !this.selected) {
       const o = this.hoverObject, fr = this.f(o.type)!;
       const what = o.sound ? 'Radio · music volume in ⚙' : o.use?.kind === 'toggle' ? `${o.use.label[0].toUpperCase()}${o.use.label.slice(1)} · ${this.isOn(o) ? 'on' : 'off'}`
-        : o.use?.kind === 'calendar' ? 'Calendar · your week' : o.use?.kind === 'meetings' ? `Meetings · ${this.store.meetingRooms.length || 'none'} on now` : o.sit ? `${o.type === 'bench' ? 'Bench' : 'Sofa'} · click to sit` : o.type === 'coffee_machine' ? 'Coffee machine' : o.type === 'fridge' ? 'Fridge' : o.type;
+        : o.use?.kind === 'calendar' ? 'Calendar · your week' : o.use?.kind === 'achievements' ? 'Notice board · your plant and achievements' : o.use?.kind === 'meetings' ? `Meetings · ${this.store.meetingRooms.length || 'none'} on now` : o.sit ? `${o.type === 'bench' ? 'Bench' : 'Sofa'} · click to sit` : o.type === 'coffee_machine' ? 'Coffee machine' : o.type === 'fridge' ? 'Fridge' : o.type;
       this.drawLabel(what, (o.x + o.w / 2) * TS, (o.y + o.h) * TS - fr.h + 4, camX, camY);
     }
     else if (this.hoverPlant) {
       const { u, x, y } = this.hoverPlant, mine = u.id === this.store.me, p = u.plant!;
       const state = plantDead(p, t) ? (mine ? 'withered · set a status to replant' : 'withered') : PLANT_STAGES[p.stage] + (mine ? ' · set a status each day' : '');
-      this.drawLabel(`${mine ? 'Your' : `${u.name.split(' ')[0]}'s`} plant · ${state}`, x, y - 18, camX, camY);
+      this.drawLabel(`${mine ? 'Your' : `${u.name.split(' ')[0]}'s`} ${plantDead(p, t) ? 'plant' : plantName(p)} · ${state}`, x, y - 18, camX, camY);
     }
     else if (this.hoverTile) {
       const owner = deskOwners.get(`${this.hoverTile.x},${this.hoverTile.y}`);

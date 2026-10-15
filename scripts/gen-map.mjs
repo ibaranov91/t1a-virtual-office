@@ -159,7 +159,7 @@ const FRIDGE = { kind: 'take', items: [{ id: 'snack', label: 'Snack', icon: 'ðŸ¥
 for (const wx of [3, 9, 29, 36]) obj('window', wx, 1, 2, 2, { wall: true });
 obj('whiteboard', 18, 1, 3, 2, { wall: true });
 obj('painting', 23, 1, 1, 2, { wall: true });
-obj('noticeboard', 2, 12, 2, 1, { wall: true });
+obj('noticeboard', 2, 12, 2, 1, { wall: true, use: { kind: 'achievements', label: 'achievements' } });
 obj('clock', 25, 12, 1, 1, { wall: true });
 obj('painting_small', 10, 12, 1, 1, { wall: true });
 

@@ -5,7 +5,7 @@ import {
 } from '../../shared/map';
 import {
   ZONE_IN_TILES, ZONE_OUT_TILES, MAX_CALL_SIZE, MEETING_ROOM_ID, MAX_CHAT_LEN, normalizeMeetLink, REACTIONS, ROOM_VOICE_MAX,
-  dayNumber, plantDead, PLANT_STAGES,
+  dayNumber, plantDead, BOTANIST_KINDS, PLANT_KINDS, PLANT_STAGES, type Plant,
   type ChatMsg, type ClientMsg, type Door, type Knock, type Look, type Presence, type PublicUser, type Reaction, type ServerMsg,
 } from '../../shared/protocol';
 import { Meetings } from './meetings';
@@ -101,6 +101,7 @@ export class World {
     this.listeners.add(send);
     send({ t: 'hello', you: userId, serverTime: Date.now(), build: this.build });
     this.stayAfterAll(u);
+    if (!u.plant && !u.bot) { u.plant = this.newPlant(u, dayNumber(Date.now()) - 1); this.plantChanged(u); } // a pot on your desk from day one; today's status already grows it
     if (u.presence === 'offline') this.comeIn(u);
     send(this.snapshot());
     send(this.me(u));
@@ -196,7 +197,7 @@ export class World {
       email,
       id: randomUUID().slice(0, 8), name, look: lookFor(name), lookSet: false, tile: tile ?? { ...this.map.spawn }, dir: 'down',
       move: null, path: null, presence: bot ? 'online' : 'offline', status: '', emote: null, bot, homeDesk: null, door: null, callId: null, deafened: false, hand: false, muted: false,
-      following: null, holding: null, meeting: null, instance: null, plant: null,
+      following: null, holding: null, meeting: null, instance: null, plant: null, bloomed: [], achievements: {},
     };
     this.users.set(u.id, u);
     this.broadcast(this.snapshot());
@@ -273,7 +274,7 @@ export class World {
   /** Walk over to an object and use it: take something from it, or flip it on/off. */
   use(u: User, objectId: string, itemId?: string) {
     const o = this.map.objects.find(o => o.id === objectId);
-    if (!o?.use || o.use.kind === 'calendar' || o.use.kind === 'meetings' || goingOut(u) || u.instance) return;
+    if (!o?.use || o.use.kind === 'calendar' || o.use.kind === 'meetings' || o.use.kind === 'achievements' || goingOut(u) || u.instance) return;
     const item = o.use.kind === 'take' ? o.use.items.find(i => i.id === itemId) ?? o.use.items[0] : null;
     this.setFollowing(u, null);
     clearTimeout(this.errands.get(u.id));
@@ -366,9 +367,26 @@ export class World {
   tendPlant(u: User, now = Date.now()) {
     const today = dayNumber(now), p = u.plant && !plantDead(u.plant, now) ? u.plant : null;
     if (p?.care === today) return;
-    u.plant = p ? { stage: Math.min(PLANT_STAGES.length - 1, p.stage + 1), care: today } : { stage: 0, care: today };
-    this.broadcast({ t: 'plant', userId: u.id, plant: u.plant });
+    if (!p) { u.plant = this.newPlant(u, today); return this.plantChanged(u); }
+    const stage = Math.min(PLANT_STAGES.length - 1, p.stage + 1);
+    u.plant = { ...p, stage, care: today };
+    if (stage > p.stage) this.award(u, 'tended', now);
+    if (stage === PLANT_STAGES.length - 1 && stage > p.stage) {
+      const kind = p.kind ?? 'bush';
+      if (!u.bloomed.includes(kind)) u.bloomed = [...u.bloomed, kind];
+      this.award(u, 'bloom', now);
+      if (u.bloomed.length >= BOTANIST_KINDS) this.award(u, 'botanist', now);
+    }
+    this.plantChanged(u);
   }
+  /** A seedling of a random kind, preferring flowers this person hasn't bloomed yet. */
+  private newPlant(u: User, care: number): Plant {
+    const fresh = PLANT_KINDS.filter(k => !u.bloomed.includes(k) && k !== u.plant?.kind);
+    const pool = fresh.length ? fresh : PLANT_KINDS.filter(k => k !== u.plant?.kind);
+    return { stage: 0, care, kind: pool[Math.floor(Math.random() * pool.length)] };
+  }
+  private award(u: User, id: string, now: number) { if (!u.achievements[id]) u.achievements = { ...u.achievements, [id]: now }; }
+  private plantChanged(u: User) { this.broadcast({ t: 'plant', userId: u.id, plant: u.plant, bloomed: u.bloomed, achievements: u.achievements }); }
   setPresence(u: User, presence: Presence) {
     if (u.presence === presence) return;
     u.presence = presence;
@@ -829,7 +847,7 @@ export class World {
     return {
       users: [...this.users.values()].map(u => {
         const p = this.position(u).dest;
-        return { id: u.id, name: u.name, email: u.email, meetLink: u.meetLink, google: u.google, homeDesk: u.homeDesk, look: u.look, lookSet: u.lookSet, tile: p, dir: u.dir, status: u.status, presence: u.presence, bot: u.bot, plant: u.plant };
+        return { id: u.id, name: u.name, email: u.email, meetLink: u.meetLink, google: u.google, homeDesk: u.homeDesk, look: u.look, lookSet: u.lookSet, tile: p, dir: u.dir, status: u.status, presence: u.presence, bot: u.bot, plant: u.plant, bloomed: u.bloomed, achievements: u.achievements };
       }),
       objects: Object.fromEntries(this.objectOn),
       chats: Object.fromEntries(this.chats),
@@ -840,7 +858,7 @@ export class World {
       const tile = isWalkable(this.map, d.tile.x, d.tile.y) || seatAt(this.map, d.tile.x, d.tile.y) ? d.tile : { ...this.map.spawn };
       const legacy = lookFor(d.name);
       const look = { ...legacy, ...d.look, eyes: d.look?.eyes ?? legacy.eyes, shoes: d.look?.shoes ?? legacy.shoes, top: d.look?.top ?? 0, bottom: d.look?.bottom ?? 0, glasses: d.look?.glasses ?? 0, hat: d.look?.hat ?? 0, glassesColor: d.look?.glassesColor ?? legacy.glassesColor, hatColor: d.look?.hatColor ?? legacy.hatColor };
-      this.users.set(d.id, { ...d, look, lookSet: d.lookSet ?? false, homeDesk: d.homeDesk ?? null, plant: d.plant ?? null, tile, move: null, path: null, emote: null, door: null, callId: null, deafened: false, hand: false, muted: false, following: null, holding: null, meeting: null, instance: null, presence: d.bot ? d.presence : 'offline' });
+      this.users.set(d.id, { ...d, look, lookSet: d.lookSet ?? false, homeDesk: d.homeDesk ?? null, plant: d.plant ?? null, bloomed: d.bloomed ?? [], achievements: d.achievements ?? {}, tile, move: null, path: null, emote: null, door: null, callId: null, deafened: false, hand: false, muted: false, following: null, holding: null, meeting: null, instance: null, presence: d.bot ? d.presence : 'offline' });
     }
     for (const [id, on] of Object.entries(data.objects ?? {})) if (this.objectOn.has(id)) this.objectOn.set(id, !!on);
     for (const [key, msgs] of Object.entries(data.chats ?? {})) this.chats.set(key, msgs);

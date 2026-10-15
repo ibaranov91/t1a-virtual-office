@@ -776,6 +776,42 @@ frames.pot_5 = pot(t => {
   t.rect(5, 2, 3, 2, '#f0a0b0'); t.px(6, 3, '#f8e070');
 });
 frames.pot_dead = pot(t => { t.vline(6, 7, 6, '#8a7048'); t.px(5, 7, '#8a7048'); t.px(4, 8, '#8a7048'); t.px(7, 9, '#a08a58'); t.px(8, 10, '#a08a58'); t.px(3, 9, '#6a5438'); });
+// what a plant turns into from stage 3 (leafy, budding, in bloom): pot_<kind>_<stage>; stages 0-2 are the shared seedling
+{
+  const CACT = '#5a9a58', CACTD = '#3f7a40';
+  const tulipLeaves = t => { t.ellipse(3.5, 10, 2, 3, G); t.ellipse(8.5, 10.5, 2, 2.5, G); t.vline(3, 8, 4, GD); t.vline(9, 9, 3, GD); t.px(2, 8, GL); };
+  const tulip = (c, cd) => [
+    pot(t => { t.vline(6, 5, 8, GD); tulipLeaves(t); t.ellipse(6, 4.5, 1.2, 1.8, G); }),
+    pot(t => { t.vline(6, 4, 9, GD); tulipLeaves(t); t.ellipse(6, 3, 1.5, 2.2, c); t.px(6, 2, cd); }),
+    pot(t => { t.vline(6, 5, 8, GD); tulipLeaves(t); t.rect(4, 1, 5, 4, c); t.px(4, 0, c); t.px(6, 0, c); t.px(8, 0, c); t.vline(6, 1, 4, cd); t.hline(5, 4, 3, cd); }),
+  ];
+  const daisyBush = t => { t.ellipse(6, 10, 4.5, 3, G); t.ellipse(6, 11, 3, 2, GD); t.px(4, 8, GL); t.px(8, 9, GL); };
+  const kinds = {
+    tulip_red: tulip('#d84a4a', '#a83030'), tulip_yellow: tulip('#f0c838', '#c89a20'), tulip_pink: tulip('#f08ab0', '#c8608a'),
+    daisy: [
+      pot(t => { daisyBush(t); t.vline(5, 6, 3, GD); t.vline(8, 7, 2, GD); }),
+      pot(t => { for (const [x, y] of [[3, 4], [6, 3], [9, 5]]) { t.vline(x, y + 1, 9 - y, GD); t.rect(x - 1, y - 1, 2, 2, '#f4f4e8'); t.px(x - 1, y, '#c8c8b0'); } daisyBush(t); }),
+      pot(t => { daisyBush(t); for (const [x, y] of [[3, 4], [8, 3], [6, 7]]) { t.px(x, y - 1, '#ffffff'); t.px(x, y + 1, '#ffffff'); t.px(x - 1, y, '#ffffff'); t.px(x + 1, y, '#ffffff'); t.px(x, y, '#f0c030'); } }),
+    ],
+    sunflower: [
+      pot(t => { t.vline(6, 4, 9, GD); t.vline(7, 4, 9, G); t.ellipse(4, 8, 2, 1.5, G); t.ellipse(9, 10, 2, 1.5, G); }),
+      pot(t => { t.vline(6, 3, 10, GD); t.ellipse(4, 8, 2, 1.5, G); t.ellipse(9, 10, 2, 1.5, G); t.ellipse(6, 2.5, 2, 2, '#6a8a3a'); t.px(5, 1, '#f0c030'); t.px(7, 1, '#f0c030'); }),
+      pot(t => { t.vline(6, 5, 8, GD); t.ellipse(3.5, 9, 2, 1.5, G); t.ellipse(9, 10, 2, 1.5, G); t.ellipse(6, 3, 5, 3.5, '#f0c030'); t.ellipse(6, 3, 2.5, 2, '#6a4020'); t.px(5, 2, '#8a5a30'); }),
+    ],
+    cactus: [0, 1, 2].map(st => pot(t => {
+      t.rect(5, 5 - (st ? 1 : 0), 3, 8 + (st ? 1 : 0), CACT); t.vline(6, 5 - (st ? 1 : 0), 8 + (st ? 1 : 0), CACTD);
+      t.rect(3, 8, 2, 2, CACT); t.vline(3, 6, 2, CACT); t.rect(8, 9, 2, 2, CACT); t.vline(9, 7, 2, CACT);
+      if (st === 1) t.rect(5, 2, 3, 2, '#e87a9a');
+      if (st === 2) { t.rect(4, 1, 5, 3, '#e87a9a'); t.px(3, 2, '#e87a9a'); t.px(9, 2, '#e87a9a'); t.px(6, 2, '#f8e070'); t.px(3, 6, '#f4b0c0'); }
+    })),
+    lavender: [
+      pot(t => { for (const x of [4, 6, 8]) t.vline(x, x === 6 ? 5 : 7, x === 6 ? 8 : 6, G); t.px(3, 10, GL); t.px(9, 11, GL); }),
+      pot(t => { for (const x of [3, 5, 7, 9]) { t.vline(x, 4 + (x % 3), 9 - (x % 3), G); t.vline(x, 3 + (x % 3), 2, '#8a7ab8'); } }),
+      pot(t => { for (const x of [3, 5, 7, 9]) { t.vline(x, 5 + (x % 3), 8 - (x % 3), G); t.vline(x, 1 + (x % 3), 5, '#9a70d0'); t.px(x, 1 + (x % 3), '#c0a0f0'); } }),
+    ],
+  };
+  for (const [k, fs] of Object.entries(kinds)) fs.forEach((f, i) => { frames[`pot_${k}_${i + 3}`] = f; });
+}
 
 // ---------- pack world atlas (shelf packer) ----------
 const names = Object.keys(frames).sort((a, b) => frames[b].h - frames[a].h || frames[b].w - frames[a].w);
