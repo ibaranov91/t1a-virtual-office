@@ -502,6 +502,7 @@ export class World {
     u.instance = inst.id;
     this.place(u, spot);
     this.broadcast({ t: 'meetings', rooms: this.meetingRooms() });
+    this.meetings.rejoin(u, key); // Go after leaving for good: in the meeting again
   }
   /** Back to where they were in the office (or the Lobby if someone's there now). */
   leaveMeeting(u: User, announce = true) {
@@ -866,6 +867,7 @@ export class World {
       }
       case 'meeting_go': this.enterMeeting(u, String(msg.key)); break;
       case 'meeting_leave': if (u.instance) this.leaveMeeting(u); break;
+      case 'meeting_out': if (!u.bot) this.meetings.leave(u, String(msg.key)); break;
       case 'calendar': {
         const g = u.google;
         if (!g?.scopes.includes(CALENDAR_SCOPE)) { this.sendTo(u.id, { t: 'calendar', error: 'no_access' }); break; }
