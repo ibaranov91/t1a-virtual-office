@@ -8,7 +8,7 @@ import { needsGesture, resume } from './audio';
 import { prefs, savePrefs, type Category } from './prefs';
 import { ITEMS, MAP, Store, type ClientUser } from './net';
 import { inNativeApp, syncNative } from './native';
-import { ACHIEVEMENTS, dayNumber, JUKEBOX_PER_PERSON, JUKEBOX_QUEUE_MAX, MAX_CHAT_LEN, MEET_LINK_RE, meetAs, normalizeMeetLink, kindName, PLANT_DIES_DAYS, PLANT_KINDS, PLANT_REVEAL, PLANT_STAGES, plantDead, plantName, REACTIONS, type JukeboxState, type Plant } from '../../shared/protocol';
+import { ACHIEVEMENTS, underground, dayNumber, JUKEBOX_PER_PERSON, JUKEBOX_QUEUE_MAX, MAX_CHAT_LEN, MEET_LINK_RE, meetAs, normalizeMeetLink, kindName, PLANT_DIES_DAYS, PLANT_KINDS, PLANT_REVEAL, PLANT_STAGES, plantDead, plantName, REACTIONS, type JukeboxState, type Plant } from '../../shared/protocol';
 import { GENRES, TRACK, TRACKS } from '../../shared/music';
 import { FIXED_TYPES, KEEP_TYPES, objectName, RUG_COLORS, RUG_MAX, RUG_MIN, seatAt } from '../../shared/map';
 
@@ -153,16 +153,17 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
       setPick(cur => (p && cur?.kind === p.kind && cur.id === p.id ? null : p)); // same target again: close
     };
     e.onZoom = () => tick(n => n + 1);
-    e.onEditChange = () => tick(n => n + 1);
+    e.onEditChange = () => { setEditing(e.editing); tick(n => n + 1); };
     engineRef.current = e; setEngine(e);
     if (import.meta.env.DEV) Object.assign(window, { __deck: { store, engine: e } });
     return () => { e.destroy(); setEngine(null); };
   }, [assets, store]);
   useEffect(() => { const i = setInterval(() => { tick(n => n + 1); store.checkAgenda(); }, 1000); return () => clearInterval(i); }, [store]);
   useEffect(() => { if (engineRef.current) engineRef.current.selected = pick; }, [pick]);
-  useEffect(() => { engine?.setEditing(editing && store.admin); }, [engine, editing, store.admin]);
-
   const me = store.users.get(store.me);
+  const down = !!me && underground(me);
+  useEffect(() => { engine?.setEditing(editing && store.admin && !down); }, [engine, editing, store.admin, down]);
+  useEffect(() => { setPick(null); setPersonMenu(null); setEditing(false); }, [down]);
   const myRoom = me ? store.roomOf(me) : undefined;
   useEffect(() => { if (me && !me.lookSet) setShowAppearance(true); }, [me?.id, me?.lookSet]);
 
@@ -179,7 +180,7 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
         {showRooms && <RoomList store={store} onPerson={openPerson} onClose={() => setShowRooms(false)}
           onPick={id => { engineRef.current?.walkToUser(id); if (compact()) setShowRooms(false); }}
           onRoom={id => { engineRef.current?.walkToRoom(id); if (compact()) setShowRooms(false); }} />}
-        {editing && store.admin && engine && <EditPanel store={store} engine={engine} assets={assets} onDone={() => setEditing(false)} />}
+        {editing && store.admin && !down && engine && <EditPanel store={store} engine={engine} assets={assets} onDone={() => setEditing(false)} />}
         {store.calendarOpen && <CalendarPanel store={store} />}
         {store.meetingsOpen && <MeetingsPanel store={store} />}
         {store.jukeboxOpen && <JukeboxPanel key={store.jukeboxOpen} store={store} id={store.jukeboxOpen} />}
@@ -192,6 +193,7 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
         <div className="chips">
           <MeetingChip store={store} />
           <NowPlayingChip store={store} />
+          <DungeonChip store={store} />
           {me?.callId && !store.roomCallOf(me) && store.voiceOwner && <CallChip store={store} voice={voice} />}
           <DeskChip store={store} />
         </div>
@@ -259,7 +261,7 @@ function TopBar({ store, roomName, onToggleRooms, onToggleMeet, onToggleAppearan
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 4h8v5a4 4 0 0 1-8 0V4ZM8 6H5v1a3 3 0 0 0 3 3M16 6h3v1a3 3 0 0 1-3 3M12 13v4M8 20h8M9 17h6" /></svg>
         {me?.plant && needsWater(me.plant, store.now()) && <b className="dot" />}
       </button>
-      {store.admin && <button onClick={onToggleEdit} className={`hanger-btn${editing ? ' on' : ''}`} aria-pressed={editing}
+      {store.admin && me && !underground(me) && <button onClick={onToggleEdit} className={`hanger-btn${editing ? ' on' : ''}`} aria-pressed={editing}
         title={editing ? 'Done rearranging' : 'Rearrange the office (admins)'} aria-label="Rearrange the office">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16v4ZM13 7l4 4" /></svg>
       </button>}
@@ -357,7 +359,7 @@ function RoomList({ store, onPick, onRoom, onPerson, onClose }: {
   const byRoom = new Map<string, string[]>();
   for (const u of store.users.values()) {
     if (u.presence === 'offline') continue;
-    const r = u.instance ? 'meetings' : store.roomOf(u)?.id ?? 'hall'; // in a meeting's own room, not the real one
+    const r = underground(u) ? 'underground' : u.instance ? 'meetings' : store.roomOf(u)?.id ?? 'hall'; // instances have their own groups
     byRoom.set(r, [...(byRoom.get(r) ?? []), u.id]);
   }
   const offline = [...store.users.values()].filter(u => u.presence === 'offline');
@@ -365,12 +367,13 @@ function RoomList({ store, onPick, onRoom, onPerson, onClose }: {
     <aside className="rooms">
       <div className="rooms-head"><span>People</span><button className="ghost" onClick={onClose}>×</button></div>
       {[...MAP.rooms, { id: 'meetings', name: 'In meetings', rules: { label: 'calendar meetings' }, capacity: 0 } as const,
+        { id: 'underground', name: 'Underground', rules: { label: 'somewhere underground' }, capacity: 0 } as const,
         { id: 'hall', name: 'Hallway', rules: { label: 'passing through' }, capacity: 0 } as const].map(r => {
         const ids = byRoom.get(r.id) ?? [];
         const jukebox = MAP.objects.find(o => o.use?.kind === 'jukebox' && store.jukeboxRoom(o.id)?.id === r.id);
         const state = jukebox && store.jukebox[jukebox.id];
         const subtitle = state && r.rules.label ? r.rules.label.replace(/^jukebox/, state.pausedAt !== null ? 'paused' : `♪ ${TRACK.get(state.track)?.title ?? state.track}`) : r.rules.label;
-        if ((r.id === 'hall' || r.id === 'meetings') && !ids.length) return null;
+        if ((r.id === 'hall' || r.id === 'meetings' || r.id === 'underground') && !ids.length) return null;
         return (
           <section key={r.id}>
             <h3 onClick={MAP.rooms.some(m => m.id === r.id) ? () => onRoom(r.id) : undefined} title={MAP.rooms.some(m => m.id === r.id) ? `Walk to ${r.name}` : undefined}>{r.name} <small>{ids.length}{r.capacity ? `/${r.capacity}` : ''} · {subtitle}</small></h3>
@@ -378,12 +381,12 @@ function RoomList({ store, onPick, onRoom, onPerson, onClose }: {
               {ids.map(id => {
                 const u = store.users.get(id)!;
                 return (
-                  <li key={id} onContextMenu={e => menu(u, e)} title={u.status || undefined}>
+                  <li key={id} onContextMenu={e => menu(u, e)} title={underground(u) ? 'somewhere underground' : u.status || undefined}>
                     <i style={{ background: PRESENCE_COLOR[u.presence] }} />
-                    <button className={`ghost person-name${id === store.me ? ' me' : ''}`} onClick={() => onPick(id)} title={id === store.me ? 'Show me' : `Walk to ${u.name}`}>{u.name}{u.game ? u.game.role === 'player' ? ' 🕹' : ' 👀' : ''}{store.roomCallOf(u) ? ` 🎙${userIcons(u)}` : ''}</button>
+                    <button className={`ghost person-name${id === store.me ? ' me' : ''}`} onClick={() => onPick(id)} title={underground(u) ? 'somewhere underground' : id === store.me ? 'Show me' : `Walk to ${u.name}`}>{u.name}{u.game ? u.game.role === 'player' ? ' 🕹' : ' 👀' : ''}{store.roomCallOf(u) ? ` 🎙${userIcons(u)}` : ''}</button>
                     {more(u)}
                     {!!store.unread.get(id) && <b className="unread" title="Unread messages" onClick={e => { e.stopPropagation(); store.openChat(id); }}>💬 {store.unread.get(id)}</b>}
-                    {u.door ? <em>{{ arriving: 'just arrived', thinking: 'packing up…', leaving: 'heading out' }[u.door]}</em>
+                    {underground(u) ? <em>somewhere underground</em> : u.door ? <em>{{ arriving: 'just arrived', thinking: 'packing up…', leaving: 'heading out' }[u.door]}</em>
                       : u.meeting ? <em>in a meeting until {store.clock(u.meeting)}</em> : u.status && <em>{u.status}</em>}
                   </li>
                 );
@@ -408,7 +411,7 @@ function MeetSetup({ store, onClose }: { store: Store; onClose: () => void }) {
   const google = store.google;
   useEffect(() => { if (google === null) store.prepareGoogle(); }, [store, google]);
   return (
-    <div className={knockTo ? 'modal-backdrop' : ''} onClick={e => { if (knockTo && e.target === e.currentTarget) done('cancel'); }}>
+    <div className={knockTo ? 'modal-backdrop' : ''} {...(knockTo ? backdropClose(() => done('cancel')) : {})}>
       <form className={`meet-panel${knockTo ? ' guided' : ''}`} onSubmit={e => { e.preventDefault(); if (parsed) save(parsed); }}>
         <div className="rooms-head">
           <span>{knockTo ? `Before you knock on ${knockTo.name.split(' ')[0]}…` : google ? 'Google Meet' : 'Your Google Meet room'}</span>
@@ -466,7 +469,7 @@ const hm = (d: Date) => d.toLocaleTimeString([], { hour: '2-digit', minute: '2-d
 /** In a meeting's own room: what it is, its call link, and the way back. */
 function MeetingChip({ store }: { store: Store }) {
   const me = store.users.get(store.me);
-  if (!me) return null;
+  if (!me || underground(me)) return null;
   if (!me.instance) { // out of the room but still in the meeting: rejoin, or leave it for good
     const a = me.meeting ? store.myBusyMeeting : null;
     if (!a) return null;
@@ -577,6 +580,16 @@ function JukeboxPanel({ store, id }: { store: Store; id: string }) {
   </div>;
 }
 
+function DungeonChip({ store }: { store: Store }) {
+  const me = store.users.get(store.me);
+  if (!me || !underground(me)) return null;
+  const key = store.dungeon?.hasKey;
+  return <div className="desk-chip call-chip meeting-chip dungeon-chip">
+    <span>{key ? '🗝️' : '🕳'} <b>{key ? 'You have the key' : 'Underground'}</b> <small>· {key ? 'find the door' : 'find the key, then the door'}</small></span>
+    <button className="end" onClick={() => store.dungeonLeave()}>Give up</button>
+  </div>;
+}
+
 /** Today's status hasn't been set yet (or the plant is gone): the plant wants attention. */
 const needsWater = (p: Plant, now: number) => plantDead(p, now) || p.care < dayNumber(now);
 
@@ -651,7 +664,7 @@ function AchievementsPanel({ store, me, assets }: { store: Store; me: ClientUser
   const dead = p && plantDead(p, now), left = p ? PLANT_DIES_DAYS - (today - p.care) : 0;
   const when = (ms: number) => new Date(ms).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
   return (
-    <div className="modal-backdrop" onClick={e => { if (e.target === e.currentTarget) close(); }}>
+    <div className="modal-backdrop" {...backdropClose(close)}>
       <div className="meet-panel guided calendar-panel achievements">
         <div className="rooms-head"><span>🏆 Achievements</span><button type="button" className="ghost" aria-label="Close" onClick={close}>×</button></div>
         <section className="plant-card">
@@ -677,7 +690,7 @@ function AchievementsPanel({ store, me, assets }: { store: Store; me: ClientUser
             const progress = a.id === 'botanist' && !got ? `${Math.min(me.bloomed.length, a.goal!)}/${a.goal}` : null;
             return <li key={a.id} className={got ? 'got' : a.soon ? 'soon' : ''}>
               <span className="icon">{a.icon}</span>
-              <span><b>{a.title}</b><br /><small>{a.how}</small>
+              <span><b>{a.secret && !got ? '???' : a.title}</b><br /><small>{a.secret && !got ? a.secret : a.how}</small>
                 {a.id === 'botanist' && me.bloomed.length > 0 && <><br /><small className="muted-line">Bloomed: {me.bloomed.map(kindName).join(', ')} · {PLANT_KINDS.length} kinds in all</small></>}</span>
               <small className="state">{got ? `✓ ${when(got)}` : a.soon ? 'Coming soon' : progress ?? ''}</small>
             </li>;
@@ -695,7 +708,7 @@ function MeetingsPanel({ store }: { store: Store }) {
   const now = store.now();
   const goable = store.agenda.filter(a => a.start - 10 * 60_000 <= now && a.end > now && a.instance !== me?.instance && !store.meetingRooms.some(r => r.id === a.instance));
   return (
-    <div className="modal-backdrop" onClick={e => { if (e.target === e.currentTarget) store.closeMeetings(); }}>
+    <div className="modal-backdrop" {...backdropClose(() => store.closeMeetings())}>
       <div className="meet-panel guided calendar-panel">
         <div className="rooms-head"><span>🚪 Meetings on now</span><button type="button" className="ghost" onClick={() => store.closeMeetings()}>×</button></div>
         {!store.meetingRooms.length && !goable.length && <p className="muted small">No meetings in their rooms right now. When a calendar meeting starts, its people get a Go button.</p>}
@@ -722,7 +735,7 @@ function LinkPanel({ store }: { store: Store }) {
   const { label, url } = store.linkOpen!;
   const host = url.replace(/^https?:\/\//, '').replace(/\/$/, '');
   return (
-    <div className="modal-backdrop" onClick={e => { if (e.target === e.currentTarget) store.closeLink(); }}>
+    <div className="modal-backdrop" {...backdropClose(() => store.closeLink())}>
       <div className="meet-panel guided">
         <div className="rooms-head"><span>🔐 Vault 13</span><button type="button" className="ghost" onClick={() => store.closeLink()}>×</button></div>
         <p className="small muted">The team's {label} is at <b>{host}</b>. It opens in a new tab.</p>
@@ -777,7 +790,7 @@ function CalendarPanel({ store }: { store: Store }) {
     ))}</div>;
   }
   return (
-    <div className="modal-backdrop" onClick={e => { if (e.target === e.currentTarget) store.closeCalendar(); }}>
+    <div className="modal-backdrop" {...backdropClose(() => store.closeCalendar())}>
       <div className="meet-panel guided calendar-panel">
         <div className="rooms-head">
           <span>📅 {account ? `Calendar · ${account}` : 'Your calendar'}</span>
@@ -844,6 +857,16 @@ function MacAppButton() {
   );
 }
 
+/** Props for a modal backdrop that closes on a tap on the backdrop itself: one that both started and ended there.
+ *  A click that only *ends* on it (iOS sends a compatibility click after the canvas tap that opened the panel) is ignored. */
+function backdropClose(close: () => void) {
+  let armed = false;
+  return {
+    onPointerDown: (e: React.PointerEvent) => { armed = e.target === e.currentTarget; },
+    onClick: (e: React.MouseEvent) => { if (armed && e.target === e.currentTarget) close(); armed = false; },
+  };
+}
+
 /** Always opens in a new tab — never replaces the office (some shells ignore target=_blank; the Mac app hands it to the browser). */
 function openExternal(href: string): boolean {
   const w = window.open(href, '_blank');
@@ -884,6 +907,7 @@ function PersonMenu({ store, at, onClose }: { store: Store; at: PersonMenuAt; on
   }, [at.id]);
   if (!u) return null;
   const reason = store.knockReason(u), away = u.presence === 'offline' || u.door === 'thinking' || u.door === 'leaving';
+  const dungeon = store.dungeonReason(u);
   const following = store.users.get(store.me)?.following === u.id;
   const value = Math.round((prefs.volumes[u.id] ?? 1) * 100);
   const act = (fn: () => void) => { fn(); onClose(); };
@@ -895,7 +919,7 @@ function PersonMenu({ store, at, onClose }: { store: Store; at: PersonMenuAt; on
       onClick={() => { if (prefs.localMuted[u.id]) delete prefs.localMuted[u.id]; else prefs.localMuted[u.id] = true; savePrefs(); }}>Mute for me</button>
     <div className="person-actions">
       <button className="ghost" onClick={() => act(() => store.openChat(u.id))}>Message</button>
-      <button className="ghost" disabled={away} onClick={() => act(() => store.follow(following ? null : u.id))}>{following ? 'Unfollow' : 'Follow'}</button>
+      <button className="ghost" disabled={away || !!dungeon} title={dungeon ?? undefined} onClick={() => act(() => store.follow(following ? null : u.id))}>{following ? 'Unfollow' : 'Follow'}</button>
       <button className="ghost" disabled={!!reason} title={reason ?? 'Knock for a voice call'} onClick={() => act(() => store.requestKnock(u.id))}>Knock</button>
     </div>
   </div>;
@@ -1048,18 +1072,19 @@ function ActionWheel({ store, engine, pick, onPerson, onClose }: { store: Store;
       if (isMe && me?.following) items.push({ icon: '🛑', label: 'Stop following', onClick: act(() => store.follow(null)) });
     } else {
       const away = u.door === 'thinking' || u.door === 'leaving';
+      const dungeon = store.dungeonReason(u);
       const following = me?.following === u.id, noKnock = store.knockReason(u);
       items = [
         { icon: '✊', label: 'Knock', onClick: act(() => store.requestKnock(u.id)), disabled: !!noKnock,
           title: noKnock ?? 'Knock for a voice call' },
-        { icon: '👣', label: following ? 'Unfollow' : 'Follow', active: following, onClick: act(() => store.follow(following ? null : u.id)), disabled: away },
+        { icon: '👣', label: following ? 'Unfollow' : 'Follow', active: following, onClick: act(() => store.follow(following ? null : u.id)), disabled: away || !!dungeon, title: dungeon ?? undefined },
         { icon: '😊', label: 'React', onClick: () => setEmoji(true) },
         { icon: '💬', label: 'Message', onClick: act(() => store.openChat(u.id)) },
       ];
       if (me?.callId && me.callId === u.callId) items.push({ icon: '🔊', label: 'Volume', onClick: act(() => { if (at) onPerson({ id: u.id, x, y }); }) });
       const held = me?.holding ? ITEMS.get(me.holding) : undefined;
-      if (held) items.push({ icon: held.icon, label: 'Give', disabled: !!u.holding || away,
-        title: u.holding ? `${u.name.split(' ')[0]}'s hands are full` : `Give ${u.name.split(' ')[0]} your ${held.label.toLowerCase()}`,
+      if (held) items.push({ icon: held.icon, label: 'Give', disabled: !!u.holding || away || !!dungeon,
+        title: dungeon ?? (u.holding ? `${u.name.split(' ')[0]}'s hands are full` : `Give ${u.name.split(' ')[0]} your ${held.label.toLowerCase()}`),
         onClick: act(() => store.give(u.id)) });
     }
   } else {

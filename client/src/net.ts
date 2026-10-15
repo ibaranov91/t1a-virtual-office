@@ -1,10 +1,10 @@
 // WebSocket client + the client-side mirror of server state.
 import mapJson from '../../shared/tilemap.json';
 import { applyLayout, besideObject, doorwayTiles, isWalkable, pathTo, roomAt, sampleMove, type Dir, type Tile, type TileMap } from '../../shared/map';
-import { ACHIEVEMENTS, PLANT_STAGES, plantName, ROOM_VOICE_MAX, type JukeboxState, type JukeboxAction, type AgendaItem, type LayoutEdit, type CalEvent, type MeetingRoomInfo, type ChatMsg, type ObjectState, type ClientMsg, type PublicUser, type Reaction, type RtcSignal, type ServerMsg } from '../../shared/protocol';
+import { ACHIEVEMENTS, underground, DUNGEON_INSTANCE, PLANT_STAGES, plantName, ROOM_VOICE_MAX, type JukeboxState, type JukeboxAction, type AgendaItem, type LayoutEdit, type CalEvent, type MeetingRoomInfo, type ChatMsg, type ObjectState, type ClientMsg, type PublicUser, type Reaction, type RtcSignal, type ServerMsg } from '../../shared/protocol';
 import { ParkLoop } from './park/loop';
 import type { CabinetSummary, ParkRecords } from '../../shared/protocol';
-import { playPark, playHand, playKnock, playPop } from './sounds';
+import { playPark, playHand, playKnock, playPop, playDungeon } from './sounds';
 import type { Soundscape } from './soundscape';
 
 export const MAP = mapJson as unknown as TileMap;
@@ -30,6 +30,8 @@ export interface Flying { fromId: string; toId: string; emoji: string; at: numbe
 
 /** Item id -> what it looks like, from whatever the map's objects hand out. */
 export const ITEMS = new Map(MAP.objects.flatMap(o => (o.use?.kind === 'take' ? o.use.items : [])).map(i => [i.id, i]));
+
+export interface DungeonFx { kind: 'fall' | 'land' | 'climb'; user: ClientUser; tile: Tile; at: number }
 
 export interface Pose { x: number; y: number; dir: Dir; walking: boolean; tile: Tile }
 
@@ -74,6 +76,9 @@ export class Store {
   chatWith: string | null = null;       // open conversation
   reactions: Flying[] = [];             // the engine draws and prunes these
   objectFx: { objectId: string; at: number }[] = []; // someone just used it (coffee steam)
+  dungeon: { key: Tile | null; hasKey: boolean; seen: Set<number> } | null = null;
+  dungeonOpening = false;
+  dungeonFx: DungeonFx[] = [];
   version = 0;    // bumps on any change, including scene-only ones (the engine reads the store every frame)
   uiVersion = 0;  // bumps only when React chrome has something new to show
   admin = false;      // may rearrange the office
@@ -229,6 +234,7 @@ export class Store {
     this.send({ t: 'meeting_go', key });
     this.toasts = this.toasts.filter(t => t.meetingKey !== key); this.meetingsOpen = false; this.emit();
   }
+  dungeonLeave() { this.send({ t: 'dungeon_leave' }); }
   leaveMeeting() { this.send({ t: 'meeting_leave' }); }
   /** Out of the meeting for good: not busy, knocks come through again (Go puts you back in). */
   leaveMeetingForGood(key: string) { this.send({ t: 'meeting_out', key }); this.toasts = this.toasts.filter(t => t.meetingKey !== key); this.emit(); }
@@ -272,8 +278,15 @@ export class Store {
     const me = this.users.get(this.me);
     return !!this.roomCallOf(me) && me?.callId === u.callId;
   }
+  dungeonReason(u?: ClientUser) {
+    if (u && underground(u)) return `${u.name} is somewhere underground 🕳`;
+    const me = this.users.get(this.me);
+    return me && underground(me) ? "You're underground — find the way out first" : null;
+  }
   knockReason(u: ClientUser) {
     const me = this.users.get(this.me), room = this.roomOf(u), hall = this.roomCallOf(u), mine = this.roomCallOf(me);
+    const dungeon = this.dungeonReason(u);
+    if (dungeon) return dungeon;
     if (u.id === this.me) return 'This is you';
     if (u.presence === 'offline') return 'Offline';
     if (me?.callId && me.callId === u.callId) return 'Already talking';
@@ -409,7 +422,11 @@ export class Store {
         break;
       }
       case 'chat_history': this.chats.set(msg.withId, msg.messages); break;
-      case 'move': { const u = this.users.get(msg.userId); if (u) this.applyMove(u, msg); break; }
+      case 'move': {
+        const u = this.users.get(msg.userId); if (u) this.applyMove(u, msg);
+        if (msg.userId === this.me) this.dungeonOpening = false;
+        break;
+      }
       case 'layout':
         applyLayout(MAP, msg.layout); this.layoutVersion++;
         if (msg.by === this.me && msg.added) this.added = msg.added;
@@ -433,8 +450,31 @@ export class Store {
       }
       case 'meeting': { const u = this.users.get(msg.userId); if (u) u.meeting = msg.until; break; }
       case 'meetings': this.meetingRooms = msg.rooms; break;
+      case 'dungeon': {
+        const me = this.users.get(this.me);
+        if (me && underground(me)) {
+          this.dungeon = { key: msg.key, hasKey: msg.hasKey, seen: msg.event === 'fell' ? new Set() : this.dungeon?.seen ?? new Set() };
+          if (!msg.event || msg.event === 'fell') this.dungeonOpening = false;
+          if (msg.event === 'opening') this.dungeonOpening = true;
+        }
+        const text = msg.event === 'fell' ? '🕳 You fell through! Find the key and the way out.'
+          : msg.event === 'key' ? '🗝️ You found a key!'
+          : msg.event === 'locked' ? '🔒 Locked. There must be a key somewhere down here.'
+          : msg.event === 'escaped' ? '☀️ You made it out!' : null;
+        if (text) this.toast({ kind: 'info', text, expires: 6000 });
+        if (msg.event && msg.event !== 'gave_up') playDungeon(msg.event);
+        break;
+      }
       case 'instance': {
         const u = this.users.get(msg.userId);
+        if (u && underground(u) !== (msg.instance === DUNGEON_INSTANCE)) {
+          const at = performance.now(), user = { ...u }, fell = msg.instance === DUNGEON_INSTANCE;
+          this.dungeonFx = this.dungeonFx.filter(f => at - f.at < 2200);
+          if (fell) {
+            this.dungeonFx.push({ kind: 'fall', user, tile: { ...this.pose(u).tile }, at });
+            this.dungeonFx.push({ kind: 'land', user, tile: msg.tile, at: at + (u.id === this.me ? 900 : 0) });
+          } else if (msg.instance === null) this.dungeonFx.push({ kind: 'climb', user, tile: msg.tile, at });
+        }
         if (u) { u.instance = msg.instance; u.tile = msg.tile; u.dir = msg.dir; u.move = null; u.path = null; u.prev = null; u.faceOverride = null; }
         this.soundscape?.resetCrossings(msg.userId === this.me ? undefined : msg.userId);
         if (msg.userId === this.me && msg.instance) this.toasts = this.toasts.filter(t => !(t.kind === 'meeting' && this.agenda.find(a => a.key === t.meetingKey)?.instance === msg.instance));
@@ -452,9 +492,9 @@ export class Store {
         const u = this.users.get(msg.userId); if (!u) break;
         const was = u.plant, earned = u.achievements;
         u.plant = msg.plant; u.bloomed = msg.bloomed; u.achievements = msg.achievements;
-        if (u.id !== this.me || !msg.plant) break;
+        if (u.id !== this.me) break;
         const p = msg.plant;
-        if (was) this.toast({ kind: 'info', expires: 5000,
+        if (p && was && (p.stage !== was.stage || p.kind !== was.kind || p.care !== was.care)) this.toast({ kind: 'info', expires: 5000,
           text: p.stage === 0 ? '🌱 You planted a new seedling' : `🌱 Your ${plantName(p)} grew: ${PLANT_STAGES[p.stage]}`,
           hint: p.stage === 0 ? 'The old one withered after a week without a status' : 'It grows once a day you set a status' });
         for (const a of ACHIEVEMENTS) if (msg.achievements[a.id] && !earned[a.id]) {
@@ -529,6 +569,8 @@ export class Store {
         break;
       }
     }
+    const me = this.users.get(this.me);
+    if (!me || !underground(me)) { this.dungeon = null; this.dungeonOpening = false; }
     // Walking, talking and emotes only move pixels on the canvas; the React chrome needn't re-render for them.
     // (The People list follows walkers on its own 1 s tick.)
     if (SCENE_ONLY.has(msg.t)) this.version++; else this.emit();

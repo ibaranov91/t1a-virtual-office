@@ -90,6 +90,10 @@ npm run typecheck    # run before every commit or deploy
   refuses anything that blocks a doorway, the way in, a seat or a coffee machine/lamp (the client runs the same check for
   the red/green ghost). Home desks follow their chair; people under new furniture step aside. A saved layout overrides
   `gen-map.mjs`'s furniture, so after changing the generator, Reset (or drop `layout` from `state.json`) to see it.
+- **Dungeon:** one grid has two unconnected areas; `MAP.office` bounds the office camera, overview and edit mode.
+  Only a human's own `move` ending on the garden hole can fall into `instance: 'dungeon'`; `walkSeq` cancels stale
+  fall/key/door timers on any later walk or placement. The server owns key state and sends it only to its owner;
+  client discovery resets per visit. Neither is persisted.
 - **Room behavior is data.** Knock rules, meeting links and home-desk rooms live in `tilemap.json`
   (from `gen-map.mjs`), not in code.
 

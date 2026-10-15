@@ -20,6 +20,8 @@ export type JukeboxAction =
   | { action: 'queue'; track: string }
   | { action: 'unqueue'; entry: string }
   | { action: 'pause' | 'play' | 'skip'; playId: string };
+export const DUNGEON_INSTANCE = 'dungeon';
+export const underground = (u: { instance: string | null }) => u.instance === DUNGEON_INSTANCE;
 
 export const ROOM_VOICE_MAX = 12;
 export const AFK_MS = 10 * 60_000;
@@ -73,12 +75,13 @@ export const plantDead = (p: Plant, now: number) => dayNumber(now) - p.care >= P
 
 /** Badges, shown on the Achievements board. Earned ones are kept per person with when they were earned.
  *  soon: announced but not earnable yet. */
-export interface Achievement { id: string; icon: string; title: string; how: string; goal?: number; soon?: boolean }
+export interface Achievement { id: string; icon: string; title: string; how: string; goal?: number; soon?: boolean; secret?: string }
 export const BOTANIST_KINDS = 3;
 export const ACHIEVEMENTS: Achievement[] = [
   { id: 'tended', icon: '💧', title: 'Green fingers', how: 'Set a status on a new day. Each day you do, your plant grows one stage.' },
   { id: 'bloom', icon: '🌸', title: 'In bloom', how: `Grow your plant all the way: set a status on ${PLANT_STAGES.length - 1} more days, never ${PLANT_DIES_DAYS} days apart.` },
   { id: 'botanist', icon: '🌻', title: 'Botanist', how: `Bloom ${BOTANIST_KINDS} different flowers. A plant that withers is replanted as a new, random one.`, goal: BOTANIST_KINDS },
+  { id: 'escape', icon: '🗝️', title: 'Escape artist', how: 'Found the way out of the place under the garden.', secret: 'Something about a corner of the garden isn\'t quite right.' },
   { id: 'event', icon: '🎉', title: 'Party person', how: 'Be in the office during an office event.', soon: true },
 ];
 
@@ -97,7 +100,7 @@ export interface PublicUser {
   following: string | null; // walks along with this person
   holding: string | null;   // a UseItem id (coffee, snack…) in hand for a while
   meeting: number | null;   // in a calendar meeting until then (ms); knocks go to Later
-  instance: string | null;  // inside a meeting's own room: only people in the same one see each other
+  instance: string | null;  // meeting room or dungeon: only people in the same instance see each other
   plant: Plant | null;      // on their home desk, or in the Orangery if they have none
   bloomed: string[];        // plant kinds they've grown to full bloom
   achievements: Record<string, number>; // achievement id → when it was earned (ms)
@@ -170,8 +173,9 @@ export type ServerMsg =
   | { t: 'google_auth'; url: string; calendar?: boolean } // open this to connect Google (in the system browser from the Mac app)
   | { t: 'calendar'; events?: CalEvent[]; error?: string } // my own events, only to me
   | { t: 'agenda'; items: AgendaItem[] } // my calendar meetings now and soon, only to me
+  | { t: 'dungeon'; key: Tile | null; hasKey: boolean; event?: 'fell' | 'key' | 'locked' | 'opening' | 'escaped' | 'gave_up' }
   | { t: 'meeting'; userId: string; until: number | null }
-  | { t: 'instance'; userId: string; instance: string | null; tile: Tile; dir: Dir } // stepped into (or out of) a meeting room
+  | { t: 'instance'; userId: string; instance: string | null; tile: Tile; dir: Dir } // stepped into (or out of) a meeting room or the dungeon
   | { t: 'meetings'; rooms: MeetingRoomInfo[] } // running meeting rooms, for the board
   | { t: 'desk'; userId: string; desk: Tile | null }
   | { t: 'plant'; userId: string; plant: Plant | null; bloomed: string[]; achievements: Record<string, number> }
@@ -213,6 +217,7 @@ export type ClientMsg =
   | { t: 'google_connect'; calendar?: boolean } // asks for a google_auth URL; calendar: also ask for Calendar access
   | { t: 'calendar'; from: string } // my events for a week from `from` (ISO, the start of my local day)
   | { t: 'meeting_go'; key: string } // one click: into that meeting's room
+  | { t: 'dungeon_leave' }
   | { t: 'meeting_leave' }           // back to the office (still in the meeting: busy, knocks go to Later)
   | { t: 'meeting_out'; key: string } // leave the meeting for good: not busy any more, knocks come through again
   | { t: 'google_disconnect' }
