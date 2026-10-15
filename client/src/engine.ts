@@ -738,8 +738,8 @@ export class Engine {
     this.hoverTile = this.clickTarget({ x: tx, y: ty });
     this.hoverCritter = this.hoverUser || this.hoverObject || inside || this.areaDown ? null : this.critters.at(w.x, w.y, this.store.now());
     this.cupTile = this.hoverUser || this.hoverObject ? null : this.cupTarget({ x: tx, y: ty });
-    this.canvas.style.cursor = this.tapZooms ? 'zoom-in' : this.hoverUser || this.hoverObject || this.cupTile || this.hoverCritter?.id ? 'pointer' : this.hoverTile ? 'crosshair' : 'default';
-  private lunchTile: Tile | null = null; // a picnic chair I can eat my food at, under the pointer
+    this.lunchTile = this.hoverUser || this.hoverObject || inside || !this.lunchChair({ x: tx, y: ty }) ? null : { x: tx, y: ty };
+    this.canvas.style.cursor = this.tapZooms ? 'zoom-in' : this.hoverUser || this.hoverObject || this.cupTile || this.lunchTile || this.hoverCritter?.id ? 'pointer' : this.hoverTile ? 'crosshair' : 'default';
   };
   private onEditMove(w: { x: number; y: number }) {
     const tx = Math.floor(w.x / TS), ty = Math.floor(w.y / TS), d = this.editDrag;
