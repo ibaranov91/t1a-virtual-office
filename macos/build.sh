@@ -19,6 +19,7 @@ cp Info.plist "$APP/Contents/Info.plist"
 BUILD=$(cat Package.swift Info.plist Sources/Deck/*.swift | shasum -a 256 | cut -c1-12)
 plutil -replace DeckBuild -string "$BUILD" "$APP/Contents/Info.plist"
 plutil -replace CFBundleVersion -string "$(git rev-list --count HEAD 2>/dev/null || echo 1)" "$APP/Contents/Info.plist"
+[ "${1:-}" = --dist ] || plutil -replace DeckDev -bool YES "$APP/Contents/Info.plist" # local builds never self-update
 
 KC="${DECK_SIGNING_DIR:-$HOME/.deck-signing}/deck.keychain-db"
 if [ -f "$KC" ]; then

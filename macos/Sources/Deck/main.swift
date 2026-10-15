@@ -32,6 +32,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
   let card = KnockCard()
   let updater = Updater()
   var updateButton: NSButton!
+  var windowRoot = NSView() // the window's content: the web view, with the menu bar note on top
+  var note: NSView?
   var ringing: Timer?
 
   var url: String {
@@ -66,6 +68,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
     window.delegate = self
     window.center()
     window.setFrameAutosaveName("DeckWindow")
+    window.contentView = windowRoot
 
     desk = DeskWindow(contentRect: NSRect(x: 80, y: 80, width: 640, height: 420),
                       styleMask: [.borderless, .resizable], backing: .buffered, defer: false)
@@ -94,6 +97,58 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
 
     load()
     placeWeb()
+    // A menu bar app has no Dock icon, so opening it from Applications looked like nothing happened.
+    // Opening it (not a relaunch after a self-update) shows the window plus a note on where it lives.
+    if !CommandLine.arguments.contains("--updated") { openedByUser() }
+  }
+
+  /// Opened again from Applications / Spotlight while already running.
+  func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
+    openedByUser(); return false
+  }
+
+  func openedByUser() {
+    showWindow()
+    window.orderFrontRegardless() // macOS may not let a just-launched menu bar app take focus
+    showMenuBarNote()
+  }
+
+  /// A small card in the middle of the window: closing it is fine, the door icon brings it back.
+  func showMenuBarNote() {
+    note?.removeFromSuperview()
+    let box = NSVisualEffectView()
+    box.material = .hudWindow; box.blendingMode = .withinWindow; box.state = .active
+    box.wantsLayer = true; box.layer?.cornerRadius = 12
+    let icon = NSImageView(image: NSImage(systemSymbolName: "door.left.hand.closed", accessibilityDescription: nil)!
+      .withSymbolConfiguration(.init(pointSize: 26, weight: .medium).applying(.init(paletteColors: [.systemOrange])))!)
+    let title = NSTextField(labelWithString: "The Deck lives in your menu bar")
+    title.font = .boldSystemFont(ofSize: 15)
+    let text = NSTextField(wrappingLabelWithString: "Close this window anytime and stay in the office. Click the door icon at the top of your screen to open it again, right-click it for options.")
+    text.font = .systemFont(ofSize: 12); text.textColor = .secondaryLabelColor; text.alignment = .center
+    text.preferredMaxLayoutWidth = 300
+    let ok = NSButton(title: "Got it", target: self, action: #selector(hideMenuBarNote))
+    ok.keyEquivalent = "\r"; ok.bezelColor = .systemOrange
+    let stack = NSStackView(views: [icon, title, text, ok])
+    stack.orientation = .vertical; stack.spacing = 8; stack.alignment = .centerX
+    stack.edgeInsets = NSEdgeInsets(top: 18, left: 20, bottom: 18, right: 20)
+    stack.translatesAutoresizingMaskIntoConstraints = false
+    box.addSubview(stack)
+    box.translatesAutoresizingMaskIntoConstraints = false
+    windowRoot.addSubview(box) // above the web view
+    NSLayoutConstraint.activate([
+      stack.leadingAnchor.constraint(equalTo: box.leadingAnchor), stack.trailingAnchor.constraint(equalTo: box.trailingAnchor),
+      stack.topAnchor.constraint(equalTo: box.topAnchor), stack.bottomAnchor.constraint(equalTo: box.bottomAnchor),
+      box.widthAnchor.constraint(equalToConstant: 340),
+      box.centerXAnchor.constraint(equalTo: windowRoot.centerXAnchor), box.centerYAnchor.constraint(equalTo: windowRoot.centerYAnchor),
+    ])
+    note = box
+    DispatchQueue.main.asyncAfter(deadline: .now() + 10) { [weak box] in if let box, box === self.note { self.hideMenuBarNote() } }
+  }
+
+  @objc func hideMenuBarNote() {
+    guard let box = note else { return }
+    note = nil
+    NSAnimationContext.runAnimationGroup({ $0.duration = 0.3; box.animator().alphaValue = 0 }, completionHandler: { box.removeFromSuperview() })
   }
 
   // MARK: hosting the one web view
@@ -104,7 +159,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
   /// else the desktop (if pinned), else nowhere (still loaded and connected, just not on screen).
   func placeWeb() {
     let onDesk = pinned && !window.isVisible && !popover.isShown
-    if window.isVisible { if web.superview !== window.contentView { web.removeFromSuperview(); window.contentView = web } }
+    if window.isVisible { if web.superview !== windowRoot { web.removeFromSuperview(); fill(windowRoot, with: web) } }
     else if popover.isShown { if web.superview !== slot { web.removeFromSuperview(); fill(slot, with: web) } }
     else if onDesk { if web.superview !== desk.contentView { web.removeFromSuperview(); desk.contentView = web } }
     else { web.removeFromSuperview() }
@@ -114,7 +169,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
 
   func fill(_ parent: NSView, with child: NSView) {
     child.translatesAutoresizingMaskIntoConstraints = false
-    parent.addSubview(child)
+    parent.addSubview(child, positioned: .below, relativeTo: nil)
     NSLayoutConstraint.activate([child.leadingAnchor.constraint(equalTo: parent.leadingAnchor), child.trailingAnchor.constraint(equalTo: parent.trailingAnchor),
                                  child.topAnchor.constraint(equalTo: parent.topAnchor), child.bottomAnchor.constraint(equalTo: parent.bottomAnchor)])
   }
@@ -176,8 +231,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
     placeWeb()
   }
 
-  func windowWillClose(_ note: Notification) {
-    guard note.object as? NSWindow === window else { return }
+  func windowWillClose(_ n: Notification) {
+    guard n.object as? NSWindow === window else { return }
+    note?.removeFromSuperview(); note = nil
     DispatchQueue.main.async { self.placeWeb() } // isVisible is still true inside willClose
   }
 
@@ -302,10 +358,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
     updateIfIdle()
   }
 
-  /// Updates install themselves when you won't notice the restart: not in a call, The Deck not in front.
+  /// Updates install themselves when you won't notice the restart: not in a call, no popover or window open.
   func updateIfIdle() {
     guard updater.available != nil, state.connected, !state.inCall, state.knocks.isEmpty,
-          !popover.isShown, !(window.isVisible && NSApp.isActive) else { return }
+          !popover.isShown, !window.isVisible else { return }
     updater.startAutomatically(in: web)
   }
 
