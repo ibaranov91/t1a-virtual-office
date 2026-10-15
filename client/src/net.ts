@@ -56,8 +56,7 @@ export class Store {
   meetingRooms: MeetingRoomInfo[] = [];    // meeting rooms in use (the board)
   meetingsOpen = false;
   private headsUp = new Set<string>();     // meetings I've had a heads-up for
-  build: string | undefined;  // the server's client build when this page loaded
-  staleBuild = false;         // server now serves a newer build; reload when not in a call
+  staleBuild = false;         // the server serves another build than this page: reload when not in a call
   objects: Record<string, ObjectState> = {};
   jukebox: Record<string, JukeboxState> = {};
   jukeboxOpen: string | null = null;
@@ -205,6 +204,10 @@ export class Store {
     this.toasts = this.toasts.filter(t => t.meetingKey !== key); this.meetingsOpen = false; this.emit();
   }
   leaveMeeting() { this.send({ t: 'meeting_leave' }); }
+  /** Out of the meeting for good: not busy, knocks come through again (Go puts you back in). */
+  leaveMeetingForGood(key: string) { this.send({ t: 'meeting_out', key }); this.toasts = this.toasts.filter(t => t.meetingKey !== key); this.emit(); }
+  /** The calendar meeting I'm in right now while out of its room (busy: knocks go to Later). */
+  get myBusyMeeting() { const now = this.now(); return this.agenda.find(a => a.start <= now && a.end > now && !a.left) ?? null; }
   /** A server timestamp as local "10:30". */
   clock(serverMs: number) { return new Date(serverMs - this.offset).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); }
   /** The calendar meeting whose room I'm in. */
@@ -213,7 +216,7 @@ export class Store {
   checkAgenda() {
     const now = this.now(), mine = this.users.get(this.me)?.instance;
     for (const a of this.agenda) {
-      if (this.headsUp.has(a.key) || now < a.start - 60_000 || now >= a.end || a.instance === mine) continue;
+      if (a.left || this.headsUp.has(a.key) || now < a.start - 60_000 || now >= a.end || a.instance === mine) continue;
       this.headsUp.add(a.key);
       const soon = a.start > now ? `starts at ${this.clock(a.start)}` : 'is on now';
       this.toast({ kind: 'meeting', meetingKey: a.key, link: a.link, text: `📅 ${a.title} ${soon}`, hint: 'Go: step into its room with the others', expires: a.end - now });
@@ -232,6 +235,10 @@ export class Store {
   setHand(up: boolean) { this.send({ t: 'hand', up }); }
   setDeafen(on: boolean) { this.send({ t: 'deafen', on }); }
   claimVoice() { this.send({ t: 'voice_claim' }); }
+  /** The vault door: a panel with the link, which works from a tap anywhere (a tap on the floor can't open a tab on a phone). */
+  linkOpen: { label: string; url: string } | null = null;
+  openLink(use: { label: string; url: string }) { this.linkOpen = use; this.emit(); }
+  closeLink() { this.linkOpen = null; this.emit(); }
   roomCallOf(u?: ClientUser) {
     return u?.callId?.startsWith('room:') ? MAP.rooms.find(r => r.id === u.callId!.slice(5)) : undefined;
   }
@@ -302,8 +309,8 @@ export class Store {
     switch (msg.t) {
       case 'hello':
         this.me = msg.you; this.offset = msg.serverTime - Date.now();
-        if (msg.build && this.build && msg.build !== this.build) this.staleBuild = true;
-        this.build ??= msg.build;
+        // compared with this bundle's own id, so a page served from a stale cache fixes itself on its first connect
+        if (msg.build && __DECK_BUILD__ !== 'dev' && msg.build !== __DECK_BUILD__) this.staleBuild = true;
         break;
       case 'call_moved':
         this.toast({ kind: 'call_moved', roomId: msg.roomId, text: `${this.name(msg.userId).split(' ')[0]} went into ${MAP.rooms.find(r => r.id === msg.roomId)?.name ?? msg.roomId}`, expires: 15000 });
@@ -477,6 +484,9 @@ export class Store {
     // (The People list follows walkers on its own 1 s tick.)
     if (SCENE_ONLY.has(msg.t)) this.version++; else this.emit();
     // A deploy happened while this page was open: reload into the new build, but never mid-call.
-    if (this.staleBuild && !this.users.get(this.me)?.callId) location.reload();
+    if (this.staleBuild && !this.users.get(this.me)?.callId) { // a fresh URL: a plain reload can come back from the cache (iOS)
+      const u = new URL(location.href); u.searchParams.set('v', String(Date.now().toString(36)));
+      location.replace(u.href);
+    }
   }
 }

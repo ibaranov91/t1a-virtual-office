@@ -144,7 +144,7 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
       if (use?.kind === 'calendar') { setPick(null); return store.openCalendar(); }
       if (use?.kind === 'meetings') { setPick(null); return store.openMeetings(); }
       if (use?.kind === 'achievements') { setPick(null); return store.openAchievements(); }
-      if (use?.kind === 'link' && openExternal(use.url)) return setPick(null); // refused (a phone's tap on the canvas): the wheel offers a real link
+      if (use?.kind === 'link') { setPick(null); return store.openLink(use); } // a panel, like the calendar: its link is a real tap
       setPick(cur => (p && cur?.kind === p.kind && cur.id === p.id ? null : p)); // same target again: close
     };
     e.onZoom = () => tick(n => n + 1);
@@ -177,6 +177,7 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
         {store.calendarOpen && <CalendarPanel store={store} />}
         {store.meetingsOpen && <MeetingsPanel store={store} />}
         {store.jukeboxOpen && <JukeboxPanel key={store.jukeboxOpen} store={store} id={store.jukeboxOpen} />}
+        {store.linkOpen && <LinkPanel store={store} />}
         {store.achievementsOpen && me && <AchievementsPanel store={store} me={me} assets={assets} />}
         {(showMeet || store.pendingKnock) && <MeetSetup key={store.pendingKnock ?? 'panel'} store={store} onClose={() => setShowMeet(false)} />}
         {showAppearance && me && <AppearanceMenu key={me.id} look={me.look} assets={assets} firstTime={!me.lookSet}
@@ -456,7 +457,16 @@ const hm = (d: Date) => d.toLocaleTimeString([], { hour: '2-digit', minute: '2-d
 /** In a meeting's own room: what it is, its call link, and the way back. */
 function MeetingChip({ store }: { store: Store }) {
   const me = store.users.get(store.me);
-  if (!me?.instance) return null;
+  if (!me) return null;
+  if (!me.instance) { // out of the room but still in the meeting: rejoin, or leave it for good
+    const a = me.meeting ? store.myBusyMeeting : null;
+    if (!a) return null;
+    return <div className="desk-chip call-chip meeting-chip">
+      <span>📅 <b>{a.title}</b> <small>· in the meeting until {store.clock(a.end)} · knocks go to Later</small></span>
+      <button onClick={() => store.goToMeeting(a.key)}>Rejoin</button>
+      <button className="end" title="You're no longer busy: knocks come through again" onClick={() => store.leaveMeetingForGood(a.key)}>Leave meeting</button>
+    </div>;
+  }
   const m = store.myMeeting, room = store.meetingRooms.find(r => r.id === me.instance);
   const others = (room?.members ?? []).filter(id => id !== me.id).map(id => store.users.get(id)).filter((u): u is ClientUser => !!u);
   return <div className="desk-chip call-chip meeting-chip">
@@ -698,6 +708,21 @@ function MeetingsPanel({ store }: { store: Store }) {
   );
 }
 
+/** The vault door: where the team's vault lives, and a link that opens it in a new tab. */
+function LinkPanel({ store }: { store: Store }) {
+  const { label, url } = store.linkOpen!;
+  const host = url.replace(/^https?:\/\//, '').replace(/\/$/, '');
+  return (
+    <div className="modal-backdrop" onClick={e => { if (e.target === e.currentTarget) store.closeLink(); }}>
+      <div className="meet-panel guided">
+        <div className="rooms-head"><span>🔐 Vault 13</span><button type="button" className="ghost" onClick={() => store.closeLink()}>×</button></div>
+        <p className="small muted">The team's {label} is at <b>{host}</b>. It opens in a new tab.</p>
+        <p className="row"><ExternalLink className="button" href={url} onOpen={() => store.closeLink()}>Open the {label} ↗</ExternalLink></p>
+      </div>
+    </div>
+  );
+}
+
 /** Your week from Google Calendar, opened from a wall calendar. Only you see it. */
 function CalendarPanel({ store }: { store: Store }) {
   const account = store.meetAccount;
@@ -820,9 +845,9 @@ function openExternal(href: string): boolean {
   a.href = href; a.target = '_blank'; a.rel = 'noopener noreferrer'; a.click();
   return false;
 }
-function ExternalLink({ href, onOpen, children }: { href: string; onOpen?: () => void; children: React.ReactNode }) {
+function ExternalLink({ href, onOpen, className, children }: { href: string; onOpen?: () => void; className?: string; children: React.ReactNode }) {
   const open = (e: React.MouseEvent) => { e.preventDefault(); openExternal(href); onOpen?.(); };
-  return <a href={href} target="_blank" rel="noopener noreferrer" onClick={open}>{children}</a>;
+  return <a href={href} target="_blank" rel="noopener noreferrer" className={className} onClick={open}>{children}</a>;
 }
 
 const userIcons = (u: ClientUser) => `${u.muted ? ' 🔇' : ''}${u.deafened ? ' 🎧' : ''}${u.hand ? ' ✋' : ''}`;
@@ -981,7 +1006,7 @@ function Toasts({ store }: { store: Store }) {
   );
 }
 
-type WheelItem = { icon: string; label: string; onClick: () => void; disabled?: boolean; title?: string; active?: boolean; href?: string /* a real link: a tap on it may open a new tab where a canvas tap can't */ };
+type WheelItem = { icon: string; label: string; onClick: () => void; disabled?: boolean; title?: string; active?: boolean };
 
 /** Click a person or a thing: a ring of actions around it, following it as it moves. */
 function ActionWheel({ store, engine, pick, onPerson, onClose }: { store: Store; engine: Engine; pick: Pick; onPerson: (at: PersonMenuAt) => void; onClose: () => void }) {
@@ -1030,11 +1055,8 @@ function ActionWheel({ store, engine, pick, onPerson, onClose }: { store: Store;
     }
   } else {
     const o = MAP.objects.find(o => o.id === pick.id);
-    if (!o?.use || o.use.kind === 'calendar' || o.use.kind === 'meetings' || o.use.kind === 'achievements' || o.use.kind === 'jukebox') return null;
-    if (o.use.kind === 'link') {
-      title = 'Vault 13';
-      items = [{ icon: '🔐', label: 'Open', title: `Open the ${o.use.label}`, href: o.use.url, onClick: onClose }];
-    } else if (o.use.kind === 'toggle') {
+    if (!o?.use || o.use.kind === 'calendar' || o.use.kind === 'meetings' || o.use.kind === 'achievements' || o.use.kind === 'link' || o.use.kind === 'jukebox') return null;
+    if (o.use.kind === 'toggle') {
       const on = store.objects[o.id]?.on ?? o.on ?? true;
       title = o.use.label[0].toUpperCase() + o.use.label.slice(1);
       items = [{ icon: on ? '🌑' : '💡', label: on ? 'Turn off' : 'Turn on', onClick: act(() => store.use(o.id)) }];
@@ -1055,16 +1077,13 @@ function ActionWheel({ store, engine, pick, onPerson, onClose }: { store: Store;
       <div className="wheel-title" style={{ top: -R - 46 }}>{title}</div>
       {items.map((it, i) => {
         const a = start + (i * 2 * Math.PI) / items.length;
-        const className = `wheel-item${it.active ? ' active' : ''}${it.label ? '' : ' bare'}`;
-        const style = { left: Math.round(Math.cos(a) * R), top: Math.round(Math.sin(a) * R), animationDelay: `${i * 18}ms` };
-        const inner = <><span className="ic">{it.icon}</span>{it.label && <small>{it.label}</small>}</>;
-        if (it.href) return ( // the browser follows the link itself: that's a real click, so no popup blocker
-          <a key={i} className={className} href={it.href} target="_blank" rel="noopener noreferrer" title={it.title ?? it.label} style={style}
-            onClick={e => { e.stopPropagation(); it.onClick(); }}>{inner}</a>
-        );
         return (
-          <button key={i} className={className} disabled={it.disabled} title={it.title ?? it.label} style={style}
-            onClick={e => { e.stopPropagation(); it.onClick(); }}>{inner}</button>
+          <button key={i} className={`wheel-item${it.active ? ' active' : ''}${it.label ? '' : ' bare'}`} disabled={it.disabled} title={it.title ?? it.label}
+            style={{ left: Math.round(Math.cos(a) * R), top: Math.round(Math.sin(a) * R), animationDelay: `${i * 18}ms` }}
+            onClick={e => { e.stopPropagation(); it.onClick(); }}>
+            <span className="ic">{it.icon}</span>
+            {it.label && <small>{it.label}</small>}
+          </button>
         );
       })}
     </div>
