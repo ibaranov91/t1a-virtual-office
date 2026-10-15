@@ -285,6 +285,9 @@ obj('keyboard', 55, 4, 2, 1, { use: { kind: 'instrument', instrument: 'keys', la
 obj('drum_kit', 58, 4, 2, 2, { use: { kind: 'instrument', instrument: 'drums', label: 'drums' } });
 obj('bass_amp', 61, 4, 1, 1, { use: { kind: 'instrument', instrument: 'bass', label: 'bass' } });
 
+// the Meeting room's wall screen: upload slides (PIN) and present them to the room (appended, same reason)
+obj('screen', 21, 1, 2, 2, { wall: true, use: { kind: 'presentation', label: 'screen' } });
+
 // ---- standing spots (seats follow the furniture: applyLayout in shared/map.ts) ----
 for (const r of rooms) r.stand = [];
 const stand = (id, list) => rooms.find(r => r.id === id).stand.push(...list.map(([x, y, dir]) => ({ x, y, dir })));

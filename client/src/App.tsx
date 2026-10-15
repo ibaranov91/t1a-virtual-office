@@ -9,6 +9,7 @@ import { needsGesture, resume } from './audio';
 import { prefs, savePrefs, type Category } from './prefs';
 import { ITEMS, MAP, Store, type ClientUser } from './net';
 import { inNativeApp, syncNative } from './native';
+import { LiveChip, PresentPanel, SlideOverlay } from './Presentation';
 import { ACHIEVEMENTS, underground, dayNumber, JUKEBOX_PER_PERSON, JUKEBOX_QUEUE_MAX, MAX_CHAT_LEN, MEET_LINK_RE, meetAs, normalizeMeetLink, kindName, PLANT_DIES_DAYS, PLANT_KINDS, PLANT_REVEAL, PLANT_STAGES, plantDead, plantName, REACTIONS, type JukeboxState, type Plant } from '../../shared/protocol';
 import { GENRES, jukeboxPosition, TRACK, TRACKS } from '../../shared/music';
 import { FIXED_TYPES, KEEP_TYPES, objectName, RUG_COLORS, RUG_MAX, RUG_MIN, seatAt } from '../../shared/map';
@@ -151,6 +152,7 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
       if (use?.kind === 'calendar') { setPick(null); return store.openCalendar(); }
       if (use?.kind === 'meetings') { setPick(null); return store.openMeetings(); }
       if (use?.kind === 'achievements') { setPick(null); return store.openAchievements(); }
+      if (use?.kind === 'presentation' && p) { setPick(null); return store.openPresent(p.id); }
       if (use?.kind === 'link') { setPick(null); return store.openLink(use); } // a panel, like the calendar: its link is a real tap
       setPick(cur => (p && cur?.kind === p.kind && cur.id === p.id ? null : p)); // same target again: close
     };
@@ -179,6 +181,7 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
         <div className="canvas-wrap"><canvas ref={canvasRef} /></div>
         {!assets && <div className="loading">Unlocking the door…</div>}
         {!store.connected && assets && <div className="loading small">Reconnecting…</div>}
+        {store.presentation && store.inPresentationRoom() && !store.slidesHidden && <SlideOverlay store={store} />}
         {showRooms && <RoomList store={store} onPerson={openPerson} onClose={() => setShowRooms(false)}
           onPick={id => { engineRef.current?.walkToUser(id); if (compact()) setShowRooms(false); }}
           onRoom={id => { engineRef.current?.walkToRoom(id); if (compact()) setShowRooms(false); }} />}
@@ -188,12 +191,14 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
         {store.jukeboxOpen && <JukeboxPanel key={store.jukeboxOpen} store={store} id={store.jukeboxOpen} />}
         {store.recordsOpen && <RecordsPopover store={store} />}
         {store.linkOpen && <LinkPanel store={store} />}
+        {store.presentOpen && <PresentPanel key={store.presentOpen} store={store} id={store.presentOpen} />}
         {store.achievementsOpen && me && <AchievementsPanel store={store} me={me} assets={assets} />}
         {(showMeet || store.pendingKnock) && <MeetSetup key={store.pendingKnock ?? 'panel'} store={store} onClose={() => setShowMeet(false)} />}
         {showAppearance && me && <AppearanceMenu key={me.id} look={me.look} assets={assets} firstTime={!me.lookSet}
           onSave={(look) => { store.setLook(look); setShowAppearance(false); }} onClose={() => setShowAppearance(false)} />}
         <div className="chips">
           <MeetingChip store={store} />
+          <LiveChip store={store} onGo={room => engineRef.current?.walkToRoom(room)} />
           <NowPlayingChip store={store} />
           <DungeonChip store={store} />
           {me?.callId && !store.roomCallOf(me) && store.voiceOwner && <CallChip store={store} voice={voice} />}
@@ -207,7 +212,7 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
         </div>
         {personMenu && <PersonMenu key={personMenu.id} store={store} at={personMenu} onClose={() => setPersonMenu(null)} />}
         {store.seat && <InstrumentPanel key={store.seat} store={store} id={store.seat}
-          dialogOpen={!!(showAppearance || showMeet || store.pendingKnock || store.calendarOpen || store.meetingsOpen || store.jukeboxOpen || store.achievementsOpen || store.chatWith || personMenu || pick)} />}
+          dialogOpen={!!(showAppearance || showMeet || store.pendingKnock || store.calendarOpen || store.meetingsOpen || store.jukeboxOpen || store.achievementsOpen || store.presentOpen || store.chatWith || personMenu || pick)} />}
         <Dock store={store} engine={engine} roomsOpen={showRooms} onRooms={() => setShowRooms(s => !s)} />
       </div>
       </div>
@@ -1173,7 +1178,7 @@ function ActionWheel({ store, engine, pick, onPerson, onClose }: { store: Store;
     }
   } else {
     const o = MAP.objects.find(o => o.id === pick.id);
-    if (!o?.use || o.use.kind === 'instrument' || o.use.kind === 'calendar' || o.use.kind === 'meetings' || o.use.kind === 'achievements' || o.use.kind === 'link' || o.use.kind === 'jukebox' || o.use.kind === 'arcade' || o.use.kind === 'records') return null;
+    if (!o?.use || o.use.kind === 'instrument' || o.use.kind === 'calendar' || o.use.kind === 'meetings' || o.use.kind === 'achievements' || o.use.kind === 'link' || o.use.kind === 'jukebox' || o.use.kind === 'arcade' || o.use.kind === 'records' || o.use.kind === 'presentation') return null;
     if (o.use.kind === 'toggle') {
       const on = store.objects[o.id]?.on ?? o.on ?? true;
       title = o.use.label[0].toUpperCase() + o.use.label.slice(1);

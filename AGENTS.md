@@ -96,6 +96,12 @@ npm run typecheck    # run before every commit or deploy
   Only a human's own `move` ending on the garden hole can fall into `instance: 'dungeon'`; `walkSeq` cancels stale
   fall/key/door timers on any later walk or placement. The server owns key state and sends it only to its owner;
   client discovery resets per visit. Neither is persisted.
+- **Presentation mode** (`server/src/presentation.ts`, `client/src/Presentation.tsx`): the Meeting room's wall screen
+  (`use.kind: 'presentation'`) takes PNG/JPG slides or one PDF (rendered with poppler's `pdftoppm` if the machine has it,
+  else refused) behind a PIN (`DECK_PRESENT_PIN`, default `1234`), via `POST /api/present/upload` with the session in
+  `x-deck-session`. Decks are files in `data/decks/<id>/` and survive restarts; who's presenting is memory only. Everyone in
+  the screen's room sees the slides as a 90s magazine page; the presenter flips with ← →, Stop ends it, and it ends by itself
+  60 s after the presenter's last tab closes.
 - **Room behavior is data.** Knock rules, meeting links and home-desk rooms live in `tilemap.json`
   (from `gen-map.mjs`), not in code.
 
