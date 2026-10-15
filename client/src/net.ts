@@ -60,7 +60,8 @@ export class Store {
   meetingRooms: MeetingRoomInfo[] = [];    // meeting rooms in use (the board)
   meetingsOpen = false;
   private headsUp = new Set<string>();     // meetings I've had a heads-up for
-  staleBuild = false;         // the server serves another build than this page: reload when not in a call
+  build: string | undefined;  // the server's client build when this page loaded
+  staleBuild = false;         // server now serves a newer build; reload when not in a call
   objects: Record<string, ObjectState> = {};
   jukebox: Record<string, JukeboxState> = {};
   instruments: Record<string, string | null> = {};
@@ -369,8 +370,8 @@ export class Store {
         this.me = msg.you;
         this.park ??= new ParkLoop(this.me, msg => this.send(msg));
         this.offset = msg.serverTime - Date.now();
-        // compared with this bundle's own id, so a page served from a stale cache fixes itself on its first connect
-        if (msg.build && __DECK_BUILD__ !== 'dev' && msg.build !== __DECK_BUILD__) this.staleBuild = true;
+        if (msg.build && this.build && msg.build !== this.build) this.staleBuild = true;
+        this.build ??= msg.build;
         break;
       case 'game_session':
         if (msg.session) { this.gameOpen = true; this.gameCheers.clear(); }
@@ -598,9 +599,6 @@ export class Store {
     // (The People list follows walkers on its own 1 s tick.)
     if (SCENE_ONLY.has(msg.t)) this.version++; else this.emit();
     // A deploy happened while this page was open: reload into the new build, but never mid-call.
-    if (this.staleBuild && !this.users.get(this.me)?.callId) { // a fresh URL: a plain reload can come back from the cache (iOS)
-      const u = new URL(location.href); u.searchParams.set('v', String(Date.now().toString(36)));
-      location.replace(u.href);
-    }
+    if (this.staleBuild && !this.users.get(this.me)?.callId) location.reload();
   }
 }
