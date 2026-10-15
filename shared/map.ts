@@ -32,12 +32,14 @@ export type ObjectUse = { kind: 'take'; items: UseItem[] } | { kind: 'toggle'; l
   | { kind: 'presentation'; label: string } // the Meeting room screen: upload slides and present them
   | { kind: 'link'; label: string; url: string } // opens a page in a new tab (the safe: the vault)
   | { kind: 'dealer'; label: string; items: string[] } // hands out items into your inventory (the bouncer, the hat stand)
+  | { kind: 'bell'; label: string } // the Lobby reception bell: ring it from beside the desk
   | { kind: 'toilet'; label: string }; // a stall: occupied for a while, fills up with use (see Toilets on the server)
 export interface MapObject {
   id: string; type: string; x: number; y: number; w: number; h: number;
   sound?: { clip?: string; gain: number };
   wall?: boolean; walkable?: boolean; light?: boolean; steam?: boolean; dir?: Dir;
   use?: ObjectUse; on?: boolean; // on: starting state of a toggle
+  onTop?: boolean; // sits on top of another object (the reception bell): allowed to share its tile
   sit?: boolean; // a sofa: blocks walking, but every tile is a seat facing `dir`, reached from the tile in front
 }
 /** A rug, drawn over the floor (9-slice). Never blocks. */
@@ -313,7 +315,7 @@ export function layoutProblem(m: TileMap, checkDungeonReach = true): string | nu
     const entrance = coversEntrance(t);
     if (entrance && !o.wall) return `that covers the ${entrance}`;
     if (o.wall ? !walls[t.y][t.x] : walls[t.y][t.x]) return o.wall ? `the ${objectName(o.type)} goes on a wall` : `the ${objectName(o.type)} can't stand in a wall`;
-    const had = claim(`${o.wall ? 'w' : 'f'}${t.x},${t.y}`, objectName(o.type));
+    const had = o.onTop ? undefined : claim(`${o.wall ? 'w' : 'f'}${t.x},${t.y}`, objectName(o.type));
     if (had) return `the ${objectName(o.type)} overlaps the ${had}`;
   }
   for (const r of m.rugs) for (const t of footprint(r)) {
@@ -349,7 +351,7 @@ export const objectName = (type: string) => ({ table_long: 'long table', table_b
   painting_small: 'small painting', coffee_machine: 'coffee machine', meetings_board: 'meetings board', noticeboard: 'notice board', exit_door: 'exit door', server_rack: 'server rack', dj_booth: 'DJ booth', neon_sign: 'neon sign' } as Record<string, string>)[type] ?? type.replace(/_/g, ' ');
 
 /** Types that are one of a kind (the way out, the coffee machine…): they can be moved but not removed. */
-export const KEEP_TYPES = new Set(['exit_door', 'coffee_machine', 'fridge', 'jukebox', 'arcade', 'records', 'meetings_board', 'noticeboard', 'clock_nyc', 'clock_berlin', 'clock_moscow', 'safe', 'keyboard', 'drum_kit', 'bass_amp', 'screen', 'toilet', 'bouncer', 'hat_stand']);
+export const KEEP_TYPES = new Set(['exit_door', 'coffee_machine', 'fridge', 'jukebox', 'arcade', 'records', 'meetings_board', 'noticeboard', 'clock_nyc', 'clock_berlin', 'clock_moscow', 'safe', 'keyboard', 'drum_kit', 'bass_amp', 'screen', 'toilet', 'bouncer', 'hat_rack', 'bell']);
 /** Types that stay exactly where they are. */
 export const FIXED_TYPES = new Set(['exit_door']);
 export const RUG_MIN = 2, RUG_MAX = 24;

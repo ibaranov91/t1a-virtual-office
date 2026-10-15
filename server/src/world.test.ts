@@ -1107,7 +1107,7 @@ test('effects: judges and admins find their hats in their pockets, put on once, 
   w.handle(a.u, effect(a.u.id, 'hat', true, JUDGE_HAT), a.socket);
   w.handle(a.u, effect(a.u.id, 'hat', true, 'top'), a.socket);
   assert.equal(a.u.effects.length, 0, 'no hats in the pockets, nothing to wear');
-  const stand = w.map.objects.find(o => o.type === 'hat_stand')!;
+  const stand = w.map.objects.find(o => o.type === 'hat_rack')!;
   a.u.tile = { x: stand.x, y: stand.y + 1 };
   w.use(a.u, stand.id, 'hat:top'); t.mock.timers.tick(2000);
   assert.deepEqual(a.u.items, ['hat:top']);
@@ -1151,4 +1151,22 @@ test('a shared time zone reaches everyone, is validated, can be hidden, and is n
   w.handle(a.u, { t: 'tz', tz: null }, a.socket);
   assert.equal(a.u.tz, undefined);
   assert.deepEqual(b.messages.filter(m => m.t === 'tz').pop(), { t: 'tz', userId: a.u.id, tz: null });
+});
+
+test('the reception bell rings for everyone, once a second, from beside it, and only for real bells', t => {
+  const { w, person } = people(t), bell = w.map.objects.find(o => o.use?.kind === 'bell')!;
+  const a = person('A', undefined, { x: bell.x, y: bell.y + 1 }), b = person('B', undefined, { x: bell.x + 1, y: bell.y + 1 }), far = person('Far', undefined, { x: 40, y: 8 });
+  const rings = (p: typeof a) => p.messages.filter(m => m.t === 'bell');
+  w.handle(a.u, { t: 'ring', objectId: bell.id }, a.socket);
+  assert.deepEqual(rings(b), [{ t: 'bell', userId: a.u.id, objectId: bell.id }]);
+  w.handle(a.u, { t: 'ring', objectId: bell.id }, a.socket);
+  assert.equal(rings(b).length, 1, 'one ring a second');
+  t.mock.timers.tick(1100);
+  w.handle(a.u, { t: 'ring', objectId: bell.id }, a.socket);
+  assert.equal(rings(b).length, 2);
+  w.handle(a.u, { t: 'ring', objectId: 'nope' }, a.socket);
+  w.handle(b.u, { t: 'ring', objectId: w.map.objects.find(o => o.type === 'reception')!.id }, b.socket);
+  assert.equal(rings(a).length, 2, 'only bells ring');
+  w.handle(far.u, { t: 'ring', objectId: bell.id }, far.socket);
+  assert.equal(rings(a).length, 2, 'too far away: it walks over first, no ring yet');
 });
