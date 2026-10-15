@@ -66,12 +66,20 @@ export function playPop() {
   } catch { /* audio unavailable: stay silent */ }
 }
 
-export function playJoin(dest: AudioNode = categoryOutput('effects')) {
-  const c = audio(), t = c.currentTime + .02;
-  tap(c, t, 260, .10, dest); tap(c, t + .13, 240, .08, dest);
+export function playDoorOpen(dest: AudioNode = categoryOutput('effects')) {
+  const c = audio(), at = c.currentTime + .01, length = Math.floor(c.sampleRate * .35);
+  const buffer = c.createBuffer(1, length, c.sampleRate), data = buffer.getChannelData(0);
+  for (let i = 0; i < length; i++) data[i] = Math.random() * 2 - 1;
+  const noise = c.createBufferSource(), filter = c.createBiquadFilter(), gain = c.createGain();
+  noise.buffer = buffer; filter.type = 'bandpass'; filter.Q.value = 7;
+  filter.frequency.setValueAtTime(180, at); filter.frequency.exponentialRampToValueAtTime(420, at + .3);
+  gain.gain.setValueAtTime(0, at); gain.gain.linearRampToValueAtTime(.12, at + .04);
+  gain.gain.exponentialRampToValueAtTime(.0001, at + .35);
+  noise.connect(filter).connect(gain).connect(dest); noise.start(at);
+  noise.onended = () => { noise.disconnect(); filter.disconnect(); gain.disconnect(); };
 }
-export function playLeave(dest: AudioNode = categoryOutput('effects')) {
-  const c = audio(); tap(c, c.currentTime + .02, 150, .10, dest);
+export function playDoorClose(dest: AudioNode = categoryOutput('effects')) {
+  const c = audio(); tap(c, c.currentTime + .01, 130, .09, dest);
 }
 export function playHand(dest: AudioNode = categoryOutput('effects')) {
   const c = audio(), t = c.currentTime + .02;

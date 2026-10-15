@@ -1,8 +1,6 @@
 import type { Dir, Layout, Move, Tile } from './map';
 
 export const ROOM_VOICE_MAX = 12;
-export const ZONE_IN_TILES = 6;
-export const ZONE_OUT_TILES = 7;
 export const AFK_MS = 10 * 60_000;
 /** A toggle object's shared state. */
 export interface ObjectState { on: boolean }
@@ -91,7 +89,7 @@ export type Reaction = typeof REACTIONS[number];
 export interface CalEvent { id: string; title: string; start: string; end: string; allDay: boolean; link: string; meet?: string; declined?: boolean }
 
 /** A calendar meeting with other people, now or within the hour. Sent only to its attendees (the title is theirs). */
-export interface AgendaItem { key: string; instance: string; title: string; start: number; end: number; link?: string }
+export interface AgendaItem { key: string; instance: string; title: string; start: number; end: number; link?: string; left?: boolean } // left: I left it for good (not busy, no heads-up)
 /** A meeting room in use, for everyone: who's in it and until when, no title. */
 export interface MeetingRoomInfo { id: string; until: number; members: string[] }
 /** Meeting rooms are copies of this room on the map. */
@@ -151,6 +149,7 @@ export type ServerMsg =
   | { t: 'desk'; userId: string; desk: Tile | null }
   | { t: 'plant'; userId: string; plant: Plant | null; bloomed: string[]; achievements: Record<string, number> }
   | { t: 'call'; userId: string; callId: string | null; link?: string } // link: the call's Meet room, only to members
+  | { t: 'call_moved'; userId: string; roomId: string }
   | { t: 'rtc'; from: string; signal: RtcSignal }
   | { t: 'speaking'; userId: string; on: boolean }
   | { t: 'mute'; userId: string; muted: boolean }
@@ -180,7 +179,8 @@ export type ClientMsg =
   | { t: 'google_connect'; calendar?: boolean } // asks for a google_auth URL; calendar: also ask for Calendar access
   | { t: 'calendar'; from: string } // my events for a week from `from` (ISO, the start of my local day)
   | { t: 'meeting_go'; key: string } // one click: into that meeting's room
-  | { t: 'meeting_leave' }           // back to the office
+  | { t: 'meeting_leave' }           // back to the office (still in the meeting: busy, knocks go to Later)
+  | { t: 'meeting_out'; key: string } // leave the meeting for good: not busy any more, knocks come through again
   | { t: 'google_disconnect' }
   | { t: 'claim_desk' }   // the seat you're sitting on becomes your home desk
   | { t: 'release_desk' }

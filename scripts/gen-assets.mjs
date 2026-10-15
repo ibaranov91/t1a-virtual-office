@@ -824,6 +824,31 @@ frames.pot_dead = pot(t => { t.vline(6, 7, 6, '#8a7048'); t.px(5, 7, '#8a7048');
   for (const [k, fs] of Object.entries(kinds)) fs.forEach((f, i) => { frames[`pot_${k}_${i + 3}`] = f; });
 }
 
+// ---------- room doors (drawn by the engine, never furniture) ----------
+for (const axis of ['h', 'v']) for (const open of [false, true]) {
+  const t = new Img(axis === 'h' ? 32 : 16, 40), w = t.w;
+  t.rect(1, 7, w - 2, 32, OUT);
+  t.rect(3, 8, w - 6, 29, '#805033');
+  t.rect(4, 9, w - 8, 27, '#c28a50');
+  // The open panel turns against its hinge, leaving the gap transparent.
+  if (open) {
+    t.rect(4, 10, w - 8, 27, [0, 0, 0, 0]);
+    if (axis === 'h') {
+      t.rect(3, 10, 7, 26, OUT); t.rect(4, 11, 4, 24, '#b77b43');
+      t.vline(5, 12, 22, '#dfa76a'); t.px(7, 24, '#edce76');
+    } else {
+      t.rect(3, 9, 10, 7, OUT); t.rect(4, 10, 8, 4, '#b77b43');
+      t.hline(4, 10, 8, '#dfa76a'); t.px(10, 13, '#edce76');
+    }
+  } else {
+    for (let x = 5; x < w - 4; x += 5) { t.vline(x, 10, 25, '#9b6339'); t.vline(x + 1, 10, 25, '#d59b5c'); }
+    t.hline(4, 12, w - 8, '#e0ae73'); t.hline(4, 32, w - 8, '#805033');
+    t.rect(w - 7, 24, 2, 2, '#edce76');
+  }
+  t.hline(2, 7, w - 4, '#dfa76a');
+  frames[`door_${axis}_${open ? 'open' : 'closed'}`] = t;
+}
+
 // ---------- pack world atlas (shelf packer) ----------
 const names = Object.keys(frames).sort((a, b) => frames[b].h - frames[a].h || frames[b].w - frames[a].w);
 const AW = 256; let x = 0, y = 0, rowH = 0; const rects = {};

@@ -1,6 +1,7 @@
 // The floor: one <canvas>, one requestAnimationFrame loop.
 // Order: static tilemap → y-sorted furniture + sprites → nameplates & bubbles → ambient tint → UI hints.
 import { applyEdit, FIXED_TYPES, findPath, isWalkable, layoutProblem, objectById, objectName, roomAt, seatAt, withLayout, type MapObject, type Rug, type Tile } from '../../shared/map';
+import { roomDoors, type RoomDoor } from './doors';
 import type { Assets, Frame } from './assets';
 import { drawText, textWidth } from './font';
 import { MEETING_ROOM_ID, PLANT_REVEAL, PLANT_STAGES, plantDead, plantName, type LayoutEdit } from '../../shared/protocol';
@@ -79,6 +80,7 @@ export class Engine {
   private snapped = false;
   private slots: Tile[] = [];
   private layoutSeen = -1;
+  private doors: RoomDoor[] = [];
   // ---- edit mode (office admins) ----
   editing = false;
   /** Selected furniture or rug. */
@@ -232,6 +234,7 @@ export class Engine {
   /** The furniture changed (an admin moved something): redraw the floor and re-sort what's where. */
   private refreshLayout() {
     this.layoutSeen = this.store.layoutVersion;
+    this.doors = roomDoors(MAP);
     this.staticLayer = this.buildStatic();
     this.furniture = MAP.objects.filter(o => !o.wall && !o.walkable && this.f(o.type)).map(o => {
       const fr = this.f(o.type);
@@ -644,13 +647,19 @@ export class Engine {
 
     // y-sorted drawables: furniture is sorted per layout (refreshLayout); people and plants are sorted here and merged in
     if (this.plantsVersion !== this.store.version) { this.plants = me?.instance ? [] : this.placePlants(); this.plantsVersion = this.store.version; }
-    type D = { base: number; u?: ClientUser; p?: Pose; plant?: PlacedPlant };
+    type D = { base: number; u?: ClientUser; p?: Pose; plant?: PlacedPlant; door?: RoomDoor };
     const ds: D[] = [];
+    for (const door of this.doors) ds.push({ base: (door.y + door.h) * TS - .5, door });
     for (const u of users) { const p = poses.get(u.id)!; ds.push({ base: p.y * TS + TS, u, p }); }
     for (const plant of this.plants) ds.push({ base: plant.base, plant });
     ds.sort((a, b) => a.base - b.base);
     const drawD = (d: D) => {
       if (d.u) return this.drawSprite(d.u, d.p!, ms);
+      if (d.door) { // open while someone stands in or right next to the doorway
+        const door = d.door, open = [...poses.values()].some(p => door.tiles.some(t => Math.abs(t.x - p.tile.x) + Math.abs(t.y - p.tile.y) <= 1));
+        const name = `door_${door.horizontal ? 'h' : 'v'}_${open ? 'open' : 'closed'}`, fr = this.f(name);
+        return void (fr && this.blit(ctx, name, door.x * TS + (door.w * TS - fr.w) / 2, (door.y + door.h) * TS - fr.h));
+      }
       const p = d.plant!, pl = p.u.plant!, kinded = pl.kind && pl.stage >= PLANT_REVEAL;
       this.blit(ctx, plantDead(pl, t) ? 'pot_dead' : kinded ? `pot_${pl.kind}_${pl.stage}` : `pot_${pl.stage}`, p.x - 6, p.y - 20);
     };

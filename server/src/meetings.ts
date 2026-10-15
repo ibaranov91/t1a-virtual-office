@@ -15,6 +15,7 @@ export interface Meeting extends CalMeeting { instance: string; owners: Set<stri
 export class Meetings {
   events = new Map<string, Meeting>();
   private sent = new Map<string, string>(); // userId -> last agenda sent, to skip repeats
+  private left = new Map<string, Set<string>>(); // userId -> meetings they left for good (in memory, like the rooms)
   private polling = false;
   constructor(private world: World) {
     setTimeout(() => void this.poll(), 5_000); // soon after a restart
@@ -55,10 +56,22 @@ export class Meetings {
     return [...this.world.users.values()].filter(u => !u.bot && (m.owners.has(u.id) || (!!u.email && m.emails.includes(u.email))));
   }
   canEnter(u: User, m: Meeting, now = Date.now()) { return now >= m.start - EARLY_MS && now < m.end && this.attendees(m).includes(u); }
+  hasLeft(u: User, key: string) { return this.left.get(u.id)?.has(key) ?? false; }
+  /** Leave a meeting for good: out of its room, no longer busy, knocks come through again. Go puts you back in. */
+  leave(u: User, key: string) {
+    const m = this.events.get(key);
+    if (!m || !this.attendees(m).includes(u)) return;
+    let keys = this.left.get(u.id);
+    if (!keys) this.left.set(u.id, (keys = new Set()));
+    keys.add(key);
+    if (u.instance === m.instance) this.world.leaveMeeting(u);
+    this.tick();
+  }
+  rejoin(u: User, key: string) { if (this.left.get(u.id)?.delete(key)) this.tick(); }
 
   agendaOf(u: User, now = Date.now()): AgendaItem[] {
     return [...this.events.values()].filter(m => m.end > now && this.attendees(m).includes(u)).sort((a, b) => a.start - b.start)
-      .map(m => ({ key: m.key, instance: m.instance, title: m.title, start: m.start, end: m.end, link: m.link }));
+      .map(m => ({ key: m.key, instance: m.instance, title: m.title, start: m.start, end: m.end, link: m.link, left: this.hasLeft(u, m.key) || undefined }));
   }
   /** Send this person their agenda if it changed (force: e.g. a fresh page). */
   sendAgenda(u: User, force = false) {
@@ -70,11 +83,11 @@ export class Meetings {
 
   /** Busy flags, agendas and meeting rooms follow the clock. */
   tick(now = Date.now()) {
-    for (const [k, m] of this.events) if (m.end <= now) this.events.delete(k);
+    for (const [k, m] of this.events) if (m.end <= now) { this.events.delete(k); for (const keys of this.left.values()) keys.delete(k); }
     const busy = new Map<string, number>();
     for (const m of this.events.values()) {
       if (m.start > now) continue;
-      for (const u of this.attendees(m)) busy.set(u.id, Math.max(busy.get(u.id) ?? 0, m.end));
+      for (const u of this.attendees(m)) if (!this.hasLeft(u, m.key)) busy.set(u.id, Math.max(busy.get(u.id) ?? 0, m.end));
     }
     for (const u of this.world.users.values()) {
       if (!u.bot) this.world.setMeeting(u, busy.get(u.id) ?? null);

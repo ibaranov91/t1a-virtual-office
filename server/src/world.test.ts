@@ -2,14 +2,15 @@ import { test, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { World, type User } from './world';
-import { hallDistance, pathDuration, reindexMap, roomAt, sampleMove, seatAt, voiceRooms, WALK_MS_PER_TILE, type TileMap, type Tile } from '../../shared/map';
+import { doorwayTiles, pathDuration, reindexMap, roomAt, sampleMove, seatAt, voiceRooms, WALK_MS_PER_TILE, type TileMap, type Tile } from '../../shared/map';
 import { PLANT_DIES_DAYS, PLANT_STAGES, plantDead, ROOM_VOICE_MAX, type ServerMsg } from '../../shared/protocol';
 const map: TileMap = JSON.parse(readFileSync(new URL('../../shared/tilemap.json', import.meta.url), 'utf8'));
 const coffee = map.rooms.find(r => r.id === 'coffee')!;
+const memberTile = (m: TileMap, t: Tile, r = coffee) => roomAt(m, t.x, t.y)?.id === r.id || doorwayTiles(m, r).some(g => g.some(p => p.x === t.x && p.y === t.y));
 function setup(t: TestContext) {
   t.mock.timers.enable({ apis: ['setTimeout', 'Date', 'setInterval'], now: 100000 });
   const w = new World(map);
-  const add = (name: string, tile: Tile = { x: 32, y: 14 }, bot = false) => {
+  const add = (name: string, tile: Tile = { x: 32, y: 12 }, bot = false) => {
     const u = w.addUser(name, bot, tile); u.presence = 'online';
     const messages: ServerMsg[] = [];
     const conn = w.connect(u.id, m => messages.push(m));
@@ -33,39 +34,42 @@ test('250 ms tick joins standing humans outside the door without changing presen
   assert.ok(a.messages.some(m => m.t === 'speaking' && !m.on));
   a.messages.length = 0; tick(1000); assert.deepEqual(voiceChanges(a.messages), []);
 });
-test('zone hysteresis: join at 6, stay at 7, leave beyond 7; an empty room call is deleted', t => {
-  const { w, add, settle } = setup(t), a = add('A', { x: 28, y: 13 });
-  assert.equal(hallDistance(map, coffee, 28, 13), 7); w.voiceTick(); assert.equal(a.u.callId, null);
-  settle(a.u, { x: 29, y: 13 }); w.voiceTick(); assert.equal(a.u.callId, 'room:coffee');
-  settle(a.u, { x: 28, y: 13 }); a.messages.length = 0; w.voiceTick(); assert.equal(a.u.callId, 'room:coffee'); assert.deepEqual(voiceChanges(a.messages), []);
-  settle(a.u, { x: 27, y: 13 }); w.voiceTick(); assert.equal(a.u.callId, null); assert.equal(w['calls'].has('room:coffee'), false);
+test('rect and every doorway tile join; the first step beyond leaves and deletes the empty call', t => {
+  const { w, add, settle } = setup(t), a = add('A', { x: 32, y: 13 });
+  w.voiceTick(); assert.equal(a.u.callId, null);
+  for (const tile of [...doorwayTiles(map, coffee).flat(), { x: 32, y: 8 }]) {
+    settle(a.u, tile); w.voiceTick(); assert.equal(a.u.callId, 'room:coffee');
+    a.messages.length = 0; w.voiceTick(); assert.deepEqual(voiceChanges(a.messages), []);
+    settle(a.u, { x: 32, y: 13 }); w.voiceTick(); assert.equal(a.u.callId, null);
+    assert.equal(w['calls'].has('room:coffee'), false);
+  }
 });
 test('walking joins and leaves from the current rounded pose, never the destination', t => {
   const { w, add } = setup(t), a = add('A', { x: 27, y: 13 });
   const start = Date.now(); w.walk(a.u, { x: 32, y: 8 }); assert.equal(a.u.callId, null);
-  const path = a.u.path!, first = path.findIndex(p => hallDistance(map, coffee, p.x, p.y) <= 6);
+  const path = a.u.path!, first = path.findIndex(p => memberTile(map, p));
   const entry = start + (first - .5) * WALK_MS_PER_TILE;
   w.voiceTick(entry - 1); assert.equal(a.u.callId, null); w.voiceTick(entry); assert.equal(a.u.callId, 'room:coffee');
   const arrived = start + pathDuration(path); w.walk(a.u, { x: 27, y: 13 }, undefined, arrived);
-  const out = a.u.path!, last = out.reduce((last, p, i) => hallDistance(map, coffee, p.x, p.y) <= 7 ? i : last, -1);
+  const out = a.u.path!, last = out.reduce((last, p, i) => memberTile(map, p) ? i : last, -1);
   const exit = arrived + (last + .5) * WALK_MS_PER_TILE;
   w.voiceTick(exit - 1); assert.equal(a.u.callId, 'room:coffee'); w.voiceTick(exit); assert.equal(a.u.callId, null);
 });
 test('redirect samples the previous path until the future startedAt', t => {
-  const { w, add } = setup(t), a = add('A', { x: 28, y: 13 });
+  const { w, add } = setup(t), a = add('A', { x: 32, y: 13 });
   const start = Date.now(); w.walk(a.u, { x: 32, y: 8 });
   const old = a.u.path!; w.walk(a.u, { x: 27, y: 13 }, undefined, start + 50);
   assert.equal(a.u.move!.startedAt, start + 250); assert.deepEqual(a.u.prev, { path: old, startedAt: start });
   assert.deepEqual(w.position(a.u, start + 100).tile, sampleMove(old, start, start + 100)!.tile);
-  w.voiceTick(start + 100); assert.equal(a.u.callId, null); // new path starts at distance 6, old pose is still at 7
+  w.voiceTick(start + 100); assert.equal(a.u.callId, null); // new path starts in the doorway; the old pose is still outside
   w.voiceTick(start + 130); assert.equal(a.u.callId, 'room:coffee');
   assert.deepEqual(w.position(a.u, start + 250).tile, a.u.move!.from);
 });
-test('sofa seats inside Coffee are distance zero and retain hall voice', t => {
+test('sofa seats inside Coffee are inside the rect and retain hall voice', t => {
   const { w, add, settle } = setup(t), a = add('A');
   const sofas = map.objects.filter(o => o.sit && roomAt(map, o.x, o.y)?.id === coffee.id); assert.ok(sofas.length);
   for (const o of sofas) for (let y = o.y; y < o.y + o.h; y++) for (let x = o.x; x < o.x + o.w; x++) {
-    assert.ok(seatAt(map, x, y)); assert.equal(hallDistance(map, coffee, x, y), 0);
+    assert.ok(seatAt(map, x, y)); assert.equal(roomAt(map, x, y)?.id, coffee.id);
     settle(a.u, { x, y }); w.voiceTick(); assert.equal(a.u.callId, 'room:coffee');
   }
 });
@@ -76,14 +80,14 @@ test('bots, offline humans, disconnected humans and users heading out never join
   tick(250); for (const a of [bot, offline, gone, thinking, leaving]) assert.equal(a.u.callId, null);
   assert.equal(w['calls'].has('room:coffee'), false);
 });
-test('crossing Coffee creates a call without existing members and stays joined outside within the zone', t => {
+test('crossing Coffee creates a call without existing members and leaves past the doorway', t => {
   const { w, add } = setup(t), a = add('A', { x: 24, y: 8 });
   const start = Date.now(); w.walk(a.u, { x: 36, y: 13 });
   const path = a.u.path!, inside = path.findIndex(p => roomAt(map, p.x, p.y)?.id === coffee.id); assert.ok(inside >= 0);
   w.voiceTick(start + inside * WALK_MS_PER_TILE); assert.equal(a.u.callId, 'room:coffee');
-  w.voiceTick(start + pathDuration(path)); assert.equal(a.u.callId, 'room:coffee');
+  w.voiceTick(start + pathDuration(path)); assert.equal(a.u.callId, null);
 });
-test('cap waits by zone in order, replays waiting, promotes without churn and retains waiting during a walk', t => {
+test('cap waits inside rect or doorway in order, replays waiting, promotes without churn and retains waiting during a walk', t => {
   const { w, add, fill } = setup(t), members = fill(), a = add('wait1'), b = add('wait2'); w.voiceTick();
   assert.equal(a.u.callId, null); assert.ok(a.messages.some(m => m.t === 'voice_wait' && m.roomId === 'coffee'));
   const replay: ServerMsg[] = []; w.connect(a.u.id, m => replay.push(m)); assert.ok(replay.some(m => m.t === 'voice_wait' && m.roomId === 'coffee'));
@@ -93,10 +97,10 @@ test('cap waits by zone in order, replays waiting, promotes without churn and re
   w.leaveCall(members[1].u); assert.equal(b.u.callId, 'room:coffee');
   assert.ok(b.messages.some(m => m.t === 'voice_wait' && m.roomId === null));
 });
-test('promotion shares eligibility: skips out-of-zone, knock-call, AFK, offline, bot, leaving and disconnected waiters', t => {
+test('promotion shares eligibility: skips outside rect and doorway, knock-call, AFK, offline, bot, leaving and disconnected waiters', t => {
   const { w, add, fill, settle } = setup(t), members = fill();
   const waits = Array.from({ length: 9 }, (_, i) => add(`W${i}`)); w.voiceTick();
-  settle(waits[0].u, { x: 28, y: 13 }); // distance 7 is only for existing members
+  settle(waits[0].u, { x: 32, y: 13 });
   const other = add('Other', { x: 7, y: 17 }); const knock = w.connectCall(waits[1].u, other.u);
   assert.ok(waits[1].messages.some(m => m.t === 'voice_wait' && m.roomId === null));
   waits[2].u.afk = true; waits[3].u.presence = 'offline'; waits[4].u.bot = true; waits[5].u.door = 'leaving'; waits[6].close();
@@ -131,12 +135,51 @@ test('knock call wins outside the rect, then yields inside even when the hall is
   settle(a.u, { x: 32, y: 8 }); w.voiceTick(); assert.equal(a.u.callId, null); assert.equal(b.u.callId, null);
   assert.ok(a.messages.some(m => m.t === 'voice_wait' && m.roomId === 'coffee'));
 });
-test('AFK rejects a home in the zone, walks outside, stays excluded until an own move and keeps private state private', t => {
+test('call_moved reaches only members left behind, even when a singleton ends or the hall is full', t => {
+  for (const full of [false, true]) {
+    const { w, add, settle, fill } = setup(t);
+    if (full) fill();
+    const a = add('Ivan', { x: 32, y: 12 }), b = add('B', { x: 7, y: 17 }), c = add('C', { x: 8, y: 17 }), outsider = add('Other', { x: 9, y: 17 });
+    const call = w.connectCall(a.u, b.u); w.connectCall(b.u, c.u);
+    for (const person of [a, b, c, outsider]) person.messages.length = 0;
+    w.voiceTick(); assert.equal(a.u.callId, call.id);
+    assert.equal(b.messages.some(m => m.t === 'call_moved'), false);
+    settle(a.u, { x: 32, y: 10 }); w.voiceTick();
+    const notice = { t: 'call_moved', userId: a.u.id, roomId: 'coffee' };
+    assert.deepEqual(b.messages.filter(m => m.t === 'call_moved'), [notice]);
+    assert.deepEqual(c.messages.filter(m => m.t === 'call_moved'), [notice]);
+    for (const person of [a, outsider]) assert.equal(person.messages.some(m => m.t === 'call_moved'), false);
+    assert.equal(b.u.callId, call.id); assert.equal(c.u.callId, call.id);
+    assert.equal(a.u.callId, full ? null : 'room:coffee');
+    if (full) assert.ok(a.messages.some(m => m.t === 'voice_wait' && m.roomId === 'coffee'));
+    b.messages.length = 0; c.messages.length = 0;
+    settle(b.u, { x: 32, y: 10 }); w.voiceTick();
+    assert.equal(c.u.callId, null);
+    assert.deepEqual(c.messages.filter(m => m.t === 'call_moved'), [{ t: 'call_moved', userId: b.u.id, roomId: 'coffee' }]);
+    assert.equal(b.messages.some(m => m.t === 'call_moved'), false);
+    t.mock.timers.reset();
+  }
+});
+test('meeting instances cannot join or wait for office hall voice', t => {
+  const { w, add, join } = setup(t), a = add('A');
+  a.u.instance = 'meeting:test'; w.voiceTick(); assert.equal(a.u.callId, null);
+  a.u.instance = null; join(a.u); a.u.instance = 'meeting:test';
+  w.voiceTick(); assert.equal(a.u.callId, null); assert.equal(w['waiting'].has(a.u.id), false);
+});
+test('AFK rejects homes on doorway tiles but accepts the former outside zone', t => {
+  const { w, add, join } = setup(t), a = add('A'); join(a.u);
+  a.u.homeDesk = { x: 32, y: 12 };
+  w.handle(a.u, { t: 'leave_room' }, a.socket);
+  assert.notDeepEqual(a.u.move!.to, a.u.homeDesk); assert.equal(memberTile(map, a.u.move!.to), false);
+  a.u.afk = false; join(a.u); a.u.homeDesk = { x: 32, y: 15 };
+  w.handle(a.u, { t: 'leave_room' }, a.socket); assert.deepEqual(a.u.move!.to, a.u.homeDesk);
+});
+test('AFK rejects a home in the rect, walks outside, stays excluded until an own move and keeps private state private', t => {
   const { w, add, join, settle, tick } = setup(t), a = add('A'); join(a.u);
-  a.u.homeDesk = { x: 32, y: 15 }; assert.equal(hallDistance(map, coffee, 32, 15), 5);
+  a.u.homeDesk = { x: 32, y: 8 };
   w.handle(a.u, { t: 'leave_room' }, a.socket);
   assert.notDeepEqual(a.u.move!.to, a.u.homeDesk); assert.equal(roomAt(map, a.u.move!.to.x, a.u.move!.to.y)?.id, 'lobby');
-  assert.ok(voiceRooms(map).every(r => hallDistance(map, r, a.u.move!.to.x, a.u.move!.to.y) > 7));
+  assert.ok(voiceRooms(map).every(r => !memberTile(map, a.u.move!.to, r)));
   assert.equal(a.u.afk, true); assert.equal(a.u.callId, null); tick(20000); assert.equal(a.u.callId, null);
   settle(a.u, { x: 32, y: 8 }); w.voiceTick(); assert.equal(a.u.callId, null);
   w.walk(a.u, { x: 32, y: 9 }); w.voiceTick(); assert.equal(a.u.afk, true); assert.equal(a.u.callId, null);
@@ -273,4 +316,28 @@ test('a pot on first login; a status a day grows it, blooms earn badges, a week 
   w.handle(a.u, { t: 'status', status: 'back' }, a.socket); assert.equal(stage(), 0);
   assert.notEqual(a.u.plant?.kind, kind); // replanted as something new
   assert.ok(a.messages.some(m => m.t === 'plant' && m.achievements.bloom));
+});
+test('leaving a meeting for good clears busy and lets knocks through; Go puts you back in', t => {
+  const { w, add, tick } = setup(t), a = add('A', { x: 7, y: 17 }), b = add('B', { x: 8, y: 17 });
+  b.u.email = 'b@t1a.com';
+  const now = Date.now(), key = 'evt1';
+  w.meetings.poll = async () => {}; // no Google here: the 5 s poll would wipe the injected meeting
+  w.meetings.events.set(key, { key, title: 'Standup', start: now - 60_000, end: now + 30 * 60_000, emails: ['b@t1a.com'], instance: 'inst1', owners: new Set() });
+  w.meetings.tick(); assert.equal(b.u.meeting, now + 30 * 60_000);
+  assert.deepEqual(w.meetings.agendaOf(b.u).map(i => i.left), [undefined]);
+  w.enterMeeting(b.u, key); assert.equal(b.u.instance, 'inst1');
+  w.handle(b.u, { t: 'meeting_leave' }, b.socket); assert.equal(b.u.instance, null); assert.ok(b.u.meeting); // still in the meeting
+  w.knock(a.u, b.u); for (let i = 0; i < 10; i++) tick(500); // A walks up, then B's Later timer runs (timers set mid-tick need another tick)
+  assert.ok(a.messages.some(m => m.t === 'knock_reply' && m.reply === 'later' && /in a meeting/.test(m.reason ?? '')));
+  a.messages.length = 0;
+  w.handle(b.u, { t: 'meeting_out', key }, b.socket);
+  assert.equal(b.u.meeting, null); assert.deepEqual(w.meetings.agendaOf(b.u).map(i => i.left), [true]);
+  assert.ok(b.messages.some(m => m.t === 'agenda' && m.items[0]?.left));
+  w.knock(a.u, b.u); for (let i = 0; i < 10; i++) tick(500);
+  assert.ok(!a.messages.some(m => m.t === 'knock_reply' && m.reply === 'later'), 'knock stays pending: B is free');
+  w.handle(b.u, { t: 'meeting_out', key }, b.socket); w.enterMeeting(b.u, key); // Go after leaving: in the meeting again, busy again
+  assert.equal(b.u.instance, 'inst1'); assert.equal(b.u.meeting, now + 30 * 60_000); assert.deepEqual(w.meetings.agendaOf(b.u).map(i => i.left), [undefined]);
+  w.handle(b.u, { t: 'meeting_out', key }, b.socket); // from inside the room: out of the room and not busy
+  assert.equal(b.u.instance, null); assert.equal(b.u.meeting, null);
+  tick(31 * 60_000); assert.equal(w.meetings['left'].get(b.u.id)?.has(key), false); // over: forgotten
 });
