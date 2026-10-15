@@ -170,6 +170,11 @@ obj('lamp', 14, 10, 1, 1, LAMP);
 
 obj('radio', 13, 14, 1, 1, { sound: { clip: 'radio', gain: 0.8 }, use: { kind: 'toggle', label: 'radio' }, on: true });
 
+// wall calendars: click to see your own Google Calendar (after the radio, same reason)
+const CALENDAR = { wall: true, use: { kind: 'calendar', label: 'calendar' } };
+obj('calendar', 34, 1, 1, 1, CALENDAR); // Coffee, between the windows
+obj('calendar', 22, 12, 1, 1, CALENDAR); // Co-working
+
 // ---- walkable mask ----
 const walkable = grid(1);
 for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (walls[y][x]) walkable[y][x] = 0;
