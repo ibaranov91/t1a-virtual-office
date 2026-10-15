@@ -7,6 +7,7 @@ import type { ClientMsg, Knock, Look, Presence, PublicUser, ServerMsg } from '..
 
 export interface User extends PublicUser {
   path: Tile[] | null; // path of the current move (server-side bookkeeping)
+  email?: string;       // identity from NetBird; never broadcast
 }
 
 const SKINS = ['#f8dcc0', '#f2c79b', '#e2ad7f', '#c98d5e', '#a46a43', '#7c4f32'];
@@ -40,7 +41,7 @@ export class World {
     return { t: 'state', serverTime: Date.now(), users: [...this.users.values()].map(this.toPublic) };
   }
   private toPublic = (u: User): PublicUser => {
-    const { path: _p, ...pub } = u;
+    const { path: _p, email: _e, ...pub } = u;
     return pub;
   };
 
@@ -61,8 +62,9 @@ export class World {
   }
 
   // ---------- users ----------
-  addUser(name: string, bot = false, tile?: Tile): User {
+  addUser(name: string, bot = false, tile?: Tile, email?: string): User {
     const u: User = {
+      email,
       id: randomUUID().slice(0, 8), name, look: lookFor(name), tile: tile ?? { ...this.map.spawn }, dir: 'down',
       move: null, path: null, presence: bot ? 'online' : 'offline', status: '', emote: null, bot,
     };
@@ -70,6 +72,7 @@ export class World {
     this.broadcast(this.snapshot());
     return u;
   }
+  findByEmail(email: string) { return [...this.users.values()].find(u => u.email === email.toLowerCase()); }
   findByName(name: string) { return [...this.users.values()].find(u => u.name.toLowerCase() === name.toLowerCase()); }
 
   /** Where the user is right now (tile they occupy / are entering) and where they're going. */
@@ -206,7 +209,7 @@ export class World {
     return {
       users: [...this.users.values()].map(u => {
         const p = this.position(u).dest;
-        return { id: u.id, name: u.name, look: u.look, tile: p, dir: u.dir, status: u.status, presence: u.presence, bot: u.bot };
+        return { id: u.id, name: u.name, email: u.email, look: u.look, tile: p, dir: u.dir, status: u.status, presence: u.presence, bot: u.bot };
       }),
     };
   }

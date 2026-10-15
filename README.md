@@ -26,3 +26,8 @@ Open http://localhost:5173, enter any name, token `deck` (override with `DECK_TO
 3. Knock flow (walk over, "!", Accept/Later toast, meeting link, Focus/Meeting rules): done
 4. Polish: day/night tint, lamp glow, coffee steam, idle bob, bubble pop, and a small-window layout are in. More props are still open.
 5. Mac wrapper (Tauri): not started. Needs a Rust toolchain.
+
+## Deploy
+`scripts/deploy.sh` builds the client, rsyncs to `Hetzner2-vOffice:/opt/the-deck`, runs `npm ci`, and restarts the `the-deck` systemd service. The server listens on `10.200.142.211:8080` behind the reverse proxy at https://voffice.t1a.io and serves `client/dist` itself.
+Config is in `/etc/the-deck.env` (`DECK_TOKEN`, `DECK_PORT`, `DECK_HOST`, `BOTS`). The team token is generated on the first deploy; read it with `ssh Hetzner2-vOffice sudo cat /etc/the-deck.env`.
+Logs: `ssh Hetzner2-vOffice journalctl -u the-deck -f`.

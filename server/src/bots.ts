@@ -18,9 +18,12 @@ const pickWeighted = <T>(xs: T[], w: (x: T) => number) => {
   return xs[xs.length - 1];
 };
 
-export function startBots(world: World) {
+export function startBots(world: World, count = 4) {
   const map = world.map;
-  for (const name of NAMES) {
+  const names = NAMES.slice(0, Math.max(0, Math.min(NAMES.length, count)));
+  // drop persisted bots beyond the configured count
+  for (const u of [...world.users.values()]) if (u.bot && !names.includes(u.name)) world.users.delete(u.id);
+  for (const name of names) {
     if (world.findByName(name)) continue;
     const u = world.addUser(name, true);
     const room = pick(map.rooms);

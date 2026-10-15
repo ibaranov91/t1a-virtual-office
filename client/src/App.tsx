@@ -7,32 +7,70 @@ const SESSION_KEY = 'deck.session';
 
 export default function App() {
   const [session, setSession] = useState(() => { try { return localStorage.getItem(SESSION_KEY); } catch { return null; } });
-  const logout = () => { try { localStorage.removeItem(SESSION_KEY); } catch { /* ignore */ } setSession(null); };
+  const logout = () => {
+    if (session) fetch(`/api/logout?session=${encodeURIComponent(session)}`, { method: 'POST' }).catch(() => {});
+    try { localStorage.removeItem(SESSION_KEY); } catch { /* ignore */ }
+    setSession(null);
+  };
   if (!session) return <Login onLogin={(s) => { try { localStorage.setItem(SESSION_KEY, s); } catch { /* ignore */ } setSession(s); }} />;
   return <Office key={session} session={session} onLogout={logout} />;
 }
 
+type Config = { netbird: boolean; tokenLogin: boolean };
+
 function Login({ onLogin }: { onLogin: (s: string) => void }) {
+  const [config, setConfig] = useState<Config | null>(null);
+  const [nb, setNb] = useState<{ email: string; name: string } | null>(null);
   const [name, setName] = useState('');
-  const [token, setToken] = useState('deck');
+  const [token, setToken] = useState(import.meta.env.DEV ? 'deck' : '');
   const [err, setErr] = useState('');
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault(); setErr('');
-    const r = await fetch('/api/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name, token }) });
-    const j = await r.json().catch(() => ({}));
-    if (!r.ok) return setErr(j.error ?? 'login failed');
-    onLogin(j.session);
+  const [busy, setBusy] = useState(false);
+
+  // step 1: who does NetBird say we are? (no sign-in yet, so logging out doesn't bounce straight back in)
+  useEffect(() => {
+    fetch('/api/config').then(r => r.json()).then(async (c: Config) => {
+      setConfig(c);
+      if (c.netbird) {
+        const r = await fetch('/api/auth/netbird');
+        if (r.ok) setNb(await r.json());
+      }
+    }).catch(() => setErr('Server unreachable'));
+  }, []);
+
+  const post = async (url: string, body?: unknown) => {
+    setErr(''); setBusy(true);
+    try {
+      const r = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) return setErr(j.error ?? 'login failed');
+      onLogin(j.session);
+    } finally { setBusy(false); }
   };
+
   return (
     <div className="login">
-      <form onSubmit={submit} className="panel">
+      <div className="panel">
         <h1>The Deck</h1>
         <p className="muted">T1A virtual office</p>
-        <label>Your name<input autoFocus value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Ivan" /></label>
-        <label>Team token<input value={token} onChange={e => setToken(e.target.value)} type="password" /></label>
+        {!config && !err && <p className="muted">Knocking…</p>}
+        {config?.netbird && nb && (
+          <button className="netbird" autoFocus disabled={busy} onClick={() => post('/api/auth/netbird')}>
+            Continue as {nb.name}<small>{nb.email}</small>
+          </button>
+        )}
+        {config?.netbird && !nb && (
+          <p className="muted">Sign-in uses NetBird. Open <b>voffice.t1a.io</b> while connected to NetBird.</p>
+        )}
+        {config?.tokenLogin && (
+          <form onSubmit={e => { e.preventDefault(); post('/api/login', { name, token }); }} className="token-form">
+            {config.netbird && <p className="or">or with the team token</p>}
+            <label>Your name<input autoFocus={!nb} value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Ivan" /></label>
+            <label>Team token<input value={token} onChange={e => setToken(e.target.value)} type="password" /></label>
+            <button disabled={!name.trim() || busy}>Walk in</button>
+          </form>
+        )}
         {err && <p className="err">{err}</p>}
-        <button disabled={!name.trim()}>Walk in</button>
-      </form>
+      </div>
     </div>
   );
 }
