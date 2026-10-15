@@ -46,6 +46,20 @@ export const toiletFull = (s?: ToiletState) => !!s && s.fill >= TOILET_FULL;
 /** A toggle object's shared state. */
 export interface ObjectState { on: boolean }
 
+/** The reading room: article links on the library shelf, grouped by topic. Server-owned, saved in state.json. */
+export const LIBRARY_TOPICS = ['Engineering', 'Data', 'Product', 'Design', 'Fun'] as const;
+export type LibraryTopic = typeof LIBRARY_TOPICS[number];
+export const LIBRARY_TITLE_MAX = 120;
+export const LIBRARY_URL_MAX = 500;
+export const LIBRARY_MAX_ARTICLES = 200;
+export const LIBRARY_WEEK_MS = 7 * 86_400_000;
+export interface Article { id: string; url: string; title: string; topic: LibraryTopic; by: string; at: number }
+/** One finished (or ongoing) read, kept for the log. */
+export interface LibraryRead { userId: string; articleId: string; at: number; done: boolean }
+/** What everyone sees of the library: the shelf and the read log (reads that finished, plus who is reading now). */
+export interface LibraryState { articles: Article[]; reads: LibraryRead[] }
+export const BOOK_ITEM = 'book'; // what you carry from the shelf to the reading desk
+
 export type Presence = 'online' | 'away' | 'in_call' | 'offline';
 export type Emote = 'knock' | null;
 /** Coming and going through the exit door: arrive bag in hand; when disconnected, think for a moment
@@ -95,11 +109,15 @@ export const plantDead = (p: Plant, now: number) => dayNumber(now) - p.care >= P
  *  soon: announced but not earnable yet. */
 export interface Achievement { id: string; icon: string; title: string; how: string; goal?: number; soon?: boolean; secret?: string }
 export const BOTANIST_KINDS = 3;
+export const BOOKWORM_READS = 10;
+export const EDITOR_READERS = 5;
 export const ACHIEVEMENTS: Achievement[] = [
   { id: 'tended', icon: '💧', title: 'Green fingers', how: 'Set a status on a new day. Each day you do, your plant grows one stage.' },
   { id: 'bloom', icon: '🌸', title: 'In bloom', how: `Grow your plant all the way: set a status on ${PLANT_STAGES.length - 1} more days, never ${PLANT_DIES_DAYS} days apart.` },
   { id: 'botanist', icon: '🌻', title: 'Botanist', how: `Bloom ${BOTANIST_KINDS} different flowers. A plant that withers is replanted as a new, random one.`, goal: BOTANIST_KINDS },
   { id: 'escape', icon: '🗝️', title: 'Escape artist', how: 'Found the way out of the place under the garden.', secret: 'Something about a corner of the garden isn\'t quite right.' },
+  { id: 'bookworm', icon: '📚', title: 'Bookworm', how: `Finish reading ${BOOKWORM_READS} articles from the library.`, goal: BOOKWORM_READS },
+  { id: 'editor', icon: '📰', title: 'Editor', how: `Publish an article that ${EDITOR_READERS} different people read.`, goal: EDITOR_READERS },
   { id: 'event', icon: '🎉', title: 'Party person', how: 'Be in the office during an office event.', soon: true },
 ];
 
@@ -121,6 +139,7 @@ export interface PublicUser {
   muted: boolean;        // mic muted in that call
   following: string | null; // walks along with this person
   holding: string | null;   // a UseItem id (coffee, snack…) in hand for a while
+  reading: string | null;   // library article id they're reading at a reading desk; knocks go to Later
   meeting: number | null;   // in a calendar meeting until then (ms); knocks go to Later
   instance: string | null;  // meeting room or dungeon: only people in the same instance see each other
   plant: Plant | null;      // on their home desk, or in the Orangery if they have none
@@ -234,6 +253,8 @@ export type ServerMsg =
   | { t: 'agenda'; items: AgendaItem[] } // my calendar meetings now and soon, only to me
   | { t: 'dungeon'; key: Tile | null; hasKey: boolean; event?: 'fell' | 'key' | 'locked' | 'opening' | 'escaped' | 'gave_up' }
   | { t: 'meeting'; userId: string; until: number | null }
+  | { t: 'reading'; userId: string; articleId: string | null }
+  | ({ t: 'library' } & LibraryState)
   | { t: 'instance'; userId: string; instance: string | null; tile: Tile; dir: Dir } // stepped into (or out of) a meeting room or the dungeon
   | { t: 'meetings'; rooms: MeetingRoomInfo[] } // running meeting rooms, for the board
   | { t: 'desk'; userId: string; desk: Tile | null }
@@ -283,6 +304,10 @@ export type ClientMsg =
   | { t: 'calendar'; from: string } // my events for a week from `from` (ISO, the start of my local day)
   | { t: 'meeting_go'; key: string } // one click: into that meeting's room
   | { t: 'dungeon_leave' }
+  | { t: 'article_add'; url: string; title: string; topic: string }
+  | { t: 'article_remove'; id: string }  // the author, or an office admin
+  | { t: 'read_start'; articleId: string }
+  | { t: 'read_done' }
   | { t: 'meeting_leave' }           // back to the office (still in the meeting: busy, knocks go to Later)
   | { t: 'meeting_out'; key: string } // leave the meeting for good: not busy any more, knocks come through again
   | { t: 'google_disconnect' }
