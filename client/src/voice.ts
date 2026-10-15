@@ -1,5 +1,5 @@
 import { AFK_MS, type RtcSignal } from '../../shared/protocol';
-import { audio, forgetMedia, needsGesture, playMedia, resume, setAudioDeafened } from './audio';
+import { audio, forgetMedia, playMedia, setAudioDeafened } from './audio';
 import { prefs, savePrefs, subscribePrefs } from './prefs';
 import type { ClientUser, Store } from './net';
 
@@ -58,8 +58,6 @@ export class Voice {
       this.sendRule(); this.store.changed();
     });
   }
-  get needsGesture() { return needsGesture(); }
-  resumeAudio() { void resume(); }
 
   // Used for creation, incoming signals, pruning and both UI counts.
   private eligible(u: ClientUser) {

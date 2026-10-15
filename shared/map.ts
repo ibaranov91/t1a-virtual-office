@@ -31,7 +31,7 @@ export type ObjectUse = { kind: 'take'; items: UseItem[] } | { kind: 'toggle'; l
   | { kind: 'link'; label: string; url: string }; // opens a page in a new tab (the safe: the vault)
 export interface MapObject {
   id: string; type: string; x: number; y: number; w: number; h: number;
-  sound?: { clip?: string; gain: number };
+  sound?: { gain: number };
   wall?: boolean; walkable?: boolean; light?: boolean; steam?: boolean; dir?: Dir;
   use?: ObjectUse; on?: boolean; // on: starting state of a toggle
   sit?: boolean; // a sofa: blocks walking, but every tile is a seat facing `dir`, reached from the tile in front

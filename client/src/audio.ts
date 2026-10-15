@@ -16,7 +16,7 @@ export function audio() {
   }
   return ctx;
 }
-export function output() {
+function output() {
   if (!master) {
     master = audio().createGain(); master.gain.value = deafened ? 0 : 1;
     master.connect(audio().destination);
