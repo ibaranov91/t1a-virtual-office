@@ -1110,6 +1110,12 @@ for (const open of [false, true]) {
     t.px(8, 3, '#f8e070'); t.hline(7, 4, 3, '#f8e070'); t.px(8, 5, '#f8e070'); t.px(7, 5, '#f8e070'); t.px(9, 5, '#f8e070');
     t.rect(1, 10, 14, 2, '#6a3a9a'); t.hline(2, 10, 12, '#e8b830');
   });
+  hat('bat', 16, 9, t => { // black cap with little ears and wing flaps, glowing eyes
+    t.rect(4, 3, 8, 5, '#2a2236'); t.hline(5, 2, 6, '#2a2236'); t.hline(5, 3, 6, '#3c3250');
+    t.vline(5, 0, 2, '#2a2236'); t.vline(10, 0, 2, '#2a2236'); t.px(6, 1, '#2a2236'); t.px(9, 1, '#2a2236');
+    t.hline(0, 5, 4, '#1e1828'); t.hline(1, 6, 3, '#1e1828'); t.px(0, 6, '#1e1828'); t.hline(12, 5, 4, '#1e1828'); t.hline(12, 6, 3, '#1e1828'); t.px(15, 6, '#1e1828');
+    t.px(6, 5, '#f0d060'); t.px(9, 5, '#f0d060');
+  });
   hat('admin', 16, 9, t => { // the sysadmin's dark cap with a green cursor: root@t1a
     t.rect(3, 2, 10, 5, '#2c3440'); t.hline(4, 2, 8, '#3e4858'); t.rect(2, 6, 13, 2, '#1e2630'); t.hline(3, 7, 11, '#141a22');
     t.px(6, 4, '#5af07a'); t.px(7, 4, '#5af07a'); t.px(8, 3, '#5af07a'); t.px(8, 5, '#5af07a'); t.hline(9, 5, 2, '#5af07a');
@@ -1249,6 +1255,11 @@ for (const open of [false, true]) {
     t.hline(5, 10, 6, '#6a5040'); t.px(4, 11, '#6a5040'); t.px(11, 11, '#6a5040');
     t.rect(11, 12, 4, 5, '#c8a070'); t.hline(12, 14, 2, '#6a6a7a'); t.hline(12, 15, 2, '#6a6a7a');
     frames[`ghost_${f}`] = t.outline('#8a90b8');
+  }
+  { // a little heart that floats up when a pet is petted
+    const t = new Img(7, 6), R = '#e8506a';
+    t.hline(1, 0, 2, R); t.hline(4, 0, 2, R); t.hline(0, 1, 7, R); t.hline(0, 2, 7, R); t.hline(1, 3, 5, R); t.hline(2, 4, 3, R); t.px(3, 5, R); t.px(1, 1, '#f8a0b0');
+    frames.heart = t.outline();
   }
   // cups on a table
   for (const [k, c] of [['coffee', '#5a3420'], ['tea', '#b88a3a']]) {

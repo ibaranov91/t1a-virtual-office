@@ -91,7 +91,7 @@ export class Engine {
   onPick?: (p: Pick | null) => void;
   private hoverTile: { x: number; y: number } | null = null;
   private hoverPlant: PlacedPlant | null = null;
-  private hoverCritter: { text: string; x: number; y: number } | null = null;
+  private hoverCritter: { text: string; x: number; y: number; id?: string } | null = null;
   private cupTile: Tile | null = null; // a table I can put my cup down on, under the pointer
   critters: CreatureLayer;
   private plants: PlacedPlant[] = [];
@@ -713,7 +713,7 @@ export class Engine {
     this.hoverTile = this.clickTarget({ x: tx, y: ty });
     this.hoverCritter = this.hoverUser || this.hoverObject || inside || this.areaDown ? null : this.critters.at(w.x, w.y, this.store.now());
     this.cupTile = this.hoverUser || this.hoverObject ? null : this.cupTarget({ x: tx, y: ty });
-    this.canvas.style.cursor = this.tapZooms ? 'zoom-in' : this.hoverUser || this.hoverObject || this.cupTile ? 'pointer' : this.hoverTile ? 'crosshair' : 'default';
+    this.canvas.style.cursor = this.tapZooms ? 'zoom-in' : this.hoverUser || this.hoverObject || this.cupTile || this.hoverCritter?.id ? 'pointer' : this.hoverTile ? 'crosshair' : 'default';
   };
   private onEditMove(w: { x: number; y: number }) {
     const tx = Math.floor(w.x / TS), ty = Math.floor(w.y / TS), d = this.editDrag;
@@ -754,6 +754,8 @@ export class Engine {
     const hit = this.userAt(w.x, w.y);
     if (hit) return this.onPick?.({ kind: 'user', id: hit });
     const inside = this.myInstance();
+    const critter = inside || this.areaDown ? null : this.critters.at(w.x, w.y, this.store.now());
+    if (critter?.id) { this.onPick?.(null); this.manualCam = false; return this.store.pet(critter.id); }
     const obj = inside ? null : this.objectAt(w.x, w.y);
     if (obj?.sit) { this.onPick?.(null); this.manualCam = false; return this.store.moveTo(this.freeSeat(obj, Math.floor(w.x / TS))); }
     if (obj?.sound && obj.use?.kind !== 'jukebox') return this.onPick?.(null);

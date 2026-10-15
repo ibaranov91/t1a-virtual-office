@@ -9,12 +9,12 @@ import {
   type ChatMsg, type ClientMsg, type Door, type Effect, type Knock, type LayoutEdit, type Look, type Presence, type PublicUser, type Reaction, type ServerMsg,
 } from '../../shared/protocol';
 import { INSTRUMENTS, validNote } from '../../shared/instruments';
-import { ADMIN_HAT, EFFECTS, HAT_NAMES, JUDGE_HAT, MAX_EFFECTS, hatItem, hatOf, walkMs } from '../../shared/effects';
+import { ADMIN_HAT, BAT_HAT, EFFECTS, HAT_NAMES, JUDGE_HAT, MAX_EFFECTS, hatItem, hatOf, walkMs } from '../../shared/effects';
 import { TRACKS } from '../../shared/music';
 import { Arcade } from './arcade';
 import { Jukebox } from './jukebox';
 import { Meetings } from './meetings';
-import { Creatures } from './creatures';
+import { BAT_COOLDOWN_MS, Creatures } from './creatures';
 import type { Presenter } from './presentation';
 import { Toilets } from './toilets';
 import { authUrl, CALENDAR_SCOPE, createSpace, forgetAccess, googleEnabled, listEvents, revoke, type GoogleLink } from './google';
@@ -111,7 +111,10 @@ export class World {
     broadcast: msg => this.broadcast(msg), user: id => this.users.get(id) });
 
   creatures = new Creatures({ map: () => this.map, broadcast: msg => this.broadcast(msg),
-    people: () => [...this.users.values()].filter(u => u.presence !== 'offline' && !u.instance).map(u => this.position(u).dest) });
+    people: () => [...this.users.values()].filter(u => u.presence !== 'offline' && !u.instance).map(u => this.position(u).dest),
+    personTile: id => { const p = this.users.get(id); return p && p.presence !== 'offline' && !p.instance ? this.position(p).dest : null; } });
+  private petDays = new Map<string, { day: number; kinds: Set<string> }>(); // who has petted what today (memory only)
+  private batTries = new Map<string, number>();                             // last try at the bat, per person
   build?: string; // sent in hello so open pages reload after a deploy
   private baseLayout: Layout;     // as generated, for Reset
   private layoutEdited = false;   // saved only once someone has changed it
@@ -579,6 +582,51 @@ export class World {
       if (typeof cup === 'string') this.sendTo(u.id, { t: 'notice', text: cup });
       else this.setHolding(u, null);
     }, Math.max(0, at - Date.now()) + 300));
+  }
+  // ---------- petting the cat and dog, catching the bat ----------
+  /** Click on a creature: walk up to it (one tile away is enough), then pet it, or try to catch the bat while it hangs. */
+  petCreature(u: User, creatureId: string) {
+    const c = this.creatures.list.get(creatureId);
+    if (!c || (c.kind !== 'cat' && c.kind !== 'dog' && c.kind !== 'bat') || u.presence === 'offline' || u.instance || goingOut(u)) return;
+    if (c.kind === 'bat' && c.pose !== 'hang') return;
+    const near = (t: Tile) => Math.max(Math.abs(t.x - c.tile.x), Math.abs(t.y - c.tile.y)) <= 1;
+    const here = this.position(u).next;
+    if (near(here)) { this.cancelSeatWalk(u.id); return this.touchCreature(u, c.id); }
+    const occ = this.occupied();
+    const spots = this.creatures.beside(c.tile).filter(s => !occ.has(`${s.x},${s.y}`))
+      .map(s => ({ s, len: findPath(this.map, here, s).length })).filter(p => p.len);
+    spots.sort((a, b) => a.len - b.len);
+    const spot = spots[0]?.s;
+    if (!spot) return;
+    this.cancelSeatWalk(u.id); this.setFollowing(u, null);
+    clearTimeout(this.errands.get(u.id));
+    const at = this.walk(u, spot, dirBetween(spot, c.tile)) ?? Date.now();
+    this.errands.set(u.id, setTimeout(() => {
+      this.errands.delete(u.id);
+      const d = this.position(u).dest;
+      if (d.x !== spot.x || d.y !== spot.y || u.instance) return; // changed their mind
+      this.touchCreature(u, creatureId);
+    }, Math.max(0, at - Date.now()) + 200));
+  }
+  private touchCreature(u: User, id: string) {
+    const c = this.creatures.list.get(id), now = Date.now();
+    if (!c || Math.max(Math.abs(this.position(u).dest.x - c.tile.x), Math.abs(this.position(u).dest.y - c.tile.y)) > 1) return;
+    if (c.kind === 'bat') {
+      if (now - (this.batTries.get(u.id) ?? 0) < BAT_COOLDOWN_MS) return;
+      this.batTries.set(u.id, now);
+      const r = this.creatures.tryBat(now);
+      if (r === 'caught') {
+        if (!this.hasItem(u, hatItem(BAT_HAT))) this.addItem(u, hatItem(BAT_HAT));
+        this.award(u, 'batcatcher', now); this.plantChanged(u);
+        this.broadcast({ t: 'notice', text: `${u.name} caught the bat 🦇` });
+      } else if (r === 'missed') this.sendTo(u.id, { t: 'notice', text: 'It slipped away! 🦇' });
+      return;
+    }
+    if (c.pose === 'pet') return;
+    this.creatures.petBy(c, u.id, now);
+    const day = dayNumber(now), seen = this.petDays.get(u.id)?.day === day ? this.petDays.get(u.id)! : { day, kinds: new Set<string>() };
+    seen.kinds.add(c.kind); this.petDays.set(u.id, seen);
+    if (seen.kinds.has('cat') && seen.kinds.has('dog') && !u.achievements.whisperer) { this.award(u, 'whisperer', now); this.plantChanged(u); }
   }
   // ---------- Berghain's toilets ----------
   /** Walk to the stall's door; there, go in or join the line. */
@@ -1474,6 +1522,8 @@ export class World {
       }
       case 'use': this.use(u, String(msg.objectId), msg.item === undefined ? undefined : String(msg.item)); break;
       case 'drop': if (u.holding) this.setHolding(u, null); break;
+      case 'pet': this.petCreature(u, String(msg.creatureId)); break;
+      case 'dev_bat': if (this.creatures.batAlways) { this.creatures.batBackAt = 0; this.creatures.wantBat(Date.now()); } break;
       case 'cup_put': if (msg.tile) this.putCup(u, { x: msg.tile.x | 0, y: msg.tile.y | 0 }); break;
       case 'give': { const to = this.users.get(String(msg.targetId)); if (to) this.give(u, to); break; }
       case 'present_slide': this.present?.slide(u.id, msg.slide); break;

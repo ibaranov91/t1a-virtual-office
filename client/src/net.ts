@@ -4,7 +4,7 @@ import { applyLayout, besideObject, doorwayTiles, isWalkable, pathTo, roomAt, sa
 import { ACHIEVEMENTS, underground, DUNGEON_INSTANCE, PLANT_STAGES, plantName, ROOM_VOICE_MAX, type JukeboxState, type JukeboxAction, type AgendaItem, type LayoutEdit, type CalEvent, type MeetingRoomInfo, type ChatMsg, type LiveDeck, type ObjectState, type ToiletState, type ClientMsg, type PublicUser, type Reaction, type RtcSignal, type ServerMsg, type Creature, type Cup, CUP_ITEMS } from '../../shared/protocol';
 import { ParkLoop } from './park/loop';
 import type { CabinetSummary, ParkRecords } from '../../shared/protocol';
-import { playPark, playHand, playKnock, playPop, playDungeon } from './sounds';
+import { playPark, playHand, playKnock, playPop, playDungeon, playPet } from './sounds';
 import type { Soundscape } from './soundscape';
 
 export const MAP = mapJson as unknown as TileMap;
@@ -200,6 +200,8 @@ export class Store {
   sniffLine(objectId: string) { this.send({ t: 'toilet_sniff', objectId }); }
   drop() { this.send({ t: 'drop' }); }
   putCup(tile: Tile) { this.send({ t: 'cup_put', tile }); }
+  pet(creatureId: string) { this.send({ t: 'pet', creatureId }); }
+  devBat() { this.send({ t: 'dev_bat' }); }
   give(targetId: string) { this.send({ t: 'give', targetId }); }
   openChat(withId: string) {
     this.chatWith = withId; this.unread.delete(withId);
@@ -464,7 +466,11 @@ export class Store {
         break;
       }
       case 'creatures': this.creatures = new Map(msg.creatures.map(c => [c.id, c])); break;
-      case 'creature': this.creatures.set(msg.creature.id, msg.creature); break;
+      case 'creature': {
+        const was = this.creatures.get(msg.creature.id), me = this.users.get(this.me), c = msg.creature;
+        if (c.pose === 'pet' && was?.pose !== 'pet' && me && Math.hypot(me.tile.x - c.tile.x, me.tile.y - c.tile.y) < 8) playPet(c.kind === 'dog');
+        this.creatures.set(c.id, c); break;
+      }
       case 'cups': this.cups = msg.cups; break;
       case 'instrument': this.setInstruments({ ...this.instruments, [msg.id]: msg.player }); break;
       case 'seat': this.seat = msg.id; break;
