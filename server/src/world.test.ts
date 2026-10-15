@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { World, type User } from './world';
 import { findPath, doorwayTiles, pathDuration, reindexMap, roomAt, sampleMove, seatAt, voiceRooms, WALK_MS_PER_TILE, type TileMap, type Tile } from '../../shared/map';
-import { PLANT_DIES_DAYS, PLANT_STAGES, plantDead, ROOM_VOICE_MAX, type ServerMsg } from '../../shared/protocol';
+import { TRACKS } from '../../shared/music';
+import { PLANT_DIES_DAYS, PLANT_STAGES, plantDead, ROOM_VOICE_MAX, type ClientMsg, type ServerMsg } from '../../shared/protocol';
 const map: TileMap = JSON.parse(readFileSync(new URL('../../shared/tilemap.json', import.meta.url), 'utf8'));
 const coffee = map.rooms.find(r => r.id === 'coffee')!;
 const memberTile = (m: TileMap, t: Tile, r = coffee) => roomAt(m, t.x, t.y)?.id === r.id || doorwayTiles(m, r).some(g => g.some(p => p.x === t.x && p.y === t.y));
@@ -268,12 +269,76 @@ test('room calls have no two-hour expiry; disconnect retains grace then leaves',
   const { w, add, join, tick } = setup(t), a = add('A'); join(a.u); tick(2 * 60 * 60_000 + 1); assert.equal(a.u.callId, 'room:coffee');
   a.close(); tick(4999); assert.equal(a.u.callId, 'room:coffee'); tick(1); assert.equal(a.u.callId, null); assert.equal(w['calls'].has('room:coffee'), false);
 });
-test('radio is always on without a shared knob; lamp toggles still broadcast and persist', t => {
+const jukebox = map.objects.find(o => o.use?.kind === 'jukebox')!;
+const stateOf = (w: World) => (w.snapshot() as Extract<ServerMsg, { t: 'state' }>).jukebox![jukebox.id];
+test('jukebox snapshot, actions, private refusals, broadcasts and tick', t => {
+  const { w, add, tick } = setup(t), a = add('A', { x: 56, y: 17 }), b = add('B', { x: 57, y: 17 });
+  const before = stateOf(w); assert.ok(TRACKS.some(t => t.id === before.track));
+  const track = TRACKS.find(t => t.id !== before.track)!;
+  a.messages.length = 0; b.messages.length = 0;
+  w.handle(a.u, { t: 'jukebox', objectId: jukebox.id, action: 'queue', track: track.id }, a.socket);
+  assert.equal(stateOf(w).queue[0].by, a.u.id);
+  for (const person of [a, b]) assert.ok(person.messages.some(m => m.t === 'jukebox' && m.id === jukebox.id));
+  a.messages.length = 0; b.messages.length = 0;
+  w.handle(a.u, { t: 'jukebox', objectId: jukebox.id, action: 'queue', track: track.id }, a.socket);
+  assert.deepEqual(a.messages, [{ t: 'notice', text: 'Already in the queue' }]); assert.equal(b.messages.length, 0);
+  tick(TRACKS.find(t => t.id === before.track)!.duration + 250);
+  assert.equal(stateOf(w).track, track.id); assert.equal(stateOf(w).by, a.u.id);
+  assert.ok(b.messages.some(m => m.t === 'jukebox' && m.state.track === track.id));
+});
+test('jukebox requires a human online in its room, with no meeting instance or outgoing door', t => {
+  const { w, add } = setup(t), a = add('A', { x: 56, y: 17 }), b = add('B');
+  const before = structuredClone(stateOf(w)), original = { ...a.u };
+  for (const patch of [{ tile: { x: 52, y: 17 } }, { bot: true }, { instance: 'meeting' }, { presence: 'offline' as const }, { door: 'thinking' as const }, { door: 'leaving' as const }]) {
+    Object.assign(a.u, original, patch); a.messages.length = 0; b.messages.length = 0;
+    w.handle(a.u, { t: 'jukebox', objectId: jukebox.id, action: 'pause', playId: before.playId }, a.socket);
+    assert.deepEqual(stateOf(w), before); assert.deepEqual(a.messages, [{ t: 'notice', text: 'Walk into Music to pick music' }]); assert.equal(b.messages.length, 0);
+  }
+});
+test('jukebox authorizes the shown mid-walk tile when entering and exiting', t => {
+  const { w, add, settle } = setup(t), a = add('A', { x: 54, y: 17 });
+  const start = Date.now(); w.walk(a.u, { x: 53, y: 17 });
+  const playId = stateOf(w).playId;
+  t.mock.timers.setTime(start + 124);
+  w.handle(a.u, { t: 'jukebox', objectId: jukebox.id, action: 'pause', playId }, a.socket);
+  assert.notEqual(stateOf(w).pausedAt, null);
+  t.mock.timers.setTime(start + 126); a.messages.length = 0;
+  w.handle(a.u, { t: 'jukebox', objectId: jukebox.id, action: 'play', playId }, a.socket);
+  assert.notEqual(stateOf(w).pausedAt, null); assert.equal(a.messages.at(-1)?.t, 'notice');
+  t.mock.timers.setTime(start + 524);
+  settle(a.u, { x: 53, y: 17 }); w.walk(a.u, { x: 55, y: 17 });
+  const entry = Date.now(); t.mock.timers.setTime(entry + 124); a.messages.length = 0;
+  w.handle(a.u, { t: 'jukebox', objectId: jukebox.id, action: 'play', playId }, a.socket); assert.equal(a.messages.at(-1)?.t, 'notice');
+  t.mock.timers.setTime(entry + 126);
+  w.handle(a.u, { t: 'jukebox', objectId: jukebox.id, action: 'play', playId }, a.socket); assert.equal(stateOf(w).pausedAt, null);
+});
+test('unknown objects and malformed jukebox messages are silently ignored; use does not walk', t => {
+  const { w, add } = setup(t), a = add('A', { x: 56, y: 17 });
+  const before = structuredClone(stateOf(w)); a.messages.length = 0;
+  const base = { t: 'jukebox', objectId: jukebox.id };
+  for (const msg of [
+    { ...base, action: 'pause', playId: before.playId, objectId: 'missing' },
+    { ...base, action: 'pause', playId: before.playId, objectId: map.objects.find(o => o.use?.kind === 'toggle')!.id },
+    { ...base, action: 'queue', track: 1 }, { ...base, action: 'unqueue', entry: null },
+    ...['pause', 'play', 'skip'].map(action => ({ ...base, action, playId: {} })),
+    { ...base, action: 'bad' }, { ...base, action: 'queue' }, { ...base, objectId: 1, action: 'skip', playId: before.playId },
+  ]) w.handle(a.u, msg as ClientMsg, a.socket);
+  assert.deepEqual(stateOf(w), before); assert.deepEqual(a.messages, []);
+  w.use(a.u, jukebox.id); assert.equal(a.u.move, null);
+});
+test('jukebox dump/load preserves state, ignores removed objects and loads old saves', t => {
+  const { w, add } = setup(t), a = add('A', { x: 56, y: 17 });
+  w.handle(a.u, { t: 'jukebox', objectId: jukebox.id, action: 'pause', playId: stateOf(w).playId }, a.socket);
+  const saved = w.dump(); saved.jukebox.removed = saved.jukebox[jukebox.id];
+  const restored = new World(map); restored.load(saved);
+  assert.deepEqual(stateOf(restored), stateOf(w)); assert.deepEqual(Object.keys(restored.dump().jukebox), [jukebox.id]);
+  const old = { ...saved }; delete (old as Partial<typeof saved>).jukebox;
+  restored.load(old); assert.ok(stateOf(restored).track);
+});
+test('lamp toggles still broadcast and persist', t => {
   const { w, add, tick } = setup(t), a = add('A', { x: 7, y: 17 });
-  const radio = map.objects.find(o => o.sound)!, lamp = map.objects.find(o => o.use?.kind === 'toggle')!;
-  assert.equal(radio.use, undefined); assert.equal(radio.on, undefined);
-  w.use(a.u, radio.id); assert.equal(a.u.move, null);
-  const before = w.snapshot() as Extract<ServerMsg, { t: 'state' }>; assert.equal(radio.id in before.objects, false);
+  const lamp = map.objects.find(o => o.use?.kind === 'toggle')!;
+  const before = w.snapshot() as Extract<ServerMsg, { t: 'state' }>;
   w.use(a.u, lamp.id); tick(20000);
   const changed = a.messages.find(m => m.t === 'object' && m.id === lamp.id); assert.ok(changed); assert.equal('volume' in changed, false);
   const saved = w.dump(); assert.equal('objectVolumes' in saved, false);
@@ -342,6 +407,22 @@ test('leaving a meeting for good clears busy and lets knocks through; Go puts yo
   tick(31 * 60_000); assert.equal(w.meetings['left'].get(b.u.id)?.has(key), false); // over: forgotten
 });
 
+test('jukebox playback controls throttle only accepted controls for 400 ms', t => {
+  const { w, add, tick } = setup(t), a = add('A', { x: 56, y: 17 }), b = add('B', { x: 57, y: 17 });
+  const skip = (playId = stateOf(w).playId) => w.handle(a.u, { t: 'jukebox', objectId: jukebox.id, action: 'skip', playId }, a.socket);
+  const before = structuredClone(stateOf(w));
+  skip('stale'); skip();
+  const first = structuredClone(stateOf(w));
+  assert.notEqual(first.track, before.track); assert.notEqual(first.playId, before.playId);
+  tick(100); a.messages.length = 0; b.messages.length = 0;
+  skip();
+  assert.deepEqual(stateOf(w), first); assert.deepEqual(a.messages, []); assert.deepEqual(b.messages, []);
+  const track = TRACKS.find(t => t.id !== first.track)!;
+  w.handle(a.u, { t: 'jukebox', objectId: jukebox.id, action: 'queue', track: track.id }, a.socket);
+  assert.equal(stateOf(w).queue[0].track, track.id);
+  tick(500); skip();
+  assert.equal(stateOf(w).track, track.id); assert.notEqual(stateOf(w).playId, first.playId);
+});
 test('own move falls only on arrival and sends the key privately', t => {
   const { w, add, tick } = setup(t), a = add('Explorer', { x: 63, y: 26 }), other = add('Observer');
   w.handle(a.u, { t: 'move', to: { x: 63, y: 25 } }, a.socket);

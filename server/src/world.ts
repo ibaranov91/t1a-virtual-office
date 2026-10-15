@@ -8,6 +8,8 @@ import {
   dayNumber, plantDead, BOTANIST_KINDS, PLANT_KINDS, PLANT_STAGES, type Plant,
   type ChatMsg, type ClientMsg, type Door, type Knock, type LayoutEdit, type Look, type Presence, type PublicUser, type Reaction, type ServerMsg,
 } from '../../shared/protocol';
+import { TRACKS } from '../../shared/music';
+import { Jukebox } from './jukebox';
 import { Meetings } from './meetings';
 import { authUrl, CALENDAR_SCOPE, createSpace, forgetAccess, googleEnabled, listEvents, revoke, type GoogleLink } from './google';
 
@@ -76,8 +78,10 @@ export class World {
   private callTimers = new Map<string, NodeJS.Timeout>(); // per member: when they hang up
   private holdTimers = new Map<string, NodeJS.Timeout>(); // per person: when the coffee's finished
   private errands = new Map<string, NodeJS.Timeout>();    // per person: walking over to use an object
+  private jukeboxes = new Map<string, Jukebox>();
   private objectOn = new Map<string, boolean>();          // toggle objects (lamps)
   private chats = new Map<string, ChatMsg[]>();           // per pair of people, oldest first
+  private lastJukeboxControl = new Map<string, number>();
   private lastReact = new Map<string, number>();
   botHooks?: BotHooks;
 
@@ -88,7 +92,8 @@ export class World {
   constructor(public map: TileMap) {
     this.baseLayout = structuredClone({ objects: map.objects, rugs: map.rugs });
     for (const o of map.objects) if (o.use?.kind === 'toggle') this.objectOn.set(o.id, o.on ?? true);
-    setInterval(() => this.voiceTick(), 250).unref();
+    this.syncJukeboxes();
+    setInterval(() => { const now = Date.now(); this.voiceTick(now); this.jukeboxTick(now); }, 250).unref();
   }
 
   // ---------- transport ----------
@@ -100,7 +105,8 @@ export class World {
   sendTo(userId: string, msg: ServerMsg) { for (const s of this.sockets.get(userId)?.values() ?? []) s(msg); }
   snapshot(): ServerMsg {
     const objects = Object.fromEntries([...this.objectOn.keys()].map(id => [id, this.objectState(id)]));
-    return { t: 'state', serverTime: Date.now(), users: [...this.users.values()].map(this.toPublic), objects };
+    return { t: 'state', serverTime: Date.now(), users: [...this.users.values()].map(this.toPublic), objects,
+      jukebox: Object.fromEntries([...this.jukeboxes].map(([id, j]) => [id, j.state])) };
   }
   private toPublic = (u: User): PublicUser => {
     const { path: _p, email: _e, meetLink: _m, google: _g, offlineAt: _o, lastSpot: _l, presenceBeforeCall: _b, prev: _v, afk: _a, returnTo: _r, walkSeq: _s, dungeon: _d, lastKeySpot: _k, dungeonTimers: _t, ...pub } = u;
@@ -310,11 +316,15 @@ export class World {
     if (spot) this.walk(f, spot, dirBetween(spot, to), now);
   }
 
+  jukeboxTick(now = Date.now()) {
+    for (const [id, j] of this.jukeboxes) if (j.advance(now)) this.broadcast({ t: 'jukebox', id, state: j.state });
+  }
+
   // ---------- objects ----------
   /** Walk over to an object and use it: take something from it, or flip it on/off. */
   use(u: User, objectId: string, itemId?: string) {
     const o = this.map.objects.find(o => o.id === objectId);
-    if (!o?.use || o.use.kind === 'calendar' || o.use.kind === 'meetings' || o.use.kind === 'achievements' || o.use.kind === 'link' || goingOut(u) || u.instance) return;
+    if (!o?.use || o.use.kind === 'calendar' || o.use.kind === 'meetings' || o.use.kind === 'achievements' || o.use.kind === 'link' || o.use.kind === 'jukebox' || goingOut(u) || u.instance) return;
     const item = o.use.kind === 'take' ? o.use.items.find(i => i.id === itemId) ?? o.use.items[0] : null;
     this.setFollowing(u, null);
     clearTimeout(this.errands.get(u.id));
@@ -791,7 +801,20 @@ export class World {
       if (have && !!have.wall === !!o.wall && have.w === o.w && have.h === o.h) { out.objects[i] = { ...structuredClone(o), id: have.id, x: have.x, y: have.y }; continue; }
       const next = { ...out, objects: [...out.objects.filter((_, j) => j !== i), structuredClone(o)] };
       const problem = layoutProblem(withLayout(this.map, next), false);
-      if (problem) console.warn(`${have ? 'reshaped' : 'new'} ${objectName(o.type)} not placed in the saved layout: ${problem}`);
+      let placed = !problem;
+      const room = roomAt(this.map, o.x, o.y);
+      if (problem && !o.wall && room) {
+        const positions: Tile[] = [], r = room.rect;
+        for (let y = r.y; y + o.h <= r.y + r.h; y++) for (let x = r.x; x + o.w <= r.x + r.w; x++) {
+          if (x !== o.x || y !== o.y) positions.push({ x, y });
+        }
+        positions.sort((a, b) => Math.abs(a.x - o.x) + Math.abs(a.y - o.y) - Math.abs(b.x - o.x) - Math.abs(b.y - o.y) || a.y - b.y || a.x - b.x);
+        for (const pos of positions) {
+          Object.assign(next.objects[next.objects.length - 1], pos);
+          if (!layoutProblem(withLayout(this.map, next), false)) { placed = true; break; }
+        }
+      }
+      if (!placed) console.warn(`${have ? 'reshaped' : 'new'} ${objectName(o.type)} not placed in the saved layout: ${problem}`);
       else out.objects = next.objects;
     }
     return out;
@@ -805,7 +828,7 @@ export class World {
     const chairAt = (t: Tile) => this.map.objects.find(o => o.type === 'chair' && o.x === t.x && o.y === t.y)?.id;
     const deskChairs = [...this.users.values()].filter(o => o.homeDesk).map(o => ({ o, id: chairAt(o.homeDesk!) }));
     applyLayout(this.map, next);
-    this.syncToggles();
+    this.syncToggles(); this.syncJukeboxes(true);
     this.layoutEdited = true;
     this.broadcast({ t: 'layout', layout: this.layout(), by: by.id, added });
     for (const { o, id } of deskChairs) {
@@ -817,6 +840,15 @@ export class World {
     return true;
   }
   /** Lamps added get switched on, lamps removed are forgotten. */
+  /** One Jukebox per jukebox on the floor; an admin moving it keeps what's playing. */
+  private syncJukeboxes(announce = false) {
+    const ids = new Set(this.map.objects.filter(o => o.use?.kind === 'jukebox').map(o => o.id));
+    for (const id of ids) if (!this.jukeboxes.has(id)) {
+      const j = new Jukebox(TRACKS, Date.now()); this.jukeboxes.set(id, j);
+      if (announce) this.broadcast({ t: 'jukebox', id, state: j.state });
+    }
+    for (const id of [...this.jukeboxes.keys()]) if (!ids.has(id)) this.jukeboxes.delete(id);
+  }
   private syncToggles() {
     for (const o of this.map.objects) if (o.use?.kind === 'toggle' && !this.objectOn.has(o.id)) this.objectOn.set(o.id, o.on ?? true);
     for (const id of this.objectOn.keys()) if (!this.map.objects.some(o => o.id === id)) this.objectOn.delete(id);
@@ -1051,6 +1083,28 @@ export class World {
       case 'react': { const to = this.users.get(String(msg.targetId)); if (to) this.react(u, to, String(msg.emoji)); break; }
       case 'chat': { const to = this.users.get(String(msg.toId)); if (to) this.chat(u, to, String(msg.text ?? '')); break; }
       case 'chat_history': this.chatHistory(u, String(msg.withId)); break;
+      case 'jukebox': {
+        if (typeof msg.objectId !== 'string') break;
+        switch (msg.action) {
+          case 'queue': if (typeof msg.track !== 'string') return; break;
+          case 'unqueue': if (typeof msg.entry !== 'string') return; break;
+          case 'pause': case 'play': case 'skip': if (typeof msg.playId !== 'string') return; break;
+          default: return;
+        }
+        const o = this.map.objects.find(o => o.id === msg.objectId && o.use?.kind === 'jukebox');
+        const j = o && this.jukeboxes.get(o.id); if (!o || !j) break;
+        const now = Date.now(), p = this.position(u, now).tile, room = roomAt(this.map, o.x, o.y);
+        if (u.bot || u.presence === 'offline' || goingOut(u) || u.instance || !room || roomAt(this.map, p.x, p.y)?.id !== room.id) {
+          this.sendTo(u.id, { t: 'notice', text: `Walk into ${room?.name ?? 'Music'} to pick music` }); break;
+        }
+        const control = msg.action === 'pause' || msg.action === 'play' || msg.action === 'skip';
+        if (control && now - (this.lastJukeboxControl.get(u.id) ?? -Infinity) < 400) break;
+        const last = j.state.last, result = j.act(u.id, msg, now);
+        if (control && j.state.last !== last && j.state.last?.by === u.id && j.state.last.at === now) this.lastJukeboxControl.set(u.id, now);
+        if (result.changed) this.broadcast({ t: 'jukebox', id: o.id, state: j.state });
+        if (result.notice) this.sendTo(u.id, { t: 'notice', text: result.notice });
+        break;
+      }
       case 'use': this.use(u, String(msg.objectId), msg.item === undefined ? undefined : String(msg.item)); break;
       case 'drop': if (u.holding) this.setHolding(u, null); break;
       case 'give': { const to = this.users.get(String(msg.targetId)); if (to) this.give(u, to); break; }
@@ -1064,11 +1118,14 @@ export class World {
         return { id: u.id, name: u.name, email: u.email, meetLink: u.meetLink, google: u.google, homeDesk: u.homeDesk, look: u.look, lookSet: u.lookSet, tile: underground(u) ? this.dungeonExit(false) : u.tile, dir: u.dir, status: u.status, presence: u.presence, bot: u.bot, plant: u.plant, bloomed: u.bloomed, achievements: u.achievements };
       }),
       objects: Object.fromEntries(this.objectOn),
+      jukebox: Object.fromEntries([...this.jukeboxes].map(([id, j]) => [id, j.dump()])),
       layout: this.layoutEdited ? this.layout() : undefined,
       chats: Object.fromEntries(this.chats),
     };
   }
   load(data: ReturnType<World['dump']>) {
+    // saved in the radio days: the radio goes (withNewFixtures then brings in the jukebox)
+    if (data.layout) data.layout = { ...data.layout, objects: data.layout.objects.filter(o => o.type !== 'radio') };
     if (data.layout) { // an admin rearranged the office; if it no longer fits the generated floor, start over from that
       const covers = (o: { x: number; y: number; w: number; h: number }) => this.map.dungeon &&
         [this.map.dungeon.hole, this.map.dungeon.hatch].some(t => t.x >= o.x && t.x < o.x + o.w && t.y >= o.y && t.y < o.y + o.h);
@@ -1085,7 +1142,7 @@ export class World {
       if (problem) console.warn(`saved layout dropped: ${problem}`);
       else {
         applyLayout(this.map, layout); this.layoutEdited = true;
-        this.syncToggles();
+        this.syncToggles(); this.syncJukeboxes();
         if (this.map.dungeon) for (const k of ['hole', 'hatch'] as const)
           if (!findPath(this.map, this.map.spawn, this.map.dungeon[k]).length) console.warn(`saved layout blocks the ${k}; keeping layout`);
       }
@@ -1097,6 +1154,8 @@ export class World {
       this.users.set(d.id, { ...d, look, lookSet: d.lookSet ?? false, homeDesk: d.homeDesk ?? null, plant: d.plant ?? null, bloomed: d.bloomed ?? [], achievements: d.achievements ?? {}, tile, move: null, path: null, emote: null, door: null, callId: null, deafened: false, hand: false, muted: false, following: null, holding: null, meeting: null, instance: null, presence: d.bot ? d.presence : 'offline' });
     }
     for (const [id, on] of Object.entries(data.objects ?? {})) if (this.objectOn.has(id)) this.objectOn.set(id, !!on);
+    const now = Date.now();
+    for (const [id, saved] of Object.entries(data.jukebox ?? {})) if (this.jukeboxes.has(id)) this.jukeboxes.set(id, Jukebox.load(TRACKS, saved, now));
     for (const [key, msgs] of Object.entries(data.chats ?? {})) this.chats.set(key, msgs);
   }
 }

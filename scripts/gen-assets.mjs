@@ -349,12 +349,20 @@ const counterSeg = (t, y0) => {
 }
 
 {
-  const t = new Img(16, 16); // retro radio
-  t.rect(2, 6, 12, 8, W1D); t.hline(2, 6, 12, W1L); t.rect(3, 7, 7, 6, '#4a4a58');
-  for (let x = 4; x < 10; x += 2) t.vline(x, 8, 4, '#8a929a');
-  t.rect(11, 8, 2, 2, '#f2b45a'); t.px(12, 12, '#e8dcc8');
-  t.hline(5, 3, 6, W1DD); t.vline(5, 3, 3, W1DD); t.vline(10, 3, 3, W1DD);
-  t.vline(12, 1, 5, '#c4ccd4'); frames.radio = t.outline();
+  const t = new Img(32, 32); // classic arched jukebox
+  t.ellipse(16, 13, 13, 11, '#8a5232'); t.rect(3, 13, 26, 17, '#8a5232');
+  t.ellipse(16, 13, 11, 9, '#f2b45a'); t.rect(5, 13, 22, 15, '#f2b45a');
+  t.ellipse(16, 13, 8, 7, '#d47a6e'); t.rect(8, 13, 16, 14, '#d47a6e');
+  t.ellipse(16, 13, 6, 5, '#4a4a58'); t.rect(10, 13, 12, 13, '#4a4a58');
+  t.rect(10, 11, 12, 6, '#9cc8e0'); t.ellipse(16, 14, 4, 3, '#3d3a52');
+  t.ellipse(16, 14, 1, 1, '#e8b860'); t.hline(11, 11, 10, '#e8eef0');
+  t.rect(10, 19, 12, 7, '#3a2329');
+  for (let y = 20; y < 26; y += 2) t.hline(11, y, 10, '#8a929a');
+  t.vline(14, 19, 7, '#4a4a58'); t.vline(18, 19, 7, '#4a4a58');
+  for (const [x, y, c] of [[6, 13, '#7cc87c'], [8, 7, '#9cc8e0'], [15, 4, '#e8dcc8'], [22, 7, '#7cc87c'], [25, 13, '#9cc8e0']]) t.rect(x, y, 2, 2, c);
+  t.rect(4, 28, 24, 2, '#6a3c22'); t.hline(5, 28, 22, '#a8683e');
+  t.rect(4, 30, 4, 1, '#4e2c1a'); t.rect(24, 30, 4, 1, '#4e2c1a');
+  frames.jukebox = t.outline();
 }
 for (const n of [1, 2]) {
   const t = new Img(8, 9), c = '#f2b45a';

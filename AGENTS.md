@@ -15,7 +15,8 @@ Hackathon project: favor small, working, demo-able steps.
   `net.ts` is the store plus the WebSocket client, `voice.ts` is WebRTC voice, `sounds.ts` is synthesized UI sounds.
 - `macos/`: the menu bar app (Swift, AppKit + WKWebView). See "macOS app" below.
 - `scripts/`: `gen-map.mjs` (writes `shared/tilemap.json`), `gen-assets.mjs` (writes `client/public/assets/*`),
-  `deploy.sh` and `instances.txt`.
+  `gen-music.mjs` (`npm run gen:music`, needs ffmpeg: the jukebox library from `scripts/music.json`), `deploy.sh`
+  and `instances.txt`.
 - The art is procedural placeholder art. Run `npm run gen` after changing either generator, and commit the regenerated files.
 
 ## Running locally
@@ -71,6 +72,14 @@ npm run typecheck    # run before every commit or deploy
   and is remembered per device (`deck.zoom`). The lowest level fits the whole floor: the overview, with room tags and a
   "You" pin; when it's small, a tap zooms in instead of walking. Pinch, ⌘/ctrl-scroll, `+ − 0`, `M`. Phones and short
   windows (`COMPACT` in App.tsx, same media query in styles.css) get a thumb dock and bottom sheets instead of top-bar buttons.
+- **Jukebox** (Music room, `server/src/jukebox.ts`): CC0 tracks only (license checked on the source page; add one
+  with a line in `scripts/music.json` + `npm run gen:music`, which writes content-hashed files and `shared/music.json`).
+  Playback is server state timed by the server clock; anyone standing in the room queues, pauses and skips (controls
+  name the current `playId`, so stale clicks do nothing). Clients stream a track through one `<audio>` element into
+  the soundscape and only while it's audible, so nobody outside the room downloads music. Static files support HTTP
+  Range (`server/src/static.ts`), which media seeking needs. `npm run gen:music -- --force`
+  re-encodes everything, and new content hashes add ~35 MB to git history each time, so use it only when the
+  pipeline itself changes.
 - **Edit mode** (pencil in the top bar, admins only: `DECK_ADMINS`, emails, default `ivan.baranov@t1a.com`; `npm run dev`
   adds the name `dev`, and names only count for logins without an email). Admins drag furniture and rugs, add from the
   catalog (one of each generated type), recolor/resize rugs, Reset. Walls, floors and rooms stay as generated; the

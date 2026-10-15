@@ -1,5 +1,17 @@
 import type { Dir, Layout, Move, Tile } from './map';
 
+export const JUKEBOX_QUEUE_MAX = 20;
+export const JUKEBOX_PER_PERSON = 3;
+export interface JukeboxEntry { id: string; track: string; by: string }
+export interface JukeboxState {
+  playId: string; track: string; by: string | null; startedAt: number; pausedAt: number | null;
+  queue: JukeboxEntry[];
+  last: { kind: 'pause' | 'play' | 'skip'; by: string; at: number } | null;
+}
+export type JukeboxAction =
+  | { action: 'queue'; track: string }
+  | { action: 'unqueue'; entry: string }
+  | { action: 'pause' | 'play' | 'skip'; playId: string };
 export const DUNGEON_INSTANCE = 'dungeon';
 export const underground = (u: { instance: string | null }) => u.instance === DUNGEON_INSTANCE;
 
@@ -133,7 +145,7 @@ export type ServerMsg =
   // the furniture and rugs: on connect, and to everyone after each admin edit. by: who made it; added: a new thing's id
   | { t: 'layout'; layout: Layout; by?: string; added?: string }
   | { t: 'hello'; you: string; serverTime: number; build?: string } // build: the client bundle the server serves (absent in dev)
-  | { t: 'state'; users: PublicUser[]; objects: Record<string, ObjectState>; serverTime: number }
+  | { t: 'state'; users: PublicUser[]; objects: Record<string, ObjectState>; jukebox?: Record<string, JukeboxState>; serverTime: number }
   | { t: 'move'; userId: string; from: Tile; to: Tile; startedAt: number; path?: Tile[]; face?: Dir }
   | { t: 'status'; userId: string; status: string }
   | { t: 'presence'; userId: string; presence: Presence }
@@ -161,6 +173,7 @@ export type ServerMsg =
   | { t: 'to_meet'; fromId: string } // someone in your call opened its Meet room; come along
   | { t: 'follow'; userId: string; targetId: string | null }
   | { t: 'holding'; userId: string; item: string | null; objectId?: string; fromId?: string } // objectId: just taken; fromId: handed over
+  | { t: 'jukebox'; id: string; state: JukeboxState }
   | { t: 'object'; id: string; on: boolean; by: string }
   | { t: 'react'; fromId: string; toId: string; emoji: Reaction }
   | { t: 'chat'; msg: ChatMsg }
@@ -174,6 +187,7 @@ export type ServerMsg =
 
 // client -> server
 export type ClientMsg =
+  | ({ t: 'jukebox'; objectId: string } & JukeboxAction)
   | { t: 'move'; to: Tile }
   | { t: 'status'; status: string }
   | { t: 'presence'; presence: Exclude<Presence, 'offline'> }

@@ -1,7 +1,7 @@
 import { createServer, type IncomingMessage } from 'node:http';
 import { createReadStream, existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { mkdir, rename, writeFile } from 'node:fs/promises';
-import { extname, join, normalize } from 'node:path';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash, randomUUID } from 'node:crypto';
 import { reverse as dnsReverse } from 'node:dns/promises';
@@ -9,6 +9,7 @@ import { WebSocketServer } from 'ws';
 import type { TileMap } from '../../shared/map';
 import type { ClientMsg } from '../../shared/protocol';
 import { World } from './world';
+import { serveStatic } from './static';
 import { startBots } from './bots';
 import { finish as finishGoogle, googleEnabled, revoke as revokeGoogle } from './google';
 
@@ -118,22 +119,6 @@ const STATIC = existsSync(join(STATIC_DIR, 'index.html'));
 // The build id vite wrote beside the bundle (the bundle carries the same one); older builds: a hash of index.html.
 if (STATIC) world.build = existsSync(join(STATIC_DIR, 'build.txt')) ? readFileSync(join(STATIC_DIR, 'build.txt'), 'utf8').trim()
   : createHash('sha1').update(readFileSync(join(STATIC_DIR, 'index.html'))).digest('hex').slice(0, 12);
-const MIME: Record<string, string> = {
-  '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json',
-  '.png': 'image/png', '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.woff2': 'font/woff2',
-};
-const serveStatic = (url: string, res: import('node:http').ServerResponse) => {
-  const rel = normalize(decodeURIComponent(url.split('?')[0])).replace(/^([/\\]|\.\.)+/, '');
-  let file = join(STATIC_DIR, rel);
-  if (!file.startsWith(STATIC_DIR) || !existsSync(file) || statSync(file).isDirectory()) file = join(STATIC_DIR, 'index.html');
-  const ext = extname(file);
-  res.writeHead(200, {
-    'content-type': MIME[ext] ?? 'application/octet-stream',
-    'cache-control': file.includes('/assets/') && /-[\w-]{8}\./.test(file) ? 'public, max-age=31536000, immutable' : 'no-cache',
-  });
-  createReadStream(file).pipe(res);
-};
-
 // ---------- NetBird trust gate ----------
 const ip4 = (ip: string) => {
   const m = ip.replace(/^::ffff:/, '').match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/);
@@ -251,7 +236,7 @@ const server = createServer(async (req, res) => {
     }
     return json(res, 404, { error: 'not found' });
   }
-  if (req.method === 'GET' && STATIC) return serveStatic(req.url ?? '/', res);
+  if ((req.method === 'GET' || req.method === 'HEAD') && STATIC) return serveStatic(STATIC_DIR, req, res);
   json(res, 404, { error: 'not found' });
 });
 

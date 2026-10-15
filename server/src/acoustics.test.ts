@@ -81,11 +81,11 @@ test('stereo reverb is deterministic, decaying and capped at .7 seconds times ma
     assert.ok(energy(a[0].slice(0, 1000)) > energy(a[0].slice(-1000)) * 100);
   }
 });
-test('moving a radio moves its acoustic room and derived doors without adding map objects or catalog items', () => {
-  const radio = map.objects.find(o => o.sound)!, ids = map.objects.map(o => o.id);
-  const objects = structuredClone(map.objects), moved = objects.find(o => o.id === radio.id)!; moved.x = 4; moved.y = 4;
+test('moving the jukebox moves its acoustic room and derived doors without adding map objects or catalog items', () => {
+  const jukebox = map.objects.find(o => o.sound)!, ids = map.objects.map(o => o.id);
+  const objects = structuredClone(map.objects), moved = objects.find(o => o.id === jukebox.id)!; moved.x = 4; moved.y = 4;
   const next = withLayout(map, { objects, rugs: map.rugs });
-  const src = pose(moved.x, moved.y), me = pose(5, 5);
+  const src = pose(moved.x, moved.y), me = pose(6, 6);
   assert.ok(soundModel(next, field(next, me.tile), me, src).gain > 0);
   const oldRoom = pose(music.rect.x + 1, music.rect.y + 1);
   assert.equal(soundModel(next, field(next, oldRoom.tile), oldRoom, src).gain, 0);
@@ -94,11 +94,16 @@ test('moving a radio moves its acoustic room and derived doors without adding ma
   assert.deepEqual([...new Set(roomDoors(map).map(d => d.room.id))].sort(), ['coffee', 'music']);
   assert.equal(Object.keys(map.catalog).some(k => /^door_[hv]_/.test(k)), false);
 });
-test('radio stays always on and knock calls stay flat across rooms', () => {
-  const radio = map.objects.find(o => o.type === 'radio')!, src = pose(radio.x, radio.y);
-  assert.deepEqual(radio.sound, { clip: 'radio', gain: .8 }); assert.equal(map.layers.walkable[radio.y][radio.x], 0);
-  assert.equal(radio.use, undefined); assert.equal(radio.on, undefined);
-  assert.ok(model(pose(music.rect.x + 1, music.rect.y + music.rect.h - 2), src).gain >= ROOM_FILL);
+test('the jukebox fills Music and nothing outside it, not even at the door; knock calls stay flat', () => {
+  const jukebox = map.objects.find(o => o.use?.kind === 'jukebox')!, src = pose(jukebox.x, jukebox.y);
+  assert.equal(roomAt(map, jukebox.x, jukebox.y)?.id, 'music'); assert.equal(music.rules.voice, undefined);
+  assert.deepEqual(jukebox.sound, { gain: .8 }); assert.equal(map.layers.walkable[jukebox.y][jukebox.x], 0);
+  const lobby = map.rooms.find(r => r.id === 'lobby')!;
+  for (const room of [music, lobby]) for (let y = room.rect.y; y < room.rect.y + room.rect.h; y++) for (let x = room.rect.x; x < room.rect.x + room.rect.w; x++) {
+    const gain = model(pose(x, y), src).gain;
+    if (room === music) assert.ok(gain >= ROOM_FILL - 1e-9, `${x},${y}: ${gain}`); else assert.equal(gain, 0);
+  }
+  for (const [x, y] of [[53, 17], [52, 17], [48, 17]]) assert.equal(model(pose(x, y), src).gain, 0, `${x},${y}`);
   assert.deepEqual(model(pose(2, 5), pose(37, 9), { knock: true }), {
     gain: 1, cutoff: 20000, pan: 0, send: 0, apparent: { x: 37.5, y: 9.5 },
   });
