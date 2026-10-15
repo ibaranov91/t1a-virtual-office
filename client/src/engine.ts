@@ -983,10 +983,10 @@ export class Engine {
     this.placedPlates = [];
     for (const u of sorted) this.drawOverlay(u, poses.get(u.id)!, ms);
     this.drawReactions(poses, ms);
-    if (!this.areaDown && !me?.instance) { this.drawBellDings(poses, camX, camY, ms); this.drawHatNudge(me, poses, camX, camY, ms); }
-
     if (!this.areaDown && !me?.instance) this.drawClub(ctx, ms);
     if (!this.areaDown) this.drawAmbient(ctx, camX, camY, ms);
+    // labels switch the canvas to screen space, so everything drawn in world space (the tint above) comes first
+    if (!this.areaDown && !me?.instance) { this.drawBellDings(poses, camX, camY, ms); this.drawHatNudge(me, poses, camX, camY, ms); }
     if (this.editing) this.drawEdit(ctx, camX, camY, ms);
     if (this.overview && !me?.instance) this.drawRoomTags(users, poses, camX, camY);
     // one of my meetings is on: say so over the board, readable at any zoom
