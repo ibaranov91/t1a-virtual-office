@@ -15,6 +15,7 @@ import { TRACKS } from '../../shared/music';
 import { Arcade } from './arcade';
 import { Jukebox } from './jukebox';
 import { Library } from './library';
+import { migrateLibrary, readingSeats } from '../../shared/library';
 import { Meetings } from './meetings';
 import { BAT_COOLDOWN_MS, Creatures } from './creatures';
 import type { Presenter } from './presentation';
@@ -571,7 +572,7 @@ export class World {
       }
     }, Math.max(0, at - Date.now()) + (o.use.kind === 'arcade' ? 0 : USE_MS[o.use.kind])));
   }
-  // ---------- the reading room ----------
+  // ---------- the Library ----------
   private walkingTo = -1; // seq of the read plan whose own walk is under way (not a reason to stop reading)
   private libraryChanged() { this.broadcast({ t: 'library', ...this.library.state() }); }
   private addArticle(u: User, url: unknown, title: unknown, topic: unknown) {
@@ -581,22 +582,13 @@ export class World {
     this.libraryChanged();
     this.sendTo(u.id, { t: 'notice', text: `On the shelf: ${a.title} 📚` });
   }
-  /** Seats next to a reading desk, in map order. */
-  private readingSeats(): Tile[] {
-    const seats: Tile[] = [];
-    for (const d of this.map.objects) if (d.type === 'reading_desk') for (const [dx, dy] of [[0, 1], [0, -1], [-1, 0], [1, 0]]) {
-      const t = { x: d.x + dx, y: d.y + dy };
-      if (seatAt(this.map, t.x, t.y) && !seats.some(s => s.x === t.x && s.y === t.y)) seats.push(t);
-    }
-    return seats;
-  }
-  /** Click an article: fetch a book from the shelf, sit at a free reading desk, and only then is it "reading". */
+  /** Click an article: fetch a book from the Library's shelf, sit at a free reading table, and only then is it "reading". */
   startReading(u: User, articleId: string) {
     const article = this.library.get(articleId), shelf = this.map.objects.find(o => o.use?.kind === 'library');
     if (!article || !shelf || u.bot || goingOut(u) || u.instance || u.presence === 'offline') return;
     const here = this.position(u).next, occ = this.occupied();
     const reserved = new Set([...this.readPlans].filter(([id]) => id !== u.id).map(([, p]) => `${p.seat.x},${p.seat.y}`));
-    const free = this.readingSeats().filter(t => !reserved.has(`${t.x},${t.y}`) && (!occ.has(`${t.x},${t.y}`) || (t.x === here.x && t.y === here.y)));
+    const free = readingSeats(this.map).filter(t => !reserved.has(`${t.x},${t.y}`) && (!occ.has(`${t.x},${t.y}`) || (t.x === here.x && t.y === here.y)));
     if (!free.length) return this.sendTo(u.id, { t: 'notice', text: 'All the reading seats are taken' });
     let at: { spot: Spot; len: number } | null = null;
     for (const s of besideObject(this.map, shelf)) {
@@ -609,7 +601,7 @@ export class World {
     if (!at) return this.sendTo(u.id, { t: 'notice', text: 'The shelf is crowded — try again in a moment' });
     const spot = at.spot;
     const seat = free.map(t => ({ t, len: t.x === spot.x && t.y === spot.y ? 0 : findPath(this.map, spot, t).length })).filter(p => p.len || (p.t.x === spot.x && p.t.y === spot.y)).sort((a, b) => a.len - b.len)[0]?.t;
-    if (!seat) return this.sendTo(u.id, { t: 'notice', text: 'Nobody can reach the reading desks' });
+    if (!seat) return this.sendTo(u.id, { t: 'notice', text: 'Nobody can reach the reading tables' });
     this.stopReading(u);
     this.setFollowing(u, null);
     clearTimeout(this.errands.get(u.id));
@@ -1746,7 +1738,7 @@ export class World {
         if (!covers(r)) return true;
         console.warn(`saved ${r.color} rug dropped: covers the hole or hatch`); return false;
       });
-      const merged = this.withNewFixtures(migrateEastWing({ objects, rugs }, this.baseLayout));
+      const merged = this.withNewFixtures(migrateLibrary(migrateEastWing({ objects, rugs }, this.baseLayout), this.baseLayout, this.map));
       // ids saved by an older build can clash with this one's (a plant and the safe were both o57): each gets its own,
       // and the next save keeps it
       const layout = uniqueIds(merged, this.baseLayout), was = [...merged.objects, ...merged.rugs].map(o => o.id);

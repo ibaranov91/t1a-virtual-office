@@ -148,6 +148,7 @@ const RUGS = {
   orange: ['#d08a4a', '#a4622e', '#eab070'],
   red: ['#b4534a', '#843a35', '#d47a6e'],
   teal: ['#4f9a92', '#36706b', '#7cc2b8'],
+  burgundy: ['#7a2e38', '#561f28', '#a8505a'],
 };
 for (const [color, [main, dark, acc]] of Object.entries(RUGS)) {
   for (const part of ['nw', 'n', 'ne', 'w', 'c', 'e', 'sw', 's', 'se']) {
@@ -1428,6 +1429,44 @@ for (const axis of ['h', 'v']) { // a room door only admins open: the closed doo
   t.rect(c.w / 2 - 3, 20, 6, 5, '#e8b860'); t.rect(c.w / 2 - 2, 17, 4, 3, OUT); t.rect(c.w / 2 - 1, 18, 2, 2, [0, 0, 0, 0]);
   t.px(c.w / 2, 22, OUT); t.rect(c.w / 2 - 2, 9, 4, 2, '#e84a4a');
   frames[`door_${axis}_locked`] = t;
+}
+
+// ---------- the Library: NYPL-style reading tables with green banker's lamps, tall shelves (own random: art above stays put) ----------
+{
+  let seed = 7;
+  const rand = () => { seed = (seed * 1103515245 + 12345) >>> 0; return (seed >>> 8) / 16777216; };
+  for (const f of [0, 1]) { // f 1: the lamp dips for a moment (the client flickers between the two)
+    const t = new Img(32, 26); // reading table (2x1): long dark top, a deep apron, the lamp in the middle
+    t.rect(1, 10, 30, 7, '#5a3420'); t.hline(1, 10, 30, '#7a4a2c'); t.hline(2, 16, 28, '#4a2a18');
+    for (const x of [8, 22]) t.hline(x, 13, 4, '#6a3e24'); // the grain
+    t.rect(1, 17, 30, 4, '#3e2214'); t.hline(1, 17, 30, '#2e180e');
+    for (const x of [2, 28]) t.rect(x, 21, 2, 4, '#3e2214');
+    // light pooled on the top under the shade
+    const pool = f ? '#7a7a3a' : '#8e8e44';
+    t.rect(10, 11, 12, 3, pool); t.hline(11, 14, 10, pool); t.hline(12, 15, 8, f ? '#6a5a2e' : '#7a6a34');
+    // the lamp: brass base and stem, a green half-cylinder shade with a pale underside
+    t.rect(13, 11, 6, 2, '#c8a040'); t.hline(13, 11, 6, '#e8c860'); t.rect(15, 6, 2, 5, '#b08a30'); t.px(15, 6, '#e8c860');
+    t.rect(9, 3, 14, 3, f ? '#2a6a3e' : '#2f7a46'); t.hline(9, 3, 14, f ? '#3e8a52' : '#4aa462'); t.hline(10, 2, 12, '#246036');
+    t.hline(9, 6, 14, f ? '#d8d090' : '#fff4b0'); t.px(8, 4, '#c8a040'); t.px(23, 4, '#c8a040');
+    // an open book on one end, a closed one on the other
+    t.rect(3, 11, 6, 3, '#f4f0e6'); t.vline(6, 11, 3, '#b0a898'); t.rect(24, 12, 5, 2, '#843a35'); t.hline(24, 12, 5, '#b4534a');
+    frames[f ? 'reading_table_1' : 'reading_table'] = t.outline();
+  }
+  const t = new Img(32, 38); // tall bookshelf (2x1): reaches up over the wall face, a cornice on top
+  t.rect(1, 2, 30, 35, '#5a3420'); t.rect(0, 0, 32, 3, '#7a4a2c'); t.hline(0, 0, 32, '#8e5a36'); t.rect(3, 4, 26, 32, '#2e180e');
+  const BOOKS = ['#7a2e38', '#2f5a3e', '#3b5582', '#8a6a30', '#5a3a6a', '#d8ccb0', '#843a35', '#2f7a46'];
+  for (const sy of [4, 12, 20, 28]) {
+    let x = 3;
+    while (x < 28) {
+      const w = 2 + Math.floor(rand() * 2), h = 5 + Math.floor(rand() * 3);
+      if (x + w > 29) break;
+      const c = BOOKS[Math.floor(rand() * BOOKS.length)];
+      t.rect(x, sy + 8 - h, w, h, c); t.vline(x, sy + 8 - h, h, OUT); if (h > 5) t.px(x + 1, sy + 9 - h, '#e8c860'); // gilt on the spine
+      x += w + (rand() < 0.15 ? 2 : 0);
+    }
+    t.hline(1, sy + 8, 30, '#7a4a2c');
+  }
+  frames.bookshelf_tall = t.outline();
 }
 
 // ---------- pack world atlas (shelf packer) ----------
