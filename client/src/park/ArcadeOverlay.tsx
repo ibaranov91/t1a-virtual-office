@@ -68,7 +68,7 @@ export function ArcadeOverlay({ store, assets, voice }: { store: Store; assets: 
     }}>
     <header className="park-header">
       <h1>DECK PARK</h1>
-      <button disabled={!owner || !voice} aria-pressed={voice?.muted ?? prefs.muted} aria-label={voice?.muted ? 'Unmute microphone' : 'Mute microphone'}
+      <button disabled={!owner || !voice} aria-pressed={voice?.muted ?? true} aria-label={voice?.muted ? 'Unmute microphone' : 'Mute microphone'}
         className={voice?.muted ? 'muted-btn' : 'ghost'} title={voice?.micError ?? (voice?.mode === 'ptt' ? 'Push to talk: hold Space' : 'Microphone')}
         onClick={() => voice?.toggleMute()}>{voice?.muted ? '🔇' : '🎙'}</button>
       <button disabled={!owner || !voice} aria-pressed={voice?.deafened ?? prefs.deafened} aria-label={voice?.deafened ? 'Undeafen' : 'Deafen'}

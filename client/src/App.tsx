@@ -226,6 +226,7 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
           <NowPlayingChip store={store} />
           <DungeonChip store={store} />
           {me?.callId && !store.roomCallOf(me) && store.voiceOwner && <CallChip store={store} voice={voice} />}
+          <RoomVoiceChip store={store} voice={voice} />
           <DeskChip store={store} />
         </div>
         <Toasts store={store} />
@@ -1278,9 +1279,9 @@ function VoiceIcons({ store, voice, dock }: { store: Store; voice: Voice | null;
   }, [pop]);
   useEffect(() => { if (!elsewhere && pop === 'claim') setPop(null); }, [elsewhere]);
   const err = voice?.micError ?? null;
-  const muted = voice?.muted ?? prefs.muted, deaf = voice?.deafened ?? prefs.deafened, ptt = (voice?.mode ?? prefs.mode) === 'ptt';
+  const muted = voice?.muted ?? true, deaf = voice?.deafened ?? prefs.deafened, ptt = (voice?.mode ?? prefs.mode) === 'ptt';
   const btn = (cls: string, icon: React.ReactNode, label: string, title: string, short: string, onClick: () => void, extra: { disabled?: boolean; pressed?: boolean; badge?: boolean } = {}) =>
-    <button className={`vbtn chip ${cls}`} disabled={extra.disabled} aria-label={label} aria-pressed={extra.pressed} title={title} onClick={onClick}>
+    <button className="vbtn chip" data-state={cls} disabled={extra.disabled} aria-label={label} aria-pressed={extra.pressed} title={title} onClick={onClick}>
       {icon}{extra.badge && <b className="vbadge" aria-hidden="true" />}{dock && <small>{short}</small>}</button>;
   const waiting = store.voiceWait ? `Waiting for a spot in ${MAP.rooms.find(r => r.id === store.voiceWait)?.name ?? 'room'} voice` : null;
   const away = 'Voice is on in another tab';
@@ -1288,7 +1289,8 @@ function VoiceIcons({ store, voice, dock }: { store: Store; voice: Voice | null;
     {elsewhere
       ? btn('off elsewhere', <VIcon name="mic" off={muted} />, 'Voice is in another tab', `${away} · click to use voice here`, 'Voice',
         () => setPop(p => (p === 'claim' ? null : 'claim')), { pressed: pop === 'claim', badge: true })
-      : btn(err ? 'err' : muted ? 'off' : 'live', <VIcon name="mic" off={muted} />, muted ? 'Unmute' : 'Mute',
+      : !me?.callId ? btn('idle', <VIcon name="mic" />, 'Microphone not in use', 'Mic not in use · knock on someone or walk into Coffee or the Arcade to talk', 'Mic', () => {}, { disabled: true })
+      : btn(err ? 'err' : muted ? 'muted' : 'live', <VIcon name="mic" off={muted} />, muted ? 'Unmute' : 'Mute',
         err ?? (muted ? 'Muted · click to unmute' : ptt ? 'Mic on · hold Space to talk (click to mute)' : 'Mic live · click to mute') + (ptt && muted ? ' · Space to talk once unmuted' : ''),
         muted ? 'Unmute' : 'Mic', () => voice?.toggleMute(), { disabled: !owner || !voice, pressed: muted })}
     {btn(elsewhere ? 'off' : deaf ? 'off' : 'live', <VIcon name="speaker" off={deaf} />, deaf ? 'Undeafen' : 'Deafen', elsewhere ? away : deaf ? 'Deafened · click to hear again' : 'Hearing everyone · click to deafen',
@@ -1340,6 +1342,27 @@ function CallChip({ store, voice }: { store: Store; voice: Voice | null }) {
     <span>Talking with {store.names(peers)} <small>· {state}</small></span>
     <button className="end" onClick={() => store.endCall()}>Leave</button>
     {meet && <ExternalLink href={meetAs(meet, store.meetAccount)} onOpen={() => store.moveToMeet()}>Move to Meet</ExternalLink>}
+  </div>;
+}
+
+/** In an open-voice room: always say plainly whether the room can hear you, with the one button that changes it. */
+function RoomVoiceChip({ store, voice }: { store: Store; voice: Voice | null }) {
+  const me = store.users.get(store.me), room = store.roomCallOf(me);
+  if (!me || !room || !voice?.inRoomCall || !store.voiceOwner || me.instance || store.roomOf(me)?.id !== room.id) return null;
+  const others = store.callPeers(me).filter(u => !u.bot && u.presence !== 'offline' && !u.instance && store.roomOf(u)?.id === room.id);
+  const who = others.length ? others.map(u => u.name.split(' ')[0]).join(', ') : 'nobody yet';
+  const [state, text] = voice.deafened ? ['off', `Deafened in ${room.name}`]
+    : voice.micError ? ['off', `Listen-only in ${room.name}`]
+    : voice.muted ? ['off', `Muted in ${room.name} · nobody hears you`]
+    : voice.mode === 'ptt' ? voice.spaceHeld ? ['live', `Talking in ${room.name}`] : ['ptt', `Push-to-talk in ${room.name} · hold Space`]
+    : ['live', `Live in ${room.name} · everyone here hears you`];
+  return <div className={`desk-chip call-chip room-voice ${state}`} role="status">
+    <span className={`dot ${state === 'live' ? 'live' : ''}`} />
+    <span>{text} <small>· here: {who}</small></span>
+    {voice.deafened ? <button className="ghost" onClick={() => voice.toggleDeafen()}>Hear again</button>
+      : voice.micError ? null
+      : voice.muted ? <button onClick={() => voice.setMuted(false)}>🎙 Unmute</button>
+      : <button className="ghost" onClick={() => voice.setMuted(true)}>Mute</button>}
   </div>;
 }
 
