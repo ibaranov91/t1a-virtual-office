@@ -13,6 +13,7 @@ Hackathon project: favor small, working, demo-able steps.
   REST, login, static files and WebSocket.
 - `client/src/`: React only for chrome (`App.tsx`). The floor is one `<canvas>` (`engine.ts`).
   `net.ts` is the store plus the WebSocket client, `voice.ts` is WebRTC voice, `sounds.ts` is synthesized UI sounds.
+- `macos/`: the menu bar app (Swift, AppKit + WKWebView). See "macOS app" below.
 - `scripts/`: `gen-map.mjs` (writes `shared/tilemap.json`), `gen-assets.mjs` (writes `client/public/assets/*`),
   `deploy.sh` and `instances.txt`.
 - The art is procedural placeholder art. Run `npm run gen` after changing either generator, and commit the regenerated files.
@@ -48,6 +49,20 @@ npm run typecheck    # run before every commit or deploy
   goes only to the people in that knock or call.
 - **Room behavior is data.** Knock rules, meeting links and home-desk rooms live in `tilemap.json`
   (from `gen-map.mjs`), not in code.
+
+## macOS app
+A menu bar app that hosts the normal web client in one WKWebView. Click the icon to open the window,
+right-click for the menu: pin to desktop (a borderless window just above the desktop icons), arrange it,
+pick the instance, pop up on knock. The web view moves between the window and the desktop, so it's one
+page and one WebSocket. `client/src/native.ts` tells the app about knocks and calls (icon turns orange on a
+knock), and does nothing in a normal browser.
+```bash
+macos/build.sh                    # → macos/build/The Deck.app (Command Line Tools are enough, no Xcode)
+defaults write io.t1a.deck url "http://localhost:5173/?as=Mac"   # or pick an instance from the menu
+```
+- Not a WidgetKit widget on purpose: widgets can't run a web view, refresh at most every few minutes,
+  and can't use the mic.
+- Ad-hoc signed, so on another Mac it needs right-click → Open the first time. Web Inspector: Safari ▸ Develop.
 
 ## Testing tips and limits
 - The Claude app's browser pane **blocks the microphone** and won't open self-signed HTTPS. It can still verify

@@ -4,6 +4,7 @@ import { Engine } from './engine';
 import { Voice } from './voice';
 import { playKnock, setSoundsOn, soundsOn } from './sounds';
 import { MAP, Store } from './net';
+import { syncNative } from './native';
 import { MEET_LINK_RE, normalizeMeetLink } from '../../shared/protocol';
 import { seatAt } from '../../shared/map';
 
@@ -105,6 +106,8 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
   const [, tick] = useState(0);
 
   useEffect(() => { store.connect(); return () => store.close(); }, [store]);
+  useEffect(() => syncNative(store), [store]);
+  useEffect(() => syncNative(store), [store]);
   // built-in voice for knock calls
   const [voice, setVoice] = useState<Voice | null>(null);
   useEffect(() => {
