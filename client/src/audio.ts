@@ -76,8 +76,16 @@ export async function resume() {
   await Promise.all(retries);
   changed();
 }
+/** Safari lets an element start playing on its own only once it has been played inside a click: elements registered
+ *  here get a silent play + pause on the first gesture, so later starts don't need an "Enable sound" click. */
+const locked = new Set<HTMLAudioElement>();
+export const unlockOnGesture = (el: HTMLAudioElement) => { locked.add(el); };
 if (typeof window !== 'undefined') {
-  const warm = () => { void resume(); };
+  const warm = () => {
+    for (const el of locked) if (el.paused && !failed.has(el)) { el.play().catch(() => {}); el.pause(); }
+    locked.clear();
+    void resume();
+  };
   window.addEventListener('pointerdown', warm);
   window.addEventListener('keydown', warm);
 }

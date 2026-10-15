@@ -1,6 +1,6 @@
 import { field, hallLevel, hallVoiceGain, reverbImpulse, soundModel } from '../../shared/acoustics';
 import { roomAt, type Room, type Tile } from '../../shared/map';
-import { audio, categoryOutput, forgetMedia, playMedia, rms, subscribeAudio } from './audio';
+import { audio, categoryOutput, forgetMedia, playMedia, rms, subscribeAudio, unlockOnGesture } from './audio';
 import { TRACK, trackUrl } from '../../shared/music';
 import { MAP, type Store } from './net';
 import { prefs, subscribePrefs, volumeFor, type Category } from './prefs';
@@ -11,6 +11,7 @@ type Clip = { buffer: AudioBuffer };
 type Jukebox = {
   el: HTMLAudioElement; loadedUrl: string | null; playId: string | null; gen: number;
   heardAt: number; heard: boolean; checkAt: number; pending: boolean; blocked: boolean; error: boolean; errorAt: number;
+  lead: number; seekedAt: number; // how far ahead to aim a seek (this browser's seek latency, learned), when we last did
   metadata?: () => void; analyser?: AnalyserNode;
 };
 interface Source {
@@ -71,7 +72,7 @@ export class Soundscape {
       const id = s.level.id.slice(4), desired = this.store.jukebox[id], j = s.jukebox!;
       return { id, track: desired?.track ?? null, playId: desired?.playId ?? null,
         active: j.loadedUrl !== null, paused: j.el.paused, currentTime: j.el.currentTime,
-        expected: this.expected(id), src: j.el.getAttribute('src'), rms: j.analyser ? rms(j.analyser) : 0 };
+        expected: this.expected(id), src: j.el.getAttribute('src'), rms: j.analyser ? rms(j.analyser) : 0, lead: j.lead, rate: j.el.playbackRate };
     });
   }
   levels(): Level[] { return [...this.sources.values()].map(s => ({ ...s.level })); }
@@ -157,18 +158,28 @@ export class Soundscape {
     if (j.el.readyState < HTMLMediaElement.HAVE_METADATA || j.pending || j.error) return;
     if (j.el.paused || j.playId !== desired.playId) {
       if (j.blocked) return;
-      j.el.currentTime = this.expected(id); j.playId = desired.playId; j.checkAt = now;
+      this.seek(j, id, now); j.playId = desired.playId;
       const gen = j.gen; j.pending = true;
       void playMedia(j.el, () => !this.dead && gen === j.gen).then(result => {
         if (this.dead || gen !== j.gen) return;
         j.pending = false; j.blocked = result === 'blocked'; j.error = result === 'error'; j.errorAt = performance.now();
         this.update();
       });
-    } else if (now - j.checkAt >= 2000) {
+    } else if (now - j.checkAt >= 500 && !j.el.seeking && j.el.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA) {
       j.checkAt = now;
-      if (!j.el.seeking && j.el.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA && Math.abs(j.el.currentTime - this.expected(id)) > .3)
-        j.el.currentTime = this.expected(id);
+      const drift = j.el.currentTime - this.expected(id);
+      if (j.seekedAt) { // first look after a seek: Safari lands ~0.3 s behind, so aim that much ahead next time
+        if (now - j.seekedAt < 1000) return;
+        j.lead = Math.max(0, Math.min(1, j.lead - drift)); j.seekedAt = 0;
+      }
+      if (Math.abs(drift) > .3) this.seek(j, id, now);
+      // close the rest by playing a touch faster or slower (seeks are audible)
+      else j.el.playbackRate = Math.abs(drift) < .03 ? 1 : 1 - Math.max(-.05, Math.min(.05, drift * .25));
     }
+  }
+  private seek(j: Jukebox, id: string, now: number) {
+    const track = TRACK.get(this.store.jukebox[id]?.track ?? '');
+    j.el.playbackRate = 1; j.el.currentTime = Math.min(this.expected(id) + j.lead, (track?.duration ?? 0) / 1000); j.seekedAt = now; j.checkAt = now;
   }
   private emitters() {
     // the jukebox can be moved (edit mode): follow it, and drop one that's gone
@@ -177,10 +188,10 @@ export class Soundscape {
       if (!o) this.remove(id); else if (s.tile!.x !== o.x || s.tile!.y !== o.y) s.tile = { x: o.x, y: o.y };
     }
     for (const o of MAP.objects) if (o.use?.kind === 'jukebox' && !this.sources.has(`obj:${o.id}`)) {
-      const el = new Audio(); el.preload = 'auto';
+      const el = new Audio(); el.preload = 'auto'; unlockOnGesture(el);
       const s = this.add(`obj:${o.id}`, 'jukebox', audio().createMediaElementSource(el), o.sound?.gain ?? 1, { x: o.x, y: o.y });
       const j: Jukebox = { el, loadedUrl: null, playId: null, gen: 0, heardAt: -Infinity, heard: false,
-        checkAt: -Infinity, pending: false, blocked: false, error: false, errorAt: 0 };
+        checkAt: -Infinity, pending: false, blocked: false, error: false, errorAt: 0, lead: 0, seekedAt: 0 };
       el.addEventListener('error', () => { if (j.loadedUrl && el.getAttribute('src') === j.loadedUrl) { j.error = true; j.errorAt = performance.now(); } });
       if (import.meta.env.DEV) { j.analyser = audio().createAnalyser(); j.analyser.fftSize = 2048; s.low.connect(j.analyser); }
       s.jukebox = j;
