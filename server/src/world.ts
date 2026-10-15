@@ -1,10 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import {
-  applyEdit, applyLayout, besideObject, playSpots, dirBetween, doorwayTiles, KEEP_TYPES, migrateEastWing, layoutProblem, objectName, voiceRooms, findPath, isWalkable, pathDuration, pathTo, roomAt, sampleMove, seatAt, uniqueIds, withLayout, WALK_MS_PER_TILE,
+  adminOnly, applyEdit, stallDoor, stallLine, applyLayout, besideObject, playSpots, dirBetween, doorwayTiles, KEEP_TYPES, migrateEastWing, layoutProblem, objectName, voiceRooms, findPath, isWalkable, pathDuration, pathTo, roomAt, sampleMove, seatAt, uniqueIds, withLayout, WALK_MS_PER_TILE,
   type MapObject, type Dir, type Layout, type Room, type Spot, type TileMap, type Tile,
 } from '../../shared/map';
 import {
-  NOTE_RATE, NOTE_BURST, NOTE_HELD_MAX, SEAT_CHANGES_PER_10S, DUNGEON_INSTANCE, underground, MAX_CALL_SIZE, MEETING_ROOM_ID, MAX_CHAT_LEN, normalizeMeetLink, REACTIONS, ROOM_VOICE_MAX,
+  NOTE_RATE, NOTE_BURST, TOILET_SHELF_ITEM, toiletFull, NOTE_HELD_MAX, SEAT_CHANGES_PER_10S, DUNGEON_INSTANCE, underground, MAX_CALL_SIZE, MEETING_ROOM_ID, MAX_CHAT_LEN, normalizeMeetLink, REACTIONS, ROOM_VOICE_MAX,
   CUP_ITEMS, dayNumber, plantDead, BOTANIST_KINDS, PLANT_KINDS, PLANT_STAGES, type Plant,
   type ChatMsg, type ClientMsg, type Door, type Effect, type Knock, type LayoutEdit, type Look, type Presence, type PublicUser, type Reaction, type ServerMsg,
 } from '../../shared/protocol';
@@ -16,6 +16,7 @@ import { Jukebox } from './jukebox';
 import { Meetings } from './meetings';
 import { Creatures } from './creatures';
 import type { Presenter } from './presentation';
+import { Toilets } from './toilets';
 import { authUrl, CALENDAR_SCOPE, createSpace, forgetAccess, googleEnabled, listEvents, revoke, type GoogleLink } from './google';
 
 type DungeonEvent = Extract<ServerMsg, { t: 'dungeon' }>['event'];
@@ -64,10 +65,12 @@ const DOOR_PAUSE_MS = 400;   // a beat at the door before vanishing
 const goingOut = (u: User) => u.door === 'thinking' || u.door === 'leaving';
 const FOLLOW_LAG_MS = 300;   // followers set off a beat after the person they follow
 const HOLD_MS = 3 * 60_000;  // a coffee lasts this long
-const USE_MS = { take: 1200, toggle: 150 }; // brewing a coffee vs flicking a switch
+const USE_MS = { take: 1200, toggle: 150, toilet: 300 }; // brewing a coffee vs flicking a switch
 const ARRIVAL_SLACK_MS = 50; // timers can fire a millisecond before the walk is over
 
 /** Office admins rearrange the furniture: NetBird emails, or (only for name logins, so dev) plain names. */
+/** The inventory comes later: until then these items count as in everyone's (dev: DECK_FREE_ITEMS=drugs). */
+const FREE_ITEMS = (process.env.DECK_FREE_ITEMS ?? '').split(',').map(s => s.trim()).filter(Boolean);
 const ADMINS = (process.env.DECK_ADMINS ?? 'ivan.baranov@t1a.com').split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
 /** Hackathon judges wear a sparkling hat. Same rules as admins: emails, or plain names for name logins (dev). */
 const JUDGES = (process.env.DECK_JUDGES ?? 'oleg.mikhov@t1a.com').split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
@@ -96,6 +99,12 @@ export class World {
   private chats = new Map<string, ChatMsg[]>();           // per pair of people, oldest first
   private lastJukeboxControl = new Map<string, number>();
   private lastReact = new Map<string, number>();
+  toilets = new Toilets({
+    change: (id, state) => { this.broadcast({ t: 'toilet', id, state }); this.lineUp(id); },
+    admit: (id, userId) => { const o = this.map.objects.find(o => o.id === id), u = this.users.get(userId); if (o && u) this.toiletWalk(u, stallDoor(o)); },
+    refuse: (_id, userIds) => { for (const id of userIds) this.sendTo(id, { t: 'notice', text: 'The toilet overflowed 🤢 — the line breaks up' }); },
+  });
+  private toiletWalks = new Set<string>(); // walks the toilets start themselves (into the stall, along the line): not walking off
   botHooks?: BotHooks;
   present?: Presenter; // slides on the Meeting room screen (index.ts sets it up with the data folder)
 
@@ -112,15 +121,16 @@ export class World {
     this.baseLayout = structuredClone({ objects: map.objects, rugs: map.rugs });
     for (const o of map.objects) if (o.use?.kind === 'toggle') this.objectOn.set(o.id, o.on ?? true);
     this.syncJukeboxes();
-    setInterval(() => { const now = Date.now(); this.voiceTick(now); this.jukeboxTick(now); this.instrumentTick(now); this.effectsTick(now); }, 250).unref();
+    setInterval(() => { const now = Date.now(); this.voiceTick(now); this.jukeboxTick(now); this.instrumentTick(now); this.effectsTick(now); this.toilets.tick(now); }, 250).unref();
   }
 
   // ---------- transport ----------
   broadcast(msg: ServerMsg) { for (const l of this.listeners) l(msg); }
   /** Private settings for the user themselves. */
-  me(u: User): ServerMsg { return { t: 'me', meetLink: u.meetLink ?? '', email: u.email, google: googleEnabled ? u.google?.email ?? null : undefined, calendar: !!u.google?.scopes.includes(CALENDAR_SCOPE), admin: this.isAdmin(u) || undefined, judge: this.isJudge(u) || undefined }; }
+  me(u: User): ServerMsg { return { t: 'me', meetLink: u.meetLink ?? '', email: u.email, google: googleEnabled ? u.google?.email ?? null : undefined, calendar: !!u.google?.scopes.includes(CALENDAR_SCOPE), admin: this.isAdmin(u) || undefined, judge: this.isJudge(u) || undefined, items: FREE_ITEMS.length ? FREE_ITEMS : undefined }; }
   isAdmin(u: User) { return listed(ADMINS, u); }
   isJudge(u: User) { return listed(JUDGES, u); }
+  hasItem(_u: User, item: string) { return FREE_ITEMS.includes(item); }
   layout(): Layout { return { objects: this.map.objects, rugs: this.map.rugs }; }
   sendTo(userId: string, msg: ServerMsg) { for (const s of this.sockets.get(userId)?.values() ?? []) s(msg); }
   private sendOwner(userId: string, msg: ServerMsg) {
@@ -130,6 +140,7 @@ export class World {
   snapshot(): ServerMsg {
     const objects = Object.fromEntries([...this.objectOn.keys()].map(id => [id, this.objectState(id)]));
     return { t: 'state', serverTime: Date.now(), users: [...this.users.values()].map(this.toPublic), objects,
+      toilets: this.toilets.snapshot(this.map.objects.filter(o => o.use?.kind === 'toilet').map(o => o.id)),
       instruments: Object.fromEntries(this.map.objects.filter(o => o.use?.kind === 'instrument').map(o => [o.id, this.seats.get(o.id)?.user ?? null])),
       jukebox: Object.fromEntries([...this.jukeboxes].map(([id, j]) => [id, j.state])) };
   }
@@ -286,9 +297,10 @@ export class World {
   walk(u: User, to: Tile, face?: Dir, now = Date.now()): number | null {
     const pos = this.position(u, now);
     const from = pos.next;
-    const path = pathTo(this.map, from, to); // also sits down onto a sofa
+    const keepOut = !this.isAdmin(u); // admins-only rooms: everyone else's path goes around, and never in
+    const path = pathTo(this.map, from, to, keepOut); // also sits down onto a sofa
     if (!path.length) return null; // nothing changes: the current walk (and its dungeon timers) goes on
-    if (path.length > 1) for (const [id, seat] of this.seats) if (seat.user === u.id) this.endSeat(id);
+    if (path.length > 1) { for (const [id, seat] of this.seats) if (seat.user === u.id) this.endSeat(id); if (!this.toiletWalks.has(u.id)) this.toilets.leave(u.id, now); }
     // A due pickup belongs to the old walk even if its callback hasn't run yet.
     const keyTimer = u.dungeonTimers?.key;
     if (underground(u) && keyTimer && keyTimer.at <= now) keyTimer.run();
@@ -301,7 +313,7 @@ export class World {
     u.move = { from, to, startedAt, face, ...(ms ? { ms } : {}) }; u.path = path; u.tile = to;
     if (face) u.dir = face;
     else if (path.length > 1) { const a = path[path.length - 2], b = path[path.length - 1]; u.dir = b.x > a.x ? 'right' : b.x < a.x ? 'left' : b.y > a.y ? 'down' : 'up'; }
-    this.broadcast({ t: 'move', userId: u.id, from, to, startedAt, face, ms });
+    this.broadcast({ t: 'move', userId: u.id, from, to, startedAt, face, ms, path: keepOut ? path : undefined }); // clients path without the lock
     for (const f of this.users.values()) if (f.following === u.id) this.trail(f, to, startedAt + FOLLOW_LAG_MS);
     const end = startedAt + pathDuration(path, per);
     if (underground(u) && u.dungeon && this.map.dungeon) {
@@ -486,6 +498,7 @@ export class World {
     const o = this.map.objects.find(o => o.id === objectId);
     if (!o?.use || o.use.kind === 'instrument' || o.use.kind === 'calendar' || o.use.kind === 'meetings' || o.use.kind === 'achievements' || o.use.kind === 'link' || o.use.kind === 'jukebox' || o.use.kind === 'records' || o.use.kind === 'presentation' || goingOut(u) || u.instance || u.presence === 'offline' || (o.use.kind === 'arcade' && u.bot)) return;
     const item = o.use.kind === 'take' ? o.use.items.find(i => i.id === itemId) ?? o.use.items[0] : null;
+    if (o.use.kind === 'toilet') return this.useToilet(u, o);
     this.setFollowing(u, null);
     clearTimeout(this.errands.get(u.id));
     const here = this.position(u).next, occ = this.occupied();
@@ -550,6 +563,47 @@ export class World {
       if (typeof cup === 'string') this.sendTo(u.id, { t: 'notice', text: cup });
       else this.setHolding(u, null);
     }, Math.max(0, at - Date.now()) + 300));
+  }
+  // ---------- Berghain's toilets ----------
+  /** Walk to the stall's door; there, go in or join the line. */
+  private useToilet(u: User, o: MapObject) {
+    if (this.toilets.inside(u.id) === o.id || this.toilets.waiting(u.id)?.id === o.id) return;
+    if (toiletFull(this.toilets.state(o.id))) return this.sendTo(u.id, { t: 'notice', text: 'Out of order — this stall is full 🤢' });
+    this.setFollowing(u, null);
+    clearTimeout(this.errands.get(u.id));
+    const door = stallDoor(o), here = this.position(u).next;
+    const at = here.x === door.x && here.y === door.y ? Date.now() : this.walk(u, door, 'down');
+    if (at === null) return;
+    this.errands.set(u.id, setTimeout(() => {
+      this.errands.delete(u.id);
+      const d = this.position(u).dest;
+      if (d.x !== door.x || d.y !== door.y || u.presence === 'offline' || goingOut(u) || u.instance) return; // wandered off on the way
+      if (this.map.objects.find(it => it.id === o.id)?.use?.kind !== 'toilet') return;
+      const r = this.toilets.arrive(o.id, u.id, Date.now());
+      if (r === 'full') this.sendTo(u.id, { t: 'notice', text: 'Out of order — this stall is full 🤢' });
+      if (r === 'queued') this.sendTo(u.id, { t: 'notice', text: `In line for the toilet · ${this.toilets.waiting(u.id)!.ahead + 1} ahead of you` });
+    }, Math.max(0, at - Date.now()) + USE_MS.toilet));
+  }
+  private toiletWalk(u: User, to: Tile) {
+    this.toiletWalks.add(u.id);
+    try { return this.walk(u, to, 'down'); } finally { this.toiletWalks.delete(u.id); }
+  }
+  /** Everyone waiting for this stall stands in its line, in order. */
+  private lineUp(id: string) {
+    const o = this.map.objects.find(o => o.id === id), queue = this.toilets.state(id).queue;
+    if (!o || !queue.length) return;
+    const spots = stallLine(this.map, o, queue.length);
+    queue.forEach((userId, i) => {
+      const u = this.users.get(userId), d = u && this.position(u).dest;
+      if (u && d && (d.x !== spots[i].x || d.y !== spots[i].y)) this.toiletWalk(u, { x: spots[i].x, y: spots[i].y });
+    });
+  }
+  private toiletShelf(u: User, objectId: string) {
+    const o = this.map.objects.find(o => o.id === objectId);
+    if (o?.use?.kind !== 'toilet' || this.toilets.inside(u.id) !== o.id) return;
+    if (!this.hasItem(u, TOILET_SHELF_ITEM)) return this.sendTo(u.id, { t: 'notice', text: 'You have nothing to put on the shelf' });
+    if (this.toilets.state(o.id).in.length < 2) return this.sendTo(u.id, { t: 'notice', text: 'Not on your own — wait for company' });
+    if (!this.toilets.shelf(o.id, u.id)) this.sendTo(u.id, { t: 'notice', text: 'The shelf is full' });
   }
   private objectState(id: string) { return { on: this.objectOn.get(id) ?? true }; }
   private setObject(id: string, on: boolean, by: User) {
@@ -1190,8 +1244,9 @@ export class World {
     k.state = 'pending';
     this.setEmote(to, 'knock');
     this.broadcast({ t: 'knock', knockId: k.id, fromId: from.id, toId: to.id });
-    if (room?.rules.knock === 'later' || (to.presence === 'in_call' && !to.callId) || to.meeting) {
-      const why = to.meeting ? 'in a meeting' : room?.rules.occupantLabel ?? 'in a call';
+    const stall = this.toilets.inside(to.id);
+    if (room?.rules.knock === 'later' || (to.presence === 'in_call' && !to.callId) || to.meeting || stall) {
+      const why = stall ? 'on the toilet' : to.meeting ? 'in a meeting' : room?.rules.occupantLabel ?? 'in a call';
       k.timer = setTimeout(() => this.closeKnock(k, 'later', `${to.name} is ${why} — sent to Later`), 1400);
     } else {
       k.timer = setTimeout(() => this.closeKnock(k, 'later', `${to.name} didn't answer — sent to Later`), 30_000);
@@ -1249,6 +1304,7 @@ export class World {
         this.setFollowing(u, null);
         const to = { x: msg.to.x | 0, y: msg.to.y | 0 };
         if (underground(u) ? !this.inDungeon(to) : u.instance && !this.inMeetingRoom(to)) break;
+        if (!this.isAdmin(u) && adminOnly(this.map, to.x, to.y)) { this.sendTo(u.id, { t: 'notice', text: `🔒 ${roomAt(this.map, to.x, to.y)?.name ?? 'That room'}: admins only` }); break; }
         const at = this.walk(u, to);
         const hole = this.map.dungeon?.hole;
         if (at !== null && hole && this.sameTile(to, hole)) this.dungeonTimer(u, 'fall', at, () => {
@@ -1277,6 +1333,12 @@ export class World {
       case 'claim_desk': this.claimDesk(u); break;
       case 'edit': if (msg.edit && typeof msg.edit === 'object') this.edit(u, msg.edit); break;
       case 'edit_reset': this.resetLayout(u); break;
+      case 'toilet_plunge': {
+        const o = this.map.objects.find(o => o.id === msg.objectId);
+        if (this.isAdmin(u) && o?.use?.kind === 'toilet' && this.toilets.plunge(o.id, Date.now())) this.sendTo(u.id, { t: 'notice', text: 'Plunged 🪠 — good as new' });
+        break;
+      }
+      case 'toilet_shelf': this.toiletShelf(u, String(msg.objectId)); break;
       case 'release_desk': this.releaseDesk(u); break;
       case 'meet_link': {
         const raw = String(msg.link ?? '');

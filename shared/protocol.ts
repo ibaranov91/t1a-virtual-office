@@ -30,6 +30,18 @@ export const underground = (u: { instance: string | null }) => u.instance === DU
 
 export const ROOM_VOICE_MAX = 12;
 export const AFK_MS = 10 * 60_000;
+/** A toilet stall in Berghain: up to TOILET_CAPACITY people inside (`in`), the rest line up outside (`queue`), and
+ *  how many visits since it was last cleaned. At TOILET_FULL it overflows: nobody gets in until it drains (one level per
+ *  TOILET_DRAIN_MS) or an admin plunges it. `shelf`: lines racked on its little shelf (cleared when it empties). */
+export interface ToiletState { fill: number; in: string[]; queue: string[]; shelf: number }
+export const TOILET_CAPACITY = 4;
+export const TOILET_FULL = 8;
+export const TOILET_USE_MS = 45_000;
+export const TOILET_DRAIN_MS = 3 * 60_000;
+export const TOILET_SHELF_MAX = 4;
+/** What racking a line on the shelf takes from your inventory (the inventory comes later). */
+export const TOILET_SHELF_ITEM = 'drugs';
+export const toiletFull = (s?: ToiletState) => !!s && s.fill >= TOILET_FULL;
 /** A toggle object's shared state. */
 export interface ObjectState { on: boolean }
 
@@ -202,7 +214,7 @@ export type ServerMsg =
   // the furniture and rugs: on connect, and to everyone after each admin edit. by: who made it; added: a new thing's id
   | { t: 'layout'; layout: Layout; by?: string; added?: string }
   | { t: 'hello'; you: string; serverTime: number; build?: string } // build: the client bundle the server serves (absent in dev)
-  | { t: 'state'; users: PublicUser[]; objects: Record<string, ObjectState>; jukebox?: Record<string, JukeboxState>; instruments?: Record<string, string | null>; serverTime: number }
+  | { t: 'state'; users: PublicUser[]; objects: Record<string, ObjectState>; toilets?: Record<string, ToiletState>; jukebox?: Record<string, JukeboxState>; instruments?: Record<string, string | null>; serverTime: number }
   | { t: 'move'; userId: string; from: Tile; to: Tile; startedAt: number; path?: Tile[]; face?: Dir; ms?: number } // ms: per tile, absent = WALK_MS_PER_TILE
   | { t: 'effects'; userId: string; effects: Effect[] }
   | { t: 'status'; userId: string; status: string }
@@ -213,7 +225,7 @@ export type ServerMsg =
   | { t: 'knock_reply'; knockId: string; fromId: string; toId: string; reply: 'accept' | 'later' | 'blocked'; link?: string; reason?: string; fallback?: boolean; cancelled?: boolean }
   // private settings, only to the user themselves. google: the connected Google account (null = not connected),
   // absent when this instance has no Google sign-in
-  | { t: 'me'; meetLink: string; email?: string; google?: string | null; calendar?: boolean; admin?: boolean; judge?: boolean } // calendar: Calendar access granted; admin: may rearrange the office
+  | { t: 'me'; meetLink: string; email?: string; google?: string | null; calendar?: boolean; admin?: boolean; judge?: boolean; items?: string[] } // calendar: Calendar access granted; admin: may rearrange the office
   | { t: 'google_auth'; url: string; calendar?: boolean } // open this to connect Google (in the system browser from the Mac app)
   | { t: 'calendar'; events?: CalEvent[]; error?: string } // my own events, only to me
   | { t: 'agenda'; items: AgendaItem[] } // my calendar meetings now and soon, only to me
@@ -233,6 +245,7 @@ export type ServerMsg =
   | { t: 'holding'; userId: string; item: string | null; objectId?: string; fromId?: string } // objectId: just taken; fromId: handed over
   | { t: 'jukebox'; id: string; state: JukeboxState }
   | { t: 'object'; id: string; on: boolean; by: string }
+  | { t: 'toilet'; id: string; state: ToiletState }
   | { t: 'react'; fromId: string; toId: string; emoji: Reaction }
   | { t: 'chat'; msg: ChatMsg }
   | { t: 'chat_history'; withId: string; messages: ChatMsg[] }
@@ -289,6 +302,8 @@ export type ClientMsg =
   | { t: 'voice_claim' }
   | { t: 'edit'; edit: LayoutEdit } // office admins only
   | { t: 'edit_reset' }              // office admins only: back to the generated layout
+  | { t: 'toilet_plunge'; objectId: string } // office admins only: a full stall is clean again
+  | { t: 'toilet_shelf'; objectId: string }  // inside with company and the item in your inventory: rack a line
   | { t: 'look'; look: Look }
   // put an effect on someone (on: true) or take it off. Yourself: 'self' effects; office admins (GMs): anyone, any effect.
   | { t: 'effect'; targetId: string; kind: string; on: boolean; style?: string }

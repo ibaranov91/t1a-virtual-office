@@ -1238,6 +1238,87 @@ for (const open of [false, true]) {
   }
 }
 
+// ---------- the Admin room and Berghain (no shared random calls: existing art stays unchanged) ----------
+for (let v = 0; v < 3; v++) { // raised server-room floor: grey panels with perforations
+  const t = new Img(16, 16);
+  t.rect(0, 0, 16, 16, '#8f98a3'); t.hline(0, 0, 16, '#a9b1bb'); t.vline(0, 0, 16, '#a9b1bb'); t.hline(0, 15, 16, '#6f7782'); t.vline(15, 0, 16, '#6f7782');
+  for (let y = 4; y < 13; y += 4) for (let x = 4; x < 13; x += 4) if ((x + y + v * 4) % 12) t.px(x, y, '#737b86');
+  if (v === 2) { t.rect(6, 6, 4, 4, '#7d8590'); t.hline(6, 6, 4, '#b8c0c9'); }
+  frames[`raised_${v}`] = t;
+}
+for (let v = 0; v < 3; v++) { // the club's floor: near-black concrete
+  const t = new Img(16, 16);
+  t.rect(0, 0, 16, 16, '#1d1922'); t.hline(0, 15, 16, '#15121a'); t.vline(15, 0, 16, '#15121a');
+  for (const [x, y] of [[3 + v * 4, 4], [11 - v * 3, 10], [6, 13 - v * 2]]) t.px(x, y, '#2b2533');
+  if (v === 1) t.px(9, 6, '#3c3247');
+  frames[`club_${v}`] = t;
+}
+for (const blink of [0, 1]) { // a rack of servers, LEDs blinking
+  const t = new Img(16, 32);
+  t.rect(1, 3, 14, 28, '#2a2d36'); t.hline(1, 3, 14, '#4a4f5c'); t.rect(2, 5, 12, 24, '#1a1c22');
+  for (let i = 0; i < 6; i++) {
+    const y = 6 + i * 4;
+    t.rect(3, y, 10, 3, '#3a3e4a'); t.hline(3, y, 10, '#505665');
+    t.px(4, y + 1, (i + blink) % 3 ? '#7cd87c' : '#2f5a2f'); t.px(6, y + 1, (i * 2 + blink) % 4 ? '#e8b860' : '#6a5328');
+    for (let x = 8; x < 12; x++) t.px(x, y + 1, '#262931');
+  }
+  t.rect(2, 30, 3, 1, OUT); t.rect(11, 30, 3, 1, OUT);
+  frames[blink ? 'server_rack_1' : 'server_rack'] = t.outline();
+}
+{
+  const t = new Img(32, 16); // pink and cyan neon on a dark plate
+  t.rect(1, 2, 30, 12, '#211a2b');
+  t.rect(3, 4, 26, 1, '#ff5ec8'); t.rect(3, 11, 26, 1, '#ff5ec8'); t.vline(3, 4, 8, '#ff5ec8'); t.vline(28, 4, 8, '#ff5ec8');
+  for (let x = 6; x < 26; x++) t.px(x, 7 + Math.abs(((x - 6) % 6) - 3) - 1, '#5ef0ff');
+  frames.neon_sign = t.outline();
+}
+{
+  const t = new Img(48, 24); // DJ booth: two decks and a mixer
+  t.rect(1, 9, 46, 14, '#16131c'); t.rect(1, 8, 46, 3, '#3a3346'); t.hline(1, 8, 46, '#5a5068');
+  t.hline(2, 15, 44, '#ff5ec8'); t.hline(2, 18, 44, '#5ef0ff');
+  for (const cx of [10, 38]) { t.ellipse(cx, 6, 6, 3.5, '#2a2a30'); t.ellipse(cx, 6, 4, 2.4, '#111015'); t.px(cx, 6, '#e8dcc8'); t.hline(cx + 3, 3, 3, '#a0a4ae'); }
+  t.rect(20, 3, 8, 5, '#2f2c38'); for (const x of [21, 23, 25]) t.vline(x, 4, 3, '#a0a4ae'); t.px(26, 4, '#7cd87c');
+  frames.dj_booth = t.outline();
+}
+{
+  const t = new Img(16, 24); // the bouncer: arms folded, shades on
+  t.rect(3, 9, 10, 12, '#34343f'); t.rect(2, 11, 12, 6, '#34343f'); t.vline(2, 11, 6, '#565666'); t.vline(13, 11, 6, '#565666');
+  t.rect(7, 9, 2, 3, '#e8e6ee'); // shirt collar
+  t.rect(3, 13, 10, 3, '#454552'); t.hline(3, 13, 10, '#646475'); // folded arms
+  t.rect(5, 1, 6, 7, '#c89474'); t.hline(5, 1, 6, '#d8a888'); t.rect(5, 4, 6, 1, '#111'); t.px(8, 4, '#3a3a40');
+  t.rect(6, 7, 4, 1, '#a87454'); t.rect(7, 8, 2, 1, '#1a1a1f');
+  t.rect(4, 21, 3, 2, '#111'); t.rect(9, 21, 3, 2, '#111'); t.rect(4, 20, 8, 1, '#2a2a30');
+  t.px(12, 10, '#e8b860'); // earpiece
+  frames.bouncer = t.outline();
+}
+const stall = (state) => { // a roomy stall for up to four: free (door open), busy (half door shut), full (overflowing, taped off)
+  const t = new Img(32, 32);
+  t.rect(0, 0, 32, 32, '#3a3346'); t.rect(2, 2, 28, 29, '#2a2433'); // partitions and back wall
+  t.vline(0, 0, 32, '#6d6080'); t.vline(31, 0, 32, '#6d6080'); t.hline(0, 0, 32, '#8a7aa0');
+  t.rect(5, 4, 8, 6, '#e8e6ee'); t.hline(5, 4, 8, '#ffffff'); t.px(11, 5, '#a0a4ae'); // tank
+  t.ellipse(9, 17, 5, 4, '#e8e6ee'); t.ellipse(9, 17, 3, 2.4, state === 'full' ? '#7a5a2e' : '#7ab8d8'); t.rect(7, 20, 5, 6, '#d8d6de');
+  t.rect(17, 6, 12, 4, '#a8825a'); t.hline(17, 6, 12, '#c49c70'); t.hline(17, 10, 12, '#6a4a32'); // the little shelf
+  t.px(18, 11, '#6a4a32'); t.px(27, 11, '#6a4a32');
+  if (state === 'free') { t.rect(2, 16, 3, 15, '#6b4a8a'); t.vline(4, 16, 15, '#8a64b0'); } // door swung open
+  if (state === 'busy') {
+    t.rect(2, 16, 28, 15, '#6b4a8a'); t.hline(2, 16, 28, '#8a64b0'); t.vline(16, 17, 14, '#5a3c76');
+    t.rect(25, 22, 3, 2, '#d84a4a'); t.px(14, 24, '#e8b860'); t.px(18, 24, '#e8b860');
+  }
+  if (state === 'full') {
+    t.ellipse(14, 28, 13, 3, '#8a6a3a'); t.ellipse(14, 28, 10, 2, '#a07e4a'); t.ellipse(5, 24, 3, 1.5, '#8a6a3a');
+    for (let i = 0; i < 32; i++) { const c = i % 4 < 2 ? '#e8c840' : '#1a1a1f'; t.px(i, 8 + (i >> 1), c); t.px(i, 23 - (i >> 1), c); } // tape across
+    t.px(9, 2, '#111'); t.px(20, 3, '#111'); t.px(24, 1, '#111'); // flies
+  }
+  return t.outline();
+};
+frames.toilet = stall('free'); frames.toilet_busy = stall('busy'); frames.toilet_full = stall('full');
+for (const axis of ['h', 'v']) { // a room door only admins open: the closed door with a red light and a padlock
+  const c = frames[`door_${axis}_closed`], t = new Img(c.w, c.h); t.blit(c, 0, 0);
+  t.rect(c.w / 2 - 3, 20, 6, 5, '#e8b860'); t.rect(c.w / 2 - 2, 17, 4, 3, OUT); t.rect(c.w / 2 - 1, 18, 2, 2, [0, 0, 0, 0]);
+  t.px(c.w / 2, 22, OUT); t.rect(c.w / 2 - 2, 9, 4, 2, '#e84a4a');
+  frames[`door_${axis}_locked`] = t;
+}
+
 // ---------- pack world atlas (shelf packer) ----------
 const names = Object.keys(frames).sort((a, b) => frames[b].h - frames[a].h || frames[b].w - frames[a].w);
 const AW = 256; let x = 0, y = 0, rowH = 0; const rects = {};

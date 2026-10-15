@@ -1,7 +1,7 @@
 // WebSocket client + the client-side mirror of server state.
 import mapJson from '../../shared/tilemap.json';
 import { applyLayout, besideObject, doorwayTiles, isWalkable, pathTo, roomAt, sampleMove, type Dir, type Tile, type TileMap } from '../../shared/map';
-import { ACHIEVEMENTS, underground, DUNGEON_INSTANCE, PLANT_STAGES, plantName, ROOM_VOICE_MAX, type JukeboxState, type JukeboxAction, type AgendaItem, type LayoutEdit, type CalEvent, type MeetingRoomInfo, type ChatMsg, type LiveDeck, type ObjectState, type ClientMsg, type PublicUser, type Reaction, type RtcSignal, type ServerMsg, type Creature, type Cup, CUP_ITEMS } from '../../shared/protocol';
+import { ACHIEVEMENTS, underground, DUNGEON_INSTANCE, PLANT_STAGES, plantName, ROOM_VOICE_MAX, type JukeboxState, type JukeboxAction, type AgendaItem, type LayoutEdit, type CalEvent, type MeetingRoomInfo, type ChatMsg, type LiveDeck, type ObjectState, type ToiletState, type ClientMsg, type PublicUser, type Reaction, type RtcSignal, type ServerMsg, type Creature, type Cup, CUP_ITEMS } from '../../shared/protocol';
 import { ParkLoop } from './park/loop';
 import type { CabinetSummary, ParkRecords } from '../../shared/protocol';
 import { playPark, playHand, playKnock, playPop, playDungeon } from './sounds';
@@ -63,6 +63,7 @@ export class Store {
   build: string | undefined;  // the server's client build when this page loaded
   staleBuild = false;         // server now serves a newer build; reload when not in a call
   objects: Record<string, ObjectState> = {};
+  toilets: Record<string, ToiletState> = {}; // Berghain's stalls
   jukebox: Record<string, JukeboxState> = {};
   instruments: Record<string, string | null> = {};
   seat: string | null = null;
@@ -89,6 +90,7 @@ export class Store {
   uiVersion = 0;  // bumps only when React chrome has something new to show
   admin = false;      // may rearrange the office (and is a GM: may put effects on anyone)
   judge = false;      // a hackathon judge: wears the judge's hat
+  items: string[] = []; // my inventory (for now only what the server hands everyone)
   layoutVersion = 0;  // bumps whenever the furniture changes; the engine redraws the floor
   added: string | null = null; // the thing I just added, to select it
   private listeners = new Set<Listener>();
@@ -193,6 +195,8 @@ export class Store {
   follow(targetId: string | null) { this.send({ t: 'follow', targetId }); }
   react(targetId: string, emoji: Reaction) { this.send({ t: 'react', targetId, emoji }); }
   use(objectId: string, item?: string) { this.send({ t: 'use', objectId, item }); }
+  plunge(objectId: string) { this.send({ t: 'toilet_plunge', objectId }); }
+  rackLine(objectId: string) { this.send({ t: 'toilet_shelf', objectId }); }
   drop() { this.send({ t: 'drop' }); }
   putCup(tile: Tile) { this.send({ t: 'cup_put', tile }); }
   give(targetId: string) { this.send({ t: 'give', targetId }); }
@@ -429,6 +433,7 @@ export class Store {
         this.users = next;
         this.setInstruments(msg.instruments ?? {});
         this.objects = msg.objects ?? {};
+        this.toilets = msg.toilets ?? {};
         this.jukebox = msg.jukebox ?? {}; this.jukeboxReady = true;
         this.soundscape?.resetCrossings();
         break;
@@ -453,6 +458,7 @@ export class Store {
       case 'note': this.soundscape?.receiveNote(msg.id, msg.by, msg.note, msg.on, msg.vel, msg.preset, msg.at); return;
       case 'jukebox': if (this.jukeboxReady) this.jukebox = { ...this.jukebox, [msg.id]: msg.state }; break;
       case 'object': this.objects = { ...this.objects, [msg.id]: { on: msg.on } }; break;
+      case 'toilet': this.toilets = { ...this.toilets, [msg.id]: msg.state }; break;
       case 'react':
         this.reactions.push({ fromId: msg.fromId, toId: msg.toId, emoji: msg.emoji, at: performance.now() });
         if (msg.toId === this.me && msg.fromId !== this.me) playPop();
@@ -483,7 +489,7 @@ export class Store {
         if (this.google === null && msg.google) this.toast({ kind: 'info', text: `Google connected as ${msg.google}`, hint: 'Calls you start now get their own Meet room', expires: 6000 });
         if (!this.calendarAccess && msg.calendar && this.google) this.toast({ kind: 'info', text: 'Google Calendar connected', expires: 4000 });
         const calendarNow = !!msg.calendar && !this.calendarAccess;
-        this.meetLink = msg.meetLink; this.email = msg.email ?? null; this.google = msg.google; this.calendarAccess = !!msg.calendar; this.admin = !!msg.admin; this.judge = !!msg.judge;
+        this.meetLink = msg.meetLink; this.email = msg.email ?? null; this.google = msg.google; this.calendarAccess = !!msg.calendar; this.admin = !!msg.admin; this.judge = !!msg.judge; this.items = msg.items ?? [];
         if (msg.google !== null) this.googleAuthUrl = null;
         if (this.calendarAccess) this.calendarAuthUrl = null;
         if (calendarNow && this.calendarOpen) this.loadCalendar(); // just granted from the open panel
