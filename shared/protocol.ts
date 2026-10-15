@@ -7,6 +7,7 @@ export type ParkRecords = Record<number, Partial<Record<1 | 2 | 3 | 4, ParkRecor
 export interface CabinetSummary { cabinet: string; phase: 'lobby' | 'level' | 'clear'; level: number; players: string[]; spectators: number }
 
 import type { Dir, Layout, Move, Tile } from './map';
+import type { Eating } from './lunch';
 
 export const NOTE_RATE = 40;
 export const NOTE_BURST = 64;
@@ -32,7 +33,7 @@ export const ROOM_VOICE_MAX = 12;
 export const AFK_MS = 10 * 60_000;
 /** A toilet stall in Berghain: up to TOILET_CAPACITY people inside (`in`), the rest line up outside (`queue`), and
  *  how many visits since it was last cleaned. At TOILET_FULL it overflows: nobody gets in until it drains (one level per
- *  TOILET_DRAIN_MS) or an admin plunges it. `shelf`: lines racked on its little shelf (cleared when it empties). */
+ *  TOILET_DRAIN_MS). `shelf`: lines racked on its little shelf (cleared when it empties). */
 export interface ToiletState { fill: number; in: string[]; queue: string[]; shelf: number }
 export const TOILET_CAPACITY = 4;
 export const TOILET_FULL = 8;
@@ -45,6 +46,20 @@ export const ITEMS_MAX = 3; // of one kind in your inventory
 export const toiletFull = (s?: ToiletState) => !!s && s.fill >= TOILET_FULL;
 /** A toggle object's shared state. */
 export interface ObjectState { on: boolean }
+
+/** The reading room: article links on the library shelf, grouped by topic. Server-owned, saved in state.json. */
+export const LIBRARY_TOPICS = ['Engineering', 'Data', 'Product', 'Design', 'Fun'] as const;
+export type LibraryTopic = typeof LIBRARY_TOPICS[number];
+export const LIBRARY_TITLE_MAX = 120;
+export const LIBRARY_URL_MAX = 500;
+export const LIBRARY_MAX_ARTICLES = 200;
+export const LIBRARY_WEEK_MS = 7 * 86_400_000;
+export interface Article { id: string; url: string; title: string; topic: LibraryTopic; by: string; at: number }
+/** One finished (or ongoing) read, kept for the log. */
+export interface LibraryRead { userId: string; articleId: string; at: number; done: boolean }
+/** What everyone sees of the library: the shelf and the read log (reads that finished, plus who is reading now). */
+export interface LibraryState { articles: Article[]; reads: LibraryRead[] }
+export const BOOK_ITEM = 'book'; // what you carry from the shelf to the reading desk
 
 export type Presence = 'online' | 'away' | 'in_call' | 'offline';
 export type Emote = 'knock' | null;
@@ -95,11 +110,18 @@ export const plantDead = (p: Plant, now: number) => dayNumber(now) - p.care >= P
  *  soon: announced but not earnable yet. */
 export interface Achievement { id: string; icon: string; title: string; how: string; goal?: number; soon?: boolean; secret?: string }
 export const BOTANIST_KINDS = 3;
+export const BOOKWORM_READS = 10;
+export const EDITOR_READERS = 5;
 export const ACHIEVEMENTS: Achievement[] = [
   { id: 'tended', icon: '💧', title: 'Green fingers', how: 'Set a status on a new day. Each day you do, your plant grows one stage.' },
   { id: 'bloom', icon: '🌸', title: 'In bloom', how: `Grow your plant all the way: set a status on ${PLANT_STAGES.length - 1} more days, never ${PLANT_DIES_DAYS} days apart.` },
   { id: 'botanist', icon: '🌻', title: 'Botanist', how: `Bloom ${BOTANIST_KINDS} different flowers. A plant that withers is replanted as a new, random one.`, goal: BOTANIST_KINDS },
   { id: 'escape', icon: '🗝️', title: 'Escape artist', how: 'Found the way out of the place under the garden.', secret: 'Something about a corner of the garden isn\'t quite right.' },
+  { id: 'raver', icon: '🪩', title: 'Raver', how: 'Dance for 30 minutes in total on the Berghain floor.' },
+  { id: 'whisperer', icon: '🐾', title: 'Animal whisperer', how: 'Pet both the office cat and the office dog on the same day.' },
+  { id: 'batcatcher', icon: '🦇', title: 'Bat catcher', how: 'Catch the October bat while it hangs about. Click it from right beneath: it usually lets itself be caught, but sometimes darts off.', secret: 'Something flutters in the rafters in October.' },
+  { id: 'bookworm', icon: '📚', title: 'Bookworm', how: `Finish reading ${BOOKWORM_READS} articles from the library.`, goal: BOOKWORM_READS },
+  { id: 'editor', icon: '📰', title: 'Editor', how: `Publish an article that ${EDITOR_READERS} different people read.`, goal: EDITOR_READERS },
   { id: 'event', icon: '🎉', title: 'Party person', how: 'Be in the office during an office event.', soon: true },
 ];
 
@@ -121,6 +143,8 @@ export interface PublicUser {
   muted: boolean;        // mic muted in that call
   following: string | null; // walks along with this person
   holding: string | null;   // a UseItem id (coffee, snack…) in hand for a while
+  reading: string | null;   // library article id they're reading at a reading desk; knocks go to Later
+  eating?: Eating;          // having lunch at a picnic table (see shared/lunch.ts)
   meeting: number | null;   // in a calendar meeting until then (ms); knocks go to Later
   instance: string | null;  // meeting room or dungeon: only people in the same instance see each other
   plant: Plant | null;      // on their home desk, or in the Orangery if they have none
@@ -132,7 +156,7 @@ export interface PublicUser {
 /** Office animals and helpers. Not people: never in the user list, never knock, never counted.
  *  ms: milliseconds per tile of the current walk (they amble, fly or drift at their own pace). */
 export type CreatureKind = 'cat' | 'dog' | 'bat' | 'cleaner';
-export type CreaturePose = 'idle' | 'sit' | 'nap' | 'clean' | 'hang';
+export type CreaturePose = 'idle' | 'sit' | 'nap' | 'clean' | 'hang' | 'pet';
 export interface Creature {
   id: string; kind: CreatureKind; name: string;
   tile: Tile; dir: Dir; pose: CreaturePose;
@@ -143,7 +167,7 @@ export interface Cup { id: string; tile: Tile; item: string; at: number }
 export const MAX_CUPS = 12;
 export const CUP_ITEMS = ['coffee', 'tea'];
 /** Furniture you can put a cup on. */
-export const CUP_TABLES = ['table_long', 'table_round', 'table_big', 'desk', 'counter'];
+export const CUP_TABLES = ['table_long', 'table_round', 'table_big', 'desk', 'counter', 'table_picnic'];
 export const cupTableAt = <O extends { type: string; x: number; y: number; w: number; h: number }>(objects: O[], t: Tile) =>
   objects.find(o => CUP_TABLES.includes(o.type) && t.x >= o.x && t.x < o.x + o.w && t.y >= o.y && t.y < o.y + o.h);
 export type CreatureServerMsg =
@@ -234,6 +258,8 @@ export type ServerMsg =
   | { t: 'agenda'; items: AgendaItem[] } // my calendar meetings now and soon, only to me
   | { t: 'dungeon'; key: Tile | null; hasKey: boolean; event?: 'fell' | 'key' | 'locked' | 'opening' | 'escaped' | 'gave_up' }
   | { t: 'meeting'; userId: string; until: number | null }
+  | { t: 'reading'; userId: string; articleId: string | null }
+  | ({ t: 'library' } & LibraryState)
   | { t: 'instance'; userId: string; instance: string | null; tile: Tile; dir: Dir } // stepped into (or out of) a meeting room or the dungeon
   | { t: 'meetings'; rooms: MeetingRoomInfo[] } // running meeting rooms, for the board
   | { t: 'desk'; userId: string; desk: Tile | null }
@@ -245,10 +271,12 @@ export type ServerMsg =
   | { t: 'mute'; userId: string; muted: boolean }
   | { t: 'to_meet'; fromId: string } // someone in your call opened its Meet room; come along
   | { t: 'follow'; userId: string; targetId: string | null }
+  | { t: 'eating'; userId: string; eating: Eating | null }
   | { t: 'holding'; userId: string; item: string | null; objectId?: string; fromId?: string } // objectId: just taken; fromId: handed over
   | { t: 'jukebox'; id: string; state: JukeboxState }
   | { t: 'object'; id: string; on: boolean; by: string }
   | { t: 'toilet'; id: string; state: ToiletState }
+  | { t: 'bell'; userId: string; objectId: string } // someone rang a reception bell
   | { t: 'react'; fromId: string; toId: string; emoji: Reaction }
   | { t: 'chat'; msg: ChatMsg }
   | { t: 'chat_history'; withId: string; messages: ChatMsg[] }
@@ -263,7 +291,11 @@ export type ServerMsg =
 // client -> server
 export type ClientMsg =
   | ParkOutgoing
+  | { t: 'lunch'; tile: Tile; open: boolean } // eat the food you're holding in this picnic chair; open: knocks from the table are welcome
+  | { t: 'lunch_open'; open: boolean }       // change that while eating
   | { t: 'cup_put'; tile: Tile } // put the coffee or tea you're holding down on this table tile
+  | { t: 'pet'; creatureId: string } // pet the cat or dog, or try to catch the hanging bat (walks you over first)
+  | { t: 'dev_bat' } // dev only (BAT=1): bring the bat out now
   | { t: 'game_play'; epoch: number }
   | { t: 'game_leave' }
   | { t: 'game_menu'; epoch: number; op: 'lobby' | 'restart' }
@@ -283,6 +315,10 @@ export type ClientMsg =
   | { t: 'calendar'; from: string } // my events for a week from `from` (ISO, the start of my local day)
   | { t: 'meeting_go'; key: string } // one click: into that meeting's room
   | { t: 'dungeon_leave' }
+  | { t: 'article_add'; url: string; title: string; topic: string }
+  | { t: 'article_remove'; id: string }  // the author, or an office admin
+  | { t: 'read_start'; articleId: string }
+  | { t: 'read_done' }
   | { t: 'meeting_leave' }           // back to the office (still in the meeting: busy, knocks go to Later)
   | { t: 'meeting_out'; key: string } // leave the meeting for good: not busy any more, knocks come through again
   | { t: 'google_disconnect' }
@@ -306,7 +342,7 @@ export type ClientMsg =
   | { t: 'voice_claim' }
   | { t: 'edit'; edit: LayoutEdit } // office admins only
   | { t: 'edit_reset' }              // office admins only: back to the generated layout
-  | { t: 'toilet_plunge'; objectId: string } // office admins only: a full stall is clean again
+  | { t: 'ring'; objectId: string }  // ring a bell (walks you over first if you're not beside it)
   | { t: 'toilet_shelf'; objectId: string }  // inside with company and the item in your inventory: rack a line
   | { t: 'toilet_sniff'; objectId: string }  // inside, a line on the shelf: take it (and see unicorns)
   | { t: 'look'; look: Look }

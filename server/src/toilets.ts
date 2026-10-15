@@ -60,12 +60,6 @@ export class Toilets {
     s.shelf--; this.emit(id);
     return true;
   }
-  /** An admin with a plunger: clean right away. */
-  plunge(id: string, now: number) {
-    const s = this.stalls.get(id); if (!s || !s.fill) return false;
-    s.fill = 0; s.changed = now; this.promote(id, s, now); this.emit(id);
-    return true;
-  }
   /** Visits end on time, and an empty stall drains one level every TOILET_DRAIN_MS. */
   tick(now: number) {
     for (const [id, s] of this.stalls) {

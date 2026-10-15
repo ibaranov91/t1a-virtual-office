@@ -1,13 +1,14 @@
 // The office animals, the cleaner, the cups on tables, and the ghost of Mazurkevich. The engine merges these into its
 // y-sorted pass; this file only knows how to place and draw them.
 import { sampleMove, WALK_MS_PER_TILE, type Dir, type Rect } from '../../shared/map';
+import { isPlate, LUNCH_MS, plateFood } from '../../shared/lunch';
 import { cupTableAt, type Creature } from '../../shared/protocol';
 import type { Frame } from './assets';
 import { MAP, type Store } from './net';
 
 const TS = MAP.tileSize;
 const KIND_NAME: Record<Creature['kind'], string> = { cat: 'the office cat', dog: 'the office dog', bat: 'an October bat 🦇', cleaner: 'cleaning up' };
-const POSE_NAME: Record<Creature['pose'], string> = { idle: '', sit: 'keeping someone company', nap: 'napping', clean: 'wiping a table', hang: 'hanging about' };
+const POSE_NAME: Record<Creature['pose'], string> = { idle: '', sit: 'keeping someone company', nap: 'napping', clean: 'wiping a table', hang: 'hanging about', pet: 'being petted' };
 
 export interface Placed { base: number; draw: () => void }
 interface CreaturePose { x: number; y: number; dir: Dir; walking: boolean }
@@ -61,6 +62,9 @@ export class CreatureLayer {
   /** Dev: bring the ghost out now, for a minute. */
   summonGhost(ms = 60_000) { const now = this.store.now(); this.forcedGhost = { from: now, to: now + ms }; }
 
+  /** Dev: the bat is out of season (server needs BAT=1, which `npm run dev` sets). */
+  summonBat() { this.store.devBat(); }
+
   private drawFrame(name: string, cx: number, bottom: number, left: boolean, alpha = 1) {
     const fr = this.f(name); if (!fr) return;
     const ctx = this.ctx(), x = Math.round(cx - fr.w / 2), y = Math.round(bottom - fr.h);
@@ -78,7 +82,7 @@ export class CreatureLayer {
     const step = Math.floor(ms / (c.kind === 'dog' ? 120 : 160)) % 2;
     if (c.kind === 'bat') return p.walking ? `bat_fly_${Math.floor(ms / 90) % 2}` : 'bat_hang';
     if (c.kind === 'cleaner') return c.pose === 'clean' && !p.walking ? `cleaner_clean_${Math.floor(ms / 260) % 2}` : p.walking ? `cleaner_${step}` : 'cleaner_0';
-    return p.walking ? `${c.kind}_walk_${step}` : c.pose === 'nap' ? `${c.kind}_nap` : c.pose === 'sit' || c.pose === 'idle' && c.kind === 'cat' ? `${c.kind}_sit` : `${c.kind}_walk_0`;
+    return p.walking ? `${c.kind}_walk_${step}` : c.pose === 'nap' ? `${c.kind}_nap` : c.pose === 'sit' || c.pose === 'pet' || c.pose === 'idle' && c.kind === 'cat' ? `${c.kind}_sit` : `${c.kind}_walk_0`;
   }
   private left(c: Creature, dir: Dir) {
     if (dir === 'left' || dir === 'right') this.facing.set(c.id, dir === 'left');
@@ -92,6 +96,10 @@ export class CreatureLayer {
       const table = cupTableAt(MAP.objects, cup.tile);
       const base = table ? (table.y + table.h) * TS - 0.25 : (cup.tile.y + 1) * TS;
       const lift = table ? Math.max(0, (this.f(table.type)?.h ?? 0) - table.h * TS) : 0; // the table top sits above its tiles
+      if (isPlate(cup.item)) { // the food while lunch lasts, then the crumbs
+        out.push({ base, draw: () => this.blit(this.store.now() < cup.at + LUNCH_MS ? `plate_${plateFood(cup.item)}` : 'plate_empty', cup.tile.x * TS + 4, cup.tile.y * TS + 6 - lift) });
+        continue;
+      }
       out.push({ base, draw: () => this.blit(`cup_${cup.item === 'tea' ? 'tea' : 'coffee'}`, cup.tile.x * TS + 5, cup.tile.y * TS + 6 - lift) });
     }
     for (const c of this.store.creatures.values()) {
@@ -101,6 +109,10 @@ export class CreatureLayer {
         const left = this.left(c, p.dir);
         this.shadow(cx, bottom, c.kind === 'cleaner' ? 5 : 4.5);
         this.drawFrame(this.frameFor(c, p, ms), cx, bottom - (c.kind === 'cleaner' ? 1 : 0), left);
+        if (c.pose === 'pet' && !p.walking) for (let i = 0; i < 3; i++) { // hearts drifting up
+          const ph = (ms / 900 + i / 3) % 1, ctx = this.ctx();
+          ctx.globalAlpha = Math.min(1, 2 - ph * 2); this.blit('heart', Math.round(cx - 3 + (i - 1) * 5 + Math.sin(ph * 6 + i) * 1.5), Math.round(bottom - 16 - ph * 10)); ctx.globalAlpha = 1;
+        }
         if (c.pose === 'nap' && !p.walking) {
           const ctx = this.ctx(), ph = (ms / 1400) % 1;
           ctx.globalAlpha = 1 - ph; ctx.fillStyle = '#e8e4ff'; ctx.font = '6px system-ui, sans-serif';
@@ -123,7 +135,7 @@ export class CreatureLayer {
   }
 
   /** What's under the pointer, as a name tag and where to put it. */
-  at(wx: number, wy: number, t: number): { text: string; x: number; y: number } | null {
+  at(wx: number, wy: number, t: number): { text: string; x: number; y: number; id?: string } | null {
     const win = ghostWindow(t, this.forcedGhost);
     if (win) {
       const g = ghostAt(win, t), cx = g.x * TS + 8, bottom = g.y * TS + TS;
@@ -134,6 +146,8 @@ export class CreatureLayer {
       const h = c.kind === 'cleaner' ? 24 : c.kind === 'bat' ? 10 : 14;
       if (Math.abs(wx - cx) < 8 && wy > bottom - h && wy < bottom) {
         const doing = POSE_NAME[c.pose];
+        if (c.kind === 'bat' && c.pose === 'hang' && !p.walking) return { text: 'Bat · catch it!', x: cx, y: bottom - h + 4, id: c.id };
+        if (c.kind === 'cat' || c.kind === 'dog') return { text: `${c.name} · the office ${c.kind} · click to pet`, x: cx, y: bottom - h + 4, id: c.id };
         return { text: `${c.name} · ${c.kind === 'cleaner' ? (c.pose === 'clean' ? 'tidying up the cups' : 'the cleaner') : KIND_NAME[c.kind]}${doing && c.kind !== 'cleaner' && !p.walking ? ` · ${doing}` : ''}`, x: cx, y: bottom - h + 4 };
       }
     }

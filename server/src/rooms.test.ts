@@ -114,9 +114,9 @@ test('the shelf takes company inside and the item in your inventory, and clears 
   assert.equal(w.toilets.state(stall.id).shelf, 0);
 });
 
-test('a stall overflows after enough visits, sends its line home, drains slowly, and an admin can plunge it', t => {
+test('a stall overflows after enough visits, sends its line home, and drains slowly', t => {
   const { w, add, notices, tick } = setup(t);
-  const stall = toilets[2], kim = add('Kim', { x: 72, y: 16 }), ivan = add('Ivan', { x: 66, y: 16 }, 'ivan.baranov@t1a.com');
+  const stall = toilets[2], kim = add('Kim', { x: 72, y: 16 });
   for (let i = 1; i <= TOILET_FULL; i++) {
     walkIn(w, kim, stall.id, tick);
     assert.equal(w.toilets.state(stall.id).fill, i);
@@ -126,13 +126,9 @@ test('a stall overflows after enough visits, sends its line home, drains slowly,
   walkIn(w, kim, stall.id, tick);
   assert.deepEqual(w.toilets.state(stall.id).in, []);
   assert.ok(notices(kim.messages).some(n => n.includes('full')));
-  w.handle(kim.u, { t: 'toilet_plunge', objectId: stall.id }, kim.socket);
-  assert.equal(w.toilets.state(stall.id).fill, TOILET_FULL, 'only admins plunge');
   tick(TOILET_DRAIN_MS);
   assert.equal(w.toilets.state(stall.id).fill, TOILET_FULL - 1);
-  w.handle(ivan.u, { t: 'toilet_plunge', objectId: stall.id }, ivan.socket);
-  assert.equal(w.toilets.state(stall.id).fill, 0);
-  assert.ok(kim.messages.some(m => m.t === 'toilet' && m.id === stall.id && m.state.fill === 0), 'everyone hears about it');
+  assert.ok(kim.messages.some(m => m.t === 'toilet' && m.id === stall.id && m.state.fill === TOILET_FULL - 1), 'everyone hears about it');
 });
 
 test('knocks on someone in a stall go to Later', t => {
