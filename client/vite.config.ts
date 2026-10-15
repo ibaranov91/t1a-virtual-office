@@ -35,8 +35,14 @@ const onlyMeshAndLocal = (ip: string): Plugin => {
 };
 const meshAddr = mesh ? meshIp() : '';
 
+// Every production build gets an id, baked into the bundle and written next to it (dist/build.txt) for the server
+// to send in `hello`. A page whose own id differs reloads itself (see net.ts), however it was cached.
+const build = process.env.NODE_ENV === 'production' || process.argv.includes('build') ? Date.now().toString(36) : 'dev';
+const buildId = (): Plugin => ({ name: 'deck-build-id', apply: 'build', generateBundle() { this.emitFile({ type: 'asset', fileName: 'build.txt', source: build }); } });
+
 export default defineConfig({
-  plugins: [react(), ...(mesh ? [basicSsl(), onlyMeshAndLocal(meshAddr)] : [])],
+  plugins: [react(), buildId(), ...(mesh ? [basicSsl(), onlyMeshAndLocal(meshAddr)] : [])],
+  define: { __DECK_BUILD__: JSON.stringify(build) },
   server: {
     host: mesh ? '0.0.0.0' : 'localhost',
     port: Number(process.env.VITE_PORT ?? 5173),
