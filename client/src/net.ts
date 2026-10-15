@@ -1,6 +1,6 @@
 // WebSocket client + the client-side mirror of server state.
 import mapJson from '../../shared/tilemap.json';
-import { applyLayout, besideObject, doorwayTiles, isWalkable, pathTo, roomAt, sampleMove, type Dir, type Tile, type TileMap } from '../../shared/map';
+import { applyLayout, besideObject, doorwayTiles, isWalkable, objectById, pathTo, roomAt, sampleMove, type Dir, type Tile, type TileMap } from '../../shared/map';
 import { ACHIEVEMENTS, underground, DUNGEON_INSTANCE, PLANT_STAGES, plantName, ROOM_VOICE_MAX, type JukeboxState, type JukeboxAction, type AgendaItem, type LayoutEdit, type CalEvent, type MeetingRoomInfo, type ChatMsg, type LiveDeck, type ObjectState, type ToiletState, type ClientMsg, type PublicUser, type Reaction, type RtcSignal, type ServerMsg, type Creature, type Cup, CUP_ITEMS } from '../../shared/protocol';
 import { ParkLoop } from './park/loop';
 import type { CabinetSummary, ParkRecords } from '../../shared/protocol';
@@ -81,6 +81,7 @@ export class Store {
   unread = new Map<string, number>();
   chatWith: string | null = null;       // open conversation
   reactions: Flying[] = [];             // the engine draws and prunes these
+  bells: Record<string, { userId: string; at: number }> = {}; // the last ring of each bell (the engine bounces it and shows a ding)
   objectFx: { objectId: string; at: number }[] = []; // someone just used it (coffee steam)
   dungeon: { key: Tile | null; hasKey: boolean; seen: Set<number> } | null = null;
   dungeonOpening = false;
@@ -195,8 +196,8 @@ export class Store {
   }
   follow(targetId: string | null) { this.send({ t: 'follow', targetId }); }
   react(targetId: string, emoji: Reaction) { this.send({ t: 'react', targetId, emoji }); }
+  ring(objectId: string) { this.send({ t: 'ring', objectId }); }
   use(objectId: string, item?: string) { this.send({ t: 'use', objectId, item }); }
-  plunge(objectId: string) { this.send({ t: 'toilet_plunge', objectId }); }
   rackLine(objectId: string) { this.send({ t: 'toilet_shelf', objectId }); }
   sniffLine(objectId: string) { this.send({ t: 'toilet_sniff', objectId }); }
   drop() { this.send({ t: 'drop' }); }
@@ -472,6 +473,14 @@ export class Store {
       case 'note': this.soundscape?.receiveNote(msg.id, msg.by, msg.note, msg.on, msg.vel, msg.preset, msg.at); return;
       case 'jukebox': if (this.jukeboxReady) this.jukebox = { ...this.jukebox, [msg.id]: msg.state }; break;
       case 'object': this.objects = { ...this.objects, [msg.id]: { on: msg.on } }; break;
+      case 'bell': {
+        const me = this.users.get(this.me), by = this.users.get(msg.userId);
+        if (me?.instance || by?.instance) break;
+        this.bells = { ...this.bells, [msg.objectId]: { userId: msg.userId, at: performance.now() } };
+        const o = objectById(MAP, msg.objectId);
+        if (o) this.soundscape?.ringBell(o);
+        break;
+      }
       case 'toilet': this.toilets = { ...this.toilets, [msg.id]: msg.state }; break;
       case 'react':
         this.reactions.push({ fromId: msg.fromId, toId: msg.toId, emoji: msg.emoji, at: performance.now() });

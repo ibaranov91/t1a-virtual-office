@@ -1113,14 +1113,31 @@ for (const open of [false, true]) {
     t.rect(3, 2, 10, 5, '#2c3440'); t.hline(4, 2, 8, '#3e4858'); t.rect(2, 6, 13, 2, '#1e2630'); t.hline(3, 7, 11, '#141a22');
     t.px(6, 4, '#5af07a'); t.px(7, 4, '#5af07a'); t.px(8, 3, '#5af07a'); t.px(8, 5, '#5af07a'); t.hline(9, 5, 2, '#5af07a');
   });
-  { // a hat stand in the Lobby: a pole with pegs and a couple of hats hanging
-    const t = new Img(16, 16);
-    t.rect(6, 1, 4, 14, '#7a5230'); t.vline(7, 1, 14, '#9a6a3e'); t.rect(3, 14, 10, 2, '#5a3a20'); t.hline(4, 14, 8, '#7a5230');
-    t.hline(2, 3, 4, '#5a3a20'); t.hline(10, 5, 4, '#5a3a20'); t.hline(2, 8, 4, '#5a3a20');
-    t.rect(1, 1, 4, 2, '#2a2430'); t.px(2, 0, '#2a2430'); t.px(3, 0, '#2a2430');
-    t.rect(11, 3, 3, 2, '#e8607a'); t.px(12, 2, '#f2d060');
-    t.rect(1, 6, 4, 2, '#8a5a30'); t.hline(2, 5, 2, '#8a5a30');
-    frames.hat_stand = t.outline();
+  for (const tilt of [0, 1]) { // a hat rack by reception: a plank with pegs, four hats and one empty peg, a little "HATS" sign; frame 1 has the wizard hat swinging
+    const t = new Img(32, 24), wood = '#7a5230', light = '#9a6a3e', dark = '#5a3a20';
+    t.rect(3, 8, 2, 15, wood); t.rect(27, 8, 2, 15, wood); t.vline(3, 8, 15, light); t.vline(27, 8, 15, light);
+    t.rect(2, 22, 4, 2, dark); t.rect(26, 22, 4, 2, dark);
+    t.rect(1, 8, 30, 3, wood); t.hline(1, 8, 30, light); t.hline(1, 10, 30, dark);
+    t.rect(8, 0, 16, 7, '#f2e6c8'); t.hline(8, 0, 16, '#ffffff'); t.hline(8, 6, 16, '#c8b88a'); t.px(10, 7, dark); t.px(21, 7, dark);
+    const font = { H: ['1.1', '1.1', '111', '1.1', '1.1'], A: ['111', '1.1', '111', '1.1', '1.1'], T: ['111', '.1.', '.1.', '.1.', '.1.'], S: ['111', '1..', '111', '..1', '111'] };
+    [...'HATS'].forEach((ch, k) => font[ch].forEach((row, j) => [...row].forEach((c, i) => c === '1' && t.px(9 + k * 4 + i, 1 + j, '#6a3c22'))));
+    for (const x of [6, 12, 18, 24, 29]) t.rect(x, 11, 1, 2, '#d8d0c0'); // pegs; the last one stays empty
+    t.px(29, 12, '#f0ece0');
+    t.rect(4, 17, 5, 1, '#2a2430'); t.rect(5, 13, 3, 4, '#2a2430'); t.vline(5, 13, 4, '#454050'); t.hline(5, 15, 3, '#d84a4a'); // top hat, black with a red band
+    t.px(12, 13, '#f2d060'); t.hline(11, 14, 3, '#e8607a'); t.hline(11, 15, 3, '#f8f0e8'); t.hline(10, 16, 5, '#e8607a'); t.hline(10, 17, 5, '#f8f0e8'); // party cone, striped
+    const sway = tilt ? 1 : 0; // wizard hat: blue cone with a star, the brim swings out
+    t.px(18 + sway, 13, '#4a5ab0'); t.hline(17 + sway, 14, 3, '#4a5ab0'); t.hline(17 + sway, 15, 3, '#4a5ab0'); t.px(18 + sway, 15, '#f2d060'); t.hline(16 + sway, 16, 5, '#3a4890'); t.hline(15 + sway, 17, 7, '#5a6ac8');
+    t.rect(22, 13, 4, 2, '#8a5a30'); t.hline(21, 15, 6, '#a06a3a'); t.hline(22, 16, 4, '#7a4a28'); t.px(21, 14, '#a06a3a'); t.px(26, 14, '#a06a3a'); // cowboy, brown
+    frames[tilt ? 'hat_rack_1' : 'hat_rack'] = t.outline();
+  }
+  { // the Lobby bell on the reception counter: brass dome on a little base (frame 1: dipped a pixel)
+    for (const dip of [0, 1]) {
+      const t = new Img(16, 24), y = 5 + dip;
+      t.rect(5, y + 6, 6, 1, '#7a5a20'); t.rect(4, y + 5, 8, 1, '#c8a030'); // base
+      t.rect(5, y + 2, 6, 3, '#e8c040'); t.hline(6, y + 1, 4, '#e8c040'); t.vline(6, y + 2, 3, '#f8e888'); t.vline(10, y + 2, 3, '#b88a20'); // dome with a shine
+      t.px(7, y, '#f8e888'); t.px(8, y, '#d8a830'); // button on top
+      frames[dip ? 'bell_1' : 'bell'] = t.outline();
+    }
   }
   for (const n of [1, 2]) { // a twinkle: big plus, then a small one
     const t = new Img(5, 5), c = '#fff6c0';

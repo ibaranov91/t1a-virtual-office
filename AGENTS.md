@@ -112,11 +112,12 @@ npm run typecheck    # run before every commit or deploy
   (`findPath`/`pathTo` take `keepOut`; the server sends non-admins' paths in `move` so clients match). Berghain's
   `use.kind: 'toilet'` stalls live in `server/src/toilets.ts` (in memory): up to `TOILET_CAPACITY` (4) inside (hidden,
   heads over the half door), the rest line up straight out from the door (`stallLine`) and move in as places free up.
-  Full after `TOILET_FULL` visits; drains over time or an admin plunges. Knocks on someone inside go to Later. With
+  Full after `TOILET_FULL` visits; drains over time. Knocks on someone inside go to Later. With
   company inside, "Rack a line" puts a line + card on the stall's shelf; it needs `drugs` in your inventory. The
   bouncer (`use.kind: 'dealer'`) puts `drugs` in your inventory (`User.items`, saved, sent only to you in `me`, at most
   `ITEMS_MAX` of a kind); racking takes one. **Sniff** (`toilet_sniff`) takes a line off the shelf and gives you the `unicorns` effect.
-- **Pockets (inventory)** are `User.items` (strings): `drugs` from the bouncer and hats as `hat:<style>` from the Lobby hat stand
+- **Reception bell** (Lobby, `use.kind: 'bell'`, `onTop` so it shares the counter's tile): `ring` → `bell` broadcast, one ring a second per person; from farther away the server walks you over first. Bots never ring. The sound is panned and faded by `Soundscape.ringBell` (never silent: a faint carry from other rooms).
+- **Pockets (inventory)** are `User.items` (strings): `drugs` from the bouncer and hats as `hat:<style>` from the Lobby hat rack by reception
   (`use.kind: 'dealer'` hands out one of its `items`; one of each hat). The 🎒 button lists them; wearing a hat is the `hat`
   effect, and a non-GM may only wear a hat that's in their pockets. Judges (`DECK_JUDGES`) find `hat:judge` and office admins
   `hat:admin` in their pockets on connect (`grantHats`, by sign-in email; put on the first time, removable after).

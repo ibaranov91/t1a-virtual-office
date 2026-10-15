@@ -66,7 +66,7 @@ const DOOR_PAUSE_MS = 400;   // a beat at the door before vanishing
 const goingOut = (u: User) => u.door === 'thinking' || u.door === 'leaving';
 const FOLLOW_LAG_MS = 300;   // followers set off a beat after the person they follow
 const HOLD_MS = 3 * 60_000;  // a coffee lasts this long
-const USE_MS = { take: 1200, toggle: 150, toilet: 300, dealer: 350 }; // brewing a coffee vs flicking a switch
+const USE_MS = { take: 1200, toggle: 150, toilet: 300, dealer: 350, bell: 100 }; // brewing a coffee vs flicking a switch
 const ARRIVAL_SLACK_MS = 50; // timers can fire a millisecond before the walk is over
 
 /** Office admins rearrange the furniture: NetBird emails, or (only for name logins, so dev) plain names. */
@@ -88,6 +88,7 @@ export class World {
   private doorTimers = new Map<string, NodeJS.Timeout>();
   private callTimers = new Map<string, NodeJS.Timeout>(); // per member: when they hang up
   private holdTimers = new Map<string, NodeJS.Timeout>(); // per person: when the coffee's finished
+  private lastRing = new Map<string, number>();            // per person: when they last rang a bell
   private errands = new Map<string, NodeJS.Timeout>();    // per person: walking over to use an object
   private seats = new Map<string, { user: string; socket: string; held: Set<number> }>();
   private pendingSeat = new Map<string, { objectId: string; socket: string; spot: Spot; timer: NodeJS.Timeout }>();
@@ -544,7 +545,8 @@ export class World {
       const current = this.map.objects.find(it => it.id === objectId);
       if (!current?.use || current.use.kind !== o.use!.kind) return;
       if (current.use.kind === 'arcade') { if (!u.bot && this.sockets.get(u.id)?.size) this.arcade.join(u, current.id); return; }
-      if (o.use!.kind === 'toggle') this.setObject(o.id, !this.objectOn.get(o.id), u);
+      if (current.use.kind === 'bell') this.ringBell(u, current);
+      else if (o.use!.kind === 'toggle') this.setObject(o.id, !this.objectOn.get(o.id), u);
       else if (current.use.kind === 'dealer') {
         const want = itemId && current.use.items.includes(itemId) ? itemId : current.use.items[0];
         const hat = hatOf(want);
@@ -628,6 +630,20 @@ export class World {
     if (!this.toilets.sniff(o.id, u.id)) return this.sendTo(u.id, { t: 'notice', text: 'Nothing on the shelf' });
     this.addEffect(u, 'unicorns');
     this.sendTo(u.id, { t: 'notice', text: 'Whoa… are those unicorns? 🦄' });
+  }
+  /** Ring a bell: right away from beside it, else walk over first. One ring a second per person. */
+  private ring(u: User, objectId: string) {
+    const o = this.map.objects.find(o => o.id === objectId);
+    if (o?.use?.kind !== 'bell' || u.bot || u.instance || u.presence === 'offline' || goingOut(u)) return;
+    const t = this.position(u).next;
+    if (Math.max(o.x - t.x, t.x - (o.x + o.w - 1), 0) <= 1 && Math.max(o.y - t.y, t.y - (o.y + o.h - 1), 0) <= 1) this.ringBell(u, o);
+    else this.use(u, objectId);
+  }
+  private ringBell(u: User, o: MapObject) {
+    const now = Date.now();
+    if (u.bot || now - (this.lastRing.get(u.id) ?? 0) < 1000) return;
+    this.lastRing.set(u.id, now);
+    this.broadcast({ t: 'bell', userId: u.id, objectId: o.id });
   }
   private objectState(id: string) { return { on: this.objectOn.get(id) ?? true }; }
   private setObject(id: string, on: boolean, by: User) {
@@ -1370,11 +1386,7 @@ export class World {
       case 'claim_desk': this.claimDesk(u); break;
       case 'edit': if (msg.edit && typeof msg.edit === 'object') this.edit(u, msg.edit); break;
       case 'edit_reset': this.resetLayout(u); break;
-      case 'toilet_plunge': {
-        const o = this.map.objects.find(o => o.id === msg.objectId);
-        if (this.isAdmin(u) && o?.use?.kind === 'toilet' && this.toilets.plunge(o.id, Date.now())) this.sendTo(u.id, { t: 'notice', text: 'Plunged 🪠 — good as new' });
-        break;
-      }
+      case 'ring': this.ring(u, String(msg.objectId)); break;
       case 'toilet_shelf': this.toiletShelf(u, String(msg.objectId)); break;
       case 'toilet_sniff': this.toiletSniff(u, String(msg.objectId)); break;
       case 'release_desk': this.releaseDesk(u); break;

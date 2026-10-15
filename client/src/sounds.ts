@@ -93,6 +93,24 @@ export function playHand(dest: AudioNode = categoryOutput('effects')) {
   }
 }
 
+/** A brass desk bell: a bright strike with two inharmonic partials, ringing out for about a second. */
+export function playBell(dest: AudioNode = categoryOutput('effects')) {
+  try {
+    const c = audio(), at = c.currentTime + .01;
+    const out = c.createGain();
+    out.gain.setValueAtTime(0, at); out.gain.linearRampToValueAtTime(1, at + .004); out.gain.exponentialRampToValueAtTime(.0001, at + 1.1);
+    out.connect(dest);
+    const oscs = [[1568, .09, 1.1], [1568 * 2.76, .05, .45], [1568 * 5.4, .02, .18]].map(([hz, level, ring]) => {
+      const osc = c.createOscillator(), g = c.createGain();
+      osc.type = 'sine'; osc.frequency.value = hz;
+      g.gain.setValueAtTime(level, at); g.gain.exponentialRampToValueAtTime(.0001, at + ring);
+      osc.connect(g).connect(out); osc.start(at); osc.stop(at + ring + .05);
+      return { osc, g };
+    });
+    oscs[0].osc.onended = () => { for (const { osc, g } of oscs) { osc.disconnect(); g.disconnect(); } out.disconnect(); };
+  } catch { /* audio unavailable: stay silent */ }
+}
+
 /** Short cabinet effects, all routed through the shared Effects mix and deafen control. */
 export function playPark(kind: import('../../shared/park/sim').FxKind | 'cheer') {
   const notes: Record<typeof kind, number[]> = {

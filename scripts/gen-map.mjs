@@ -220,7 +220,7 @@ obj('clock_moscow', 28, 12, 1, 1, { wall: true, use: { kind: 'clock', label: 'MO
 obj('safe', 8, 12, 2, 1, { wall: true, use: { kind: 'link', label: 'vault', url: 'https://vault13.t1a.cloud/' } }); // Vault 13's door, set in the wall by reception
 obj('plant', 1, 22, 1, 1);
 obj('bookshelf', 12, 21, 2, 1);
-obj('hat_stand', 13, 19, 1, 1, { use: { kind: 'dealer', label: 'hat stand', items: ['hat:top', 'hat:party', 'hat:wizard', 'hat:cowboy', 'hat:crown'] } }); // hats go into your pockets
+obj('hat_rack', 9, 15, 2, 1, { use: { kind: 'dealer', label: 'hat stand', items: ['hat:top', 'hat:party', 'hat:wizard', 'hat:cowboy', 'hat:crown'] } }); // hats go into your pockets
 
 // Co-working: four-seat tables
 for (const tx of [18, 23, 28, 33]) for (const ty of [14, 19]) {
@@ -423,6 +423,8 @@ for (const k of ['hole', 'hatch']) {
 // one of each kind of object, for admins to add more of
 const catalog = {};
 for (const { id: _i, x: _x, y: _y, ...t } of objects) catalog[t.type] ??= t;
+
+obj('bell', 11, 14, 1, 1, { onTop: true, use: { kind: 'bell', label: 'bell' } }); // on the reception counter
 
 const map = { version: 1, width: W, height: H, tileSize: 16, office: { x: 0, y: 0, w: W, h: OFFICE_H }, dungeon, tiles, layers: { floor, walls, walkable: [] }, rooms, objects: [], rugs: [], spawn: { x: 7, y: 17 }, exit: EXIT, catalog };
 applyLayout(map, { objects, rugs });

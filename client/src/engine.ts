@@ -895,6 +895,7 @@ export class Engine {
     for (const f of this.areaDown ? [] : this.furniture) {
       while (di < ds.length && ds[di].base <= f.base) drawD(ds[di++]);
       this.blit(ctx, f.o.type === 'arcade' && this.store.cabinets.some(c => c.cabinet === f.o.id) ? `arcade_on_${1 + Math.floor(ms / 320) % 2}` : f.o.use?.kind === 'toilet' ? this.toiletFrame(f.o.id)
+        : f.o.type === 'bell' ? this.bellFrame(f.o.id, ms) : f.o.type === 'hat_rack' ? this.hatRackFrame(f.o, ms)
         : f.o.type === 'server_rack' && Math.floor(ms / 500 + f.o.x * 3 + f.o.y) % 2 ? 'server_rack_1' : f.off && !this.isOn(f.o) ? `${f.o.type}_off` : f.o.type, f.x, f.y);
       if (f.o.use?.kind === 'toilet') this.drawStall(ctx, f.o, f.x, f.y);
     }
@@ -948,6 +949,7 @@ export class Engine {
     this.placedPlates = [];
     for (const u of sorted) this.drawOverlay(u, poses.get(u.id)!, ms);
     this.drawReactions(poses, ms);
+    if (!this.areaDown && !me?.instance) { this.drawBellDings(poses, camX, camY, ms); this.drawHatNudge(me, poses, camX, camY, ms); }
 
     if (!this.areaDown && !me?.instance) this.drawClub(ctx, ms);
     if (!this.areaDown) this.drawAmbient(ctx, camX, camY);
@@ -972,7 +974,7 @@ export class Engine {
       const instrumentTip = o.use?.kind === 'instrument' ? `${INSTRUMENTS[o.use.instrument].name} · ${this.store.seat === o.id ? "you're playing · Esc to stand up" : player === this.store.me ? "you're playing in another tab" : player ? `${this.store.name(player).split(' ')[0]} is playing` : 'click to play'}` : '';
       const what = instrumentTip || (o.use?.kind === 'arcade' ? this.store.gameDescription(o.id) : o.use?.kind === 'records' ? 'Deck Park · team records' : o.use?.kind === 'jukebox' ? !jukebox ? 'Jukebox · Reconnecting…' : jukebox.pausedAt !== null ? 'Jukebox · paused' : `Jukebox · ♪ ${track?.title ?? jukebox.track} — ${track?.artist ?? ''}` : o.sound ? 'Radio · music volume in ⚙' : o.use?.kind === 'toggle' ? `${o.use.label[0].toUpperCase()}${o.use.label.slice(1)} · ${this.isOn(o) ? 'on' : 'off'}`
         : o.use?.kind === 'calendar' ? 'Calendar · your week' : o.use?.kind === 'achievements' ? 'Notice board · your plant and achievements' : o.use?.kind === 'link' ? `Vault 13 · click to open the ${o.use.label}` : o.use?.kind === 'meetings' ? `Meetings · ${this.store.meetingRooms.length || 'none'} on now`
-        : o.use?.kind === 'presentation' ? (this.store.presentation?.objectId === o.id ? `Screen · LIVE: ${this.store.presentation.deck.title}` : 'Screen · click to present slides') : o.use?.kind === 'clock' ? `Clock · ${o.use.city}, ${zoneTime(o.use.tz)} · click for all our cities` : o.sit ? `${o.type === 'bench' ? 'Bench' : 'Sofa'} · click to sit` : o.type === 'coffee_machine' ? 'Coffee machine' : o.type === 'fridge' ? 'Fridge' : o.use?.kind === 'toilet' ? this.toiletTip(o.id) : o.use?.kind === 'dealer' ? (o.type === 'bouncer' ? 'Bouncer · knows a guy' : 'Hat stand · pick a hat for your pockets') : objectName(o.type));
+        : o.use?.kind === 'presentation' ? (this.store.presentation?.objectId === o.id ? `Screen · LIVE: ${this.store.presentation.deck.title}` : 'Screen · click to present slides') : o.use?.kind === 'clock' ? `Clock · ${o.use.city}, ${zoneTime(o.use.tz)} · click for all our cities` : o.sit ? `${o.type === 'bench' ? 'Bench' : 'Sofa'} · click to sit` : o.type === 'coffee_machine' ? 'Coffee machine' : o.type === 'fridge' ? 'Fridge' : o.use?.kind === 'toilet' ? this.toiletTip(o.id) : o.use?.kind === 'bell' ? 'Reception bell · click to ring' : o.use?.kind === 'dealer' ? (o.type === 'bouncer' ? 'Bouncer · knows a guy' : 'Hat stand · pick a hat for your pockets') : objectName(o.type));
       this.drawLabel(what, (o.x + o.w / 2) * TS, (o.y + o.h) * TS - fr.h + 4, camX, camY);
     }
     else if (this.cupTile) {
@@ -1237,7 +1239,7 @@ export class Engine {
 
   private toiletTip(id: string) {
     const s = this.store.toilets[id];
-    if (toiletFull(s)) return this.store.admin ? 'Toilet · full 🤢 · click to plunge' : 'Toilet · out of order 🤢';
+    if (toiletFull(s)) return 'Toilet · out of order 🤢';
     const names = (ids: string[]) => ids.map(id => this.store.name(id).split(' ')[0]).join(', ');
     const line = s?.queue.length ? ` · ${s.queue.length} in line` : '';
     if (s?.in.includes(this.store.me)) return `Toilet · you're in here${s.in.length > 1 ? ` with ${names(s.in.filter(id => id !== this.store.me))}` : ''}`;
@@ -1355,6 +1357,41 @@ export class Engine {
     }
     const mp = poses.get(this.store.me);
     if (mp) this.drawLabel('You', mp.x * TS + 8, mp.y * TS + TS - 26, camX, camY, 1, true);
+  }
+
+  /** Two frames: the bell dips a pixel for the first ~300 ms after a ring. */
+  private bellFrame(id: string, ms: number) {
+    const ring = this.store.bells[id], age = ring ? performance.now() - ring.at : Infinity;
+    return age < 300 && Math.floor(age / 100) % 2 === 0 ? 'bell_1' : 'bell';
+  }
+  /** Two frames: every few seconds one hat swings for a moment (offset per rack so several don't sync). */
+  private hatRackFrame(o: MapObject, ms: number) {
+    return (ms + hash(o.id) * 997) % 4500 < 450 ? 'hat_rack_1' : 'hat_rack';
+  }
+  /** A small "ding" over whoever rang a bell, for about a second. */
+  private drawBellDings(poses: Map<string, Pose>, camX: number, camY: number, ms: number) {
+    const now = performance.now();
+    for (const ring of Object.values(this.store.bells)) {
+      const age = now - ring.at, p = poses.get(ring.userId);
+      if (age > 1000 || !p) continue;
+      this.drawLabel('ding!', p.x * TS + 8, p.y * TS - 18 - Math.round(age / 120), camX, camY, age < 700 ? 1 : 1 - (age - 700) / 300);
+    }
+  }
+  /** Once per device: walking within two tiles of the hat rack with nothing in your pockets suggests a hat. */
+  private hatNudgeAt: number | null = null;
+  private drawHatNudge(me: ClientUser | undefined, poses: Map<string, Pose>, camX: number, camY: number, ms: number) {
+    const p = me && poses.get(me.id);
+    if (!p || !this.store.connected || this.store.items.some(i => i.startsWith('hat:'))) return;
+    const rack = MAP.objects.find(o => o.type === 'hat_rack'); if (!rack) return;
+    const near = Math.max(rack.x - p.tile.x, p.tile.x - (rack.x + rack.w - 1), 0) <= 2 && Math.max(rack.y - p.tile.y, p.tile.y - (rack.y + rack.h - 1), 0) <= 2;
+    if (this.hatNudgeAt === null) {
+      if (!near) return;
+      try { if (localStorage.getItem('deck.hatNudge')) { this.hatNudgeAt = -Infinity; return; } localStorage.setItem('deck.hatNudge', '1'); } catch { /* private mode: nudge once per page */ }
+      this.hatNudgeAt = ms;
+    }
+    const age = ms - this.hatNudgeAt;
+    if (age > 5000) return;
+    this.drawLabel('Grab a hat? 🎩', (rack.x + rack.w / 2) * TS, rack.y * TS - 8 - Math.round((Math.sin(ms / 220) + 1)), camX, camY, age > 4000 ? 5 - age / 1000 : 1, true);
   }
 
   private drawLabel(text: string, wx: number, wy: number, camX: number, camY: number, alpha = 1, accent = false) {

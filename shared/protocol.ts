@@ -32,7 +32,7 @@ export const ROOM_VOICE_MAX = 12;
 export const AFK_MS = 10 * 60_000;
 /** A toilet stall in Berghain: up to TOILET_CAPACITY people inside (`in`), the rest line up outside (`queue`), and
  *  how many visits since it was last cleaned. At TOILET_FULL it overflows: nobody gets in until it drains (one level per
- *  TOILET_DRAIN_MS) or an admin plunges it. `shelf`: lines racked on its little shelf (cleared when it empties). */
+ *  TOILET_DRAIN_MS). `shelf`: lines racked on its little shelf (cleared when it empties). */
 export interface ToiletState { fill: number; in: string[]; queue: string[]; shelf: number }
 export const TOILET_CAPACITY = 4;
 export const TOILET_FULL = 8;
@@ -249,6 +249,7 @@ export type ServerMsg =
   | { t: 'jukebox'; id: string; state: JukeboxState }
   | { t: 'object'; id: string; on: boolean; by: string }
   | { t: 'toilet'; id: string; state: ToiletState }
+  | { t: 'bell'; userId: string; objectId: string } // someone rang a reception bell
   | { t: 'react'; fromId: string; toId: string; emoji: Reaction }
   | { t: 'chat'; msg: ChatMsg }
   | { t: 'chat_history'; withId: string; messages: ChatMsg[] }
@@ -306,7 +307,7 @@ export type ClientMsg =
   | { t: 'voice_claim' }
   | { t: 'edit'; edit: LayoutEdit } // office admins only
   | { t: 'edit_reset' }              // office admins only: back to the generated layout
-  | { t: 'toilet_plunge'; objectId: string } // office admins only: a full stall is clean again
+  | { t: 'ring'; objectId: string }  // ring a bell (walks you over first if you're not beside it)
   | { t: 'toilet_shelf'; objectId: string }  // inside with company and the item in your inventory: rack a line
   | { t: 'toilet_sniff'; objectId: string }  // inside, a line on the shelf: take it (and see unicorns)
   | { t: 'look'; look: Look }

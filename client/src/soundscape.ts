@@ -1,13 +1,13 @@
 import { NoteClock, type InstrumentKind } from '../../shared/instruments';
 import { startVoice, type SynthVoice } from './synth';
 import { field, hallVoiceGain, reverbImpulse, soundModel } from '../../shared/acoustics';
-import { roomAt, type Room, type Tile } from '../../shared/map';
+import { roomAt, type MapObject, type Room, type Tile } from '../../shared/map';
 import { audio, categoryOutput, forgetMedia, playMedia, rms, subscribeAudio, unlockOnGesture } from './audio';
 import { jukeboxPosition, TRACK, trackUrl } from '../../shared/music';
 import { canTeachLead, learnLead, playbackRateFor, seekTarget } from './jukeboxSync';
 import { MAP, type Store } from './net';
 import { prefs, subscribePrefs, volumeFor, type Category } from './prefs';
-import { playDoorOpen, playDoorClose } from './sounds';
+import { playDoorOpen, playDoorClose, playBell } from './sounds';
 import { roomDoors, type RoomDoor } from './doors';
 
 type Level = { id: string; gain: number; pan: number; cutoff: number; send: number };
@@ -357,6 +357,18 @@ export class Soundscape {
     } finally { this.updating = false; }
   }
 
+  /** A reception bell rang: loud in its own room (panned to where it is), a faint carry-through from farther away. */
+  ringBell(o: MapObject) {
+    const me = this.store.users.get(this.store.me); if (!me || me.instance || !this.store.connected) return;
+    const pose = this.store.pose(me), tile = { x: o.x, y: o.y };
+    const model = soundModel(MAP, field(MAP, pose.tile), pose, { x: tile.x, y: tile.y, tile }, {});
+    const gain = Math.max(model.gain, .12);
+    const g = audio().createGain(), p = audio().createStereoPanner();
+    g.gain.value = gain; p.pan.value = model.gain ? model.pan : 0;
+    g.connect(p).connect(categoryOutput('effects'));
+    playBell(g);
+    window.setTimeout(() => { g.disconnect(); p.disconnect(); }, 1500);
+  }
   resetCrossings(userId?: string) { if (userId) this.previous.delete(userId); else this.previous.clear(); }
   private crossings() {
     const me = this.store.users.get(this.store.me); if (!me) return;
