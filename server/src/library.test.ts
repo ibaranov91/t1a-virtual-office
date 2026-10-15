@@ -4,7 +4,8 @@ import { readFileSync } from 'node:fs';
 import { World } from './world';
 import { Library } from './library';
 import { BOOKWORM_READS, EDITOR_READERS, LIBRARY_MAX_ARTICLES, type ServerMsg } from '../../shared/protocol';
-import type { TileMap, Tile } from '../../shared/map';
+import { roomAt, type TileMap, type Tile, type Layout } from '../../shared/map';
+import { migrateLibrary, readingSeat, readingSeats } from '../../shared/library';
 const map: TileMap = JSON.parse(readFileSync(new URL('../../shared/tilemap.json', import.meta.url), 'utf8'));
 
 function setup(t: TestContext) {
@@ -19,6 +20,7 @@ function setup(t: TestContext) {
   return { w, add, tick: (ms: number) => t.mock.timers.tick(ms) };
 }
 const URL1 = 'https://example.com/a';
+const GARDEN = { x: 58, y: 29 }; // on the path, a few steps from the Library's door
 
 test('library validates links, titles and topics', () => {
   const lib = new Library();
@@ -44,18 +46,19 @@ test('over the cap the oldest unread article goes first', () => {
 });
 
 test('publish → take a book → sit → read → done, and the log follows', t => {
-  const { w, add, tick } = setup(t), pub = add('Pub'), rd = add('Reader', { x: 4, y: 6 });
+  const { w, add, tick } = setup(t), pub = add('Pub'), rd = add('Reader', GARDEN);
   w.handle(pub.u, { t: 'article_add', url: URL1, title: 'A good read', topic: 'Data' }, pub.socket);
   const article = w.library.articles[0]; assert.ok(article);
   assert.ok(rd.messages.some(m => m.t === 'library' && m.articles.length === 1));
   w.handle(rd.u, { t: 'read_start', articleId: article.id }, rd.socket);
   assert.equal(rd.u.reading, null, 'not reading until seated');
   let held = false;
-  for (let i = 0; i < 80 && !rd.u.reading; i++) { tick(250); held ||= rd.u.holding === 'book'; }
+  for (let i = 0; i < 160 && !rd.u.reading; i++) { tick(250); held ||= rd.u.holding === 'book'; }
   assert.ok(held, 'carried a book from the shelf');
   assert.equal(rd.u.reading, article.id); assert.equal(rd.u.holding, null);
   assert.ok(pub.messages.some(m => m.t === 'reading' && m.userId === rd.u.id && m.articleId === article.id));
-  const seat = rd.u.tile; assert.ok(w['readingSeats']().some(s => s.x === seat.x && s.y === seat.y));
+  const seat = rd.u.tile; assert.ok(readingSeats(w.map).some(s => s.x === seat.x && s.y === seat.y));
+  assert.equal(roomAt(w.map, seat.x, seat.y)?.id, 'library', 'reading happens in the Library');
   w.handle(rd.u, { t: 'read_done' }, rd.socket);
   assert.equal(rd.u.reading, null);
   assert.deepEqual(w.library.state().reads.map(r => [r.userId, r.articleId, r.done]), [[rd.u.id, article.id, true]]);
@@ -64,13 +67,11 @@ test('publish → take a book → sit → read → done, and the log follows', t
   assert.equal(w.library.state().reads.length, 1);
 });
 
-test('knocks on a reader go to Later (Focus itself refuses knocks; the rule holds where they would land)', t => {
-  const focus = map.rooms.find(r => r.id === 'focus')!, rule = focus.rules.knock;
-  focus.rules.knock = 'allow'; t.after(() => { focus.rules.knock = rule; });
-  const { w, add, tick } = setup(t), pub = add('Pub'), rd = add('Reader', { x: 4, y: 6 }), guest = add('Guest', { x: 20, y: 17 });
+test('knocks on a reader go to Later', t => {
+  const { w, add, tick } = setup(t), pub = add('Pub'), rd = add('Reader', GARDEN), guest = add('Guest', { x: 50, y: 29 });
   w.handle(pub.u, { t: 'article_add', url: URL1, title: 'Long one', topic: 'Product' }, pub.socket);
   w.handle(rd.u, { t: 'read_start', articleId: w.library.articles[0].id }, rd.socket);
-  for (let i = 0; i < 80 && !rd.u.reading; i++) tick(250);
+  for (let i = 0; i < 160 && !rd.u.reading; i++) tick(250);
   assert.ok(rd.u.reading);
   w.knock(guest.u, rd.u);
   for (let i = 0; i < 120; i++) tick(250);
@@ -80,21 +81,21 @@ test('knocks on a reader go to Later (Focus itself refuses knocks; the rule hold
 });
 
 test('walking away, reconnecting or leaving ends the read', t => {
-  const { w, add, tick } = setup(t), pub = add('Pub'), rd = add('Reader', { x: 4, y: 6 });
+  const { w, add, tick } = setup(t), pub = add('Pub'), rd = add('Reader', GARDEN);
   w.handle(pub.u, { t: 'article_add', url: URL1, title: 'Walkaway', topic: 'Fun' }, pub.socket);
-  const id = w.library.articles[0].id, sit = () => { w.handle(rd.u, { t: 'read_start', articleId: id }, rd.socket); for (let i = 0; i < 80 && !rd.u.reading; i++) tick(250); assert.ok(rd.u.reading); };
-  sit(); w.handle(rd.u, { t: 'move', to: { x: 4, y: 6 } }, rd.socket); assert.equal(rd.u.reading, null);
+  const id = w.library.articles[0].id, sit = () => { w.handle(rd.u, { t: 'read_start', articleId: id }, rd.socket); for (let i = 0; i < 160 && !rd.u.reading; i++) tick(250); assert.ok(rd.u.reading); };
+  sit(); w.handle(rd.u, { t: 'move', to: GARDEN }, rd.socket); assert.equal(rd.u.reading, null);
   rd.u.holding = null; sit(); w.connect(rd.u.id, () => {}); assert.equal(rd.u.reading, null); // a reloaded page
   assert.equal(w.library.articlesRead(rd.u.id), 1, 'the same article counts once');
 });
 
 test('a walk elsewhere on the way to the desk drops the book', t => {
-  const { w, add, tick } = setup(t), pub = add('Pub'), rd = add('Reader', { x: 4, y: 6 });
+  const { w, add, tick } = setup(t), pub = add('Pub'), rd = add('Reader', GARDEN);
   w.handle(pub.u, { t: 'article_add', url: URL1, title: 'Never mind', topic: 'Design' }, pub.socket);
   w.handle(rd.u, { t: 'read_start', articleId: w.library.articles[0].id }, rd.socket);
   for (let i = 0; i < 40 && rd.u.holding !== 'book'; i++) tick(250);
   assert.equal(rd.u.holding, 'book');
-  w.handle(rd.u, { t: 'move', to: { x: 3, y: 6 } }, rd.socket);
+  w.handle(rd.u, { t: 'move', to: { x: 55, y: 29 } }, rd.socket);
   for (let i = 0; i < 40; i++) tick(250);
   assert.equal(rd.u.reading, null); assert.equal(rd.u.holding, null);
 });
@@ -125,4 +126,46 @@ test('bookworm after ten different articles, editor when five people read yours;
   assert.equal(lib.articles.length, BOOKWORM_READS); assert.equal(lib.state().reads.length, w.library.state().reads.length);
   const bad = new Library(); bad.load({ articles: [{ id: 'x', url: 'javascript:1', title: 't', topic: 'Data', by: 'u', at: 1 }], reads: [] });
   assert.equal(bad.articles.length, 0);
+});
+
+test('the Library: its own quiet room with the shelf, six lamp-lit reading tables and a seat at each', () => {
+  const lib = map.rooms.find(r => r.id === 'library')!, inLib = (o: Tile) => roomAt(map, o.x, o.y)?.id === 'library';
+  assert.ok(lib); assert.equal(lib.rules.knock, 'later'); assert.equal(lib.rules.occupantLabel, 'reading'); assert.ok(!lib.homeDesks);
+  const shelves = map.objects.filter(o => o.use?.kind === 'library');
+  assert.equal(shelves.length, 1); assert.ok(inLib(shelves[0]), 'the shelf moved into the Library');
+  const tables = map.objects.filter(o => o.type === 'reading_table');
+  assert.equal(tables.length, 6); assert.ok(tables.every(o => o.light && inLib(o) && o.w === 2 && o.h === 1));
+  assert.ok(map.objects.filter(o => o.type === 'reading_desk').every(inLib));
+  const seats = readingSeats(map);
+  assert.ok(seats.length >= 6 && seats.every(inLib));
+  for (const t of tables) assert.ok(seats.some(s => readingSeat(map, s)?.table.id === t.id), `a seat at ${t.id}`);
+  assert.equal(readingSeat(map, { x: 2, y: 5 }), null, 'a Focus desk chair is not a reading seat');
+});
+
+test('reading walks you from anywhere in the office into the Library', t => {
+  const { w, add, tick } = setup(t), pub = add('Pub'), rd = add('Reader', { x: 20, y: 17 });
+  w.handle(pub.u, { t: 'article_add', url: URL1, title: 'Far away', topic: 'Fun' }, pub.socket);
+  w.handle(rd.u, { t: 'read_start', articleId: w.library.articles[0].id }, rd.socket);
+  for (let i = 0; i < 400 && !rd.u.reading; i++) tick(250);
+  assert.ok(rd.u.reading);
+  assert.equal(roomAt(w.map, rd.u.tile.x, rd.u.tile.y)?.id, 'library');
+  assert.equal(readingSeat(w.map, rd.u.tile)?.table.type.startsWith('reading_'), true);
+});
+
+test('a layout saved before the Library gets it as generated, and the old shelf turns plain', () => {
+  const base: Layout = { objects: map.objects, rugs: map.rugs };
+  const saved: Layout = structuredClone({
+    objects: [...map.objects.filter(o => o.x < 64 && o.type !== 'reading_desk' && o.use?.kind !== 'library' && o.id !== 'o19'), { id: 'o19', type: 'bookshelf', x: 10, y: 3, w: 2, h: 1, use: { kind: 'library' as const, label: 'library' } },
+      { id: 'o207', type: 'tree', x: 67, y: 26, w: 1, h: 1 }, { id: 'o211', type: 'reading_desk', x: 11, y: 7, w: 1, h: 1 }],
+    rugs: map.rugs.filter(r => r.color !== 'burgundy'),
+  });
+  const out = migrateLibrary(saved, base, map);
+  assert.equal(out.objects.find(o => o.id === 'o19')?.use, undefined);
+  assert.equal(out.objects.some(o => o.type === 'tree' && o.x === 67), false);
+  assert.equal(out.objects.filter(o => o.use?.kind === 'library').length, 1);
+  assert.equal(out.objects.filter(o => o.type === 'reading_table').length, 6);
+  assert.ok(out.objects.filter(o => o.type === 'reading_desk').every(o => o.x === 73));
+  assert.ok(out.rugs.some(r => r.color === 'burgundy'));
+  assert.equal(new Set(out.objects.map(o => o.id)).size, out.objects.length);
+  assert.equal(migrateLibrary(out, base, map), out);
 });

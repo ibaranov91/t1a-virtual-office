@@ -100,6 +100,7 @@ export class Engine {
   private plants: PlacedPlant[] = [];
   private plantsVersion = -1; // store.version the plants were placed for
   private glow: HTMLCanvasElement; // one lamp's halo at full strength; drawn with alpha per frame
+  private greenGlow: HTMLCanvasElement; // a banker's lamp on a reading table: a smaller, green pool
   private drag: { x: number; y: number; camX: number; camY: number; moved: boolean } | null = null;
   private bubbleState = new Map<string, { kind: BubbleKind | null; at: number }>();
   private nameplates = new Map<string, HTMLCanvasElement>();
@@ -137,6 +138,10 @@ export class Engine {
     const gc = this.glow.getContext('2d')!, g = gc.createRadialGradient(40, 40, 2, 40, 40, 40);
     g.addColorStop(0, 'rgba(255,200,110,1)'); g.addColorStop(1, 'rgba(255,200,110,0)');
     gc.fillStyle = g; gc.fillRect(0, 0, 80, 80);
+    this.greenGlow = document.createElement('canvas'); this.greenGlow.width = this.greenGlow.height = 56;
+    const lc = this.greenGlow.getContext('2d')!, lg = lc.createRadialGradient(28, 28, 2, 28, 28, 28);
+    lg.addColorStop(0, 'rgba(170,240,150,1)'); lg.addColorStop(0.5, 'rgba(120,200,110,0.45)'); lg.addColorStop(1, 'rgba(90,170,90,0)');
+    lc.fillStyle = lg; lc.fillRect(0, 0, 56, 56);
     this.ro = new ResizeObserver(() => this.resize());
     this.ro.observe(canvas.parentElement!);
     this.resize();
@@ -924,7 +929,7 @@ export class Engine {
     for (const f of this.areaDown ? [] : this.furniture) {
       while (di < ds.length && ds[di].base <= f.base) drawD(ds[di++]);
       this.blit(ctx, f.o.type === 'arcade' && this.store.cabinets.some(c => c.cabinet === f.o.id) ? `arcade_on_${1 + Math.floor(ms / 320) % 2}` : f.o.use?.kind === 'toilet' ? this.toiletFrame(f.o.id)
-        : f.o.type === 'bell' ? this.bellFrame(f.o.id, ms) : f.o.type === 'hat_rack' ? this.hatRackFrame(f.o, ms)
+        : f.o.type === 'bell' ? this.bellFrame(f.o.id, ms) : f.o.type === 'hat_rack' ? this.hatRackFrame(f.o, ms) : f.o.type === 'reading_table' && this.flickers(f.o, ms) ? 'reading_table_1'
         : f.o.type === 'server_rack' && Math.floor(ms / 500 + f.o.x * 3 + f.o.y) % 2 ? 'server_rack_1' : f.off && !this.isOn(f.o) ? `${f.o.type}_off` : f.o.type, f.x, f.y);
       if (f.o.use?.kind === 'toilet') this.drawStall(ctx, f.o, f.x, f.y);
     }
@@ -981,7 +986,7 @@ export class Engine {
     if (!this.areaDown && !me?.instance) { this.drawBellDings(poses, camX, camY, ms); this.drawHatNudge(me, poses, camX, camY, ms); }
 
     if (!this.areaDown && !me?.instance) this.drawClub(ctx, ms);
-    if (!this.areaDown) this.drawAmbient(ctx, camX, camY);
+    if (!this.areaDown) this.drawAmbient(ctx, camX, camY, ms);
     if (this.editing) this.drawEdit(ctx, camX, camY, ms);
     if (this.overview && !me?.instance) this.drawRoomTags(users, poses, camX, camY);
     // one of my meetings is on: say so over the board, readable at any zoom
@@ -1003,7 +1008,7 @@ export class Engine {
       const instrumentTip = o.use?.kind === 'instrument' ? `${INSTRUMENTS[o.use.instrument].name} · ${this.store.seat === o.id ? "you're playing · Esc to stand up" : player === this.store.me ? "you're playing in another tab" : player ? `${this.store.name(player).split(' ')[0]} is playing` : 'click to play'}` : '';
       const what = instrumentTip || (o.use?.kind === 'arcade' ? this.store.gameDescription(o.id) : o.use?.kind === 'records' ? 'Deck Park · team records' : o.use?.kind === 'jukebox' ? !jukebox ? 'Jukebox · Reconnecting…' : jukebox.pausedAt !== null ? 'Jukebox · paused' : `Jukebox · ♪ ${track?.title ?? jukebox.track} — ${track?.artist ?? ''}` : o.sound ? 'Radio · music volume in ⚙' : o.use?.kind === 'toggle' ? `${o.use.label[0].toUpperCase()}${o.use.label.slice(1)} · ${this.isOn(o) ? 'on' : 'off'}`
         : o.use?.kind === 'calendar' ? 'Calendar · your week' : o.use?.kind === 'achievements' ? 'Notice board · your plant and achievements' : o.use?.kind === 'link' ? `Vault 13 · click to open the ${o.use.label}` : o.use?.kind === 'meetings' ? `Meetings · ${this.store.meetingRooms.length || 'none'} on now`
-        : o.use?.kind === 'presentation' ? (this.store.presentation?.objectId === o.id ? `Screen · LIVE: ${this.store.presentation.deck.title}` : 'Screen · click to present slides') : o.use?.kind === 'clock' ? `Clock · ${o.use.city}, ${zoneTime(o.use.tz)} · click for all our cities` : o.sit ? `${o.type === 'bench' ? 'Bench' : 'Sofa'} · click to sit` : o.type === 'coffee_machine' ? 'Coffee machine' : o.type === 'fridge' ? 'Fridge' : o.use?.kind === 'toilet' ? this.toiletTip(o.id) : o.use?.kind === 'bell' ? 'Reception bell · click to ring' : o.use?.kind === 'dealer' ? (o.type === 'bouncer' ? 'Bouncer · knows a guy' : 'Hat stand · pick a hat for your pockets') : objectName(o.type));
+        : o.use?.kind === 'presentation' ? (this.store.presentation?.objectId === o.id ? `Screen · LIVE: ${this.store.presentation.deck.title}` : 'Screen · click to present slides') : o.use?.kind === 'clock' ? `Clock · ${o.use.city}, ${zoneTime(o.use.tz)} · click for all our cities` : o.sit ? `${o.type === 'bench' ? 'Bench' : 'Sofa'} · click to sit` : o.type === 'coffee_machine' ? 'Coffee machine' : o.type === 'fridge' ? 'Fridge' : o.use?.kind === 'toilet' ? this.toiletTip(o.id) : o.use?.kind === 'bell' ? 'Reception bell · click to ring' : o.type === 'reading_table' || o.type === 'reading_desk' ? 'Reading table · take a book from the shelf' : o.use?.kind === 'library' ? 'Library shelf · publish or borrow an article' : o.use?.kind === 'dealer' ? (o.type === 'bouncer' ? 'Bouncer · knows a guy' : 'Hat stand · pick a hat for your pockets') : objectName(o.type));
       this.drawLabel(what, (o.x + o.w / 2) * TS, (o.y + o.h) * TS - fr.h + 4, camX, camY);
     }
     else if (this.cupTile) {
@@ -1318,7 +1323,7 @@ export class Engine {
       ctx.restore();
     }
   }
-  private drawAmbient(ctx: CanvasRenderingContext2D, camX: number, camY: number) {
+  private drawAmbient(ctx: CanvasRenderingContext2D, camX: number, camY: number, ms: number) {
     const now = new Date(); const h = now.getHours() + now.getMinutes() / 60;
     // [hour, r,g,b, alpha] keyframes for a multiply tint
     const K: [number, number, number, number, number][] = [
@@ -1339,9 +1344,14 @@ export class Engine {
     // lamps that are on glow: softly by day, warmly in the evening
     ctx.globalCompositeOperation = 'lighter';
     ctx.globalAlpha = Math.max(0.1, alpha * 0.55);
+    const day = ctx.globalAlpha;
     for (const o of this.lights) {
       if (!this.isOn(o)) continue;
-      ctx.drawImage(this.glow, o.x * TS + 8 - 40, (o.y + o.h) * TS - 26 - 40);
+      if (o.type === 'reading_table') { // the banker's lamp sits mid-table, its pool on the top and a little beyond
+        ctx.globalAlpha = Math.max(0.18, day) * (this.flickers(o, ms) ? 0.6 : 1);
+        ctx.drawImage(this.greenGlow, (o.x + o.w / 2) * TS - 28, (o.y + o.h) * TS - 14 - 28);
+        ctx.globalAlpha = day;
+      } else ctx.drawImage(this.glow, o.x * TS + 8 - 40, (o.y + o.h) * TS - 26 - 40);
     }
     ctx.restore();
   }
@@ -1399,6 +1409,11 @@ export class Engine {
   private bellFrame(id: string, ms: number) {
     const ring = this.store.bells[id], age = ring ? performance.now() - ring.at : Infinity;
     return age < 300 && Math.floor(age / 100) % 2 === 0 ? 'bell_1' : 'bell';
+  }
+  /** A reading table's lamp dips for a moment now and then (offset per table so they don't flicker together). */
+  private flickers(o: MapObject, ms: number) {
+    const t = (ms + hash(o.id) * 1301) % 7000;
+    return t < 90 || (t > 180 && t < 240);
   }
   /** Two frames: every few seconds one hat swings for a moment (offset per rack so several don't sync). */
   private hatRackFrame(o: MapObject, ms: number) {
