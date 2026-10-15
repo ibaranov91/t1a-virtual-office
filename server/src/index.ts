@@ -88,7 +88,7 @@ rm -rf "$dest/The Deck.app"
 ditto "$tmp/The Deck.app" "$dest/The Deck.app"
 defaults write io.t1a.deck url '${appUrl}'
 open "$dest/The Deck.app"
-echo "✓ The Deck is installed in $dest and running in your menu bar (the door icon)."
+echo "✓ The Deck is installed in $dest and running in your menu bar (the little person)."
 `;
 
 // ---------- static client (production: client/dist) ----------

@@ -22,6 +22,18 @@ export const normalizeMeetLink = (raw: string) => {
   return MEET_LINK_RE.test(s) ? s : null;
 };
 
+/** A Meet link opened as this Google account. A bare link uses the browser's default account, and if that
+ *  isn't the one that made the room (say a personal Gmail), Meet treats you as a guest: "Ask to join". */
+export const meetAs = (link: string, email?: string | null) => {
+  if (!email) return link;
+  try {
+    const u = new URL(link);
+    if (u.hostname !== 'meet.google.com') return link;
+    u.searchParams.set('authuser', email);
+    return u.toString();
+  } catch { return link; }
+};
+
 export interface Look { skin: string; hair: string; shirt: string; pants: string; style: number }
 
 export interface PublicUser {
@@ -72,12 +84,13 @@ export type ServerMsg =
   | { t: 'door'; userId: string; door: Door }
   | { t: 'knock'; knockId: string; fromId: string; toId: string }
   | { t: 'knock_reply'; knockId: string; fromId: string; toId: string; reply: 'accept' | 'later' | 'blocked'; link?: string; reason?: string; fallback?: boolean; cancelled?: boolean }
-  | { t: 'me'; meetLink: string } // private settings, only to the user themselves
+  | { t: 'me'; meetLink: string; email?: string } // private settings, only to the user themselves
   | { t: 'desk'; userId: string; desk: Tile | null }
   | { t: 'call'; userId: string; callId: string | null; role?: CallRole; link?: string } // link: the call's Meet room, only to members
   | { t: 'rtc'; from: string; signal: RtcSignal }
   | { t: 'speaking'; userId: string; on: boolean }
   | { t: 'mute'; userId: string; muted: boolean }
+  | { t: 'to_meet'; fromId: string } // someone in your call opened its Meet room; come along
   | { t: 'follow'; userId: string; targetId: string | null }
   | { t: 'holding'; userId: string; item: string | null; objectId?: string; fromId?: string } // objectId: just taken; fromId: handed over
   | { t: 'object'; id: string; on: boolean; volume?: number; by: string }
@@ -102,6 +115,7 @@ export type ClientMsg =
   | { t: 'claim_desk' }   // the seat you're sitting on becomes your home desk
   | { t: 'release_desk' }
   | { t: 'end_call' }
+  | { t: 'to_meet' } // I'm opening our call's Meet room: tell the others
   | { t: 'rtc'; to: string; signal: RtcSignal }
   | { t: 'speaking'; on: boolean }
   | { t: 'mute'; muted: boolean }

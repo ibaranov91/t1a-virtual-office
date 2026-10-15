@@ -85,7 +85,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
     popover.delegate = self
     popover.contentViewController = popoverContent()
 
-    status = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+    status = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength) // the in-call icon is wider
     status.button?.target = self
     status.button?.action = #selector(statusClicked)
     status.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
@@ -104,7 +104,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
 
   /// Opened again from Applications / Spotlight while already running.
   func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
-    openedByUser(); return false
+    if window.isVisible { showWindow() } else { openedByUser() } // Dock click on an open window: just focus it
+    return false
   }
 
   func openedByUser() {
@@ -113,17 +114,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
     showMenuBarNote()
   }
 
-  /// A small card in the middle of the window: closing it is fine, the door icon brings it back.
+  /// A small card in the middle of the window: closing it is fine, the menu bar icon brings it back.
   func showMenuBarNote() {
     note?.removeFromSuperview()
     let box = NSVisualEffectView()
     box.material = .hudWindow; box.blendingMode = .withinWindow; box.state = .active
     box.wantsLayer = true; box.layer?.cornerRadius = 12
-    let icon = NSImageView(image: NSImage(systemSymbolName: "door.left.hand.closed", accessibilityDescription: nil)!
-      .withSymbolConfiguration(.init(pointSize: 26, weight: .medium).applying(.init(paletteColors: [.systemOrange])))!)
+    let icon = NSImageView(image: Person.image(color: .systemOrange, pixel: 3))
     let title = NSTextField(labelWithString: "The Deck lives in your menu bar")
     title.font = .boldSystemFont(ofSize: 15)
-    let text = NSTextField(wrappingLabelWithString: "Close this window anytime and stay in the office. Click the door icon at the top of your screen to open it again, right-click it for options.")
+    let text = NSTextField(wrappingLabelWithString: "Close this window anytime and stay in the office. Click the little person at the top of your screen to open it again, right-click it for options.")
     text.font = .systemFont(ofSize: 12); text.textColor = .secondaryLabelColor; text.alignment = .center
     text.preferredMaxLayoutWidth = 300
     let ok = NSButton(title: "Got it", target: self, action: #selector(hideMenuBarNote))
@@ -226,6 +226,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
 
   func showWindow() {
     if popover.isShown { popover.performClose(nil) }
+    NSApp.setActivationPolicy(.regular) // in the Dock (and ⌘-Tab) while the window is open
     window.makeKeyAndOrderFront(nil)
     NSApp.activate()
     placeWeb()
@@ -234,7 +235,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
   func windowWillClose(_ n: Notification) {
     guard n.object as? NSWindow === window else { return }
     note?.removeFromSuperview(); note = nil
-    DispatchQueue.main.async { self.placeWeb() } // isVisible is still true inside willClose
+    DispatchQueue.main.async { // isVisible is still true inside willClose
+      self.placeWeb()
+      NSApp.setActivationPolicy(.accessory) // back to just the menu bar
+    }
   }
 
   // MARK: menu bar
@@ -308,25 +312,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
   @objc func quit() { NSApp.terminate(nil) }
 
   func renderIcon() {
-    let name = !state.knocks.isEmpty ? "door.left.hand.open" : state.inCall ? "waveform" : "door.left.hand.closed"
-    let img = NSImage(systemSymbolName: name, accessibilityDescription: "The Deck")
-    img?.isTemplate = state.knocks.isEmpty
-    status.button?.image = state.knocks.isEmpty ? img
-      : img?.withSymbolConfiguration(.init(paletteColors: [.systemOrange]))
+    // same little person always: orange = someone's knocking, green + waves = you're in a call
+    status.button?.image = !state.knocks.isEmpty ? Person.image(color: .systemOrange)
+      : state.inCall ? Person.image(color: .systemGreen, call: true) : Person.image()
     status.button?.appearsDisabled = !state.connected
     status.button?.toolTip = state.knocks.first?.text ?? (state.inCall ? "In a call" : "The Deck")
   }
 
-  /// A few quick door flaps on the icon so a knock is noticeable even in quiet mode.
+  /// The person knocks a few times on the icon, so a knock is noticeable even in quiet mode.
   func ring() {
     ringing?.invalidate()
     var n = 0
     ringing = Timer.scheduledTimer(withTimeInterval: 0.18, repeats: true) { [weak self] t in
       guard let self else { return t.invalidate() }
       n += 1
-      let open = n % 2 == 1 || n >= 8
-      self.status.button?.image = NSImage(systemSymbolName: open ? "door.left.hand.open" : "door.left.hand.closed", accessibilityDescription: "The Deck")?
-        .withSymbolConfiguration(.init(paletteColors: [.systemOrange]))
+      self.status.button?.image = Person.image(n % 2 == 1 ? Person.knocking : Person.standing, color: .systemOrange)
       if n >= 8 { t.invalidate(); self.renderIcon() }
     }
   }
@@ -408,9 +408,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
     completionHandler(a.runModal() == .alertFirstButtonReturn)
   }
 
-  /// Accessory apps have no menu bar of their own, but copy/paste shortcuts still need an Edit menu.
+  /// Shown while the window is open (the app is in the Dock then); copy/paste shortcuts need the Edit menu always.
   func editMenu() -> NSMenu {
-    let main = NSMenu(), edit = NSMenuItem(), m = NSMenu(title: "Edit")
+    let main = NSMenu(), app = NSMenuItem(), a = NSMenu(title: "The Deck")
+    a.addItem(withTitle: "About The Deck", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
+    a.addItem(.separator())
+    a.addItem(withTitle: "Hide The Deck", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
+    a.addItem(withTitle: "Quit The Deck", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+    app.submenu = a; main.addItem(app)
+    let edit = NSMenuItem(), m = NSMenu(title: "Edit")
     m.addItem(withTitle: "Undo", action: Selector(("undo:")), keyEquivalent: "z")
     m.addItem(withTitle: "Redo", action: Selector(("redo:")), keyEquivalent: "Z")
     m.addItem(withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
