@@ -178,7 +178,7 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
   return (
     <div className="office">
       <div className="office-chrome" ref={chromeRef}>
-      <TopBar store={store} roomName={myRoom?.name} onToggleRooms={() => setShowRooms(s => !s)} onLogout={onLogout}
+      <TopBar store={store} voice={voice} roomName={myRoom?.name} onToggleRooms={() => setShowRooms(s => !s)} onLogout={onLogout}
         onToggleMeet={() => setShowMeet(s => !s)} onToggleAppearance={() => setShowAppearance(s => me?.lookSet ? !s : true)} engine={engine}
         editing={editing} onToggleEdit={() => setEditing(e => !e)} gmOpen={gmOpen} onToggleGm={() => setGmOpen(o => !o)}
         pocketsOpen={pocketsOpen} onTogglePockets={() => setPocketsOpen(o => !o)} />
@@ -216,12 +216,11 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
         {pick && engineRef.current && <ActionWheel key={`${pick.kind}:${pick.id}`} store={store} engine={engineRef.current} pick={pick} assets={assets} onPerson={openPerson} onClose={() => setPick(null)} />}
         <div className="self-stack">
           {store.chatWith && <ChatPanel key={store.chatWith} store={store} withId={store.chatWith} />}
-          <SelfPanel store={store} voice={voice} />
         </div>
         {personMenu && <PersonMenu key={personMenu.id} store={store} at={personMenu} onClose={() => setPersonMenu(null)} />}
         {store.seat && <InstrumentPanel key={store.seat} store={store} id={store.seat}
           dialogOpen={!!(showAppearance || showMeet || store.pendingKnock || store.calendarOpen || store.meetingsOpen || store.clockOpen || store.jukeboxOpen || store.achievementsOpen || store.presentOpen || store.chatWith || personMenu || pick)} />}
-        <Dock store={store} engine={engine} roomsOpen={showRooms} onRooms={() => setShowRooms(s => !s)} />
+        <Dock store={store} voice={voice} engine={engine} roomsOpen={showRooms} onRooms={() => setShowRooms(s => !s)} />
       </div>
       </div>
       {store.gameOpen && assets && store.park && <ArcadeOverlay store={store} assets={assets} voice={voice} />}
@@ -309,12 +308,11 @@ function InstrumentPanel({ store, id, dialogOpen }: { store: Store; id: string; 
   </section>;
 }
 
-function TopBar({ store, roomName, onToggleRooms, onToggleMeet, onToggleAppearance, onLogout, engine, editing, onToggleEdit, gmOpen, onToggleGm, pocketsOpen, onTogglePockets }: {
-  store: Store; roomName?: string; onToggleRooms: () => void; onToggleMeet: () => void; onToggleAppearance: () => void; onLogout: () => void; engine: Engine | null;
+function TopBar({ store, voice, roomName, onToggleRooms, onToggleMeet, onToggleAppearance, onLogout, engine, editing, onToggleEdit, gmOpen, onToggleGm, pocketsOpen, onTogglePockets }: {
+  store: Store; voice: Voice | null; roomName?: string; onToggleRooms: () => void; onToggleMeet: () => void; onToggleAppearance: () => void; onLogout: () => void; engine: Engine | null;
   editing: boolean; onToggleEdit: () => void; gmOpen: boolean; onToggleGm: () => void; pocketsOpen: boolean; onTogglePockets: () => void;
 }) {
   const me = store.users.get(store.me);
-  const [draft, setDraft] = useState<string | null>(null);
   const [more, setMore] = useState(false);
   useEffect(() => { // the ⋯ menu closes on a tap anywhere else
     if (!more) return;
@@ -323,21 +321,12 @@ function TopBar({ store, roomName, onToggleRooms, onToggleMeet, onToggleAppearan
     return () => window.removeEventListener('pointerdown', off);
   }, [more]);
   const z = engine?.zoom;
-  const status = draft ?? me?.status ?? '';
   return (
     <header className="topbar">
       <span className="brand">The Deck</span>
-      <span className="where">{roomName ? `in ${roomName}` : me ? 'in the hallway' : ''}</span>
-      <select value={me?.presence === 'offline' ? 'online' : me?.presence ?? 'online'}
-        onChange={e => store.setPresence(e.target.value as 'online' | 'away' | 'in_call')} aria-label="Presence">
-        <option value="online">● Online</option>
-        <option value="away">◐ Away</option>
-        <option value="in_call">🎧 In a call</option>
-      </select>
-      <form className="status" onSubmit={e => { e.preventDefault(); store.setStatus(status); setDraft(null); (document.activeElement as HTMLElement)?.blur(); }}>
-        <input value={status} maxLength={80} placeholder="What are you on? (waters your plant)" onChange={e => setDraft(e.target.value)}
-          onBlur={() => { if (draft !== null) { store.setStatus(draft); setDraft(null); } }} />
-      </form>
+      <span className="where" title={earshotLine(store)}>{roomName ? `in ${roomName}` : me ? 'in the hallway' : ''}</span>
+      {me && <span className="me-name" title="You"><i className="dot" style={{ background: PRESENCE_COLOR[me.presence] }} />{me.name}</span>}
+      <StatusChip store={store} />
       <div className="zoom">
         <button onClick={() => engine?.zoomOut()} disabled={!z?.canOut} title="Zoom out (−, ⌘ scroll or pinch)" aria-label="Zoom out">−</button>
         <button onClick={() => engine?.zoomIn()} disabled={!z?.canIn} title="Zoom in (+, ⌘ scroll or pinch)" aria-label="Zoom in">+</button>
@@ -345,6 +334,7 @@ function TopBar({ store, roomName, onToggleRooms, onToggleMeet, onToggleAppearan
           title={z?.overview ? 'Back to where you were (M)' : 'Whole floor (M)'}>⤢</button>
       </div>
       <UnreadButton store={store} />
+      <VoiceIcons store={store} voice={voice} />
       <button className="ghost more-btn" aria-label="More" aria-expanded={more} onClick={() => setMore(m => !m)}>⋯</button>
       <div className={`top-more${more ? ' open' : ''}`} onClick={e => { if (!(e.target as HTMLElement).closest('.mac-app')) setMore(false); }}>
         <button onClick={onToggleMeet} className={`meet-btn${store.meetLink === '' && !store.google ? ' unset' : ''}`}
@@ -1045,7 +1035,7 @@ function CalendarPanel({ store }: { store: Store }) {
 }
 
 /** Phones and small windows: the floor's controls within thumb reach. */
-function Dock({ store, engine, roomsOpen, onRooms }: { store: Store; engine: Engine | null; roomsOpen: boolean; onRooms: () => void }) {
+function Dock({ store, voice, engine, roomsOpen, onRooms }: { store: Store; voice: Voice | null; engine: Engine | null; roomsOpen: boolean; onRooms: () => void }) {
   const z = engine?.zoom;
   const total = [...store.unread.values()].reduce((a, b) => a + b, 0);
   const chatWith = [...store.unread.keys()][0] ?? [...store.chats.keys()].at(-1);
@@ -1057,6 +1047,7 @@ function Dock({ store, engine, roomsOpen, onRooms }: { store: Store; engine: Eng
       <button onClick={() => engine?.recenter()}><span className="ic">📍</span><small>Me</small></button>
       <button onClick={() => (chatWith ? store.openChat(chatWith) : onRooms())} title={chatWith ? undefined : 'Pick someone in People to message'}>
         <span className="ic">💬</span>{total > 0 && <b className="badge">{total}</b>}<small>Chat</small></button>
+      <VoiceIcons store={store} voice={voice} dock />
     </nav>
   );
 }
@@ -1165,9 +1156,62 @@ function PersonMenu({ store, at, onClose }: { store: Store; at: PersonMenuAt; on
   </div>;
 }
 
-function SelfPanel({ store, voice }: { store: Store; voice: Voice | null }) {
+/** "Within earshot" for the room tooltip. */
+function earshotLine(store: Store) {
+  const me = store.users.get(store.me), room = store.roomCallOf(me);
+  if (!me || !room) return me?.callId ? `Talking with ${store.names(store.callPeers(me))}` : '';
+  const inside = !me.instance && store.roomOf(me)?.id === room.id;
+  const near = store.callPeers(me).filter(u => !u.bot && u.presence !== 'offline' && inside && u.instance === me.instance && store.roomOf(u)?.id === room.id);
+  return `In ${room.name} · ${near.length ? `within earshot: ${near.map(u => u.name.split(' ')[0]).join(', ')}` : 'nobody within earshot'}`;
+}
+
+/** The presence dot + status as one chip; the text, presence and Clear live in a small popover. */
+function StatusChip({ store }: { store: Store }) {
+  const me = store.users.get(store.me);
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState<string | null>(null);
+  const ref = useRef<HTMLDivElement>(null);
+  const draftRef = useRef(draft); draftRef.current = draft;
+  const close = (save: boolean) => {
+    if (save && draftRef.current !== null) store.setStatus(draftRef.current);
+    setDraft(null); setOpen(false);
+  };
+  useEffect(() => {
+    if (!open) return;
+    const outside = (e: PointerEvent) => { if (e.target instanceof Node && !ref.current?.contains(e.target)) close(true); };
+    window.addEventListener('pointerdown', outside);
+    return () => window.removeEventListener('pointerdown', outside);
+  }, [open]);
+  const text = me?.status ?? '';
+  const shown = text.length > 24 ? `${text.slice(0, 23)}…` : text;
+  return <div className="status-wrap" ref={ref}>
+    <button className="status-chip" aria-expanded={open} aria-haspopup="dialog" title={text ? `${text} · click to change` : 'Set a status (waters your plant)'}
+      onClick={() => (open ? close(true) : setOpen(true))}>
+      <i className="dot" style={{ background: PRESENCE_COLOR[me?.presence ?? 'offline'] }} />
+      <span className={text ? '' : 'muted'}>{shown || 'Set a status'}</span>
+    </button>
+    {open && <div className="status-pop" role="dialog" aria-label="Status">
+      <form onSubmit={e => { e.preventDefault(); close(true); }}>
+        <input autoFocus value={draft ?? text} maxLength={80} placeholder="What are you on? (waters your plant)" onChange={e => setDraft(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Escape') { e.stopPropagation(); close(false); } }} />
+      </form>
+      <div className="status-row">
+        <select value={me?.presence === 'offline' ? 'online' : me?.presence ?? 'online'}
+          onChange={e => store.setPresence(e.target.value as 'online' | 'away' | 'in_call')} aria-label="Presence">
+          <option value="online">● Online</option>
+          <option value="away">◐ Away</option>
+          <option value="in_call">🎧 In a call</option>
+        </select>
+        <button className="ghost" disabled={!text && !draft} onClick={() => { store.setStatus(''); close(false); }}>Clear</button>
+      </div>
+    </div>}
+  </div>;
+}
+
+/** Mic, deafen, hand and sound settings as icon buttons (top bar; the dock on phones). */
+function VoiceIcons({ store, voice, dock }: { store: Store; voice: Voice | null; dock?: boolean }) {
   const [settings, setSettings] = useState(false);
-  const ref = useRef<HTMLElement>(null);
+  const ref = useRef<HTMLDivElement>(null);
   const me = store.users.get(store.me), room = store.roomCallOf(me), owner = store.connected && store.voiceOwner;
   useEffect(() => {
     if (!settings) return;
@@ -1176,16 +1220,33 @@ function SelfPanel({ store, voice }: { store: Store; voice: Voice | null }) {
     window.addEventListener('pointerdown', outside); window.addEventListener('keydown', key);
     return () => { window.removeEventListener('pointerdown', outside); window.removeEventListener('keydown', key); };
   }, [settings]);
-  const inside = me && room && !me.instance && store.roomOf(me)?.id === room.id;
-  const near = me && room ? store.callPeers(me).filter(u => !u.bot && u.presence !== 'offline' && inside && u.instance === me.instance && store.roomOf(u)?.id === room.id) : [];
-  const status = room ? `In ${room.name} · ${near.length ? `within earshot: ${near.map(u => u.name.split(' ')[0]).join(', ')}` : 'nobody within earshot'}`
-    : me?.callId ? `Talking with ${store.names(store.callPeers(me))}` : 'Not in voice';
-  return <section className="self-controls" ref={ref} aria-label="Your voice controls">
+  const err = voice?.micError ?? null;
+  const muted = voice?.muted ?? prefs.muted, deaf = voice?.deafened ?? prefs.deafened, ptt = (voice?.mode ?? prefs.mode) === 'ptt';
+  const btn = (cls: string, icon: string, label: string, title: string, short: string, onClick: () => void, extra: { disabled?: boolean; pressed?: boolean } = {}) =>
+    <button className={`vbtn ${cls}`} disabled={extra.disabled} aria-label={label} aria-pressed={extra.pressed} title={title} onClick={onClick}>
+      <span className="ic">{icon}</span>{dock && <small>{short}</small>}</button>;
+  const waiting = store.voiceWait ? `Waiting for a spot in ${MAP.rooms.find(r => r.id === store.voiceWait)?.name ?? 'room'} voice` : null;
+  return <div className={`voice-icons${dock ? ' in-dock' : ''}`} ref={ref} role="group" aria-label="Your voice controls">
+    {store.connected && !owner
+      ? btn('off', '🔀', 'Use voice here', 'Voice is on in another tab · click to use voice here', 'Voice', () => store.claimVoice())
+      : <>
+        {btn(err ? 'err' : muted ? 'off' : 'live', muted ? '🔇' : '🎙', muted ? 'Unmute' : 'Mute',
+          err ?? (muted ? 'Muted · click to unmute' : ptt ? 'Mic on · hold Space to talk (click to mute)' : 'Mic live · click to mute') + (ptt && muted ? ' · Space to talk once unmuted' : ''),
+          muted ? 'Unmute' : 'Mic', () => voice?.toggleMute(), { disabled: !owner || !voice, pressed: muted })}
+        {btn(deaf ? 'off' : 'live', '🎧', deaf ? 'Undeafen' : 'Deafen', deaf ? 'Deafened · click to hear again' : 'Hearing everyone · click to deafen',
+          deaf ? 'Deaf' : 'Hear', () => voice?.toggleDeafen(), { disabled: !owner || !voice, pressed: deaf })}
+        {room && btn(me?.hand ? 'live' : 'off', '✋', me?.hand ? 'Lower hand' : 'Raise hand', me?.hand ? 'Lower your hand' : 'Raise your hand',
+          'Hand', () => store.setHand(!me?.hand), { disabled: !owner, pressed: !!me?.hand })}
+      </>}
+    {btn(waiting || needsGesture() ? 'err' : 'off', '⚙', 'Sound settings', 'Sound settings', 'Sound', () => setSettings(v => !v), { pressed: settings })}
     {settings && <div className="settings-pop" role="dialog" aria-label="Sound settings">
       <div className="rooms-head"><span>Sound settings</span><button className="ghost" aria-label="Close sound settings" onClick={() => setSettings(false)}>×</button></div>
+      {err && <small className="warn">{err}</small>}
+      {waiting && <small>{waiting}</small>}
+      <EnableSound />
       <label className="input-mode">Input mode<select value={voice?.mode ?? prefs.mode} disabled={!owner || !voice}
         onChange={e => { if (voice && e.target.value !== voice.mode) voice.toggleMode(); }}>
-        <option value="voice">Voice activity</option><option value="ptt">Push-to-talk</option>
+        <option value="voice">Voice activity</option><option value="ptt">Push-to-talk (hold Space)</option>
       </select></label>
       {(['voice', 'music', 'effects'] as Category[]).map(id => <label className="volume-control" key={id}>
         <span>{{ voice: 'Voices', music: 'Music', effects: 'Effects' }[id]}</span>
@@ -1193,23 +1254,7 @@ function SelfPanel({ store, voice }: { store: Store; voice: Voice | null }) {
           onChange={e => { prefs.mix[id] = Number(e.target.value) / 100; savePrefs(); }} /><output>{Math.round(prefs.mix[id] * 100)}%</output>
       </label>)}
     </div>}
-    <div className="self-panel">
-    <div className="self-heading"><i className="dot" style={{ background: PRESENCE_COLOR[me?.presence ?? 'offline'] }} /><b>{me?.name ?? 'Connecting…'}</b>
-      <button className="ghost" aria-label="Sound settings" aria-expanded={settings} onClick={() => setSettings(v => !v)}>⚙</button></div>
-    <small className="self-status">{status}</small>
-    {store.connected && !owner ? <div className="voice-controls"><span>Voice is on in another tab</span><button onClick={() => store.claimVoice()}>Use voice here</button></div>
-      : <div className="voice-controls">
-        <button disabled={!owner || !voice} className={voice?.muted ? 'muted-btn' : 'ghost'} aria-pressed={voice?.muted ?? prefs.muted}
-          title={voice?.micError ?? undefined} onClick={() => voice?.toggleMute()}>{voice?.muted ? '🔇 Unmute' : voice?.mode === 'ptt' ? '🎙 Hold Space' : '🎙 Mute'}</button>
-        <button disabled={!owner || !voice} className={voice?.deafened ? 'muted-btn' : 'ghost'} aria-pressed={voice?.deafened ?? prefs.deafened}
-          onClick={() => voice?.toggleDeafen()}>{voice?.deafened ? '🎧 Undeafen' : '🎧 Deafen'}</button>
-        {room && <button disabled={!owner} className="ghost" aria-label={me?.hand ? 'Lower hand' : 'Raise hand'} aria-pressed={!!me?.hand} onClick={() => store.setHand(!me?.hand)}>✋</button>}
-      </div>}
-    {voice?.micError && <small>{voice.micError}</small>}
-    {store.voiceWait && <small>Waiting for a spot in {MAP.rooms.find(r => r.id === store.voiceWait)?.name ?? 'room'} voice</small>}
-    <EnableSound />
-    </div>
-  </section>;
+  </div>;
 }
 
 function voiceState(voice: Voice | null) {
@@ -1268,6 +1313,7 @@ function Toasts({ store }: { store: Store }) {
             {t.text.startsWith('Missed') ? 'Knock back' : 'Knock again'}
           </button>}
           {t.kind === 'call_moved' && t.roomId && <button onClick={() => { store.joinRoom(t.roomId!); store.dismiss(t.id); }}>Join them</button>}
+          {t.actions?.map(a => <button key={a.label} className={a.ghost ? 'ghost' : ''} onClick={() => { store.dismiss(t.id); a.run(); }}>{a.label}</button>)}
           {t.kind === 'chat' && t.userId && <button onClick={() => store.openChat(t.userId!)}>Reply</button>}
           {t.kind === 'meeting' && t.meetingKey && <button onClick={() => store.goToMeeting(t.meetingKey!)}>Go</button>}
           {t.kind === 'meeting' && t.link && <ExternalLink href={meetAs(t.link, store.meetAccount)}>Join call</ExternalLink>}

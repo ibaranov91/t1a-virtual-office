@@ -527,7 +527,6 @@ frames.bubble_deaf = bubble((t) => {
   for (let i = 0; i < 8; i++) t.px(3 + i, 1 + i, '#d8463c');
 });
 frames.bubble_bang = bubble((t) => { t.rect(6, 2, 2, 4, '#d8463c'); t.rect(6, 7, 2, 2, '#d8463c'); });
-frames.bubble_dots = bubble((t) => { for (const x of [3, 6, 9]) t.rect(x, 5, 2, 2, '#7a5a50'); });
 {
   const t = new Img(14, 14); // thought cloud: "should I go?"
   t.ellipse(7, 5, 6, 4.5, '#fff8e8'); t.ellipse(4, 6, 3.5, 3, '#fff8e8'); t.ellipse(10, 6, 3.5, 3, '#fff8e8');

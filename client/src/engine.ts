@@ -38,7 +38,7 @@ const SIT_FRAME = 5;
 type PlacedPlant = { u: ClientUser; x: number; y: number; base: number };
 const FRONT: Record<string, [number, number]> = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
 
-type BubbleKind = 'bubble_game' | 'bubble_watch' | 'bubble_bang' | 'bubble_headset' | 'bubble_zzz' | 'bubble_meeting' | 'bubble_dots' | 'bubble_think' | 'bubble_talk' | 'bubble_hand' | 'bubble_deaf';
+type BubbleKind = 'bubble_game' | 'bubble_watch' | 'bubble_bang' | 'bubble_headset' | 'bubble_zzz' | 'bubble_meeting' | 'bubble_think' | 'bubble_talk' | 'bubble_hand' | 'bubble_deaf';
 // where the bag hangs when carried, per facing; behind = drawn before the body
 const BAG_HAND: Record<string, { dx: number; behind: boolean }> = {
   down: { dx: 10, behind: false }, up: { dx: -3, behind: false }, left: { dx: 7, behind: true }, right: { dx: -1, behind: true },
@@ -107,6 +107,7 @@ export class Engine {
   private noteSeen = new Map<string, number>();
   private instrumentNotes: { id: string; at: number }[] = [];
   private sounders: MapObject[];
+  private statusSeen = new Map<string, { text: string; at: number }>();
   private placedPlates: { x: number; y: number; w: number }[] = [];
   private snapped = false;
   private slots: Tile[] = [];
@@ -1071,7 +1072,6 @@ export class Engine {
     if (!underground(u) && (u.instance || u.meeting)) return 'bubble_meeting'; // a real calendar meeting, not just standing in the Meeting room; beats a manual "In a call"
     if (u.presence === 'in_call') return 'bubble_headset';
     if (u.presence === 'away') return 'bubble_zzz';
-    if (u.status) return 'bubble_dots';
     return null;
   }
 
@@ -1102,6 +1102,19 @@ export class Engine {
     }
     this.placedPlates.push({ x: px, y: py, w: plate.width });
     ctx.drawImage(plate, px, py);
+
+    // a status that just changed: a small note fades up for a few seconds (the hover card keeps the text)
+    const seen = this.statusSeen.get(u.id), cur = u.status ?? '';
+    if (!seen) this.statusSeen.set(u.id, { text: cur, at: -1e9 });
+    else if (seen.text !== cur) { seen.text = cur; seen.at = cur ? ms : -1e9; }
+    const sAge = ms - (this.statusSeen.get(u.id)?.at ?? -1e9);
+    if (sAge >= 0 && sAge < 4000) {
+      const a = sAge < 3000 ? 1 : 1 - (sAge - 3000) / 1000, nx = px + plate.width - 2, ny = py - 7 - Math.floor(sAge / 700);
+      ctx.save(); ctx.globalAlpha = a;
+      ctx.fillStyle = '#fff4e0'; ctx.fillRect(nx, ny, 7, 5); ctx.fillRect(nx + 1, ny + 5, 2, 1);
+      ctx.fillStyle = '#7a5a50'; ctx.fillRect(nx + 1, ny + 1, 5, 1); ctx.fillRect(nx + 1, ny + 3, 3, 1);
+      ctx.restore();
+    }
 
     // emote bubble with a 2-frame pop
     const kind = this.bubbleFor(u, p);

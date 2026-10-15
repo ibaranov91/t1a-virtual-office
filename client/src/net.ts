@@ -21,6 +21,7 @@ export interface Toast {
   id: number; kind: 'knock_in' | 'knock_out' | 'knock_again' | 'chat' | 'info' | 'link' | 'meeting' | 'call_moved';
   text: string; link?: string; knockId?: string; expires?: number; hint?: string;
   roomId?: string;
+  actions?: { label: string; run: () => void; ghost?: boolean }[]; // extra buttons (the one-time mute prompt)
   meetingKey?: string; // meeting: one-click Go into its room
   userId?: string; // the other person, for knock_again and chat
 }

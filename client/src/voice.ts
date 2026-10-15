@@ -48,8 +48,9 @@ export class Voice {
     this.afk = window.setInterval(() => this.checkAfk(), 15000);
     setAudioDeafened(this.deafened);
     this.unsub = subscribePrefs(() => {
-      const changed = this.muted !== prefs.muted || this.deafened !== prefs.deafened || this.mode !== prefs.mode;
-      this.muted = prefs.muted; this.deafened = prefs.deafened; this.mode = prefs.mode;
+      const muted = this.privateCall ? this.muted : prefs.muted; // a knock call keeps its own unmute
+      const changed = this.muted !== muted || this.deafened !== prefs.deafened || this.mode !== prefs.mode;
+      this.muted = muted; this.deafened = prefs.deafened; this.mode = prefs.mode;
       if (!changed) return;
       this.spaceHeld = false; setAudioDeafened(this.deafened);
       if (this.owner && this.callId) {
@@ -77,11 +78,12 @@ export class Voice {
     if (!owner || newCall) this.stopVoice();
     if (newOwner) this.inst = rid();
     if (owner && (newOwner || newCall)) {
-      this.muted = prefs.muted; this.deafened = prefs.deafened; this.mode = prefs.mode;
+      this.muted = this.privateCall ? false : prefs.muted; this.deafened = prefs.deafened; this.mode = prefs.mode;
       this.lastActivity = Date.now();
       if (callId) {
         this.store.send({ t: 'mute', muted: this.muted }); this.store.setDeafen(this.deafened);
       }
+      if (owner && callId?.startsWith('room:') && !prefs.voiceAsked && this.muted) this.askAboutMute();
     }
     if (wasOwner && !owner) this.spaceHeld = false;
     const ids = new Set(this.eligiblePeers().map(u => u.id));
@@ -133,10 +135,24 @@ export class Voice {
     else this.store.toast({ kind: 'info', text: error!, expires: 6000 });
     this.store.changed();
   }
+  /** Knock calls (not `room:`) start unmuted; the saved choice is for rooms and comes back when the call ends. */
+  private get privateCall() { return !!this.callId && !this.callId.startsWith('room:'); }
+  /** Public spaces start muted: say so once, with a way out. */
+  private askAboutMute() {
+    const room = this.store.roomCallOf(this.store.users.get(this.store.me));
+    const pick = (muted: boolean) => { prefs.voiceAsked = true; this.setMuted(muted); };
+    this.store.toast({ kind: 'info', text: `You're on mute in ${room?.name ?? 'this room'}`, expires: 30000, actions: [
+      { label: '🎙 Unmute', run: () => pick(false) }, { label: 'Stay muted', run: () => pick(true), ghost: true }] });
+  }
+  private setMuted(muted: boolean) {
+    this.muted = muted;
+    if (!this.privateCall) { prefs.muted = muted; prefs.voiceAsked = true; }
+    savePrefs();
+    this.store.send({ t: 'mute', muted: this.muted }); this.sendRule(); this.store.changed();
+  }
   toggleMute() {
     if (!this.store.voiceOwner || !this.store.connected) return;
-    this.muted = !this.muted; prefs.muted = this.muted; savePrefs();
-    this.store.send({ t: 'mute', muted: this.muted }); this.sendRule(); this.store.changed();
+    this.setMuted(!this.muted);
   }
   toggleDeafen() {
     if (!this.store.voiceOwner || !this.store.connected) return;
