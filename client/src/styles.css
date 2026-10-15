@@ -65,16 +65,19 @@ button.netbird small { font-weight: 500; font-size: 11px; opacity: .75; }
 .status-pop input { width: 100%; }
 .status-row { display: flex; gap: 8px; justify-content: space-between; }
 .voice-icons { position: relative; display: flex; gap: 4px; }
-.vbtn { width: 34px; padding: 0; position: relative; }
+/* states live in data-state, never in classes: a generic class like .muted or .err would pull in unrelated global styles (margins) */
+.vbtn { width: 34px; margin: 0; padding: 0; position: relative; flex: none; }
 .vbtn svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .vbtn svg .slash { stroke-width: 2.2; }
 .vbtn svg .cog { fill: currentColor; stroke: none; }
 .vbtn small { display: none; }
-.vbtn.live { background: var(--accent2); color: #1c2a1c; }
-.vbtn.off { color: var(--muted); }
-.vbtn.err { background: var(--danger); color: #fff; }
-.vbtn[aria-pressed="true"].off { background: var(--panel2); }
-.vbtn.elsewhere { opacity: .6; }
+.vbtn[data-state~="live"] { background: var(--accent2); color: #1c2a1c; }
+.vbtn[data-state~="off"] { color: var(--muted); }
+.vbtn[data-state~="err"] { background: var(--danger); color: #fff; }
+.vbtn[data-state~="muted"] { color: var(--danger); background: var(--panel2); box-shadow: inset 0 0 0 1px var(--danger); }
+.vbtn[data-state~="idle"], .vbtn[data-state~="idle"]:disabled { color: var(--muted); opacity: .45; background: transparent; cursor: default; }
+.vbtn[aria-pressed="true"][data-state~="off"] { background: var(--panel2); }
+.vbtn[data-state~="elsewhere"] { opacity: .6; }
 .vbadge { position: absolute; top: 2px; right: 2px; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 2px var(--panel); }
 .voice-icons .settings-pop { position: absolute; top: calc(100% + 6px); right: 0; z-index: 20; width: min(300px, calc(100vw - 16px)); }
 .zoom { position: absolute; right: 10px; bottom: 10px; z-index: 2; display: flex; gap: 2px; padding: 3px; background: var(--panel); border: 2px solid var(--line); border-radius: 8px; }
@@ -139,9 +142,10 @@ canvas { display: block; image-rendering: pixelated; touch-action: none; }
   .dock button.on { background: var(--panel2); color: var(--accent); }
   .dock .voice-icons { display: contents; }
   .dock .vbtn { background: transparent; color: var(--text); }
-  .dock .vbtn.live { color: var(--accent2); }
-  .dock .vbtn.off { color: var(--muted); }
-  .dock .vbtn.err { background: var(--danger); color: #fff; }
+  .dock .vbtn[data-state~="live"] { color: var(--accent2); }
+  .dock .vbtn[data-state~="off"] { color: var(--muted); }
+  .dock .vbtn[data-state~="err"] { background: var(--danger); color: #fff; }
+  .dock .vbtn[data-state~="muted"] { background: transparent; color: var(--danger); box-shadow: none; }
   .dock .vbtn small { display: block; }
   .dock .settings-pop { position: absolute; bottom: calc(100% + 8px); top: auto; left: 0; right: 0; width: auto; }
   .dock .ic { font-size: 19px; line-height: 1; }
@@ -221,6 +225,10 @@ canvas { display: block; image-rendering: pixelated; touch-action: none; }
 .call-chip small { font-size: 11px; }
 .call-chip .muted-btn { background: var(--danger); color: #fff; }
 .call-chip .ghost { color: var(--text); }
+.room-voice.off { border-color: var(--wood); }
+.room-voice.live { border-color: var(--danger); }
+.room-voice.live .dot.live { background: var(--danger); box-shadow: 0 0 0 3px rgba(220,80,80,.3); animation: mag-blink 1.2s steps(2) infinite; }
+.room-voice.ptt { border-color: var(--accent); }
 
 /* action wheel: a ring of round buttons around whoever (or whatever) you clicked */
 .wheel { position: fixed; left: 0; top: 0; width: 0; height: 0; z-index: 7; }
