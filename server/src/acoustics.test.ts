@@ -27,13 +27,13 @@ test('distance gain is a gentle inverse law: 1, .625, .417 at 3, 6, 10 tiles, fa
   }
 });
 test('the source room is filled: never below ROOM_FILL anywhere inside it', () => {
-  const lobby = map.rooms.find(r => r.id === 'lobby')!, radio = map.objects.find(o => o.type === 'radio')!;
-  const far = model(pose(lobby.rect.x, lobby.rect.y + lobby.rect.h - 1), pose(radio.x, radio.y));
+  const lobby = map.rooms.find(r => r.id === 'lobby')!, src = pose(13, 14); // a source by the Lobby reception
+  const far = model(pose(lobby.rect.x, lobby.rect.y + lobby.rect.h - 1), src);
   assert.ok(far.gain >= ROOM_FILL - 1e-9, `gain ${far.gain}`);
-  assert.ok(model(pose(30, 14), pose(radio.x, radio.y)).gain < ROOM_FILL); // next room: falls off normally
+  assert.ok(model(pose(30, 14), src).gain < ROOM_FILL); // next room: falls off normally
 });
 test('another room only hears a source near the doorway it comes through; a third room hears nothing', () => {
-  const radio = map.objects.find(o => o.type === 'radio')!, src = pose(radio.x, radio.y);
+  const src = pose(13, 14); // a source by the Lobby reception
   assert.equal(model(pose(3, 5), src).gain, 0);            // deep in Focus
   assert.ok(model(pose(7, 10), src).gain > .1);            // Focus, one step from its door to the Lobby
   assert.ok(model(pose(16, 17), src).gain > .1);           // Co-working, next to the Lobby door
@@ -94,10 +94,16 @@ test('stereo reverb is deterministic with floor-dependent lengths and decaying t
     assert.ok(energy(a[0].slice(0, 1000)) > energy(a[0].slice(-1000)) * 100);
   }
 });
-test('radio stays on with its distance model; knock calls stay flat', () => {
-  const radio = map.objects.find(o => o.type === 'radio')!;
+test('the radio plays in the music room and nowhere else; knock calls stay flat', () => {
+  const radio = map.objects.find(o => o.type === 'radio')!, music = map.rooms.find(r => r.id === 'music')!;
+  const src = pose(radio.x, radio.y), inRoom = (x: number, y: number) => roomAt(map, x, y)?.id === 'music';
+  assert.ok(inRoom(radio.x, radio.y));
+  assert.ok(model(pose(music.rect.x + 1, music.rect.y + music.rect.h - 2), src).gain >= ROOM_FILL - 1e-9); // fills its room
+  assert.equal(model(pose(map.spawn.x, map.spawn.y), src).gain, 0); // the Lobby, where pages open: silent
+  assert.ok(model(pose(52, 17), src).gain < .1);                    // Desks, right at the music room door: faint
+  assert.equal(model(pose(48, 17), src).gain, 0);                   // Desks, a few steps in: silent
   assert.deepEqual(radio.sound, { clip: 'radio', gain: .8 }); assert.equal(map.layers.walkable[radio.y][radio.x], 0);
-  const me = pose(14, 14), source = pose(radio.x, radio.y);
+  const me = pose(radio.x + 1, radio.y + 1), source = pose(radio.x, radio.y);
   const dry = model(me, source); assert.ok(dry.gain > 0);
   assert.equal(radio.use, undefined); assert.equal(radio.on, undefined);
   assert.deepEqual(model(me, source, { room: coffee }), dry);
