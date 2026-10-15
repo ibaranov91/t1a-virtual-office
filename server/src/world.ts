@@ -37,7 +37,8 @@ export const lookFor = (name: string): Look => {
   const h = hashStr(name.toLowerCase());
   return {
     skin: SKINS[h % SKINS.length], hair: HAIRS[(h >>> 4) % HAIRS.length],
-    shirt: SHIRTS[(h >>> 9) % SHIRTS.length], pants: PANTS[(h >>> 14) % PANTS.length], style: (h >>> 20) % 3,
+    shirt: SHIRTS[(h >>> 9) % SHIRTS.length], pants: PANTS[(h >>> 14) % PANTS.length], eyes: '#2b1d1f', shoes: '#4a3028',
+    style: (h >>> 20) % 3, top: 0, bottom: 0, glasses: 0, hat: 0, glassesColor: '#282832', hatColor: '#3e5a8a',
   };
 };
 
@@ -192,7 +193,7 @@ export class World {
   addUser(name: string, bot = false, tile?: Tile, email?: string): User {
     const u: User = {
       email,
-      id: randomUUID().slice(0, 8), name, look: lookFor(name), tile: tile ?? { ...this.map.spawn }, dir: 'down',
+      id: randomUUID().slice(0, 8), name, look: lookFor(name), lookSet: false, tile: tile ?? { ...this.map.spawn }, dir: 'down',
       move: null, path: null, presence: bot ? 'online' : 'offline', status: '', emote: null, bot, homeDesk: null, door: null, callId: null, deafened: false, hand: false, muted: false,
       following: null, holding: null, meeting: null, instance: null,
     };
@@ -721,6 +722,21 @@ export class World {
         break;
       }
       case 'status': this.setStatus(u, String(msg.status ?? '')); break;
+      case 'look': {
+        const color = (v: unknown, fallback: string) => typeof v === 'string' && /^#[0-9a-f]{6}$/i.test(v) ? v : fallback;
+        const int = (v: unknown, max: number) => Math.max(0, Math.min(max, Number.isInteger(v) ? Number(v) : 0));
+        u.look = {
+          skin: color(msg.look.skin, u.look.skin), hair: color(msg.look.hair, u.look.hair),
+          shirt: color(msg.look.shirt, u.look.shirt), pants: color(msg.look.pants, u.look.pants),
+          eyes: color(msg.look.eyes, u.look.eyes), shoes: color(msg.look.shoes, u.look.shoes),
+          glassesColor: color(msg.look.glassesColor, u.look.glassesColor), hatColor: color(msg.look.hatColor, u.look.hatColor),
+          style: int(msg.look.style, 2), top: int(msg.look.top, 2), bottom: int(msg.look.bottom, 2),
+          glasses: int(msg.look.glasses, 2), hat: int(msg.look.hat, 2),
+        };
+        u.lookSet = true;
+        this.broadcast({ t: 'look', userId: u.id, look: u.look, lookSet: true });
+        break;
+      }
       case 'claim_desk': this.claimDesk(u); break;
       case 'release_desk': this.releaseDesk(u); break;
       case 'meet_link': {
@@ -804,7 +820,7 @@ export class World {
     return {
       users: [...this.users.values()].map(u => {
         const p = this.position(u).dest;
-        return { id: u.id, name: u.name, email: u.email, meetLink: u.meetLink, google: u.google, homeDesk: u.homeDesk, look: u.look, tile: p, dir: u.dir, status: u.status, presence: u.presence, bot: u.bot };
+        return { id: u.id, name: u.name, email: u.email, meetLink: u.meetLink, google: u.google, homeDesk: u.homeDesk, look: u.look, lookSet: u.lookSet, tile: p, dir: u.dir, status: u.status, presence: u.presence, bot: u.bot };
       }),
       objects: Object.fromEntries(this.objectOn),
       chats: Object.fromEntries(this.chats),
@@ -813,7 +829,9 @@ export class World {
   load(data: ReturnType<World['dump']>) {
     for (const d of data.users ?? []) {
       const tile = isWalkable(this.map, d.tile.x, d.tile.y) || seatAt(this.map, d.tile.x, d.tile.y) ? d.tile : { ...this.map.spawn };
-      this.users.set(d.id, { ...d, homeDesk: d.homeDesk ?? null, tile, move: null, path: null, emote: null, door: null, callId: null, deafened: false, hand: false, muted: false, following: null, holding: null, meeting: null, instance: null, presence: d.bot ? d.presence : 'offline' });
+      const legacy = lookFor(d.name);
+      const look = { ...legacy, ...d.look, eyes: d.look?.eyes ?? legacy.eyes, shoes: d.look?.shoes ?? legacy.shoes, top: d.look?.top ?? 0, bottom: d.look?.bottom ?? 0, glasses: d.look?.glasses ?? 0, hat: d.look?.hat ?? 0, glassesColor: d.look?.glassesColor ?? legacy.glassesColor, hatColor: d.look?.hatColor ?? legacy.hatColor };
+      this.users.set(d.id, { ...d, look, lookSet: d.lookSet ?? false, homeDesk: d.homeDesk ?? null, tile, move: null, path: null, emote: null, door: null, callId: null, deafened: false, hand: false, muted: false, following: null, holding: null, meeting: null, instance: null, presence: d.bot ? d.presence : 'offline' });
     }
     for (const [id, on] of Object.entries(data.objects ?? {})) if (this.objectOn.has(id)) this.objectOn.set(id, !!on);
     for (const [key, msgs] of Object.entries(data.chats ?? {})) this.chats.set(key, msgs);
