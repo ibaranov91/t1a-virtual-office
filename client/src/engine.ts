@@ -655,9 +655,9 @@ export class Engine {
     if (u.door === 'leaving') return null;
     if (u.emote === 'knock') return 'bubble_bang';
     if (u.callId) return u.deafened ? 'bubble_deaf' : 'bubble_talk';
+    if (u.instance || u.meeting) return 'bubble_meeting'; // a real calendar meeting, not just standing in the Meeting room; beats a manual "In a call"
     if (u.presence === 'in_call') return 'bubble_headset';
     if (u.presence === 'away') return 'bubble_zzz';
-    if (u.instance || u.meeting) return 'bubble_meeting'; // a real calendar meeting, not just standing in the Meeting room
     if (u.status) return 'bubble_dots';
     return null;
   }
