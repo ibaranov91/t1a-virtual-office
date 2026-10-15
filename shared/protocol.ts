@@ -84,7 +84,10 @@ export type ServerMsg =
   | { t: 'door'; userId: string; door: Door }
   | { t: 'knock'; knockId: string; fromId: string; toId: string }
   | { t: 'knock_reply'; knockId: string; fromId: string; toId: string; reply: 'accept' | 'later' | 'blocked'; link?: string; reason?: string; fallback?: boolean; cancelled?: boolean }
-  | { t: 'me'; meetLink: string; email?: string } // private settings, only to the user themselves
+  // private settings, only to the user themselves. google: the connected Google account (null = not connected),
+  // absent when this instance has no Google sign-in
+  | { t: 'me'; meetLink: string; email?: string; google?: string | null }
+  | { t: 'google_auth'; url: string } // open this to connect Google (in the system browser from the Mac app)
   | { t: 'desk'; userId: string; desk: Tile | null }
   | { t: 'call'; userId: string; callId: string | null; role?: CallRole; link?: string } // link: the call's Meet room, only to members
   | { t: 'rtc'; from: string; signal: RtcSignal }
@@ -112,6 +115,8 @@ export type ClientMsg =
   | { t: 'knock_reply'; knockId: string; reply: 'accept' | 'later' }
   | { t: 'knock_cancel'; knockId: string } // the knocker calls it back: closes the prompt for both
   | { t: 'meet_link'; link: string }
+  | { t: 'google_connect' }    // asks for a google_auth URL
+  | { t: 'google_disconnect' }
   | { t: 'claim_desk' }   // the seat you're sitting on becomes your home desk
   | { t: 'release_desk' }
   | { t: 'end_call' }

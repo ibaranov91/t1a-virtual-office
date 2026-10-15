@@ -7,11 +7,13 @@ import {
   EARSHOT_TILES, MAX_CALL_SIZE, MAX_CHAT_LEN, normalizeMeetLink, REACTIONS, ROOM_VOICE_MAX,
   type CallRole, type ChatMsg, type ClientMsg, type Door, type Knock, type Look, type Presence, type PublicUser, type Reaction, type ServerMsg,
 } from '../../shared/protocol';
+import { authUrl, createSpace, forgetAccess, googleEnabled, revoke, type GoogleLink } from './google';
 
 export interface User extends PublicUser {
   path: Tile[] | null; // path of the current move (server-side bookkeeping)
   email?: string;       // identity from NetBird; never broadcast
   meetLink?: string;    // personal reusable Google Meet room; only shared with knock partners
+  google?: GoogleLink;  // Connect Google: encrypted refresh token; never leaves the server
   offlineAt?: number;   // when they walked out the door (not persisted)
   lastSpot?: Tile;      // where they were before heading out (not persisted)
   presenceBeforeCall?: Presence;
@@ -76,13 +78,15 @@ export class World {
 
   // ---------- transport ----------
   broadcast(msg: ServerMsg) { for (const l of this.listeners) l(msg); }
+  /** Private settings for the user themselves. */
+  me(u: User): ServerMsg { return { t: 'me', meetLink: u.meetLink ?? '', email: u.email, google: googleEnabled ? u.google?.email ?? null : undefined }; }
   sendTo(userId: string, msg: ServerMsg) { for (const s of this.sockets.get(userId)?.values() ?? []) s(msg); }
   snapshot(): ServerMsg {
     const objects = Object.fromEntries([...new Set([...this.objectOn.keys(), ...this.objectVolume.keys()])].map(id => [id, this.objectState(id)]));
     return { t: 'state', serverTime: Date.now(), users: [...this.users.values()].map(this.toPublic), objects };
   }
   private toPublic = (u: User): PublicUser => {
-    const { path: _p, email: _e, meetLink: _m, offlineAt: _o, lastSpot: _l, presenceBeforeCall: _b, presencePicked: _c, ...pub } = u;
+    const { path: _p, email: _e, meetLink: _m, google: _g, offlineAt: _o, lastSpot: _l, presenceBeforeCall: _b, presencePicked: _c, ...pub } = u;
     return pub;
   };
 
@@ -97,7 +101,7 @@ export class World {
     this.stayAfterAll(u);
     if (u.presence === 'offline') this.comeIn(u);
     send(this.snapshot());
-    send({ t: 'me', meetLink: u.meetLink ?? '', email: u.email });
+    send(this.me(u));
     send({ t: 'voice_wait', roomId: this.waiting.get(userId) ?? null });
     const call = u.callId ? this.calls.get(u.callId) : undefined; // a reloaded page gets its call's Meet link back
     if (call) send({ t: 'call', userId: u.id, callId: call.id, role: u.callRole ?? undefined, link: call.link });
@@ -387,7 +391,35 @@ export class World {
     const call: Call = { id: randomUUID().slice(0, 8), members: new Set(), link: own ?? room.meeting.url, fallback: !own };
     this.calls.set(call.id, call);
     for (const u of [from, to]) this.joinCall(u, call);
+    this.freshRoom(call, from, to);
     return call;
+  }
+  /** With Google connected (the knocker's, else the other person's), the call gets its own new Meet room that
+   *  anyone in the domain joins without asking. Arrives a moment after the call starts; until then (or if it
+   *  fails) the call keeps the link it started with. */
+  private freshRoom(call: Call, ...people: User[]) {
+    const host = people.find(u => u.google && !u.bot);
+    if (!host?.google) return;
+    const link = host.google;
+    createSpace(host.id, link).then(uri => {
+      if (this.calls.get(call.id) !== call) return; // already over
+      call.link = uri; call.fallback = false;
+      for (const id of call.members) {
+        const m = this.users.get(id);
+        if (m?.callId === call.id) this.sendTo(id, { t: 'call', userId: id, callId: call.id, role: m.callRole ?? undefined, link: uri });
+      }
+    }).catch(e => {
+      console.warn(`google: no Meet room for ${host.name}:`, e.message);
+      if (e.code === 'invalid_grant' && host.google === link) { // they revoked access in their Google account
+        host.google = undefined; forgetAccess(host.id); this.sendTo(host.id, this.me(host));
+      }
+    });
+  }
+  /** OAuth came back for this user (index.ts checked the account). */
+  setGoogle(u: User, link: GoogleLink | undefined) {
+    if (u.google && u.google.refresh !== link?.refresh) void revoke(u.id, u.google);
+    u.google = link;
+    this.sendTo(u.id, this.me(u));
   }
   private clearVoiceTimer(u: User) {
     clearTimeout(this.voiceTimers.get(u.id)); this.voiceTimers.delete(u.id);
@@ -623,9 +655,11 @@ export class World {
         const link = raw.trim() ? normalizeMeetLink(raw) : '';
         if (link === null) break; // invalid: ignore, the client validates too
         u.meetLink = link || undefined;
-        this.sendTo(u.id, { t: 'me', meetLink: link, email: u.email });
+        this.sendTo(u.id, this.me(u));
         break;
       }
+      case 'google_connect': if (googleEnabled) this.sendTo(u.id, { t: 'google_auth', url: authUrl(u.id, u.google?.email ?? u.email) }); break;
+      case 'google_disconnect': this.setGoogle(u, undefined); break;
       case 'presence': {
         if (!['online', 'away', 'in_call'].includes(msg.presence)) break;
         if (u.callId && this.calls.get(u.callId)?.room) u.presencePicked = true;
@@ -680,7 +714,7 @@ export class World {
     return {
       users: [...this.users.values()].map(u => {
         const p = this.position(u).dest;
-        return { id: u.id, name: u.name, email: u.email, meetLink: u.meetLink, homeDesk: u.homeDesk, look: u.look, tile: p, dir: u.dir, status: u.status, presence: u.presence, bot: u.bot };
+        return { id: u.id, name: u.name, email: u.email, meetLink: u.meetLink, google: u.google, homeDesk: u.homeDesk, look: u.look, tile: p, dir: u.dir, status: u.status, presence: u.presence, bot: u.bot };
       }),
       objects: Object.fromEntries(this.objectOn),
       objectVolumes: Object.fromEntries(this.objectVolume),
