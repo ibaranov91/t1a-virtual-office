@@ -195,6 +195,7 @@ obj('plant', 14, 13, 1, 1);
 obj('sofa', 5, 21, 3, 1, { sit: true, dir: 'down' });
 obj('table_round', 6, 19, 1, 1);
 obj('reception', 10, 14, 3, 1);
+obj('safe', 13, 14, 1, 1, { use: { kind: 'link', label: 'vault', url: 'https://vault13.t1a.cloud/' } }); // the team's vault, by reception
 obj('plant', 1, 22, 1, 1);
 obj('bookshelf', 12, 21, 2, 1);
 
