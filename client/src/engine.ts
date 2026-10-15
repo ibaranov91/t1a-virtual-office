@@ -1,6 +1,7 @@
 // The floor: one <canvas>, one requestAnimationFrame loop.
 // Order: static tilemap → y-sorted furniture + sprites → nameplates & bubbles → ambient tint → UI hints.
 import { applyEdit, FIXED_TYPES, findPath, isWalkable, layoutProblem, objectName, roomAt, seatAt, withLayout, type MapObject, type Rug, type Tile } from '../../shared/map';
+import { roomDoors, type RoomDoor } from './doors';
 import type { Assets, Frame } from './assets';
 import { drawText, textWidth } from './font';
 import { MEETING_ROOM_ID, PLANT_REVEAL, PLANT_STAGES, plantDead, plantName, type LayoutEdit } from '../../shared/protocol';
@@ -76,6 +77,7 @@ export class Engine {
   private snapped = false;
   private slots: Tile[] = [];
   private layoutSeen = -1;
+  private doors: RoomDoor[] = [];
   // ---- edit mode (office admins) ----
   editing = false;
   /** Selected furniture or rug. */
@@ -225,6 +227,7 @@ export class Engine {
   /** The furniture changed (an admin moved something): redraw the floor and re-sort what's where. */
   private refreshLayout() {
     this.layoutSeen = this.store.layoutVersion;
+    this.doors = roomDoors(MAP);
     this.staticLayer = this.buildStatic();
     this.dynamicObjects = MAP.objects.filter(o => !o.wall && !o.walkable);
     this.lights = MAP.objects.filter(o => o.light);
@@ -638,6 +641,13 @@ export class Engine {
       const x = o.x * TS + (o.w * TS - fr.w) / 2, y = (o.y + o.h) * TS - fr.h;
       const name = this.isOn(o) || !this.f(`${o.type}_off`) ? o.type : `${o.type}_off`;
       ds.push({ base: (o.y + o.h) * TS - 0.5, draw: () => this.blit(ctx, name, x, y) });
+    }
+    for (const door of this.doors) {
+      const open = [...poses.values()].some(p => door.tiles.some(t => Math.abs(t.x - p.tile.x) + Math.abs(t.y - p.tile.y) <= 1));
+      const name = `door_${door.horizontal ? 'h' : 'v'}_${open ? 'open' : 'closed'}`, fr = this.f(name);
+      if (!fr) continue;
+      const x = door.x * TS + (door.w * TS - fr.w) / 2, y = (door.y + door.h) * TS - fr.h;
+      ds.push({ base: (door.y + door.h) * TS - .5, draw: () => this.blit(ctx, name, x, y) });
     }
     for (const u of users) {
       const p = poses.get(u.id)!;

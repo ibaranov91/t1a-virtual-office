@@ -1,4 +1,4 @@
-import { ZONE_OUT_TILES, type LayoutEdit } from './protocol';
+import type { LayoutEdit } from './protocol';
 
 // Shared floor logic: used by the server AND every client, so paths are identical everywhere.
 
@@ -163,31 +163,28 @@ export function seatAt(m: TileMap, x: number, y: number): (Spot & { homeDesk: bo
 }
 
 export const voiceRooms = (m: TileMap) => m.rooms.filter(r => r.rules.voice === 'open');
-const halls = new WeakMap<TileMap, Map<Room, number[][]>>();
-export function hallDistance(m: TileMap, room: Room, x: number, y: number): number {
-  let rooms = halls.get(m);
-  if (!rooms) halls.set(m, rooms = new Map());
-  let distances = rooms.get(room);
-  if (!distances) {
-    distances = Array.from({ length: m.height }, () => Array(m.width).fill(Infinity));
-    const queue: Tile[] = [];
-    const { x, y, w, h } = room.rect;
-    for (let yy = y; yy < y + h; yy++) for (let xx = x; xx < x + w; xx++) {
-      if (isWalkable(m, xx, yy) || seatAt(m, xx, yy)) { distances[yy][xx] = 0; queue.push({ x: xx, y: yy }); }
-    }
-    for (let i = 0; i < queue.length; i++) {
-      const p = queue[i], d = distances[p.y][p.x];
-      if (d === ZONE_OUT_TILES) continue;
-      for (const [dx, dy] of NEIGH) {
-        const x = p.x + dx, y = p.y + dy;
-        if ((isWalkable(m, x, y) || seatAt(m, x, y)) && distances[y]?.[x] === Infinity) {
-          distances[y][x] = d + 1; queue.push({ x, y });
-        }
+const doorways = new WeakMap<TileMap, Map<Room, Tile[][]>>();
+export function doorwayTiles(m: TileMap, room: Room): Tile[][] {
+  let rooms = doorways.get(m);
+  if (!rooms) doorways.set(m, rooms = new Map());
+  const cached = rooms.get(room); if (cached) return cached;
+  const seen = new Set<string>(), groups: Tile[][] = [];
+  const outside = (x: number, y: number) => isWalkable(m, x, y) && !roomAt(m, x, y);
+  const { x, y, w, h } = room.rect;
+  for (let yy = y; yy < y + h; yy++) for (let xx = x; xx < x + w; xx++) {
+    if (!isWalkable(m, xx, yy) && !seatAt(m, xx, yy)) continue;
+    for (const [dx, dy] of NEIGH) {
+      const start = { x: xx + dx, y: yy + dy }, key = `${start.x},${start.y}`;
+      if (!outside(start.x, start.y) || seen.has(key)) continue;
+      const group = [start]; seen.add(key);
+      for (let i = 0; i < group.length; i++) for (const [dx, dy] of NEIGH) {
+        const x = group[i].x + dx, y = group[i].y + dy, key = `${x},${y}`;
+        if (outside(x, y) && !seen.has(key)) { seen.add(key); group.push({ x, y }); }
       }
+      groups.push(group);
     }
-    rooms.set(room, distances);
   }
-  return distances[y]?.[x] ?? Infinity;
+  rooms.set(room, groups); return groups;
 }
 
 // ---------- layout: what the furniture decides ----------
@@ -219,7 +216,7 @@ export function applyLayout(m: TileMap, l: Layout) {
     if (r) r.spots.push({ x: o.x, y: o.y, dir: o.dir });
   }
   for (const r of m.rooms) for (const s of r.stand) if (free(s.x, s.y) && !r.spots.some(p => p.x === s.x && p.y === s.y)) r.spots.push(s);
-  halls.delete(m);
+  doorways.delete(m);
 }
 
 /** Why this layout won't do, or null if it's fine: furniture on the floor and decor on the walls, nothing on top of
