@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { World, type User } from './world';
 import { findPath, doorwayTiles, pathDuration, reindexMap, roomAt, sampleMove, seatAt, voiceRooms, WALK_MS_PER_TILE, type TileMap, type Tile } from '../../shared/map';
 import { TRACKS } from '../../shared/music';
-import { ADMIN_HAT, EFFECTS, JUDGE_HAT, hatItem, SPEED_FACTOR, walkMs } from '../../shared/effects';
+import { ADMIN_HAT, EFFECTS, JUDGE_HAT, JUDGE_HATS, hatItem, SPEED_FACTOR, walkMs } from '../../shared/effects';
 import { PLANT_DIES_DAYS, PLANT_STAGES, plantDead, ROOM_VOICE_MAX, type ClientMsg, type ServerMsg } from '../../shared/protocol';
 const map: TileMap = JSON.parse(readFileSync(new URL('../../shared/tilemap.json', import.meta.url), 'utf8'));
 const coffee = map.rooms.find(r => r.id === 'coffee')!;
@@ -1093,18 +1093,19 @@ test('effects: people only put hats on themselves; GM-only and server-only effec
 
 test('effects: judges and admins find their hats in their pockets, put on once, and wear only what they own', t => {
   const { w, person } = people(t), judge = person('Oleg', JUDGE_EMAIL), gm = person('Gm', GM_EMAIL, { x: 32, y: 8 }), a = person('A', undefined, { x: 33, y: 8 });
-  assert.deepEqual(judge.u.items, [hatItem(JUDGE_HAT)]);
-  assert.deepEqual(judge.u.effects, [{ kind: 'hat', data: { style: JUDGE_HAT } }]);
-  assert.ok(judge.messages.some(m => m.t === 'me' && m.judge && m.items?.includes(hatItem(JUDGE_HAT))));
+  const JUDGE = JUDGE_HATS[0]; // the seed from DECK_JUDGES gives the first judge the first hat
+  assert.deepEqual(judge.u.items, [hatItem(JUDGE)]);
+  assert.deepEqual(judge.u.effects, [{ kind: 'hat', data: { style: JUDGE } }]);
+  assert.ok(judge.messages.some(m => m.t === 'me' && m.judge && m.items?.includes(hatItem(JUDGE))));
   assert.deepEqual(gm.u.items, [hatItem(ADMIN_HAT)]);
   assert.deepEqual(gm.u.effects, [{ kind: 'hat', data: { style: ADMIN_HAT } }]);
   w.handle(judge.u, effect(judge.u.id, 'hat', false), judge.socket);
   assert.equal(judge.u.effects.length, 0, 'a judge may take the hat off');
   w.handle(judge.u, effect(judge.u.id, 'hat', true, 'party'), judge.socket);
   assert.equal(judge.u.effects.length, 0, 'not in the pockets');
-  w.handle(judge.u, effect(judge.u.id, 'hat', true, JUDGE_HAT), judge.socket);
-  assert.deepEqual(judge.u.effects, [{ kind: 'hat', data: { style: JUDGE_HAT } }]);
-  w.handle(a.u, effect(a.u.id, 'hat', true, JUDGE_HAT), a.socket);
+  w.handle(judge.u, effect(judge.u.id, 'hat', true, JUDGE), judge.socket);
+  assert.deepEqual(judge.u.effects, [{ kind: 'hat', data: { style: JUDGE } }]);
+  w.handle(a.u, effect(a.u.id, 'hat', true, JUDGE), a.socket);
   w.handle(a.u, effect(a.u.id, 'hat', true, 'top'), a.socket);
   assert.equal(a.u.effects.length, 0, 'no hats in the pockets, nothing to wear');
   const stand = w.map.objects.find(o => o.type === 'hat_rack')!;
@@ -1117,6 +1118,33 @@ test('effects: judges and admins find their hats in their pockets, put on once, 
   assert.deepEqual(a.u.effects, [{ kind: 'hat', data: { style: 'top' } }]);
   w.handle(gm.u, effect(a.u.id, 'hat', true, 'crown'), gm.socket);
   assert.deepEqual(a.u.effects, [{ kind: 'hat', data: { style: 'crown' } }], 'a GM may put any hat on anyone');
+});
+
+test('judges: admins mark people with their own hat; the hat follows the mark, and the list is private and persists', t => {
+  const { w, person } = people(t), gm = person('Gm', GM_EMAIL), a = person('Ann', 'ann@t1a.com', { x: 33, y: 12 }), b = person('Bo', 'bo@t1a.com', { x: 34, y: 12 });
+  const set = (who: string, hat: string | null): ClientMsg => ({ t: 'judge_set', who, hat });
+  assert.ok(gm.messages.some(m => m.t === 'judges'), 'admins get the list on connect');
+  assert.ok(!a.messages.some(m => m.t === 'judges'), 'nobody else does');
+  w.handle(a.u, set('ann@t1a.com', 'winged'), a.socket);
+  assert.deepEqual(a.u.items, [], 'only admins mark judges');
+  w.handle(gm.u, set(' Ann@T1A.com ', 'winged'), gm.socket);
+  assert.deepEqual(a.u.items, [hatItem('winged')], 'the hat is in the pockets at once, even online');
+  assert.deepEqual(a.u.effects, [{ kind: 'hat', data: { style: 'winged' } }]);
+  assert.ok(a.messages.some(m => m.t === 'me' && m.judge));
+  const list = [...gm.messages].reverse().find(m => m.t === 'judges');
+  assert.ok(list?.t === 'judges' && list.judges.some(j => j.who === 'ann@t1a.com' && j.hat === 'winged' && j.name === 'Ann'));
+  w.handle(gm.u, set('ann@t1a.com', 'crested'), gm.socket);
+  assert.deepEqual(a.u.items, [hatItem('crested')], 'switching swaps the hat');
+  assert.deepEqual(a.u.effects, [{ kind: 'hat', data: { style: 'crested' } }], 'and puts the new one on if the old one was on');
+  w.handle(gm.u, set('bo@t1a.com', 'nonsense'), gm.socket);
+  w.handle(gm.u, set('bo@t1a.com', JUDGE_HAT), gm.socket);
+  assert.deepEqual(b.u.items, [], 'only the Odyssey hats');
+  const w2 = new World(w.map); w2.load(JSON.parse(JSON.stringify(w.dump())));
+  assert.deepEqual(w2.dump().judges, w.dump().judges);
+  assert.ok(w2.dump().judges.some(j => j.who === 'ann@t1a.com' && j.hat === 'crested'), 'survives a restart');
+  w.handle(gm.u, set('ann@t1a.com', null), gm.socket);
+  assert.deepEqual(a.u.items, [], 'unmarked: the hat goes');
+  assert.deepEqual(a.u.effects, [], 'and comes off');
 });
 
 test('effects: coffee makes you walk faster, timed the same on server and in the move message', t => {
