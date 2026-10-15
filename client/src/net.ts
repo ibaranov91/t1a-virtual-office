@@ -357,7 +357,7 @@ export class Store {
   linkOpen: { label: string; url: string } | null = null;
   presentation: LiveDeck | null = null; // slides on a screen right now
   presentOpen: string | null = null;    // the screen whose upload panel is open
-  slidesHidden = false;                 // I closed the slides for this deck (the Live chip brings them back)
+  slidesHidden = true;                  // not watching: viewers sit down and say Watch (or use the Live chip)
   openPresent(id: string | null) { this.presentOpen = id; this.emit(); }
   presentSlide(slide: number) { if (this.presentation?.presenter === this.me) this.send({ t: 'present_slide', slide }); }
   presentStop() { this.send({ t: 'present_stop' }); }
@@ -670,7 +670,7 @@ export class Store {
       case 'mute': { const u = this.users.get(msg.userId); if (u) { u.muted = msg.muted; if (msg.muted) u.speaking = false; } break; }
       case 'status': { const u = this.users.get(msg.userId); if (u) u.status = msg.status; break; }
       case 'presentation': {
-        if (msg.live?.deck.id !== this.presentation?.deck.id) this.slidesHidden = false;
+        if (msg.live?.deck.id !== this.presentation?.deck.id) this.slidesHidden = msg.live?.presenter !== this.me; // viewers are asked first (WatchPrompt)
         this.presentation = msg.live; break;
       }
       case 'tz': { const u = this.users.get(msg.userId); if (u) { if (msg.tz) u.tz = msg.tz; else delete u.tz; } break; }

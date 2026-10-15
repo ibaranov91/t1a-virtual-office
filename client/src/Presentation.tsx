@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { drawText, textWidth } from './font';
 import { MAP, type Store } from './net';
+import { seatAt } from '../../shared/map';
 import { PRESENT_AWAY_MS, PRESENT_MAX_BYTES, PRESENT_MAX_SLIDES, slideUrl, type DeckInfo } from '../../shared/protocol';
 
 /** Chunky text in the office's own 3×5 pixel font, with a hard drop shadow. */
@@ -96,6 +97,7 @@ export function SlideOverlay({ store }: { store: Store }) {
   useEffect(() => { setAwaySince(live.away ? Date.now() : null); }, [live.away]);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !mine && !(e.target instanceof Element && e.target.closest('input, textarea, select'))) return store.hideSlides(true);
       if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey || (e.target instanceof Element && e.target.closest('input, textarea, select, [contenteditable], [role="dialog"]'))) return;
       const step = mine ? ({ ArrowRight: 1, ArrowDown: 1, PageDown: 1, ' ': 1, ArrowLeft: -1, ArrowUp: -1, PageUp: -1 } as Record<string, number>)[e.key] : undefined;
       if (step) { e.preventDefault(); store.presentSlide(live.slide + step); }
@@ -110,6 +112,21 @@ export function SlideOverlay({ store }: { store: Store }) {
   const presenter = store.name(live.presenter).split(' ')[0];
   const left = awaySince === null ? 0 : Math.max(0, Math.ceil((PRESENT_AWAY_MS - (Date.now() - awaySince)) / 1000));
   const issue = String(new Date(deck.at).getMonth() + 1).padStart(2, '0');
+  if (!mine) return (
+    <div className="modal-backdrop watch-backdrop" onClick={e => { if (e.target === e.currentTarget) store.hideSlides(true); }}>
+      <div className="watch-modal" role="dialog" aria-label={`Slides: ${deck.title}`}>
+        <div className="watch-head">
+          <span><b className="live-dot">● LIVE</b> {deck.title} · {presenter}</span>
+          <button type="button" className="ghost" onClick={() => store.hideSlides(true)} aria-label="Close">×</button>
+        </div>
+        <div className="watch-slide"><img key={n} src={slideUrl(deck, live.slide)} alt={`Slide ${n} of ${total}`} draggable={false} /></div>
+        <div className="watch-foot">
+          {live.away && <span className="mag-away">{presenter} lost connection · ends in {left}s</span>}
+          <span className="mag-page">{n} / {total}</span>
+        </div>
+      </div>
+    </div>
+  );
   return (
     <div className="mag-wrap" role="region" aria-label={`Slides: ${deck.title}`}>
       <div className="mag">
@@ -166,6 +183,40 @@ export function LiveChip({ store, onGo }: { store: Store; onGo: (room: string) =
     <div className="desk-chip live-chip" onClick={go}>
       <span><b className="live-dot">● LIVE</b> {live.deck.title} · {store.name(live.presenter).split(' ')[0]}</span>
       <button onClick={e => { e.stopPropagation(); go(); }}>{here ? 'Show' : 'Go watch'}</button>
+    </div>
+  );
+}
+
+/** Sitting down on a chair in the screen's room while slides are up asks whether to watch. Standing up closes them. */
+export function WatchPrompt({ store }: { store: Store }) {
+  const [ask, setAsk] = useState(false);
+  const asked = useRef<string | null>(null), seated = useRef(false);
+  useEffect(() => {
+    const tick = () => {
+      const live = store.presentation, me = store.users.get(store.me);
+      if (!live || !me || me.bot || live.presenter === me.id) { asked.current = null; seated.current = false; setAsk(false); return; }
+      const p = store.pose(me), inRoom = store.inPresentationRoom();
+      const seat = !p.walking && inRoom ? seatAt(MAP, p.tile.x, p.tile.y) : null;
+      if (seat?.type === 'chair') {
+        seated.current = true;
+        const key = `${live.deck.id}@${seat.x},${seat.y}`;
+        if (asked.current !== key) { asked.current = key; if (store.slidesHidden) setAsk(true); }
+      } else if (seated.current || !inRoom) {
+        if (!store.slidesHidden) store.hideSlides(true);
+        seated.current = false; asked.current = null; setAsk(false);
+      }
+    };
+    tick();
+    const t = setInterval(tick, 400);
+    return () => clearInterval(t);
+  }, [store]);
+  const live = store.presentation;
+  if (!ask || !live || !store.slidesHidden) return null;
+  return (
+    <div className="desk-chip watch-ask" role="dialog" aria-label="Watch the presentation?">
+      <span>{store.name(live.presenter).split(' ')[0]} is presenting '{live.deck.title}'. Watch?</span>
+      <button onClick={() => { setAsk(false); store.hideSlides(false); }}>Watch</button>
+      <button className="ghost" onClick={() => setAsk(false)}>Not now</button>
     </div>
   );
 }

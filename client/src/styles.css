@@ -575,3 +575,14 @@ button:focus-visible, summary:focus-visible, input[type="range"]:focus-visible {
 .reading-body iframe { width: 100%; height: 100%; border: 0; background: #fff; }
 .reading-fallback { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; text-align: center; background: rgba(33, 22, 26, 0.96); color: var(--text); padding: 16px; }
 .reading-hint { margin: 0; color: var(--muted); font-size: 12px; }
+/* A viewer's slides: a centered modal over the floor. */
+.watch-ask { border-color: #ff2d95 !important; }
+.watch-backdrop { z-index: 9; display: grid; place-items: center; }
+.watch-modal { width: min(70vw, calc(100% - 24px)); max-height: 80vh; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; gap: 6px;
+  background: #1a0f2e; border: 3px solid #ff2d95; border-radius: 8px; padding: 8px; box-shadow: 0 10px 40px rgba(0,0,0,.6); }
+.watch-head, .watch-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 13px; color: #fff; }
+.watch-head span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.watch-foot { justify-content: flex-end; }
+.watch-slide { min-height: 0; display: grid; place-items: center; background: #000; }
+.watch-slide img { max-width: 100%; max-height: calc(80vh - 80px); object-fit: contain; display: block; }
+@media (max-width: 700px) { .watch-modal { width: calc(100% - 16px); } }
