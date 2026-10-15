@@ -52,6 +52,7 @@ button.netbird small { font-weight: 500; font-size: 11px; opacity: .75; }
 .vbtn { width: 34px; height: 30px; padding: 0; display: grid; place-items: center; background: var(--panel2); color: var(--text); line-height: 1; }
 .vbtn svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .vbtn svg .slash { stroke-width: 2.2; }
+.vbtn svg .cog { fill: currentColor; stroke: none; }
 .vbtn small { display: none; }
 .vbtn.live { background: var(--accent2); color: #1c2a1c; }
 .vbtn.off { color: var(--muted); }

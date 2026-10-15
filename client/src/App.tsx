@@ -1215,15 +1215,22 @@ function StatusChip({ store }: { store: Store }) {
   </div>;
 }
 
+/** A toothed cog (Material "settings" outline), filled; the sun-like line gear read as a brightness control. */
+const COG = 'M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.488.488 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 0 0-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z';
+
 /** One line-art icon set for the voice buttons, same stroke style as the hanger buttons. `off` draws the same icon crossed out. */
 function VIcon({ name, off }: { name: 'mic' | 'speaker' | 'hand' | 'gear' | 'swap'; off?: boolean }) {
   const d = {
     mic: 'M12 3a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V6a3 3 0 0 1 3-3ZM6 11a6 6 0 0 0 12 0M12 17v4M9 21h6',
     speaker: 'M4 10v4h3l5 4V6L7 10H4ZM15.5 9.5a3.5 3.5 0 0 1 0 5M18 7a7 7 0 0 1 0 10',
     hand: 'M8 12V5.5a1.5 1.5 0 0 1 3 0V11M11 5a1.5 1.5 0 0 1 3 0v6M14 6.5a1.5 1.5 0 0 1 3 0V12M8 12l-2-2.5a1.5 1.5 0 0 0-2.4 1.8L7 17.5c1.2 2 3 3.5 6 3.5 3.3 0 5.5-2.2 5.5-5.5V12',
-    gear: 'M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7ZM12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1',
+    gear: '',
     swap: 'M4 7h11l-3-3M20 17H9l3 3',
   }[name];
+  if (name === 'gear') return <svg viewBox="0 0 24 24" aria-hidden="true"> {/* sound settings: a speaker with a cog in the corner */}
+    <path d="M2.5 8.5v5h3l4.5 3.5V5L5.5 8.5h-3ZM13.5 8.5a3 3 0 0 1 0 5" />
+    <path className="cog" d={COG} transform="translate(12.5 12.5) scale(0.48)" />
+  </svg>;
   return <svg viewBox="0 0 24 24" aria-hidden="true"><path d={d} />{off && <path className="slash" d="M4 4l16 16" />}</svg>;
 }
 
