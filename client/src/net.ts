@@ -1,7 +1,7 @@
 // WebSocket client + the client-side mirror of server state.
 import mapJson from '../../shared/tilemap.json';
 import { besideObject, pathTo, roomAt, sampleMove, type Dir, type Tile, type TileMap } from '../../shared/map';
-import { ROOM_VOICE_MAX, type AgendaItem, type CalEvent, type MeetingRoomInfo, type ChatMsg, type ObjectState, type ClientMsg, type PublicUser, type Reaction, type RtcSignal, type ServerMsg } from '../../shared/protocol';
+import { ROOM_VOICE_MAX, type JukeboxState, type JukeboxAction, type AgendaItem, type CalEvent, type MeetingRoomInfo, type ChatMsg, type ObjectState, type ClientMsg, type PublicUser, type Reaction, type RtcSignal, type ServerMsg } from '../../shared/protocol';
 import { playHand, playKnock, playPop } from './sounds';
 import type { Soundscape } from './soundscape';
 
@@ -57,6 +57,9 @@ export class Store {
   build: string | undefined;  // the server's client build when this page loaded
   staleBuild = false;         // server now serves a newer build; reload when not in a call
   objects: Record<string, ObjectState> = {};
+  jukebox: Record<string, JukeboxState> = {};
+  jukeboxOpen: string | null = null;
+  private jukeboxReady = false;
   chats = new Map<string, ChatMsg[]>(); // by the other person's id
   unread = new Map<string, number>();
   chatWith: string | null = null;       // open conversation
@@ -85,12 +88,12 @@ export class Store {
     ws.onopen = () => { this.connected = true; this.emit(); };
     ws.onmessage = (e) => this.onMessage(JSON.parse(e.data));
     ws.onclose = (e) => {
-      this.connected = false; this.voiceOwner = false; this.emit();
+      this.connected = false; this.voiceOwner = false; this.jukebox = {}; this.jukeboxReady = false; this.emit();
       if (e.code === 4001) return this.onUnauthorized();
       if (!this.closed) setTimeout(() => this.connect(), 1500);
     };
   }
-  close() { this.closed = true; this.connected = false; this.voiceOwner = false; this.emit(); this.ws?.close(); }
+  close() { this.closed = true; this.connected = false; this.voiceOwner = false; this.jukebox = {}; this.jukeboxReady = false; this.emit(); this.ws?.close(); }
   send(msg: ClientMsg) { if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(msg)); }
 
   // ---------- actions ----------
@@ -145,6 +148,30 @@ export class Store {
   }
   closeCalendar() { this.calendarOpen = false; this.emit(); }
   openMeetings() { this.meetingsOpen = true; this.emit(); }
+  openJukebox(id: string) { this.jukeboxOpen = id; this.emit(); }
+  closeJukebox() { this.jukeboxOpen = null; this.emit(); }
+  jukeboxAction(id: string, action: JukeboxAction) {
+    if (this.connected && this.jukebox[id]) this.send({ t: 'jukebox', objectId: id, ...action });
+  }
+  jukeboxRoom(id: string) {
+    const o = MAP.objects.find(o => o.id === id && o.use?.kind === 'jukebox');
+    return o ? roomAt(MAP, o.x, o.y) : undefined;
+  }
+  inJukeboxRoom(id: string) {
+    const me = this.users.get(this.me), room = this.jukeboxRoom(id);
+    return !!me && !me.instance && !!room && this.roomOf(me)?.id === room.id;
+  }
+  walkToJukebox(id: string) {
+    const o = MAP.objects.find(o => o.id === id && o.use?.kind === 'jukebox'), me = this.users.get(this.me);
+    if (!o || !me || me.instance || !this.connected) return;
+    const pose = this.pose(me), taken = new Set([...this.users.values()]
+      .filter(u => u.id !== me.id && u.presence !== 'offline' && !u.instance)
+      .flatMap(u => [u.tile, this.pose(u).tile].map(t => `${t.x},${t.y}`)));
+    const tiles = besideObject(MAP, o).filter(t => !taken.has(`${t.x},${t.y}`));
+    tiles.sort((a, b) => Math.hypot(a.x - pose.x, a.y - pose.y) - Math.hypot(b.x - pose.x, b.y - pose.y));
+    const to = tiles.find(t => pathTo(MAP, pose.tile, t).length);
+    if (to) this.moveTo({ x: to.x, y: to.y });
+  }
   closeMeetings() { this.meetingsOpen = false; this.emit(); }
   goToMeeting(key: string) {
     this.send({ t: 'meeting_go', key });
@@ -262,6 +289,7 @@ export class Store {
         }
         this.users = next;
         this.objects = msg.objects ?? {};
+        this.jukebox = msg.jukebox; this.jukeboxReady = true;
         this.soundscape?.resetAdmitted();
         break;
       }
@@ -276,6 +304,7 @@ export class Store {
         }
         break;
       }
+      case 'jukebox': if (this.jukeboxReady) this.jukebox = { ...this.jukebox, [msg.id]: msg.state }; break;
       case 'object': this.objects = { ...this.objects, [msg.id]: { on: msg.on } }; break;
       case 'react':
         this.reactions.push({ fromId: msg.fromId, toId: msg.toId, emoji: msg.emoji, at: performance.now() });

@@ -1,13 +1,20 @@
 import { field, hallLevel, hallVoiceGain, reverbImpulse, soundModel } from '../../shared/acoustics';
 import { roomAt, type Room, type Tile } from '../../shared/map';
-import { audio, categoryOutput, subscribeAudio } from './audio';
+import { audio, categoryOutput, forgetMedia, playMedia, rms, subscribeAudio } from './audio';
+import { TRACK, trackUrl } from '../../shared/music';
 import { MAP, type Store } from './net';
 import { prefs, subscribePrefs, volumeFor, type Category } from './prefs';
 import { playJoin, playLeave } from './sounds';
 
 type Level = { id: string; gain: number; pan: number; cutoff: number; send: number };
 type Clip = { buffer: AudioBuffer };
+type Jukebox = {
+  el: HTMLAudioElement; loadedUrl: string | null; playId: string | null; gen: number;
+  heardAt: number; heard: boolean; checkAt: number; pending: boolean; blocked: boolean; error: boolean; errorAt: number;
+  metadata?: () => void; analyser?: AnalyserNode;
+};
 interface Source {
+  kind: 'voice' | 'clip' | 'jukebox'; jukebox?: Jukebox;
   input: AudioNode; low: BiquadFilterNode; dry: GainNode; pan: StereoPannerNode; send: GainNode;
   bus: ConvolverNode | null; category: 'voice' | 'music'; clipGain: number; tile?: Tile; clip?: Clip; loop?: AudioBufferSourceNode;
   level: Level;
@@ -30,6 +37,8 @@ export class Soundscape {
   private timer: number;
   private unsub: () => void;
   private unsubPrefs: () => void;
+  private unsubStore: () => void;
+  private updating = false;
   private running = false;
   private offset: number;
   private dead = false;
@@ -42,41 +51,56 @@ export class Soundscape {
     this.unsub = subscribeAudio(() => {
       const running = audio().state === 'running';
       if (running && !this.running) this.restartLoops();
-      this.running = running; store.changed();
+      this.running = running;
+      for (const s of this.sources.values()) if (s.kind === 'jukebox') {
+        const j = s.jukebox!; j.checkAt = -Infinity;
+        if (j.blocked && !j.el.paused) { j.blocked = false; j.playId = null; }
+      }
+      this.update(); store.changed();
     });
     this.unsubPrefs = subscribePrefs(() => { this.update(); store.changed(); });
+    this.unsubStore = store.subscribe(() => this.update());
     this.running = audio().state === 'running';
     this.timer = window.setInterval(() => this.update(), 100);
     this.update();
     if (import.meta.env?.DEV) Object.assign(window, { __soundscape: this });
   }
 
+  jukebox() {
+    return [...this.sources.values()].filter(s => s.kind === 'jukebox').map(s => {
+      const id = s.level.id.slice(4), desired = this.store.jukebox[id], j = s.jukebox!;
+      return { id, track: desired?.track ?? null, playId: desired?.playId ?? null,
+        active: j.loadedUrl !== null, paused: j.el.paused, currentTime: j.el.currentTime,
+        expected: this.expected(id), src: j.el.getAttribute('src'), rms: j.analyser ? rms(j.analyser) : 0 };
+    });
+  }
   levels(): Level[] { return [...this.sources.values()].map(s => ({ ...s.level })); }
   addVoice(id: string, stream: MediaStream) {
     this.remove(id);
-    this.add(id, audio().createMediaStreamSource(stream), 1);
+    this.add(id, 'voice', audio().createMediaStreamSource(stream), 1);
     this.update();
   }
   remove(id: string) {
     const s = this.sources.get(id); if (!s) return;
     s.loop?.stop(); s.loop?.disconnect();
+    if (s.kind === 'jukebox') { this.stopJukebox(s.jukebox!, true); s.jukebox!.analyser?.disconnect(); }
     s.input.disconnect(); s.low.disconnect(); s.dry.disconnect(); s.pan.disconnect(); s.send.disconnect();
     this.sources.delete(id);
   }
   destroy() {
-    this.dead = true; clearInterval(this.timer); this.unsub(); this.unsubPrefs();
+    this.dead = true; clearInterval(this.timer); this.unsub(); this.unsubPrefs(); this.unsubStore();
     for (const id of [...this.sources.keys()]) this.remove(id);
     for (const b of this.buses.values()) b.disconnect();
     this.buses.clear();
     if (this.store.soundscape === this) this.store.soundscape = undefined;
   }
 
-  private add(id: string, input: AudioNode, clipGain: number, tile?: Tile) {
+  private add(id: string, kind: Source['kind'], input: AudioNode, clipGain: number, tile?: Tile) {
     const c = audio(), low = c.createBiquadFilter(), dry = c.createGain(), pan = c.createStereoPanner(), send = c.createGain();
     low.type = 'lowpass'; low.frequency.value = 20000; dry.gain.value = 0; send.gain.value = 0;
     const category = tile ? 'music' : 'voice';
     input.connect(low); low.connect(dry).connect(pan).connect(categoryOutput(category)); low.connect(send);
-    const s: Source = { input, low, dry, pan, send, bus: null, category, clipGain, tile,
+    const s: Source = { kind, input, low, dry, pan, send, bus: null, category, clipGain, tile,
       level: { id, gain: 0, pan: 0, cutoff: 20000, send: 0 } };
     this.sources.set(id, s); return s;
   }
@@ -97,39 +121,106 @@ export class Soundscape {
     const duration = loop.buffer.duration;
     loop.start(0, ((this.store.now() / 1000) % duration + duration) % duration); s.loop = loop;
   }
-  private restartLoops() { for (const s of this.sources.values()) if (s.clip) this.startLoop(s); }
+  private restartLoops() { for (const s of this.sources.values()) if (s.kind === 'clip') this.startLoop(s); }
+  private expected(id: string) {
+    const desired = this.store.jukebox[id], track = desired && TRACK.get(desired.track);
+    return desired && track ? Math.max(0, Math.min(track.duration, desired.pausedAt ?? this.store.now() - desired.startedAt)) / 1000 : 0;
+  }
+  private stopJukebox(j: Jukebox, unload: boolean) {
+    if (!j.el.paused || j.pending || j.blocked || j.metadata || (unload && j.loadedUrl !== null)) j.gen++;
+    if (j.metadata) { j.el.removeEventListener('loadedmetadata', j.metadata); j.metadata = undefined; }
+    j.el.pause(); forgetMedia(j.el); j.pending = false; j.blocked = false; j.playId = null;
+    if (unload && j.loadedUrl !== null) {
+      j.el.removeAttribute('src'); j.el.load(); j.loadedUrl = null; j.error = false;
+    }
+  }
+  private reconcile(s: Source, now: number) {
+    const j = s.jukebox!, id = s.level.id.slice(4), desired = this.store.connected ? this.store.jukebox[id] : undefined;
+    const track = desired && TRACK.get(desired.track), recent = now - j.heardAt < 3000;
+    if (!desired || desired.pausedAt !== null || !recent || !track) {
+      this.stopJukebox(j, !desired || !recent || !track); return;
+    }
+    if (this.expected(id) >= track.duration / 1000) { this.stopJukebox(j, false); return; }
+    const url = trackUrl(track);
+    if (j.error && now - j.errorAt > 5000) this.stopJukebox(j, true); // a failed load or play: start over
+    if (j.loadedUrl !== url) {
+      this.stopJukebox(j, true);
+      const gen = ++j.gen;
+      j.metadata = () => {
+        if (this.dead || gen !== j.gen) return;
+        j.metadata = undefined; this.update();
+      };
+      j.el.addEventListener('loadedmetadata', j.metadata, { once: true });
+      j.loadedUrl = url; j.error = false; j.el.src = url;
+      return;
+    }
+    if (j.el.readyState < HTMLMediaElement.HAVE_METADATA || j.pending || j.error) return;
+    if (j.el.paused || j.playId !== desired.playId) {
+      if (j.blocked) return;
+      j.el.currentTime = this.expected(id); j.playId = desired.playId; j.checkAt = now;
+      const gen = j.gen; j.pending = true;
+      void playMedia(j.el, () => !this.dead && gen === j.gen).then(result => {
+        if (this.dead || gen !== j.gen) return;
+        j.pending = false; j.blocked = result === 'blocked'; j.error = result === 'error'; j.errorAt = performance.now();
+        this.update();
+      });
+    } else if (now - j.checkAt >= 2000) {
+      j.checkAt = now;
+      if (!j.el.seeking && j.el.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA && Math.abs(j.el.currentTime - this.expected(id)) > .3)
+        j.el.currentTime = this.expected(id);
+    }
+  }
   private emitters() {
+    for (const o of MAP.objects) if (o.use?.kind === 'jukebox' && !this.sources.has(`obj:${o.id}`)) {
+      const el = new Audio(); el.preload = 'auto';
+      const s = this.add(`obj:${o.id}`, 'jukebox', audio().createMediaElementSource(el), o.sound?.gain ?? 1, { x: o.x, y: o.y });
+      const j: Jukebox = { el, loadedUrl: null, playId: null, gen: 0, heardAt: -Infinity, heard: false,
+        checkAt: -Infinity, pending: false, blocked: false, error: false, errorAt: 0 };
+      el.addEventListener('error', () => { if (j.loadedUrl && el.getAttribute('src') === j.loadedUrl) { j.error = true; j.errorAt = performance.now(); } });
+      if (import.meta.env.DEV) { j.analyser = audio().createAnalyser(); j.analyser.fftSize = 2048; s.low.connect(j.analyser); }
+      s.jukebox = j;
+    }
     const wanted = new Map<string, { clip: string; gain: number; tile?: Tile }>();
-    for (const o of MAP.objects) if (o.sound) wanted.set(`obj:${o.id}`, { ...o.sound, tile: { x: o.x, y: o.y } });
-    for (const [id, s] of this.sources) if (s.clip && !wanted.has(id)) this.remove(id);
+    for (const o of MAP.objects) if (o.sound?.clip) wanted.set(`obj:${o.id}`, { clip: o.sound.clip, gain: o.sound.gain, tile: { x: o.x, y: o.y } });
+    for (const [id, s] of this.sources) if (s.kind === 'clip' && !wanted.has(id)) this.remove(id);
     for (const [id, e] of wanted) {
       if (this.sources.has(id) || this.loading.has(id)) continue;
       this.loading.add(id);
       void loadClip(e.clip).then(clip => {
         this.loading.delete(id);
         if (this.dead) return;
-        const s = this.add(id, audio().createGain(), e.gain, e.tile); s.clip = clip;
+        const s = this.add(id, 'clip', audio().createGain(), e.gain, e.tile); s.clip = clip;
         this.startLoop(s); this.update();
       }).catch(err => console.warn('soundscape clip', err));
     }
   }
   private update() {
-    if (this.dead) return;
+    if (this.dead || this.updating) return;
+    this.updating = true;
+    try {
     this.emitters();
-    if (Math.abs(this.offset - this.store.offset) > 250) { this.offset = this.store.offset; this.restartLoops(); }
+    if (this.offset !== this.store.offset) {
+      if (Math.abs(this.offset - this.store.offset) > 250) this.restartLoops();
+      this.offset = this.store.offset;
+      for (const s of this.sources.values()) if (s.kind === 'jukebox') s.jukebox!.checkAt = -Infinity;
+    }
     const me = this.store.users.get(this.store.me);
-    if (!me) return;
+    if (!me) {
+      for (const s of this.sources.values()) if (s.kind === 'jukebox') this.stopJukebox(s.jukebox!, true);
+      if (this.audible) { this.audible = false; this.store.changed(); }
+      return;
+    }
     const pose = this.store.pose(me), distances = field(MAP, pose.tile), room = this.store.roomCallOf(me), c = audio();
     let audible = false;
     for (const [id, s] of this.sources) {
       const u = this.store.users.get(id), p = s.tile ? { ...s.tile, tile: s.tile } : u ? this.store.pose(u) : null;
       if (!p) continue;
-      const hall = !s.clip && room && u?.callId === me.callId ? room : undefined;
+      const hall = s.kind === 'voice' && room && u?.callId === me.callId ? room : undefined;
       const model = soundModel(MAP, distances, pose, p, { room: hall, sourceMember: !!hall,
-        knock: !s.clip && !!me.callId && !room && u?.callId === me.callId });
+        knock: s.kind === 'voice' && !!me.callId && !room && u?.callId === me.callId });
       const zone = hall ? hallLevel(MAP, hall, pose.tile) * hallLevel(MAP, hall, p.tile) : 1;
       const gain = hall ? hallVoiceGain(MAP, hall, pose, p) : model.gain;
-      const v = s.clipGain * (s.clip ? 1 : volumeFor(id)), mix = prefs.mix[s.category];
+      const v = s.clipGain * (s.kind === 'voice' ? volumeFor(id) : 1), mix = prefs.mix[s.category];
       s.level = { id, gain: gain * v * mix, pan: model.pan, cutoff: model.cutoff, send: model.send * zone * v * mix };
       const bus = this.bus(s.category, roomAt(MAP, p.tile.x, p.tile.y));
       if (s.bus !== bus) { s.send.disconnect(); s.send.connect(bus); s.bus = bus; }
@@ -137,10 +228,17 @@ export class Soundscape {
       s.send.gain.setTargetAtTime(model.send * zone * v, c.currentTime, .08);
       s.pan.pan.setTargetAtTime(model.pan, c.currentTime, .08);
       s.low.frequency.setTargetAtTime(model.cutoff, c.currentTime, .08);
-      if (gain > 0) audible = true;
+      if (s.kind === 'jukebox') {
+        const j = s.jukebox!, desired = this.store.jukebox[id.slice(4)], track = desired && TRACK.get(desired.track);
+        j.heard = gain > 0 && !me.instance;
+        if (j.heard) j.heardAt = performance.now();
+        this.reconcile(s, performance.now());
+        if (j.heard && this.store.connected && desired?.pausedAt === null && track && this.expected(id.slice(4)) < track.duration / 1000) audible = true;
+      } else if (gain > 0) audible = true;
     }
     if (this.audible !== audible) { this.audible = audible; this.store.changed(); }
     this.crossings();
+    } finally { this.updating = false; }
   }
 
   resetAdmitted() {

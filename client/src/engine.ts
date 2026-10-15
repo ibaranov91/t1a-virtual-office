@@ -3,6 +3,7 @@
 import { isWalkable, roomAt, seatAt, type MapObject } from '../../shared/map';
 import type { Assets, Frame } from './assets';
 import { drawText, textWidth } from './font';
+import { TRACK } from '../../shared/music';
 import { MEETING_ROOM_ID } from '../../shared/protocol';
 import { ITEMS, MAP, type ClientUser, type Pose, type Store } from './net';
 
@@ -385,7 +386,7 @@ export class Engine {
     const inside = this.myInstance();
     const obj = inside ? null : this.objectAt(w.x, w.y);
     if (obj?.sit) { this.onPick?.(null); this.manualCam = false; return this.store.moveTo(this.freeSeat(obj, Math.floor(w.x / TS))); }
-    if (obj?.sound) return this.onPick?.(null);
+    if (obj?.sound && obj.use?.kind !== 'jukebox') return this.onPick?.(null);
     if (obj) return this.onPick?.({ kind: 'object', id: obj.id });
     this.onPick?.(null);
     const tx = Math.floor(w.x / TS), ty = Math.floor(w.y / TS);
@@ -473,10 +474,10 @@ export class Engine {
       if (o && !(coffeeBusy && o.steam)) this.drawSteam(o, ms);
     }
 
-    for (const o of MAP.objects.filter(o => o.sound)) for (let i = 0; i < 3; i++) {
+    for (const o of MAP.objects.filter(o => o.use?.kind === 'jukebox' ? this.store.connected && this.store.jukebox[o.id]?.pausedAt === null : o.sound?.clip)) for (let i = 0; i < 3; i++) {
       const phase = (ms / 2200 + i / 3) % 1;
       ctx.globalAlpha = 1 - phase;
-      this.blit(ctx, i % 2 ? 'note_1' : 'note_2', o.x * TS + 5 + Math.round(Math.sin(phase * 6 + i) * 4), o.y * TS - Math.round(phase * 18));
+      this.blit(ctx, i % 2 ? 'note_1' : 'note_2', (o.x + o.w / 2) * TS - 4 + Math.round(Math.sin(phase * 6 + i) * 4), o.y * TS - Math.round(phase * 18));
     }
     ctx.globalAlpha = 1;
 
@@ -511,7 +512,8 @@ export class Engine {
     else if (this.hoverUser) this.drawTooltip(this.hoverUser, poses, camX, camY);
     else if (this.hoverObject && !this.selected) {
       const o = this.hoverObject, fr = this.f(o.type)!;
-      const what = o.sound ? 'Radio · music volume in ⚙' : o.use?.kind === 'toggle' ? `${o.use.label[0].toUpperCase()}${o.use.label.slice(1)} · ${this.isOn(o) ? 'on' : 'off'}`
+      const jukebox = this.store.jukebox[o.id], track = jukebox && TRACK.get(jukebox.track);
+      const what = o.use?.kind === 'jukebox' ? !jukebox ? 'Jukebox · Reconnecting…' : jukebox.pausedAt !== null ? 'Jukebox · paused' : `Jukebox · ♪ ${track?.title ?? jukebox.track} — ${track?.artist ?? ''}` : o.sound ? 'Radio · music volume in ⚙' : o.use?.kind === 'toggle' ? `${o.use.label[0].toUpperCase()}${o.use.label.slice(1)} · ${this.isOn(o) ? 'on' : 'off'}`
         : o.use?.kind === 'calendar' ? 'Calendar · your week' : o.use?.kind === 'meetings' ? `Meetings · ${this.store.meetingRooms.length || 'none'} on now` : o.sit ? 'Sofa · click to sit' : o.type === 'coffee_machine' ? 'Coffee machine' : o.type === 'fridge' ? 'Fridge' : o.type;
       this.drawLabel(what, (o.x + o.w / 2) * TS, (o.y + o.h) * TS - fr.h + 4, camX, camY);
     }

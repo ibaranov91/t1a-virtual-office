@@ -50,10 +50,10 @@ const rooms = [
     floor: 'wood', rug: 'blue', homeDesks: true,
     rules: { knock: 'allow', label: 'say hi' },
     meeting: { provider: 'meet', url: 'https://meet.google.com/new' } },
-  // music room at the east end, full height: the radio plays here so the rest of the office stays quiet
+  // music room at the east end, full height: the jukebox plays here so the rest of the office stays quiet
   { id: 'music', name: 'Music', type: 'music', rect: { x: 54, y: 3, w: 10, h: 20 }, capacity: 12,
     floor: 'wood_dark', rug: 'orange',
-    rules: { knock: 'allow', label: 'radio on' },
+    rules: { knock: 'allow', label: 'jukebox — walk in to pick music' },
     meeting: { provider: 'meet', url: 'https://meet.google.com/new' } },
 ];
 
@@ -189,9 +189,10 @@ obj('lamp', 1, 14, 1, 1, LAMP);
 obj('lamp', 27, 10, 1, 1, LAMP);
 obj('lamp', 14, 10, 1, 1, LAMP);
 
-obj('radio', 58, 4, 1, 1, { sound: { clip: 'radio', gain: 0.8 } }); // on the music room's back wall
+// on the west wall beside the dance floor: fills the room and leaks faintly out of the Desks door
+obj('jukebox', 54, 7, 2, 2, { sound: { gain: 0.8 }, use: { kind: 'jukebox', label: 'jukebox' } });
 
-// wall calendars: click to see your own Google Calendar (after the radio, same reason)
+// wall calendars: click to see your own Google Calendar (after the jukebox, same reason)
 const CALENDAR = { wall: true, use: { kind: 'calendar', label: 'calendar' } };
 obj('calendar', 34, 1, 1, 1, CALENDAR); // Coffee, between the windows
 obj('calendar', 22, 12, 1, 1, CALENDAR); // Co-working

@@ -8,3 +8,4 @@ macos/.build/
 macos/build/
 macos/dist/
 .env
+.music-src/

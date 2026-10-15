@@ -4,6 +4,7 @@ let ctx: AudioContext | null = null;
 let master: GainNode | null = null;
 let deafened = prefs.deafened;
 const categories = new Map<Category, GainNode>();
+const attempts = new WeakMap<HTMLAudioElement, object>();
 const failed = new Set<HTMLAudioElement>();
 const listeners = new Set<() => void>();
 const changed = () => { for (const l of listeners) l(); };
@@ -19,6 +20,10 @@ export function output() {
   if (!master) {
     master = audio().createGain(); master.gain.value = deafened ? 0 : 1;
     master.connect(audio().destination);
+    if (import.meta.env.DEV) {
+      const analyser = audio().createAnalyser(); analyser.fftSize = 2048; master.connect(analyser);
+      Object.assign(window, { __audioRms: () => rms(analyser) });
+    }
   }
   return master;
 }
@@ -39,15 +44,36 @@ export function setAudioDeafened(on: boolean) {
 }
 export const needsGesture = () => audio().state !== 'running' || failed.size > 0;
 export const subscribeAudio = (fn: () => void) => { listeners.add(fn); return () => { listeners.delete(fn); }; };
-export async function playMedia(el: HTMLAudioElement) {
-  try { await el.play(); failed.delete(el); }
-  catch { if (el.srcObject) failed.add(el); }
-  changed();
+export function rms(analyser: AnalyserNode) {
+  const samples = new Float32Array(analyser.fftSize); analyser.getFloatTimeDomainData(samples);
+  return Math.sqrt(samples.reduce((sum, x) => sum + x * x, 0) / samples.length);
 }
-export function forgetMedia(el: HTMLAudioElement) { if (failed.delete(el)) queueMicrotask(changed); }
+export async function playMedia(el: HTMLAudioElement, current = () => true): Promise<'playing' | 'blocked' | 'error' | 'aborted'> {
+  const attempt = {}; attempts.set(el, attempt);
+  const valid = () => attempts.get(el) === attempt && current();
+  let result: 'playing' | 'blocked' | 'error' | 'aborted' = 'playing';
+  try { await el.play(); if (valid()) failed.delete(el); }
+  catch (err) {
+    if (!valid()) return 'aborted';
+    if (err instanceof DOMException && err.name === 'NotAllowedError') { failed.add(el); result = 'blocked'; }
+    else {
+      failed.delete(el);
+      if (err instanceof DOMException && err.name === 'AbortError') result = 'aborted';
+      else { console.warn('audio playback', err); result = 'error'; }
+    }
+  }
+  if (!valid()) return 'aborted';
+  changed(); return result;
+}
+export function forgetMedia(el: HTMLAudioElement) {
+  attempts.delete(el);
+  if (failed.delete(el)) queueMicrotask(changed);
+}
 export async function resume() {
+  // Start retries in the gesture's synchronous stack; WebKit requires this ordering.
+  const retries = [...failed].map(el => playMedia(el));
   await audio().resume().catch(() => {});
-  await Promise.all([...failed].map(playMedia));
+  await Promise.all(retries);
   changed();
 }
 if (typeof window !== 'undefined') {

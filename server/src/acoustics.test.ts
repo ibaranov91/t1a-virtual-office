@@ -94,19 +94,20 @@ test('stereo reverb is deterministic with floor-dependent lengths and decaying t
     assert.ok(energy(a[0].slice(0, 1000)) > energy(a[0].slice(-1000)) * 100);
   }
 });
-test('the radio plays in the music room and nowhere else; knock calls stay flat', () => {
-  const radio = map.objects.find(o => o.type === 'radio')!, music = map.rooms.find(r => r.id === 'music')!;
-  const src = pose(radio.x, radio.y), inRoom = (x: number, y: number) => roomAt(map, x, y)?.id === 'music';
-  assert.ok(inRoom(radio.x, radio.y));
-  assert.ok(model(pose(music.rect.x + 1, music.rect.y + music.rect.h - 2), src).gain >= ROOM_FILL - 1e-9); // fills its room
-  assert.equal(model(pose(map.spawn.x, map.spawn.y), src).gain, 0); // the Lobby, where pages open: silent
-  assert.ok(model(pose(52, 17), src).gain < .1);                    // Desks, right at the music room door: faint
-  assert.equal(model(pose(48, 17), src).gain, 0);                   // Desks, a few steps in: silent
-  assert.deepEqual(radio.sound, { clip: 'radio', gain: .8 }); assert.equal(map.layers.walkable[radio.y][radio.x], 0);
-  const me = pose(radio.x + 1, radio.y + 1), source = pose(radio.x, radio.y);
-  const dry = model(me, source); assert.ok(dry.gain > 0);
-  assert.equal(radio.use, undefined); assert.equal(radio.on, undefined);
-  assert.deepEqual(model(me, source, { room: coffee }), dry);
+test('jukebox fills Music, leaks through its door, is silent in Lobby; knock calls stay flat', () => {
+  const jukebox = map.objects.find(o => o.use?.kind === 'jukebox')!, music = map.rooms.find(r => r.id === 'music')!;
+  const src = pose(jukebox.x, jukebox.y);
+  assert.equal(roomAt(map, jukebox.x, jukebox.y)?.id, 'music');
+  for (const room of [music, map.rooms.find(r => r.id === 'lobby')!])
+    for (let y = room.rect.y; y < room.rect.y + room.rect.h; y++) for (let x = room.rect.x; x < room.rect.x + room.rect.w; x++) {
+      const gain = model(pose(x, y), src).gain;
+      if (room === music) assert.ok(gain >= .4 - 1e-9, `${x},${y}: ${gain}`);
+      else assert.equal(gain, 0);
+    }
+  for (const x of [53, 52]) assert.ok(model(pose(x, 17), src).gain > 0);
+  assert.equal(model(pose(48, 17), src).gain, 0);
+  assert.deepEqual(jukebox.sound, { gain: .8 }); assert.equal(map.layers.walkable[jukebox.y][jukebox.x], 0);
+  assert.equal(music.rules.voice, undefined);
   assert.deepEqual(model(pose(2, 5), pose(37, 9), { knock: true }), {
     gain: 1, cutoff: 20000, pan: 0, send: 0, apparent: { x: 37.5, y: 9.5 },
   });

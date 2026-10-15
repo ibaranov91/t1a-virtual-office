@@ -7,7 +7,8 @@ import { needsGesture, resume } from './audio';
 import { prefs, savePrefs, type Category } from './prefs';
 import { ITEMS, MAP, Store, type ClientUser } from './net';
 import { inNativeApp, syncNative } from './native';
-import { MAX_CHAT_LEN, MEET_LINK_RE, meetAs, normalizeMeetLink, REACTIONS } from '../../shared/protocol';
+import { JUKEBOX_PER_PERSON, JUKEBOX_QUEUE_MAX, type JukeboxState, MAX_CHAT_LEN, MEET_LINK_RE, meetAs, normalizeMeetLink, REACTIONS } from '../../shared/protocol';
+import { GENRES, TRACK, TRACKS } from '../../shared/music';
 import { hallLevel } from '../../shared/acoustics';
 import { seatAt } from '../../shared/map';
 
@@ -138,6 +139,7 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
     e.onPick = p => {
       // a wall calendar opens your calendar right away (nothing to walk over for)
       const use = p?.kind === 'object' ? MAP.objects.find(o => o.id === p.id)?.use : undefined;
+      if (use?.kind === 'jukebox' && p) { setPick(null); return store.openJukebox(p.id); }
       if (use?.kind === 'calendar') { setPick(null); return store.openCalendar(); }
       if (use?.kind === 'meetings') { setPick(null); return store.openMeetings(); }
       setPick(cur => (p && cur?.kind === p.kind && cur.id === p.id ? null : p)); // same target again: close
@@ -166,9 +168,11 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
           onRoom={id => { engineRef.current?.focusRoom(id); if (compact()) setShowRooms(false); }} />}
         {store.calendarOpen && <CalendarPanel store={store} />}
         {store.meetingsOpen && <MeetingsPanel store={store} />}
+        {store.jukeboxOpen && <JukeboxPanel key={store.jukeboxOpen} store={store} id={store.jukeboxOpen} />}
         {(showMeet || store.pendingKnock) && <MeetSetup key={store.pendingKnock ?? 'panel'} store={store} onClose={() => setShowMeet(false)} />}
         <div className="chips">
           <MeetingChip store={store} />
+          <NowPlayingChip store={store} />
           {me?.callId && !store.roomCallOf(me) && store.voiceOwner && <CallChip store={store} voice={voice} />}
           <DeskChip store={store} />
         </div>
@@ -255,10 +259,13 @@ function RoomList({ store, onPick, onRoom, onPerson, onClose }: {
       {[...MAP.rooms, { id: 'meetings', name: 'In meetings', rules: { label: 'calendar meetings' }, capacity: 0 } as const,
         { id: 'hall', name: 'Hallway', rules: { label: 'passing through' }, capacity: 0 } as const].map(r => {
         const ids = byRoom.get(r.id) ?? [];
+        const jukebox = MAP.objects.find(o => o.use?.kind === 'jukebox' && store.jukeboxRoom(o.id)?.id === r.id);
+        const state = jukebox && store.jukebox[jukebox.id];
+        const subtitle = state ? state.pausedAt !== null ? 'paused' : `♪ ${TRACK.get(state.track)?.title ?? state.track}` : r.rules.label;
         if ((r.id === 'hall' || r.id === 'meetings') && !ids.length) return null;
         return (
           <section key={r.id}>
-            <h3 onClick={MAP.rooms.some(m => m.id === r.id) ? () => onRoom(r.id) : undefined}>{r.name} <small>{ids.length}{r.capacity ? `/${r.capacity}` : ''} · {r.rules.label}</small></h3>
+            <h3 onClick={MAP.rooms.some(m => m.id === r.id) ? () => onRoom(r.id) : undefined}>{r.name} <small>{ids.length}{r.capacity ? `/${r.capacity}` : ''} · {subtitle}</small></h3>
             <ul>
               {ids.map(id => {
                 const u = store.users.get(id)!;
@@ -355,6 +362,98 @@ function MeetingChip({ store }: { store: Store }) {
     <span>📅 <b>{m?.title ?? 'Meeting'}</b> <small>· until {store.clock(room?.until ?? m?.end ?? 0)}{others.length ? ` · with ${store.names(others)}` : ' · waiting for the others'}</small></span>
     {m?.link && <ExternalLink href={meetAs(m.link, store.meetAccount)}>Join call</ExternalLink>}
     <button className="end" onClick={() => store.leaveMeeting()}>Leave</button>
+  </div>;
+}
+
+const musicTime = (ms: number) => { const s = Math.floor(Math.max(0, ms) / 1000); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
+const musicPosition = (store: Store, state: JukeboxState) => Math.max(0, Math.min(TRACK.get(state.track)?.duration ?? 0, state.pausedAt ?? store.now() - state.startedAt));
+
+function JukeboxControls({ store, id, state, disabled }: { store: Store; id: string; state: JukeboxState; disabled: boolean }) {
+  const paused = state.pausedAt !== null;
+  return <>
+    <button aria-label={paused ? 'Play' : 'Pause'} disabled={disabled}
+      onClick={() => store.jukeboxAction(id, { action: paused ? 'play' : 'pause', playId: state.playId })}>{paused ? '▶' : '⏸'}</button>
+    <button aria-label="Skip" disabled={disabled} onClick={() => store.jukeboxAction(id, { action: 'skip', playId: state.playId })}>⏭</button>
+  </>;
+}
+
+function NowPlayingChip({ store }: { store: Store }) {
+  const o = MAP.objects.find(o => o.use?.kind === 'jukebox' && store.inJukeboxRoom(o.id));
+  const state = o && store.jukebox[o.id], track = state && TRACK.get(state.track);
+  if (!o || !state || !track) return null;
+  const label = `♪ ${track.title} — ${track.artist} · ${musicTime(musicPosition(store, state))} / ${musicTime(track.duration)}`;
+  return <div className="desk-chip jukebox-chip" onClick={() => store.openJukebox(o.id)}>
+    <button className="ghost jukebox-chip-title" title={label} onClick={e => { e.stopPropagation(); store.openJukebox(o.id); }}>{label}</button>
+    <div className="jukebox-controls" onClick={e => e.stopPropagation()}>
+      <JukeboxControls store={store} id={o.id} state={state} disabled={!store.connected} />
+    </div>
+    <button className="ghost" onClick={e => { e.stopPropagation(); store.openJukebox(o.id); }}>Queue · {state.queue.length}</button>
+  </div>;
+}
+
+function JukeboxPanel({ store, id }: { store: Store; id: string }) {
+  const panel = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const previous = document.activeElement as HTMLElement | null;
+    panel.current?.focus();
+    return () => previous?.focus();
+  }, []);
+  const state = store.jukebox[id], track = state && TRACK.get(state.track), room = store.jukeboxRoom(id);
+  const known = store.connected && !!state, inside = store.inJukeboxRoom(id), disabled = !known || !inside;
+  const position = state ? musicPosition(store, state) : 0;
+  const mine = state?.queue.filter(e => e.by === store.me).length ?? 0;
+  const last = state?.last && store.now() - state.last.at < 10_000 ? state.last : null;
+  const close = () => store.closeJukebox();
+  const onKey = (e: React.KeyboardEvent) => {
+    if (e.key === 'Escape') { e.stopPropagation(); close(); }
+    if (e.key !== 'Tab') return;
+    const controls = [...(panel.current?.querySelectorAll<HTMLElement>('button:not(:disabled), a[href]') ?? [])];
+    const first = controls[0], end = controls[controls.length - 1];
+    if (e.shiftKey && (document.activeElement === first || document.activeElement === panel.current)) { e.preventDefault(); end?.focus(); }
+    else if (!e.shiftKey && document.activeElement === end) { e.preventDefault(); first?.focus(); }
+  };
+  return <div className="modal-backdrop" onClick={e => { if (e.target === e.currentTarget) close(); }}>
+    <div ref={panel} tabIndex={-1} role="dialog" aria-modal="true" aria-label="Jukebox" onKeyDown={onKey} className="meet-panel guided calendar-panel jukebox-panel">
+      <div className="rooms-head"><span>🎵 Jukebox</span><button className="ghost" aria-label="Close jukebox" onClick={close}>×</button></div>
+      {!known && <p role="status">Reconnecting…</p>}
+      {!inside && <div className="jukebox-walk"><span>Walk into {room?.name ?? 'the room'} to pick music</span><button disabled={!known} onClick={() => store.walkToJukebox(id)}>Walk over</button></div>}
+      <section>
+        <h3>Now playing</h3>
+        {state && track && <>
+          <b>{track.title}</b><p className="small">{track.artist} · {track.genre}</p>
+          <progress className="jukebox-progress" aria-label="Track progress" max={track.duration} value={position} />
+          <div className="jukebox-times"><span>{musicTime(position)}</span><span>{musicTime(track.duration)}</span></div>
+          <p className="small">{state.by ? `picked by ${store.name(state.by)}` : 'shuffle'}</p>
+          {last && <p className="small" role="status">{{ pause: 'Paused', play: 'Resumed', skip: 'Skipped' }[last.kind]} by {store.name(last.by)}</p>}
+          <div className="jukebox-controls"><JukeboxControls store={store} id={id} state={state} disabled={disabled} /></div>
+        </>}
+      </section>
+      <section>
+        <h3>Up next</h3>
+        {!state?.queue.length && <p className="small">Nothing queued — shuffling the library</p>}
+        <ol className="jukebox-tracks">
+          {state?.queue.map(e => { const t = TRACK.get(e.track); return t && <li key={e.id}>
+            <div><b>{t.title}</b><small>{t.artist} · picked by {store.name(e.by)}</small></div>
+            {e.by === store.me && <button className="ghost" disabled={disabled} aria-label={`Remove ${t.title} from queue`} onClick={() => store.jukeboxAction(id, { action: 'unqueue', entry: e.id })}>×</button>}
+          </li>; })}
+        </ol>
+      </section>
+      <section>
+        <h3>Library</h3>
+        {GENRES.map(genre => <div className="jukebox-genre" key={genre}>
+          <h4>{genre}</h4><ul className="jukebox-tracks">
+            {TRACKS.filter(t => t.genre === genre).map(t => {
+              const reason = state?.track === t.id ? 'Playing now' : state?.queue.some(e => e.track === t.id) ? 'Already queued'
+                : mine >= JUKEBOX_PER_PERSON ? 'You have 3 tracks queued' : (state?.queue.length ?? 0) >= JUKEBOX_QUEUE_MAX ? 'The queue is full' : undefined;
+              return <li key={t.id}>
+                <div><b>{t.title}</b><small>{t.artist} · {musicTime(t.duration)} · <ExternalLink href={t.page}>CC0</ExternalLink></small></div>
+                <span title={reason}><button disabled={disabled || !!reason} title={reason} aria-label={`Queue ${t.title}`} onClick={() => store.jukeboxAction(id, { action: 'queue', track: t.id })}>+</button></span>
+              </li>;
+            })}
+          </ul>
+        </div>)}
+      </section>
+    </div>
   </div>;
 }
 
@@ -718,7 +817,7 @@ function ActionWheel({ store, engine, pick, onPerson, onClose }: { store: Store;
     }
   } else {
     const o = MAP.objects.find(o => o.id === pick.id);
-    if (!o?.use || o.use.kind === 'calendar' || o.use.kind === 'meetings') return null;
+    if (!o?.use || o.use.kind === 'calendar' || o.use.kind === 'meetings' || o.use.kind === 'jukebox') return null;
     if (o.use.kind === 'toggle') {
       const on = store.objects[o.id]?.on ?? o.on ?? true;
       title = o.use.label[0].toUpperCase() + o.use.label.slice(1);

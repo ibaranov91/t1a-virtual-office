@@ -7,6 +7,8 @@ import {
   ZONE_IN_TILES, ZONE_OUT_TILES, MAX_CALL_SIZE, MEETING_ROOM_ID, MAX_CHAT_LEN, normalizeMeetLink, REACTIONS, ROOM_VOICE_MAX,
   type ChatMsg, type ClientMsg, type Door, type Knock, type Look, type Presence, type PublicUser, type Reaction, type ServerMsg,
 } from '../../shared/protocol';
+import { TRACKS } from '../../shared/music';
+import { Jukebox } from './jukebox';
 import { Meetings } from './meetings';
 import { authUrl, CALENDAR_SCOPE, createSpace, forgetAccess, googleEnabled, listEvents, revoke, type GoogleLink } from './google';
 
@@ -65,6 +67,7 @@ export class World {
   private callTimers = new Map<string, NodeJS.Timeout>(); // per member: when they hang up
   private holdTimers = new Map<string, NodeJS.Timeout>(); // per person: when the coffee's finished
   private errands = new Map<string, NodeJS.Timeout>();    // per person: walking over to use an object
+  private jukeboxes = new Map<string, Jukebox>();
   private objectOn = new Map<string, boolean>();          // toggle objects (lamps)
   private chats = new Map<string, ChatMsg[]>();           // per pair of people, oldest first
   private lastReact = new Map<string, number>();
@@ -73,7 +76,9 @@ export class World {
   build?: string; // sent in hello so open pages reload after a deploy
   constructor(public map: TileMap) {
     for (const o of map.objects) if (o.use?.kind === 'toggle') this.objectOn.set(o.id, o.on ?? true);
-    setInterval(() => this.voiceTick(), 250).unref();
+    const now = Date.now();
+    for (const o of map.objects) if (o.use?.kind === 'jukebox') this.jukeboxes.set(o.id, new Jukebox(TRACKS, now));
+    setInterval(() => { const now = Date.now(); this.voiceTick(now); this.jukeboxTick(now); }, 250).unref();
   }
 
   // ---------- transport ----------
@@ -83,7 +88,8 @@ export class World {
   sendTo(userId: string, msg: ServerMsg) { for (const s of this.sockets.get(userId)?.values() ?? []) s(msg); }
   snapshot(): ServerMsg {
     const objects = Object.fromEntries([...this.objectOn.keys()].map(id => [id, this.objectState(id)]));
-    return { t: 'state', serverTime: Date.now(), users: [...this.users.values()].map(this.toPublic), objects };
+    return { t: 'state', serverTime: Date.now(), users: [...this.users.values()].map(this.toPublic), objects,
+      jukebox: Object.fromEntries([...this.jukeboxes].map(([id, j]) => [id, j.state])) };
   }
   private toPublic = (u: User): PublicUser => {
     const { path: _p, email: _e, meetLink: _m, google: _g, offlineAt: _o, lastSpot: _l, presenceBeforeCall: _b, prev: _v, afk: _a, returnTo: _r, ...pub } = u;
@@ -267,11 +273,15 @@ export class World {
     if (spot) this.walk(f, spot, dirBetween(spot, to), now);
   }
 
+  jukeboxTick(now = Date.now()) {
+    for (const [id, j] of this.jukeboxes) if (j.advance(now)) this.broadcast({ t: 'jukebox', id, state: j.state });
+  }
+
   // ---------- objects ----------
   /** Walk over to an object and use it: take something from it, or flip it on/off. */
   use(u: User, objectId: string, itemId?: string) {
     const o = this.map.objects.find(o => o.id === objectId);
-    if (!o?.use || o.use.kind === 'calendar' || o.use.kind === 'meetings' || goingOut(u) || u.instance) return;
+    if (!o?.use || o.use.kind === 'jukebox' || o.use.kind === 'calendar' || o.use.kind === 'meetings' || goingOut(u) || u.instance) return;
     const item = o.use.kind === 'take' ? o.use.items.find(i => i.id === itemId) ?? o.use.items[0] : null;
     this.setFollowing(u, null);
     clearTimeout(this.errands.get(u.id));
@@ -793,6 +803,25 @@ export class World {
       case 'react': { const to = this.users.get(String(msg.targetId)); if (to) this.react(u, to, String(msg.emoji)); break; }
       case 'chat': { const to = this.users.get(String(msg.toId)); if (to) this.chat(u, to, String(msg.text ?? '')); break; }
       case 'chat_history': this.chatHistory(u, String(msg.withId)); break;
+      case 'jukebox': {
+        if (typeof msg.objectId !== 'string') break;
+        switch (msg.action) {
+          case 'queue': if (typeof msg.track !== 'string') return; break;
+          case 'unqueue': if (typeof msg.entry !== 'string') return; break;
+          case 'pause': case 'play': case 'skip': if (typeof msg.playId !== 'string') return; break;
+          default: return;
+        }
+        const o = this.map.objects.find(o => o.id === msg.objectId && o.use?.kind === 'jukebox');
+        const j = o && this.jukeboxes.get(o.id); if (!o || !j) break;
+        const now = Date.now(), p = this.position(u, now).tile, room = roomAt(this.map, o.x, o.y);
+        if (u.bot || u.presence === 'offline' || goingOut(u) || u.instance || !room || roomAt(this.map, p.x, p.y)?.id !== room.id) {
+          this.sendTo(u.id, { t: 'notice', text: `Walk into ${room?.name ?? 'Music'} to pick music` }); break;
+        }
+        const result = j.act(u.id, msg, now);
+        if (result.changed) this.broadcast({ t: 'jukebox', id: o.id, state: j.state });
+        if (result.notice) this.sendTo(u.id, { t: 'notice', text: result.notice });
+        break;
+      }
       case 'use': this.use(u, String(msg.objectId), msg.item === undefined ? undefined : String(msg.item)); break;
       case 'drop': if (u.holding) this.setHolding(u, null); break;
       case 'give': { const to = this.users.get(String(msg.targetId)); if (to) this.give(u, to); break; }
@@ -807,6 +836,7 @@ export class World {
         return { id: u.id, name: u.name, email: u.email, meetLink: u.meetLink, google: u.google, homeDesk: u.homeDesk, look: u.look, tile: p, dir: u.dir, status: u.status, presence: u.presence, bot: u.bot };
       }),
       objects: Object.fromEntries(this.objectOn),
+      jukebox: Object.fromEntries([...this.jukeboxes].map(([id, j]) => [id, j.dump()])),
       chats: Object.fromEntries(this.chats),
     };
   }
@@ -816,6 +846,8 @@ export class World {
       this.users.set(d.id, { ...d, homeDesk: d.homeDesk ?? null, tile, move: null, path: null, emote: null, door: null, callId: null, deafened: false, hand: false, muted: false, following: null, holding: null, meeting: null, instance: null, presence: d.bot ? d.presence : 'offline' });
     }
     for (const [id, on] of Object.entries(data.objects ?? {})) if (this.objectOn.has(id)) this.objectOn.set(id, !!on);
+    const now = Date.now();
+    for (const [id, saved] of Object.entries(data.jukebox ?? {})) if (this.jukeboxes.has(id)) this.jukeboxes.set(id, Jukebox.load(TRACKS, saved, now));
     for (const [key, msgs] of Object.entries(data.chats ?? {})) this.chats.set(key, msgs);
   }
 }
