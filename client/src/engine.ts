@@ -3,6 +3,7 @@ import { INSTRUMENTS } from '../../shared/instruments';
 // Order: static tilemap → y-sorted furniture + sprites → nameplates & bubbles → ambient tint → UI hints.
 import { applyEdit, FIXED_TYPES, findPath, pathTo, sampleMove, pathDuration, WALK_MS_PER_TILE, isWalkable, layoutProblem, objectById, objectName, roomAt, seatAt, withLayout, type MapObject, type Rect, type Rug, type Tile } from '../../shared/map';
 import { DungeonView } from './dungeon';
+import { drawEffects, effectLook, effectSway } from './effects';
 import { roomDoors, type RoomDoor } from './doors';
 import type { Assets, Frame } from './assets';
 import { drawText, textWidth } from './font';
@@ -440,8 +441,8 @@ export class Engine {
   /** Match the server's mid-walk starting tile (the tile we're entering). */
   private routeStart(u: ClientUser) {
     const prev = u.prev && this.store.now() < (u.move?.startedAt ?? 0) ? u.prev : null;
-    return prev ? sampleMove(prev.path, prev.startedAt, this.store.now())?.next ?? u.tile
-      : u.move && u.path ? sampleMove(u.path, u.move.startedAt, this.store.now())?.next ?? u.tile : u.tile;
+    return prev ? sampleMove(prev.path, prev.startedAt, this.store.now(), prev.ms)?.next ?? u.tile
+      : u.move && u.path ? sampleMove(u.path, u.move.startedAt, this.store.now(), u.move.ms)?.next ?? u.tile : u.tile;
   }
   private canWalk(t: Tile) {
     if (this.falling() || !this.inArea(t) || !isWalkable(MAP, t.x, t.y)) return false;
@@ -470,7 +471,7 @@ export class Engine {
       else if (this.store.now() - this.stepPending.at < WALK_MS_PER_TILE * 2) return;
       else this.stepPending = null;
     }
-    if (me.move && me.path && me.move.startedAt + pathDuration(me.path) - this.store.now() > 60) return;
+    if (me.move && me.path && me.move.startedAt + pathDuration(me.path, me.move.ms) - this.store.now() > 60) return;
     const [dx, dy] = [...this.held.values()].at(-1)!, from = me.move?.to ?? me.tile;
     const to = { x: from.x + dx, y: from.y + dy };
     if (!this.inArea(to) || !isWalkable(MAP, to.x, to.y)) return;
@@ -926,7 +927,7 @@ export class Engine {
 
   private drawSprite(u: ClientUser, p: Pose, ms: number) {
     const ctx = this.ctx, c = this.assets.atlas.character;
-    const sheet = this.assets.sheet(u.look);
+    const sheet = this.assets.sheet(u.effects?.length ? effectLook(u.look, u.effects) : u.look);
     const x = Math.round(p.x * TS), baseY = Math.round(p.y * TS) + TS;
     const seat = p.walking ? null : seatAt(MAP, p.tile.x, p.tile.y);
     // shadow (a seated sprite's shadow is the chair's)
@@ -935,7 +936,7 @@ export class Engine {
       ctx.beginPath(); ctx.ellipse(x + 8, baseY - 1.5, 5.5, 2, 0, 0, Math.PI * 2); ctx.fill();
     }
     let frame = 0, bob = 0;
-    if (p.walking) frame = 1 + (Math.floor((ms / 1000) * WALK_FPS) % 4);
+    if (p.walking) frame = 1 + (Math.floor((ms / 1000) * WALK_FPS * WALK_MS_PER_TILE / (u.move?.ms ?? WALK_MS_PER_TILE)) % 4); // quicker steps when quicker
     else if (seat) { frame = SIT_FRAME; p = { ...p, dir: seat.dir }; }
     else {
       const phase = (ms + hash(u.id) * 37) % 1800;
@@ -950,11 +951,20 @@ export class Engine {
     const drawBag = () => this.blit(ctx, 'bag', x + hand.dx, baseY - 13 + swing);
     if (u.door === 'thinking') this.blit(ctx, 'bag', x + 11, baseY - 9);
     if (carrying && hand.behind) drawBag();
+    // effects: a sway for the whole figure, then layers behind and in front of the body (see effects.ts)
+    const fx = u.effects?.length ? u.effects : null, seed = hash(u.id);
+    const sway = fx ? effectSway(fx, ms, seed, p) : null;
+    if (sway && (sway.dx || sway.rot)) { ctx.save(); ctx.translate(x + 8 + sway.dx, baseY); ctx.rotate(sway.rot); ctx.translate(-x - 8, -baseY); }
+    const top = baseY - c.frameH + bob + walkBob - 1 + (seat ? 2 : 0);
+    const fxCtx = fx && { ctx, x, top, baseY, ms, seed, p, blit: (n: string, bx: number, by: number) => this.blit(ctx, n, Math.round(bx), Math.round(by)), has: (n: string) => !!this.f(n) };
+    if (fxCtx) drawEffects('back', fxCtx, fx);
     // at the door: already half out
     ctx.globalAlpha = u.door === 'leaving' && !p.walking ? 0.45 : u.presence === 'away' ? 0.8 : 1;
     ctx.drawImage(sheet, frame * c.frameW, row * c.frameH, c.frameW, c.frameH, x, baseY - c.frameH + bob + walkBob - 1, c.frameW, c.frameH);
     if (carrying && !hand.behind) drawBag();
     ctx.globalAlpha = 1;
+    if (fxCtx) drawEffects('front', fxCtx, fx);
+    if (sway && (sway.dx || sway.rot)) ctx.restore();
     const icon = u.holding && !carrying ? ITEM_ICON.get(u.holding) : undefined;
     if (icon) {
       const ih = seat ? ITEM_HAND.down : ITEM_HAND[p.dir] ?? ITEM_HAND.down;
