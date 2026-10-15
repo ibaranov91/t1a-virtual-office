@@ -142,7 +142,11 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
       if (use?.kind === 'calendar') { setPick(null); return store.openCalendar(); }
       if (use?.kind === 'meetings') { setPick(null); return store.openMeetings(); }
       if (use?.kind === 'achievements') { setPick(null); return store.openAchievements(); }
-      if (use?.kind === 'link' && openExternal(use.url)) return setPick(null); // refused (a phone's tap on the canvas): the wheel offers a real link
+      if (use?.kind === 'link') { // open it now where a click can (desktop, the Mac app); walk over either way, and a phone gets the link on arrival
+        const o = MAP.objects.find(o => o.id === p!.id)!;
+        store.goToLink(o as Parameters<typeof store.goToLink>[0], openExternal(use.url));
+        return setPick(null);
+      }
       setPick(cur => (p && cur?.kind === p.kind && cur.id === p.id ? null : p)); // same target again: close
     };
     e.onZoom = () => tick(n => n + 1);
@@ -883,7 +887,7 @@ function Toasts({ store }: { store: Store }) {
           {t.kind === 'chat' && t.userId && <button onClick={() => store.openChat(t.userId!)}>Reply</button>}
           {t.kind === 'meeting' && t.meetingKey && <button onClick={() => store.goToMeeting(t.meetingKey!)}>Go</button>}
           {t.kind === 'meeting' && t.link && <ExternalLink href={meetAs(t.link, store.meetAccount)}>Join call</ExternalLink>}
-          {t.kind === 'link' && t.link && <ExternalLink href={meetAs(t.link, store.meetAccount)} onOpen={() => store.dismiss(t.id)}>Join Meet</ExternalLink>}
+          {t.kind === 'link' && t.link && <ExternalLink href={t.linkLabel ? t.link : meetAs(t.link, store.meetAccount)} onOpen={() => store.dismiss(t.id)}>{t.linkLabel ?? 'Join Meet'}</ExternalLink>}
           {t.kind !== 'knock_in' && t.kind !== 'knock_out' && <button className="ghost x" onClick={() => store.dismiss(t.id)}>×</button>}
         </div>
       ))}
@@ -891,7 +895,7 @@ function Toasts({ store }: { store: Store }) {
   );
 }
 
-type WheelItem = { icon: string; label: string; onClick: () => void; disabled?: boolean; title?: string; active?: boolean; href?: string /* a real link: a tap on it may open a new tab where a canvas tap can't */ };
+type WheelItem = { icon: string; label: string; onClick: () => void; disabled?: boolean; title?: string; active?: boolean };
 
 /** Click a person or a thing: a ring of actions around it, following it as it moves. */
 function ActionWheel({ store, engine, pick, onPerson, onClose }: { store: Store; engine: Engine; pick: Pick; onPerson: (at: PersonMenuAt) => void; onClose: () => void }) {
@@ -940,11 +944,8 @@ function ActionWheel({ store, engine, pick, onPerson, onClose }: { store: Store;
     }
   } else {
     const o = MAP.objects.find(o => o.id === pick.id);
-    if (!o?.use || o.use.kind === 'calendar' || o.use.kind === 'meetings' || o.use.kind === 'achievements') return null;
-    if (o.use.kind === 'link') {
-      title = 'Vault 13';
-      items = [{ icon: '🔐', label: 'Open', title: `Open the ${o.use.label}`, href: o.use.url, onClick: onClose }];
-    } else if (o.use.kind === 'toggle') {
+    if (!o?.use || o.use.kind === 'calendar' || o.use.kind === 'meetings' || o.use.kind === 'achievements' || o.use.kind === 'link') return null;
+    if (o.use.kind === 'toggle') {
       const on = store.objects[o.id]?.on ?? o.on ?? true;
       title = o.use.label[0].toUpperCase() + o.use.label.slice(1);
       items = [{ icon: on ? '🌑' : '💡', label: on ? 'Turn off' : 'Turn on', onClick: act(() => store.use(o.id)) }];
@@ -965,16 +966,13 @@ function ActionWheel({ store, engine, pick, onPerson, onClose }: { store: Store;
       <div className="wheel-title" style={{ top: -R - 46 }}>{title}</div>
       {items.map((it, i) => {
         const a = start + (i * 2 * Math.PI) / items.length;
-        const className = `wheel-item${it.active ? ' active' : ''}${it.label ? '' : ' bare'}`;
-        const style = { left: Math.round(Math.cos(a) * R), top: Math.round(Math.sin(a) * R), animationDelay: `${i * 18}ms` };
-        const inner = <><span className="ic">{it.icon}</span>{it.label && <small>{it.label}</small>}</>;
-        if (it.href) return ( // the browser follows the link itself: that's a real click, so no popup blocker
-          <a key={i} className={className} href={it.href} target="_blank" rel="noopener noreferrer" title={it.title ?? it.label} style={style}
-            onClick={e => { e.stopPropagation(); it.onClick(); }}>{inner}</a>
-        );
         return (
-          <button key={i} className={className} disabled={it.disabled} title={it.title ?? it.label} style={style}
-            onClick={e => { e.stopPropagation(); it.onClick(); }}>{inner}</button>
+          <button key={i} className={`wheel-item${it.active ? ' active' : ''}${it.label ? '' : ' bare'}`} disabled={it.disabled} title={it.title ?? it.label}
+            style={{ left: Math.round(Math.cos(a) * R), top: Math.round(Math.sin(a) * R), animationDelay: `${i * 18}ms` }}
+            onClick={e => { e.stopPropagation(); it.onClick(); }}>
+            <span className="ic">{it.icon}</span>
+            {it.label && <small>{it.label}</small>}
+          </button>
         );
       })}
     </div>
