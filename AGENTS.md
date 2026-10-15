@@ -5,6 +5,17 @@ one shared floor. You walk by clicking, knock on someone to start a voice call, 
 glance. Product intent and design rules are in `REQUIREMENTS.md`; read it before adding features.
 Hackathon project: favor small, working, demo-able steps.
 
+## Start here
+1. **[docs/MAP.md](docs/MAP.md)**: generated floor plans (rooms, furniture, doorways, dungeon), the rooms table, every
+   clickable object with its tile, and free space per room. Read it instead of decoding `gen-map.mjs`.
+2. **[docs/ADDING-A-FEATURE.md](docs/ADDING-A-FEATURE.md)**: which files to touch, by grep anchor, for a new clickable
+   object (`use.kind`), intent, per-person field, effect, creature behavior, sprite, room or panel, plus the merge rules.
+3. **`npm run where -- <thing>`**: a use.kind, object type, room, object id (`o224`) or tile (`11,14`): where it is on
+   the grid and every line of code that mentions it; for a use.kind, a ✓/✗ list of the places it must be wired.
+4. How a click on each `use.kind` is routed lives in one table, `USE_KINDS` in `shared/map.ts`.
+
+`npm run gen` regenerates `shared/tilemap.json`, `docs/MAP.md` and the art; commit all three after changing a generator.
+
 ## Layout
 - `shared/`: code and data used by both sides. `map.ts` (A* pathfinding, rooms, seats), `protocol.ts`
   (every WebSocket message), `tilemap.json` (generated, don't hand-edit).
@@ -14,7 +25,8 @@ Hackathon project: favor small, working, demo-able steps.
 - `client/src/`: React only for chrome (`App.tsx`). The floor is one `<canvas>` (`engine.ts`).
   `net.ts` is the store plus the WebSocket client, `voice.ts` is WebRTC voice, `sounds.ts` is synthesized UI sounds.
 - `macos/`: the menu bar app (Swift, AppKit + WKWebView). See "macOS app" below.
-- `scripts/`: `gen-map.mjs` (writes `shared/tilemap.json`), `gen-assets.mjs` (writes `client/public/assets/*`),
+- `scripts/`: `gen-map.mjs` (writes `shared/tilemap.json`), `map-atlas.mjs` (writes `docs/MAP.md`), `where.mjs`
+  (`npm run where`), `gen-assets.mjs` (writes `client/public/assets/*`),
   `gen-music.mjs` (`npm run gen:music`, needs ffmpeg: the jukebox library from `scripts/music.json`), `deploy.sh`
   and `instances.txt`.
 - The art is procedural placeholder art. Run `npm run gen` after changing either generator, and commit the regenerated files.
