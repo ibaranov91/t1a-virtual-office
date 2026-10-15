@@ -314,6 +314,16 @@ const counterSeg = (t, y0) => {
   frames.fridge = t.outline();
 }
 {
+  const t = new Img(16, 16); // safe: a steel box with a dial, a handle and four bolts
+  t.rect(1, 1, 14, 14, '#5a5e6a'); t.rect(2, 2, 12, 12, '#6e7482'); t.hline(2, 2, 12, '#8a909e'); t.vline(2, 2, 12, '#8a909e');
+  t.rect(3, 3, 10, 10, '#4a4e5a');
+  t.ellipse(7, 8, 2, 2, '#c8ccd4'); t.px(7, 7, '#3a3e48'); // the dial
+  t.vline(11, 6, 4, '#e0c060'); t.px(11, 6, '#f0d880'); // the handle
+  for (const [x, y] of [[3, 3], [12, 3], [3, 12], [12, 12]]) t.px(x, y, '#a8aeb8');
+  t.hline(1, 15, 14, '#3a3e48');
+  frames.safe = t.outline();
+}
+{
   const t = new Img(48, 24); // sofa
   const C = '#6f9a8a', CL = '#8ab8a6', CD = '#4e7466';
   t.rect(4, 2, 40, 10, CD); t.hline(4, 2, 40, C);

@@ -143,6 +143,7 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
       if (use?.kind === 'calendar') { setPick(null); return store.openCalendar(); }
       if (use?.kind === 'meetings') { setPick(null); return store.openMeetings(); }
       if (use?.kind === 'achievements') { setPick(null); return store.openAchievements(); }
+      if (use?.kind === 'link') { setPick(null); return openExternal(use.url); }
       setPick(cur => (p && cur?.kind === p.kind && cur.id === p.id ? null : p)); // same target again: close
     };
     e.onZoom = () => tick(n => n + 1);
@@ -711,18 +712,17 @@ function MacAppButton() {
   );
 }
 
-/** Always opens in a new tab — never replaces the office (some shells ignore target=_blank). */
+/** Always opens in a new tab — never replaces the office (some shells ignore target=_blank; the Mac app hands it to the browser). */
+function openExternal(href: string) {
+  const w = window.open(href, '_blank');
+  if (w) w.opener = null;
+  else { // popup blocked: fall back to a real new-tab anchor click
+    const a = document.createElement('a');
+    a.href = href; a.target = '_blank'; a.rel = 'noopener noreferrer'; a.click();
+  }
+}
 function ExternalLink({ href, onOpen, children }: { href: string; onOpen?: () => void; children: React.ReactNode }) {
-  const open = (e: React.MouseEvent) => {
-    e.preventDefault();
-    const w = window.open(href, '_blank');
-    if (w) w.opener = null;
-    else { // popup blocked: fall back to a real new-tab anchor click
-      const a = document.createElement('a');
-      a.href = href; a.target = '_blank'; a.rel = 'noopener noreferrer'; a.click();
-    }
-    onOpen?.();
-  };
+  const open = (e: React.MouseEvent) => { e.preventDefault(); openExternal(href); onOpen?.(); };
   return <a href={href} target="_blank" rel="noopener noreferrer" onClick={open}>{children}</a>;
 }
 
@@ -930,7 +930,7 @@ function ActionWheel({ store, engine, pick, onPerson, onClose }: { store: Store;
     }
   } else {
     const o = MAP.objects.find(o => o.id === pick.id);
-    if (!o?.use || o.use.kind === 'calendar' || o.use.kind === 'meetings' || o.use.kind === 'achievements') return null;
+    if (!o?.use || o.use.kind === 'calendar' || o.use.kind === 'meetings' || o.use.kind === 'achievements' || o.use.kind === 'link') return null;
     if (o.use.kind === 'toggle') {
       const on = store.objects[o.id]?.on ?? o.on ?? true;
       title = o.use.label[0].toUpperCase() + o.use.label.slice(1);
