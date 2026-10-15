@@ -56,8 +56,7 @@ export class Store {
   meetingRooms: MeetingRoomInfo[] = [];    // meeting rooms in use (the board)
   meetingsOpen = false;
   private headsUp = new Set<string>();     // meetings I've had a heads-up for
-  build: string | undefined;  // the server's client build when this page loaded
-  staleBuild = false;         // server now serves a newer build; reload when not in a call
+  staleBuild = false;         // the server serves another build than this page: reload when not in a call
   objects: Record<string, ObjectState> = {};
   chats = new Map<string, ChatMsg[]>(); // by the other person's id
   unread = new Map<string, number>();
@@ -283,8 +282,8 @@ export class Store {
     switch (msg.t) {
       case 'hello':
         this.me = msg.you; this.offset = msg.serverTime - Date.now();
-        if (msg.build && this.build && msg.build !== this.build) this.staleBuild = true;
-        this.build ??= msg.build;
+        // compared with this bundle's own id, so a page served from a stale cache fixes itself on its first connect
+        if (msg.build && __DECK_BUILD__ !== 'dev' && msg.build !== __DECK_BUILD__) this.staleBuild = true;
         break;
       case 'call_moved':
         this.toast({ kind: 'call_moved', roomId: msg.roomId, text: `${this.name(msg.userId).split(' ')[0]} went into ${MAP.rooms.find(r => r.id === msg.roomId)?.name ?? msg.roomId}`, expires: 15000 });
@@ -456,6 +455,9 @@ export class Store {
     // (The People list follows walkers on its own 1 s tick.)
     if (SCENE_ONLY.has(msg.t)) this.version++; else this.emit();
     // A deploy happened while this page was open: reload into the new build, but never mid-call.
-    if (this.staleBuild && !this.users.get(this.me)?.callId) location.reload();
+    if (this.staleBuild && !this.users.get(this.me)?.callId) { // a fresh URL: a plain reload can come back from the cache (iOS)
+      const u = new URL(location.href); u.searchParams.set('v', String(Date.now().toString(36)));
+      location.replace(u.href);
+    }
   }
 }
