@@ -162,8 +162,8 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
         {!assets && <div className="loading">Unlocking the door…</div>}
         {!store.connected && assets && <div className="loading small">Reconnecting…</div>}
         {showRooms && <RoomList store={store} onPerson={openPerson} onClose={() => setShowRooms(false)}
-          onPick={id => { engineRef.current?.focusUser(id); if (compact()) setShowRooms(false); }}
-          onRoom={id => { engineRef.current?.focusRoom(id); if (compact()) setShowRooms(false); }} />}
+          onPick={id => { engineRef.current?.walkToUser(id); if (compact()) setShowRooms(false); }}
+          onRoom={id => { engineRef.current?.walkToRoom(id); if (compact()) setShowRooms(false); }} />}
         {store.calendarOpen && <CalendarPanel store={store} />}
         {store.meetingsOpen && <MeetingsPanel store={store} />}
         {(showMeet || store.pendingKnock) && <MeetSetup key={store.pendingKnock ?? 'panel'} store={store} onClose={() => setShowMeet(false)} />}
@@ -225,7 +225,7 @@ function TopBar({ store, roomName, onToggleRooms, onToggleMeet, onLogout, engine
         <button onClick={onToggleMeet} className={`meet-btn${store.meetLink === '' && !store.google ? ' unset' : ''}`}
           title={store.google ? `Google connected: ${store.google}` : store.meetLink ? `Your Meet room: ${store.meetLink}` : 'Set up Google Meet'}>Meet</button>
         <MacAppButton />
-        <button onClick={onToggleRooms} title="Rooms" className="rooms-btn">Rooms</button>
+        <button onClick={onToggleRooms} title="Who's where: click a room or a person to walk there" className="rooms-btn">People</button>
         <button onClick={onLogout} title="Sign out" className="ghost">Leave</button>
       </div>
     </header>
@@ -251,21 +251,21 @@ function RoomList({ store, onPick, onRoom, onPerson, onClose }: {
   const offline = [...store.users.values()].filter(u => u.presence === 'offline');
   return (
     <aside className="rooms">
-      <div className="rooms-head"><span>Rooms</span><button className="ghost" onClick={onClose}>×</button></div>
+      <div className="rooms-head"><span>People</span><button className="ghost" onClick={onClose}>×</button></div>
       {[...MAP.rooms, { id: 'meetings', name: 'In meetings', rules: { label: 'calendar meetings' }, capacity: 0 } as const,
         { id: 'hall', name: 'Hallway', rules: { label: 'passing through' }, capacity: 0 } as const].map(r => {
         const ids = byRoom.get(r.id) ?? [];
         if ((r.id === 'hall' || r.id === 'meetings') && !ids.length) return null;
         return (
           <section key={r.id}>
-            <h3 onClick={MAP.rooms.some(m => m.id === r.id) ? () => onRoom(r.id) : undefined}>{r.name} <small>{ids.length}{r.capacity ? `/${r.capacity}` : ''} · {r.rules.label}</small></h3>
+            <h3 onClick={MAP.rooms.some(m => m.id === r.id) ? () => onRoom(r.id) : undefined} title={MAP.rooms.some(m => m.id === r.id) ? `Walk to ${r.name}` : undefined}>{r.name} <small>{ids.length}{r.capacity ? `/${r.capacity}` : ''} · {r.rules.label}</small></h3>
             <ul>
               {ids.map(id => {
                 const u = store.users.get(id)!;
                 return (
                   <li key={id} onContextMenu={e => menu(u, e)} title={u.status || undefined}>
                     <i style={{ background: PRESENCE_COLOR[u.presence] }} />
-                    <button className={`ghost person-name${id === store.me ? ' me' : ''}`} onClick={() => onPick(id)}>{u.name}{store.roomCallOf(u) ? ` 🎙${userIcons(u)}` : ''}</button>
+                    <button className={`ghost person-name${id === store.me ? ' me' : ''}`} onClick={() => onPick(id)} title={id === store.me ? 'Show me' : `Walk to ${u.name}`}>{u.name}{store.roomCallOf(u) ? ` 🎙${userIcons(u)}` : ''}</button>
                     {more(u)}
                     {!!store.unread.get(id) && <b className="unread" title="Unread messages" onClick={e => { e.stopPropagation(); store.openChat(id); }}>💬 {store.unread.get(id)}</b>}
                     {u.door ? <em>{{ arriving: 'just arrived', thinking: 'packing up…', leaving: 'heading out' }[u.door]}</em>
@@ -455,11 +455,11 @@ function Dock({ store, engine, roomsOpen, onRooms }: { store: Store; engine: Eng
   const chatWith = [...store.unread.keys()][0] ?? [...store.chats.keys()].at(-1);
   return (
     <nav className="dock" aria-label="Floor">
-      <button className={roomsOpen ? 'on' : ''} aria-pressed={roomsOpen} onClick={onRooms}><span className="ic">👥</span><small>Rooms</small></button>
+      <button className={roomsOpen ? 'on' : ''} aria-pressed={roomsOpen} onClick={onRooms}><span className="ic">👥</span><small>People</small></button>
       <button className={z?.overview ? 'on' : ''} aria-pressed={!!z?.overview} onClick={() => engine?.toggleOverview()}>
         <span className="ic">🗺️</span><small>{z?.overview ? 'Back' : 'Floor'}</small></button>
       <button onClick={() => engine?.recenter()}><span className="ic">📍</span><small>Me</small></button>
-      <button onClick={() => (chatWith ? store.openChat(chatWith) : onRooms())} title={chatWith ? undefined : 'Pick someone in Rooms to message'}>
+      <button onClick={() => (chatWith ? store.openChat(chatWith) : onRooms())} title={chatWith ? undefined : 'Pick someone in People to message'}>
         <span className="ic">💬</span>{total > 0 && <b className="badge">{total}</b>}<small>Chat</small></button>
     </nav>
   );
