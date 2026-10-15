@@ -1194,7 +1194,6 @@ function StatusChip({ store }: { store: Store }) {
   return <div className="status-wrap" ref={ref}>
     <button className="status-chip" aria-expanded={open} aria-haspopup="dialog" title={text ? `${text} · click to change` : 'Set a status (waters your plant)'}
       onClick={() => (open ? close(true) : setOpen(true))}>
-      <i className="dot" style={{ background: PRESENCE_COLOR[me?.presence ?? 'offline'] }} />
       <span className={text ? '' : 'muted'}>{shown || 'Set a status'}</span>
     </button>
     {open && <div className="status-pop" role="dialog" aria-label="Status">
@@ -1215,6 +1214,18 @@ function StatusChip({ store }: { store: Store }) {
   </div>;
 }
 
+/** One line-art icon set for the voice buttons, same stroke style as the hanger buttons. `off` draws the same icon crossed out. */
+function VIcon({ name, off }: { name: 'mic' | 'speaker' | 'hand' | 'gear' | 'swap'; off?: boolean }) {
+  const d = {
+    mic: 'M12 3a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V6a3 3 0 0 1 3-3ZM6 11a6 6 0 0 0 12 0M12 17v4M9 21h6',
+    speaker: 'M4 10v4h3l5 4V6L7 10H4ZM15.5 9.5a3.5 3.5 0 0 1 0 5M18 7a7 7 0 0 1 0 10',
+    hand: 'M8 12V5.5a1.5 1.5 0 0 1 3 0V11M11 5a1.5 1.5 0 0 1 3 0v6M14 6.5a1.5 1.5 0 0 1 3 0V12M8 12l-2-2.5a1.5 1.5 0 0 0-2.4 1.8L7 17.5c1.2 2 3 3.5 6 3.5 3.3 0 5.5-2.2 5.5-5.5V12',
+    gear: 'M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7ZM12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1',
+    swap: 'M4 7h11l-3-3M20 17H9l3 3',
+  }[name];
+  return <svg viewBox="0 0 24 24" aria-hidden="true"><path d={d} />{off && <path className="slash" d="M4 4l16 16" />}</svg>;
+}
+
 /** Mic, deafen, hand and sound settings as icon buttons (top bar; the dock on phones). */
 function VoiceIcons({ store, voice, dock }: { store: Store; voice: Voice | null; dock?: boolean }) {
   const [settings, setSettings] = useState(false);
@@ -1229,23 +1240,23 @@ function VoiceIcons({ store, voice, dock }: { store: Store; voice: Voice | null;
   }, [settings]);
   const err = voice?.micError ?? null;
   const muted = voice?.muted ?? prefs.muted, deaf = voice?.deafened ?? prefs.deafened, ptt = (voice?.mode ?? prefs.mode) === 'ptt';
-  const btn = (cls: string, icon: string, label: string, title: string, short: string, onClick: () => void, extra: { disabled?: boolean; pressed?: boolean } = {}) =>
+  const btn = (cls: string, icon: React.ReactNode, label: string, title: string, short: string, onClick: () => void, extra: { disabled?: boolean; pressed?: boolean } = {}) =>
     <button className={`vbtn ${cls}`} disabled={extra.disabled} aria-label={label} aria-pressed={extra.pressed} title={title} onClick={onClick}>
-      <span className="ic">{icon}</span>{dock && <small>{short}</small>}</button>;
+      {icon}{dock && <small>{short}</small>}</button>;
   const waiting = store.voiceWait ? `Waiting for a spot in ${MAP.rooms.find(r => r.id === store.voiceWait)?.name ?? 'room'} voice` : null;
   return <div className={`voice-icons${dock ? ' in-dock' : ''}`} ref={ref} role="group" aria-label="Your voice controls">
     {store.connected && !owner
-      ? btn('off', '🔀', 'Use voice here', 'Voice is on in another tab · click to use voice here', 'Voice', () => store.claimVoice())
+      ? btn('off', <VIcon name="swap" />, 'Use voice here', 'Voice is on in another tab · click to use voice here', 'Voice', () => store.claimVoice())
       : <>
-        {btn(err ? 'err' : muted ? 'off' : 'live', muted ? '🔇' : '🎙', muted ? 'Unmute' : 'Mute',
+        {btn(err ? 'err' : muted ? 'off' : 'live', <VIcon name="mic" off={muted} />, muted ? 'Unmute' : 'Mute',
           err ?? (muted ? 'Muted · click to unmute' : ptt ? 'Mic on · hold Space to talk (click to mute)' : 'Mic live · click to mute') + (ptt && muted ? ' · Space to talk once unmuted' : ''),
           muted ? 'Unmute' : 'Mic', () => voice?.toggleMute(), { disabled: !owner || !voice, pressed: muted })}
-        {btn(deaf ? 'off' : 'live', '🎧', deaf ? 'Undeafen' : 'Deafen', deaf ? 'Deafened · click to hear again' : 'Hearing everyone · click to deafen',
+        {btn(deaf ? 'off' : 'live', <VIcon name="speaker" off={deaf} />, deaf ? 'Undeafen' : 'Deafen', deaf ? 'Deafened · click to hear again' : 'Hearing everyone · click to deafen',
           deaf ? 'Deaf' : 'Hear', () => voice?.toggleDeafen(), { disabled: !owner || !voice, pressed: deaf })}
-        {room && btn(me?.hand ? 'live' : 'off', '✋', me?.hand ? 'Lower hand' : 'Raise hand', me?.hand ? 'Lower your hand' : 'Raise your hand',
+        {room && btn(me?.hand ? 'live' : 'off', <VIcon name="hand" />, me?.hand ? 'Lower hand' : 'Raise hand', me?.hand ? 'Lower your hand' : 'Raise your hand',
           'Hand', () => store.setHand(!me?.hand), { disabled: !owner, pressed: !!me?.hand })}
       </>}
-    {btn(waiting || needsGesture() ? 'err' : 'off', '⚙', 'Sound settings', 'Sound settings', 'Sound', () => setSettings(v => !v), { pressed: settings })}
+    {btn(waiting || needsGesture() ? 'err' : 'off', <VIcon name="gear" />, 'Sound settings', 'Sound settings', 'Sound', () => setSettings(v => !v), { pressed: settings })}
     {settings && <div className="settings-pop" role="dialog" aria-label="Sound settings">
       <div className="rooms-head"><span>Sound settings</span><button className="ghost" aria-label="Close sound settings" onClick={() => setSettings(false)}>×</button></div>
       {err && <small className="warn">{err}</small>}

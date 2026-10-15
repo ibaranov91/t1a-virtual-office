@@ -40,16 +40,18 @@ button.netbird small { font-weight: 500; font-size: 11px; opacity: .75; }
 .brand { font-weight: 800; color: var(--accent); letter-spacing: .5px; }
 .where { color: var(--muted); font-size: 12px; min-width: 70px; }
 .me-name { display: flex; align-items: center; gap: 6px; font-weight: 700; font-size: 13px; max-width: 160px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-.status-wrap { position: relative; flex: 1 1 auto; min-width: 0; display: flex; }
-.status-chip { display: flex; align-items: center; gap: 7px; max-width: 100%; background: var(--panel2); color: var(--text); }
+.status-wrap { position: relative; flex: 1 1 auto; min-width: 0; display: flex; align-items: center; }
+.status-chip { display: flex; align-items: center; height: 30px; padding: 0 10px; max-width: 100%; background: var(--panel2); color: var(--text); font-weight: 600; box-shadow: none; }
 .status-chip span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .status-chip .muted { color: var(--muted); }
 .status-pop { position: absolute; top: calc(100% + 6px); left: 0; z-index: 20; width: min(320px, calc(100vw - 16px)); display: grid; gap: 8px; padding: 10px;
   background: var(--panel); border: 2px solid var(--wood); border-radius: 8px; box-shadow: 0 6px 20px rgba(0,0,0,.45); }
 .status-pop input { width: 100%; }
 .status-row { display: flex; gap: 8px; justify-content: space-between; }
-.voice-icons { position: relative; display: flex; gap: 2px; margin-left: auto; }
-.vbtn { width: 34px; padding: 4px 0; display: grid; place-items: center; background: var(--panel2); color: var(--text); font-size: 16px; line-height: 1; }
+.voice-icons { position: relative; display: flex; gap: 4px; margin-left: auto; }
+.vbtn { width: 34px; height: 30px; padding: 0; display: grid; place-items: center; background: var(--panel2); color: var(--text); line-height: 1; }
+.vbtn svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.vbtn svg .slash { stroke-width: 2.2; }
 .vbtn small { display: none; }
 .vbtn.live { background: var(--accent2); color: #1c2a1c; }
 .vbtn.off { color: var(--muted); }
