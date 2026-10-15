@@ -53,6 +53,13 @@ export class Toilets {
     s.shelf++; this.emit(id);
     return true;
   }
+  /** Take a line off the shelf. */
+  sniff(id: string, userId: string) {
+    const s = this.stalls.get(id);
+    if (!s || !s.in.includes(userId) || s.shelf <= 0) return false;
+    s.shelf--; this.emit(id);
+    return true;
+  }
   /** An admin with a plunger: clean right away. */
   plunge(id: string, now: number) {
     const s = this.stalls.get(id); if (!s || !s.fill) return false;

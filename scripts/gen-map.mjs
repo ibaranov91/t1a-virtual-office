@@ -308,7 +308,7 @@ obj('chair', 71, 5, 1, 1, { walkable: true });
 obj('plant', 73, 7);
 obj('neon_sign', 67, 12, 2, 1, { wall: true });
 obj('dj_booth', 67, 13, 3, 1);
-obj('bouncer', 65, 16); // right by the door from the Arcade
+obj('bouncer', 65, 16, 1, 1, { use: { kind: 'dealer', label: 'bouncer', item: 'drugs' } }); // right by the door from the Arcade; knows a guy
 obj('lamp', 65, 13, 1, 1, LAMP);
 for (const x of [68, 70, 72]) obj('toilet', x, 21, 2, 2, { use: { kind: 'toilet', label: 'toilet' } });
 for (const [x, y] of [[67, 26], [70, 31], [72, 27]]) obj('tree', x, y, 1, 1); // the patch behind the hedge

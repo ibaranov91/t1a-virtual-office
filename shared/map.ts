@@ -30,6 +30,7 @@ export type ObjectUse = { kind: 'take'; items: UseItem[] } | { kind: 'toggle'; l
   | { kind: 'achievements'; label: string } // the Lobby notice board: your plant and your badges
   | { kind: 'presentation'; label: string } // the Meeting room screen: upload slides and present them
   | { kind: 'link'; label: string; url: string } // opens a page in a new tab (the safe: the vault)
+  | { kind: 'dealer'; label: string; item: string } // the bouncer: click to get the item into your inventory
   | { kind: 'toilet'; label: string }; // a stall: occupied for a while, fills up with use (see Toilets on the server)
 export interface MapObject {
   id: string; type: string; x: number; y: number; w: number; h: number;

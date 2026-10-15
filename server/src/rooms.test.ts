@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { World, type User } from './world';
 import { adminOnly, findPath, layoutProblem, pathDuration, pathTo, roomAt, type TileMap, type Tile } from '../../shared/map';
 import { stallDoor, stallLine } from '../../shared/map';
-import { TOILET_CAPACITY, TOILET_DRAIN_MS, TOILET_FULL, TOILET_USE_MS, type ServerMsg } from '../../shared/protocol';
+import { ITEMS_MAX, TOILET_CAPACITY, TOILET_DRAIN_MS, TOILET_FULL, TOILET_USE_MS, type ServerMsg } from '../../shared/protocol';
 const map: TileMap = JSON.parse(readFileSync(new URL('../../shared/tilemap.json', import.meta.url), 'utf8'));
 const admin = map.rooms.find(r => r.id === 'admin')!, club = map.rooms.find(r => r.id === 'berghain')!;
 const inside = { x: admin.rect.x + 6, y: admin.rect.y + 6 }; // free floor by the door
@@ -144,4 +144,29 @@ test('knocks on someone in a stall go to Later', t => {
   tick(2500); tick(2000); // walk over, then the knock goes to Later
   const reply = bo.messages.find(m => m.t === 'knock_reply');
   assert.ok(reply?.t === 'knock_reply' && reply.reply === 'later' && reply.reason?.includes('toilet'));
+});
+
+test('the bouncer sells drugs into the inventory (at most ITEMS_MAX); racking spends one; sniffing takes a line and shows unicorns', t => {
+  const { w, add, notices, tick } = setup(t);
+  const bouncer = map.objects.find(o => o.use?.kind === 'dealer')!;
+  const stall = toilets[1], a = add('A', { x: 66, y: 16 }), b = add('B', { x: 67, y: 16 });
+  const me = (m: ServerMsg[]) => m.filter(x => x.t === 'me').at(-1) as Extract<ServerMsg, { t: 'me' }> | undefined;
+  for (let i = 0; i < ITEMS_MAX + 1; i++) walkIn(w, a, bouncer.id, tick);
+  assert.deepEqual(a.u.items, Array(ITEMS_MAX).fill('drugs'));
+  assert.deepEqual(me(a.messages)?.items, Array(ITEMS_MAX).fill('drugs'));
+  assert.ok(notices(a.messages).some(n => n.includes('pockets are full')));
+  walkIn(w, a, stall.id, tick); walkIn(w, b, stall.id, tick);
+  w.handle(b.u, { t: 'toilet_sniff', objectId: stall.id }, b.socket);
+  assert.ok(notices(b.messages).some(n => n.includes('Nothing on the shelf')));
+  assert.ok(!b.u.effects.some(e => e.kind === 'unicorns'));
+  w.handle(a.u, { t: 'toilet_shelf', objectId: stall.id }, a.socket);
+  assert.equal(w.toilets.state(stall.id).shelf, 1);
+  assert.equal(a.u.items.length, ITEMS_MAX - 1, 'racking spends one');
+  w.handle(b.u, { t: 'toilet_shelf', objectId: stall.id }, b.socket);
+  assert.equal(w.toilets.state(stall.id).shelf, 1, 'B has nothing to rack');
+  w.handle(b.u, { t: 'toilet_sniff', objectId: stall.id }, b.socket);
+  assert.equal(w.toilets.state(stall.id).shelf, 0);
+  assert.ok(b.u.effects.some(e => e.kind === 'unicorns'), 'sniffing shows unicorns');
+  w.handle(b.u, { t: 'toilet_sniff', objectId: stall.id }, b.socket);
+  assert.equal(w.toilets.state(stall.id).shelf, 0);
 });

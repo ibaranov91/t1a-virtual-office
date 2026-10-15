@@ -1235,15 +1235,20 @@ function ActionWheel({ store, engine, pick, onPerson, onClose }: { store: Store;
       title = full ? 'Toilet · out of order' : inside ? `Toilet · ${s!.in.length}/${TOILET_CAPACITY} inside` : queued >= 0 ? `Toilet · #${queued + 1} in line` : s?.in.length ? `Toilet · ${s.in.length}/${TOILET_CAPACITY} inside` : 'Toilet';
       if (inside) {
         const has = store.items.includes(TOILET_SHELF_ITEM), company = s!.in.length > 1;
-        items = [{ icon: '💳', label: 'Rack a line', disabled: !has || !company || s!.shelf >= TOILET_SHELF_MAX,
-          title: !has ? 'Needs drugs in your inventory (coming soon)' : !company ? 'Not on your own — wait for company' : s!.shelf >= TOILET_SHELF_MAX ? 'The shelf is full' : 'Put a line on the shelf',
+        items = [{ icon: '💳', label: 'Rack', disabled: !has || !company || s!.shelf >= TOILET_SHELF_MAX,
+          title: !has ? 'Rack a line · you need drugs (ask the bouncer)' : !company ? 'Rack a line · not on your own, wait for company' : s!.shelf >= TOILET_SHELF_MAX ? 'Rack a line · the shelf is full' : `Rack a line on the shelf (${s!.shelf} there)`,
           onClick: act(() => store.rackLine(o.id)) },
+          { icon: '👃', label: 'Sniff', disabled: !s!.shelf, title: s!.shelf ? `Sniff a line · ${s!.shelf} on the shelf` : 'Sniff · nothing on the shelf', onClick: act(() => store.sniffLine(o.id)) },
           { icon: '🚪', label: 'Leave', onClick: act(() => store.moveTo({ x: o.x, y: o.y - 2 })) }];
       } else {
         const crowded = (s?.in.length ?? 0) >= TOILET_CAPACITY || !!s?.queue.length;
         items = [{ icon: '🚽', label: crowded ? 'Line up' : 'Use', disabled: full || queued >= 0, title: full ? 'Full — it drains in a few minutes' : queued >= 0 ? "You're in line" : crowded ? `Full house — ${s!.queue.length} in line` : `Go in for ${TOILET_USE_MS / 1000} s`, onClick: act(() => store.use(o.id)) }];
       }
       if (store.admin) items.push({ icon: '🪠', label: 'Plunge', disabled: !s?.fill, title: 'Admins: clean it right away', onClick: act(() => store.plunge(o.id)) });
+    } else if (o.use.kind === 'dealer') {
+      const want = o.use.item, n = store.items.filter(i => i === want).length;
+      title = n ? `Bouncer · ${n} 💊 in your pocket` : 'Bouncer';
+      items = [{ icon: '💊', label: 'Score', title: 'Ask the bouncer for something', onClick: act(() => store.use(o.id)) }];
     } else if (o.use.kind === 'toggle') {
       const on = store.objects[o.id]?.on ?? o.on ?? true;
       title = o.use.label[0].toUpperCase() + o.use.label.slice(1);

@@ -39,8 +39,9 @@ export const TOILET_FULL = 8;
 export const TOILET_USE_MS = 45_000;
 export const TOILET_DRAIN_MS = 3 * 60_000;
 export const TOILET_SHELF_MAX = 4;
-/** What racking a line on the shelf takes from your inventory (the inventory comes later). */
+/** What racking a line on the shelf takes from your inventory (the bouncer sells it). */
 export const TOILET_SHELF_ITEM = 'drugs';
+export const ITEMS_MAX = 3; // of one kind in your inventory
 export const toiletFull = (s?: ToiletState) => !!s && s.fill >= TOILET_FULL;
 /** A toggle object's shared state. */
 export interface ObjectState { on: boolean }
@@ -304,6 +305,7 @@ export type ClientMsg =
   | { t: 'edit_reset' }              // office admins only: back to the generated layout
   | { t: 'toilet_plunge'; objectId: string } // office admins only: a full stall is clean again
   | { t: 'toilet_shelf'; objectId: string }  // inside with company and the item in your inventory: rack a line
+  | { t: 'toilet_sniff'; objectId: string }  // inside, a line on the shelf: take it (and see unicorns)
   | { t: 'look'; look: Look }
   // put an effect on someone (on: true) or take it off. Yourself: 'self' effects; office admins (GMs): anyone, any effect.
   | { t: 'effect'; targetId: string; kind: string; on: boolean; style?: string }

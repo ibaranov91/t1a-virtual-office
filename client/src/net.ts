@@ -90,7 +90,7 @@ export class Store {
   uiVersion = 0;  // bumps only when React chrome has something new to show
   admin = false;      // may rearrange the office (and is a GM: may put effects on anyone)
   judge = false;      // a hackathon judge: wears the judge's hat
-  items: string[] = []; // my inventory (for now only what the server hands everyone)
+  items: string[] = []; // my inventory (what the bouncer sold me)
   layoutVersion = 0;  // bumps whenever the furniture changes; the engine redraws the floor
   added: string | null = null; // the thing I just added, to select it
   private listeners = new Set<Listener>();
@@ -197,6 +197,7 @@ export class Store {
   use(objectId: string, item?: string) { this.send({ t: 'use', objectId, item }); }
   plunge(objectId: string) { this.send({ t: 'toilet_plunge', objectId }); }
   rackLine(objectId: string) { this.send({ t: 'toilet_shelf', objectId }); }
+  sniffLine(objectId: string) { this.send({ t: 'toilet_sniff', objectId }); }
   drop() { this.send({ t: 'drop' }); }
   putCup(tile: Tile) { this.send({ t: 'cup_put', tile }); }
   give(targetId: string) { this.send({ t: 'give', targetId }); }

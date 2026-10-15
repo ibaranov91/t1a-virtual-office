@@ -114,7 +114,8 @@ npm run typecheck    # run before every commit or deploy
   heads over the half door), the rest line up straight out from the door (`stallLine`) and move in as places free up.
   Full after `TOILET_FULL` visits; drains over time or an admin plunges. Knocks on someone inside go to Later. With
   company inside, "Rack a line" puts a line + card on the stall's shelf; it needs `drugs` in your inventory. The
-  inventory doesn't exist yet: `World.hasItem` reads `DECK_FREE_ITEMS` (e.g. `DECK_FREE_ITEMS=drugs npm run dev`).
+  bouncer (`use.kind: 'dealer'`) puts `drugs` in your inventory (`User.items`, saved, sent only to you in `me`, at most
+  `ITEMS_MAX` of a kind); racking takes one. **Sniff** (`toilet_sniff`) takes a line off the shelf and gives you the `unicorns` effect.
 - **Room behavior is data.** Knock rules, meeting links and home-desk rooms live in `tilemap.json`
   (from `gen-map.mjs`), not in code.
 

@@ -4,7 +4,7 @@ import {
   type MapObject, type Dir, type Layout, type Room, type Spot, type TileMap, type Tile,
 } from '../../shared/map';
 import {
-  NOTE_RATE, NOTE_BURST, TOILET_SHELF_ITEM, toiletFull, NOTE_HELD_MAX, SEAT_CHANGES_PER_10S, DUNGEON_INSTANCE, underground, MAX_CALL_SIZE, MEETING_ROOM_ID, MAX_CHAT_LEN, normalizeMeetLink, REACTIONS, ROOM_VOICE_MAX,
+  NOTE_RATE, NOTE_BURST, ITEMS_MAX, TOILET_SHELF_ITEM, toiletFull, NOTE_HELD_MAX, SEAT_CHANGES_PER_10S, DUNGEON_INSTANCE, underground, MAX_CALL_SIZE, MEETING_ROOM_ID, MAX_CHAT_LEN, normalizeMeetLink, REACTIONS, ROOM_VOICE_MAX,
   CUP_ITEMS, dayNumber, plantDead, BOTANIST_KINDS, PLANT_KINDS, PLANT_STAGES, type Plant,
   type ChatMsg, type ClientMsg, type Door, type Effect, type Knock, type LayoutEdit, type Look, type Presence, type PublicUser, type Reaction, type ServerMsg,
 } from '../../shared/protocol';
@@ -27,6 +27,7 @@ export interface User extends PublicUser {
   lastKeySpot?: Tile;
   dungeonTimers?: Partial<Record<'fall' | 'key' | 'door' | 'opening', DungeonTimer>>;
   path: Tile[] | null; // path of the current move (server-side bookkeeping)
+  items: string[];     // inventory (what the bouncer sold you); only sent to the owner
   email?: string;       // identity from NetBird; never broadcast
   meetLink?: string;    // personal reusable Google Meet room; only shared with knock partners
   google?: GoogleLink;  // Connect Google: encrypted refresh token; never leaves the server
@@ -65,12 +66,10 @@ const DOOR_PAUSE_MS = 400;   // a beat at the door before vanishing
 const goingOut = (u: User) => u.door === 'thinking' || u.door === 'leaving';
 const FOLLOW_LAG_MS = 300;   // followers set off a beat after the person they follow
 const HOLD_MS = 3 * 60_000;  // a coffee lasts this long
-const USE_MS = { take: 1200, toggle: 150, toilet: 300 }; // brewing a coffee vs flicking a switch
+const USE_MS = { take: 1200, toggle: 150, toilet: 300, dealer: 350 }; // brewing a coffee vs flicking a switch
 const ARRIVAL_SLACK_MS = 50; // timers can fire a millisecond before the walk is over
 
 /** Office admins rearrange the furniture: NetBird emails, or (only for name logins, so dev) plain names. */
-/** The inventory comes later: until then these items count as in everyone's (dev: DECK_FREE_ITEMS=drugs). */
-const FREE_ITEMS = (process.env.DECK_FREE_ITEMS ?? '').split(',').map(s => s.trim()).filter(Boolean);
 const ADMINS = (process.env.DECK_ADMINS ?? 'ivan.baranov@t1a.com').split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
 /** Hackathon judges wear a sparkling hat. Same rules as admins: emails, or plain names for name logins (dev). */
 const JUDGES = (process.env.DECK_JUDGES ?? 'oleg.mikhov@t1a.com').split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
@@ -127,10 +126,21 @@ export class World {
   // ---------- transport ----------
   broadcast(msg: ServerMsg) { for (const l of this.listeners) l(msg); }
   /** Private settings for the user themselves. */
-  me(u: User): ServerMsg { return { t: 'me', meetLink: u.meetLink ?? '', email: u.email, google: googleEnabled ? u.google?.email ?? null : undefined, calendar: !!u.google?.scopes.includes(CALENDAR_SCOPE), admin: this.isAdmin(u) || undefined, judge: this.isJudge(u) || undefined, items: FREE_ITEMS.length ? FREE_ITEMS : undefined }; }
+  me(u: User): ServerMsg { return { t: 'me', meetLink: u.meetLink ?? '', email: u.email, google: googleEnabled ? u.google?.email ?? null : undefined, calendar: !!u.google?.scopes.includes(CALENDAR_SCOPE), admin: this.isAdmin(u) || undefined, judge: this.isJudge(u) || undefined, items: u.items.length ? u.items : undefined }; }
   isAdmin(u: User) { return listed(ADMINS, u); }
   isJudge(u: User) { return listed(JUDGES, u); }
-  hasItem(_u: User, item: string) { return FREE_ITEMS.includes(item); }
+  hasItem(u: User, item: string) { return u.items.includes(item); }
+  /** Put one in the inventory (at most ITEMS_MAX of a kind) and tell the owner. */
+  addItem(u: User, item: string) {
+    if (u.items.filter(i => i === item).length >= ITEMS_MAX) { this.sendTo(u.id, { t: 'notice', text: 'Your pockets are full' }); return false; }
+    u.items = [...u.items, item]; this.sendTo(u.id, this.me(u));
+    return true;
+  }
+  takeItem(u: User, item: string) {
+    const i = u.items.indexOf(item); if (i < 0) return false;
+    u.items = u.items.filter((_, j) => j !== i); this.sendTo(u.id, this.me(u));
+    return true;
+  }
   layout(): Layout { return { objects: this.map.objects, rugs: this.map.rugs }; }
   sendTo(userId: string, msg: ServerMsg) { for (const s of this.sockets.get(userId)?.values() ?? []) s(msg); }
   private sendOwner(userId: string, msg: ServerMsg) {
@@ -272,7 +282,7 @@ export class World {
       email,
       id: randomUUID().slice(0, 8), name, look: lookFor(name), lookSet: false, tile: tile ?? { ...this.map.spawn }, dir: 'down',
       move: null, path: null, presence: bot ? 'online' : 'offline', status: '', emote: null, bot, homeDesk: null, door: null, callId: null, deafened: false, hand: false, muted: false,
-      following: null, holding: null, meeting: null, instance: null, game: null, plant: null, bloomed: [], achievements: {}, effects: [],
+      following: null, holding: null, meeting: null, instance: null, game: null, plant: null, bloomed: [], achievements: {}, effects: [], items: [],
     };
     this.users.set(u.id, u);
     this.broadcast(this.snapshot());
@@ -534,6 +544,7 @@ export class World {
       if (!current?.use || current.use.kind !== o.use!.kind) return;
       if (current.use.kind === 'arcade') { if (!u.bot && this.sockets.get(u.id)?.size) this.arcade.join(u, current.id); return; }
       if (o.use!.kind === 'toggle') this.setObject(o.id, !this.objectOn.get(o.id), u);
+      else if (current.use.kind === 'dealer') { if (this.addItem(u, current.use.item)) this.sendTo(u.id, { t: 'notice', text: 'The bouncer slips you something 💊' }); }
       else if (item) {
         this.setHolding(u, item.id, o.id);
         if (o.type === 'coffee_machine') this.addEffect(u, 'speed'); // a fresh cup: quick on your feet for a while
@@ -603,7 +614,15 @@ export class World {
     if (o?.use?.kind !== 'toilet' || this.toilets.inside(u.id) !== o.id) return;
     if (!this.hasItem(u, TOILET_SHELF_ITEM)) return this.sendTo(u.id, { t: 'notice', text: 'You have nothing to put on the shelf' });
     if (this.toilets.state(o.id).in.length < 2) return this.sendTo(u.id, { t: 'notice', text: 'Not on your own — wait for company' });
-    if (!this.toilets.shelf(o.id, u.id)) this.sendTo(u.id, { t: 'notice', text: 'The shelf is full' });
+    if (!this.toilets.shelf(o.id, u.id)) return this.sendTo(u.id, { t: 'notice', text: 'The shelf is full' });
+    this.takeItem(u, TOILET_SHELF_ITEM);
+  }
+  private toiletSniff(u: User, objectId: string) {
+    const o = this.map.objects.find(o => o.id === objectId);
+    if (o?.use?.kind !== 'toilet' || this.toilets.inside(u.id) !== o.id) return;
+    if (!this.toilets.sniff(o.id, u.id)) return this.sendTo(u.id, { t: 'notice', text: 'Nothing on the shelf' });
+    this.addEffect(u, 'unicorns');
+    this.sendTo(u.id, { t: 'notice', text: 'Whoa… are those unicorns? 🦄' });
   }
   private objectState(id: string) { return { on: this.objectOn.get(id) ?? true }; }
   private setObject(id: string, on: boolean, by: User) {
@@ -1339,6 +1358,7 @@ export class World {
         break;
       }
       case 'toilet_shelf': this.toiletShelf(u, String(msg.objectId)); break;
+      case 'toilet_sniff': this.toiletSniff(u, String(msg.objectId)); break;
       case 'release_desk': this.releaseDesk(u); break;
       case 'meet_link': {
         const raw = String(msg.link ?? '');
@@ -1447,7 +1467,7 @@ export class World {
   dump() {
     return {
       users: [...this.users.values()].map(u => {
-        return { id: u.id, name: u.name, email: u.email, meetLink: u.meetLink, google: u.google, homeDesk: u.homeDesk, look: u.look, lookSet: u.lookSet, tile: underground(u) ? this.dungeonExit(false) : u.tile, dir: u.dir, status: u.status, presence: u.presence, bot: u.bot, plant: u.plant, bloomed: u.bloomed, achievements: u.achievements, effects: u.effects.filter(e => e.until === undefined) };
+        return { id: u.id, name: u.name, email: u.email, meetLink: u.meetLink, google: u.google, homeDesk: u.homeDesk, look: u.look, lookSet: u.lookSet, tile: underground(u) ? this.dungeonExit(false) : u.tile, dir: u.dir, status: u.status, presence: u.presence, bot: u.bot, plant: u.plant, bloomed: u.bloomed, achievements: u.achievements, effects: u.effects.filter(e => e.until === undefined), items: u.items };
       }),
       objects: Object.fromEntries(this.objectOn),
       jukebox: Object.fromEntries([...this.jukeboxes].map(([id, j]) => [id, j.dump()])),
@@ -1489,7 +1509,7 @@ export class World {
       const tile = this.inDungeon(d.tile) ? this.dungeonExit(false) : isWalkable(this.map, d.tile.x, d.tile.y) || seatAt(this.map, d.tile.x, d.tile.y) ? d.tile : { ...this.map.spawn };
       const legacy = lookFor(d.name);
       const look = { ...legacy, ...d.look, eyes: d.look?.eyes ?? legacy.eyes, shoes: d.look?.shoes ?? legacy.shoes, top: d.look?.top ?? 0, bottom: d.look?.bottom ?? 0, glasses: d.look?.glasses ?? 0, hat: d.look?.hat ?? 0, glassesColor: d.look?.glassesColor ?? legacy.glassesColor, hatColor: d.look?.hatColor ?? legacy.hatColor };
-      this.users.set(d.id, { ...d, look, lookSet: d.lookSet ?? false, homeDesk: d.homeDesk ?? null, plant: d.plant ?? null, bloomed: d.bloomed ?? [], achievements: d.achievements ?? {}, effects: (d.effects ?? []).filter(e => Object.prototype.hasOwnProperty.call(EFFECTS, e.kind) && e.until === undefined), tile, move: null, path: null, emote: null, door: null, callId: null, deafened: false, hand: false, muted: false, following: null, holding: null, meeting: null, instance: null, game: null, presence: d.bot ? d.presence : 'offline' });
+      this.users.set(d.id, { ...d, look, lookSet: d.lookSet ?? false, homeDesk: d.homeDesk ?? null, plant: d.plant ?? null, bloomed: d.bloomed ?? [], achievements: d.achievements ?? {}, items: Array.isArray(d.items) ? d.items.filter((i: unknown): i is string => typeof i === 'string') : [], effects: (d.effects ?? []).filter(e => Object.prototype.hasOwnProperty.call(EFFECTS, e.kind) && e.until === undefined), tile, move: null, path: null, emote: null, door: null, callId: null, deafened: false, hand: false, muted: false, following: null, holding: null, meeting: null, instance: null, game: null, presence: d.bot ? d.presence : 'offline' });
     }
     for (const [id, on] of Object.entries(data.objects ?? {})) if (this.objectOn.has(id)) this.objectOn.set(id, !!on);
     this.arcade.load(data.arcade);
