@@ -857,6 +857,82 @@ for (const axis of ['h', 'v']) for (const open of [false, true]) {
   frames[`door_${axis}_${open ? 'open' : 'closed'}`] = t;
 }
 
+// ---------- Arcade + Deck Park (no shared random calls: existing art stays unchanged) ----------
+const cabinet = (lit = 0) => {
+  const t = new Img(16, 32);
+  t.rect(2, 1, 12, 28, '#4f7772'); t.hline(3, 1, 10, '#80aaa0');
+  t.rect(3, 2, 10, 4, W1D); t.hline(4, 3, 8, '#f2b45a'); t.px(6, 4, '#f2b45a'); t.px(9, 4, '#f2b45a');
+  t.rect(3, 7, 10, 10, OUT); t.rect(4, 8, 8, 8, lit ? '#457b77' : '#20232d');
+  if (lit) {
+    t.hline(5, 9, 6, lit === 1 ? '#a0d8b0' : '#8cc4b0');
+    t.rect(5 + (lit - 1) * 2, 12, 2, 3, '#f2b45a'); t.hline(4, 15, 8, '#8cc864');
+  } else t.hline(5, 9, 5, '#343847');
+  t.rect(1, 18, 14, 4, W1D); t.hline(2, 18, 12, W1L);
+  t.vline(5, 17, 3, OUT); t.px(5, 17, '#d86a5a'); t.px(10, 19, '#f2b45a'); t.px(12, 19, '#d86a5a');
+  t.rect(3, 23, 10, 6, '#38605c'); t.rect(7, 24, 3, 2, OUT); t.hline(3, 29, 10, W1DD);
+  t.rect(2, 30, 3, 1, OUT); t.rect(11, 30, 3, 1, OUT);
+  return t.outline();
+};
+frames.arcade = cabinet(); frames.arcade_on = cabinet(1);
+frames.arcade_on_1 = cabinet(1); frames.arcade_on_2 = cabinet(2);
+{
+  const t = new Img(32, 16);
+  t.rect(1, 1, 30, 14, W1D); t.hline(2, 1, 28, W1L); t.rect(3, 3, 26, 10, '#355451');
+  t.rect(5, 5, 4, 3, '#f2b45a'); t.px(4, 5, '#f2b45a'); t.px(9, 5, '#f2b45a'); t.vline(6, 8, 2, '#f2b45a'); t.hline(5, 10, 4, '#f2b45a');
+  for (let y = 5; y <= 11; y += 3) { t.hline(12, y, 14, '#e8dcc8'); t.px(12, y, '#f2b45a'); }
+  frames.records = t.outline();
+}
+frames.bubble_game = bubble(t => { t.rect(3, 7, 8, 2, '#4f7772'); t.vline(6, 4, 3, OUT); t.rect(5, 2, 3, 3, '#d86a5a'); t.px(9, 6, '#f2b45a'); });
+frames.bubble_watch = bubble(t => { for (const x of [3, 8]) { t.rect(x, 3, 3, 5, '#d8c8b0'); t.rect(x + 1, 4, 2, 3, '#fff'); t.vline(x + 1, 4, 2, OUT); } });
+const parkTile = (name, draw, w = 16, h = 16) => { const t = new Img(w, h); draw(t); frames[`park_${name}`] = t.outline(); };
+for (const top of [true, false]) parkTile(top ? 'ground' : 'dirt', t => {
+  t.rect(0, 0, 16, 16, W1D); t.hline(0, 15, 16, W1DD);
+  for (const [x, y] of [[2, 7], [9, 11], [5, 14], [13, 5]]) { t.hline(x, y, 2, W1); t.px(x, y + 1, W1DD); }
+  if (top) { t.rect(0, 0, 16, 3, '#5f9a48'); t.hline(0, 0, 16, '#8cc864'); for (const x of [1, 5, 10, 14]) t.vline(x, 2, 3, '#4a7e3a'); }
+});
+parkTile('brick', t => { t.rect(0, 0, 16, 16, '#b97058'); for (let y = 0; y < 16; y += 4) { t.hline(0, y, 16, '#d79878'); t.hline(0, y + 3, 16, '#7e4434'); for (let x = y % 8 ? 0 : 4; x < 16; x += 8) t.vline(x, y, 4, '#7e4434'); } });
+parkTile('oneway', t => { t.rect(0, 0, 16, 4, W1); t.hline(0, 0, 16, W1L); t.hline(0, 3, 16, W1DD); for (const x of [3, 11]) t.px(x, 2, '#edce76'); });
+parkTile('spikes', t => { for (const x of [0, 5, 10]) for (let y = 0; y < 7; y++) t.hline(x + 2 - Math.floor(y / 3), 8 + y, 1 + Math.floor(y / 3) * 2, y < 3 ? '#e8dcc8' : '#9b9ca6'); t.hline(0, 15, 16, '#5a5a6e'); });
+parkTile('key', t => { t.rect(3, 4, 6, 6, '#f2b45a'); t.rect(5, 6, 2, 2, OUT); t.hline(8, 7, 6, '#f2b45a'); t.vline(11, 8, 3, '#f2b45a'); t.vline(13, 8, 2, '#f2b45a'); t.hline(4, 4, 4, '#ffe08a'); });
+for (const open of [false, true]) parkTile(`door_${open ? 'open' : 'closed'}`, t => {
+  t.rect(1, 0, 14, 32, W1DD); t.rect(3, 2, 10, 29, open ? '#21161f' : W1); t.hline(2, 1, 12, W1L);
+  if (open) { t.rect(3, 3, 3, 27, W1D); t.vline(4, 4, 24, W1L); t.px(5, 19, '#edce76'); }
+  else { t.rect(5, 5, 6, 10, W1D); t.rect(5, 18, 6, 10, W1D); t.rect(10, 17, 2, 2, '#edce76'); }
+}, 16, 32);
+for (const down of [false, true]) parkTile(`button_${down ? 'down' : 'up'}`, t => {
+  t.rect(1, 13, 14, 3, W1DD); t.rect(3, down ? 13 : 10, 10, down ? 1 : 4, down ? '#5f9a48' : '#d86a5a'); t.hline(3, down ? 13 : 10, 10, down ? '#8cc864' : '#f0a080');
+});
+parkTile('start', t => { t.rect(0, 0, 16, 16, '#38605c'); t.hline(0, 0, 16, '#8cc864'); t.hline(0, 15, 16, OUT); t.rect(2, 3, 12, 9, '#4f7772'); });
+for (const left of [true, false]) parkTile(`select_${left ? 'left' : 'right'}`, t => {
+  t.rect(1, 1, 14, 14, W1); t.hline(2, 1, 12, W1L); t.hline(2, 14, 12, W1DD);
+  for (let y = -3; y <= 3; y++) t.hline(left ? 5 + Math.abs(y) : 5, 8 + y, 4 - Math.abs(y), '#fff4e0');
+});
+parkTile('box', t => { t.rect(1, 1, 14, 14, W1); t.rect(3, 3, 10, 10, W1D); for (let i = 0; i < 10; i++) { t.px(3 + i, 3 + i, W1L); t.px(12 - i, 3 + i, W1L); } t.hline(2, 1, 12, W1L); });
+for (const kind of ['lift', 'platform']) for (const segment of ['left', 'middle', 'right']) parkTile(`${kind}_${segment}`, t => {
+  t.rect(0, 0, 16, 16, kind === 'lift' ? '#6c7380' : '#4f7772'); t.hline(0, 0, 16, kind === 'lift' ? '#b4bac4' : '#80aaa0'); t.hline(0, 15, 16, OUT);
+  t.rect(0, 6, 16, 4, kind === 'lift' ? '#4b5060' : '#38605c');
+  if (segment !== 'middle') { const x = segment === 'left' ? 2 : 12; t.vline(x, 2, 12, '#edce76'); t.px(x, 4, OUT); t.px(x, 11, OUT); }
+});
+parkTile('gate', t => { t.hline(0, 0, 16, '#b4bac4'); t.hline(0, 15, 16, '#4b5060'); for (const x of [2, 7, 12]) { t.rect(x, 1, 2, 14, '#6c7380'); t.vline(x, 1, 14, '#b4bac4'); } });
+for (const letter of ['s', 't']) for (const solid of [true, false]) parkTile(`${letter}_${solid ? 'solid' : 'ghost'}`, t => {
+  const c = letter === 's' ? '#8a7ab8' : '#4f9a92';
+  if (solid) { t.rect(1, 1, 14, 14, c); t.hline(2, 1, 12, '#d8c8e0'); t.hline(2, 14, 12, OUT); }
+  else for (let i = 1; i < 15; i += 3) { t.hline(i, 1, 2, c); t.hline(i, 14, 2, c); t.vline(1, i, 2, c); t.vline(14, i, 2, c); }
+  const glyph = letter === 's' ? ['111', '100', '111', '001', '111'] : ['111', '010', '010', '010', '010'];
+  glyph.forEach((row, y) => [...row].forEach((v, x) => { if (v === '1') t.px(6 + x, 5 + y, solid ? '#fff4e0' : c); }));
+});
+for (let f = 1; f <= 4; f++) parkTile(`coin_${f}`, t => {
+  const radius = [4, 2, 1, 2][f - 1]; t.ellipse(8, 8, radius, 6, '#d0a040'); t.ellipse(8, 7, Math.max(1, radius - 1), 4, '#f2b45a'); t.vline(7, 4, 6, '#ffe08a');
+});
+for (let f = 1; f <= 2; f++) parkTile(`walker_${f}`, t => {
+  t.rect(3, 4, 10, 8, '#b4534a'); t.hline(5, 3, 6, '#d8805a'); t.rect(4, 6, 3, 3, '#fff4e0'); t.rect(9, 6, 3, 3, '#fff4e0'); t.px(5, 7, OUT); t.px(10, 7, OUT);
+  t.rect(f === 1 ? 2 : 3, 12, 4, 2, W1DD); t.rect(f === 1 ? 10 : 9, 12, 4, 2, W1DD);
+});
+for (const up of [false, true]) parkTile(`flag_${up ? 'up' : 'down'}`, t => {
+  t.vline(4, 1, 22, '#e8dcc8'); t.hline(2, 23, 7, W1D); t.px(4, 0, '#f2b45a');
+  t.rect(5, up ? 2 : 13, 8, 5, up ? '#8cc864' : '#a8917c'); t.hline(5, up ? 2 : 13, 6, up ? '#c5e4a0' : '#c8b8a4');
+}, 16, 24);
+parkTile('railing', t => { t.hline(0, 1, 16, W1L); t.rect(0, 2, 16, 2, W1D); t.vline(2, 4, 4, W1); t.vline(12, 4, 4, W1); t.hline(0, 7, 16, W1DD); }, 16, 8);
 // ---------- the cool stone maze under the garden ----------
 for (let v = 0; v < 3; v++) {
   const t = new Img(16, 16); t.rect(0, 0, 16, 16, '#252d3c');

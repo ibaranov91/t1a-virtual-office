@@ -2,7 +2,9 @@
 import mapJson from '../../shared/tilemap.json';
 import { applyLayout, besideObject, doorwayTiles, isWalkable, pathTo, roomAt, sampleMove, type Dir, type Tile, type TileMap } from '../../shared/map';
 import { ACHIEVEMENTS, underground, DUNGEON_INSTANCE, PLANT_STAGES, plantName, ROOM_VOICE_MAX, type JukeboxState, type JukeboxAction, type AgendaItem, type LayoutEdit, type CalEvent, type MeetingRoomInfo, type ChatMsg, type ObjectState, type ClientMsg, type PublicUser, type Reaction, type RtcSignal, type ServerMsg } from '../../shared/protocol';
-import { playHand, playKnock, playPop, playDungeon } from './sounds';
+import { ParkLoop } from './park/loop';
+import type { CabinetSummary, ParkRecords } from '../../shared/protocol';
+import { playPark, playHand, playKnock, playPop, playDungeon } from './sounds';
 import type { Soundscape } from './soundscape';
 
 export const MAP = mapJson as unknown as TileMap;
@@ -63,6 +65,12 @@ export class Store {
   jukebox: Record<string, JukeboxState> = {};
   jukeboxOpen: string | null = null;
   private jukeboxReady = false;
+  park: ParkLoop | null = null;
+  gameOpen = false;
+  cabinets: CabinetSummary[] = [];
+  arcadeRecords: ParkRecords = {};
+  recordsOpen = false;
+  gameCheers = new Map<string, { kind: 0 | 1 | 2; at: number }>();
   chats = new Map<string, ChatMsg[]>(); // by the other person's id
   unread = new Map<string, number>();
   chatWith: string | null = null;       // open conversation
@@ -98,15 +106,33 @@ export class Store {
     ws.onopen = () => { this.connected = true; this.emit(); };
     ws.onmessage = (e) => this.onMessage(JSON.parse(e.data));
     ws.onclose = (e) => {
-      this.connected = false; this.voiceOwner = false; this.jukebox = {}; this.jukeboxReady = false; this.soundscape?.resetCrossings(); this.emit();
+      this.park?.runner.setLocalBits(0); this.cabinets = []; this.connected = false; this.voiceOwner = false; this.jukebox = {}; this.jukeboxReady = false; this.soundscape?.resetCrossings(); this.emit();
       if (e.code === 4001) return this.onUnauthorized();
       if (!this.closed) setTimeout(() => this.connect(), 1500);
     };
   }
-  close() { this.closed = true; this.connected = false; this.voiceOwner = false; this.jukebox = {}; this.jukeboxReady = false; this.soundscape?.resetCrossings(); this.emit(); this.ws?.close(); }
+  close() { this.closed = true; this.park?.runner.setLocalBits(0); this.cabinets = []; this.connected = false; this.voiceOwner = false; this.jukebox = {}; this.jukeboxReady = false; this.soundscape?.resetCrossings(); this.emit(); this.ws?.close(); }
   send(msg: ClientMsg) { if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(msg)); }
 
   // ---------- actions ----------
+  openRecords(open = true) { this.recordsOpen = open; this.emit(); }
+  gamePlay() { const s = this.park?.runner.session; if (s) this.send({ t: 'game_play', epoch: s.epoch }); }
+  gameLeave() {
+    this.send({ t: 'game_leave' }); this.park?.receive({ t: 'game_session', session: null });
+    this.gameOpen = false; this.gameCheers.clear(); this.emit();
+  }
+  gameMenu(op: 'lobby' | 'restart') {
+    const s = this.park?.runner.session; if (s) this.send({ t: 'game_menu', epoch: s.epoch, op });
+  }
+  gameCheer(kind: 0 | 1 | 2) { if (this.gameOpen && this.connected) this.send({ t: 'game_cheer', kind }); }
+  gameDescription(cabinet: string, userId?: string) {
+    const s = this.cabinets.find(s => s.cabinet === cabinet);
+    if (userId && this.users.get(userId)?.game?.role === 'spectator') return 'Watching Deck Park';
+    if (!s) return 'Deck Park · click to play';
+    if (s.phase === 'lobby') return 'In the Deck Park lobby';
+    const peers = s.players.filter(id => id !== userId).map(id => this.users.get(id)).filter((u): u is ClientUser => !!u);
+    return `Playing Deck Park · level ${s.level}${peers.length ? ` with ${this.names(peers)}` : ''}`;
+  }
   moveTo(to: Tile) { this.send({ t: 'move', to }); }
   joinRoom(roomId: string) {
     const me = this.users.get(this.me), room = MAP.rooms.find(r => r.id === roomId);
@@ -321,10 +347,33 @@ export class Store {
   private onMessage(msg: ServerMsg) {
     switch (msg.t) {
       case 'hello':
-        this.me = msg.you; this.offset = msg.serverTime - Date.now();
+        this.me = msg.you;
+        this.park ??= new ParkLoop(this.me, msg => this.send(msg));
+        this.offset = msg.serverTime - Date.now();
         // compared with this bundle's own id, so a page served from a stale cache fixes itself on its first connect
         if (msg.build && __DECK_BUILD__ !== 'dev' && msg.build !== __DECK_BUILD__) this.staleBuild = true;
         break;
+      case 'game_session':
+        if (msg.session) { this.gameOpen = true; this.gameCheers.clear(); }
+        else {
+          this.gameOpen = false; this.gameCheers.clear();
+          if (msg.reason) this.toast({ kind: 'info', text: msg.reason === 'empty' ? 'Everyone left' : 'Playing in another tab', expires: 6000 });
+        }
+        this.park?.receive(msg);
+        break;
+      case 'game_event': case 'game_check':
+        this.park?.receive(msg); return;
+      case 'game_members': case 'game_clear':
+        this.park?.receive(msg); break;
+      case 'game_status': { const u = this.users.get(msg.userId); if (u) u.game = msg.game; break; }
+      case 'game_cheer':
+        if (msg.kind >= 0 && msg.kind <= 2) {
+          this.gameCheers.set(msg.userId, { kind: msg.kind as 0 | 1 | 2, at: performance.now() });
+          if (this.gameOpen) playPark('cheer');
+        }
+        return;
+      case 'arcade': this.cabinets = msg.cabinets; break;
+      case 'arcade_records': this.arcadeRecords = msg.records; break;
       case 'call_moved':
         this.toast({ kind: 'call_moved', roomId: msg.roomId, text: `${this.name(msg.userId).split(' ')[0]} went into ${MAP.rooms.find(r => r.id === msg.roomId)?.name ?? msg.roomId}`, expires: 15000 });
         break;
@@ -333,7 +382,7 @@ export class Store {
         const next = new Map<string, ClientUser>();
         for (const p of msg.users) {
           const old = this.users.get(p.id);
-          const u: ClientUser = { ...p, path: old?.path ?? null, prev: old?.prev ?? null, faceOverride: old?.faceOverride ?? null, speaking: !!p.callId && p.callId === old?.callId ? old?.speaking ?? false : false };
+          const u: ClientUser = { ...p, game: p.game ?? null, path: old?.path ?? null, prev: old?.prev ?? null, faceOverride: old?.faceOverride ?? null, speaking: !!p.callId && p.callId === old?.callId ? old?.speaking ?? false : false };
           if (p.move && (!old?.move || old.move.startedAt !== p.move.startedAt)) { u.move = null; this.applyMove(u, p.move); }
           next.set(p.id, u);
         }

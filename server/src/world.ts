@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import {
-  applyEdit, applyLayout, besideObject, dirBetween, doorwayTiles, KEEP_TYPES, layoutProblem, objectName, voiceRooms, findPath, isWalkable, pathDuration, pathTo, roomAt, sampleMove, seatAt, withLayout, WALK_MS_PER_TILE,
+  applyEdit, applyLayout, besideObject, dirBetween, doorwayTiles, KEEP_TYPES, migrateEastWing, layoutProblem, objectName, voiceRooms, findPath, isWalkable, pathDuration, pathTo, roomAt, sampleMove, seatAt, withLayout, WALK_MS_PER_TILE,
   type Dir, type Layout, type Room, type Spot, type TileMap, type Tile,
 } from '../../shared/map';
 import {
@@ -9,6 +9,7 @@ import {
   type ChatMsg, type ClientMsg, type Door, type Knock, type LayoutEdit, type Look, type Presence, type PublicUser, type Reaction, type ServerMsg,
 } from '../../shared/protocol';
 import { TRACKS } from '../../shared/music';
+import { Arcade } from './arcade';
 import { Jukebox } from './jukebox';
 import { Meetings } from './meetings';
 import { authUrl, CALENDAR_SCOPE, createSpace, forgetAccess, googleEnabled, listEvents, revoke, type GoogleLink } from './google';
@@ -85,6 +86,9 @@ export class World {
   private lastReact = new Map<string, number>();
   botHooks?: BotHooks;
 
+  arcade = new Arcade({ now: () => Date.now(), send: (id, msg) => this.sendOwner(id, msg),
+    broadcast: msg => this.broadcast(msg), user: id => this.users.get(id) });
+
   build?: string; // sent in hello so open pages reload after a deploy
   private baseLayout: Layout;     // as generated, for Reset
   private layoutEdited = false;   // saved only once someone has changed it
@@ -103,6 +107,10 @@ export class World {
   isAdmin(u: User) { return !u.bot && ADMINS.some(a => (a.includes('@') ? a === u.email : !u.email && a === u.name.toLowerCase())); }
   layout(): Layout { return { objects: this.map.objects, rugs: this.map.rugs }; }
   sendTo(userId: string, msg: ServerMsg) { for (const s of this.sockets.get(userId)?.values() ?? []) s(msg); }
+  private sendOwner(userId: string, msg: ServerMsg) {
+    const owner = this.owners.get(userId);
+    if (owner) this.sockets.get(userId)?.get(owner)?.(msg);
+  }
   snapshot(): ServerMsg {
     const objects = Object.fromEntries([...this.objectOn.keys()].map(id => [id, this.objectState(id)]));
     return { t: 'state', serverTime: Date.now(), users: [...this.users.values()].map(this.toPublic), objects,
@@ -129,6 +137,9 @@ export class World {
     send(this.me(u));
     if (underground(u) && u.dungeon) send({ t: 'dungeon', ...u.dungeon });
     send({ t: 'meetings', rooms: this.meetingRooms() });
+    send({ t: 'arcade', cabinets: this.arcade.summary() });
+    send({ t: 'arcade_records', records: structuredClone(this.arcade.records) });
+    for (const person of this.users.values()) send({ t: 'game_status', userId: person.id, game: person.game });
     if (!u.bot) this.meetings.sendAgenda(u, true);
     send({ t: 'voice_wait', roomId: this.waiting.get(userId) ?? null });
     const call = u.callId ? this.calls.get(u.callId) : undefined; // a reloaded page gets its call's Meet link back
@@ -142,8 +153,13 @@ export class World {
     } };
   }
   private setOwner(userId: string, socket?: string) {
+    const old = this.owners.get(userId), u = this.users.get(userId);
+    if (old === socket) return;
+    if (u) this.arcade.reset(u);
+    if (old && u?.game) this.sockets.get(userId)?.get(old)?.({ t: 'game_session', session: null, reason: 'elsewhere' });
     if (socket) this.owners.set(userId, socket); else this.owners.delete(userId);
     for (const [id, send] of this.sockets.get(userId) ?? []) send({ t: 'voice_owner', owner: id === socket });
+    if (socket && u) this.arcade.resend(u);
   }
 
   // ---------- arriving & leaving ----------
@@ -190,6 +206,7 @@ export class World {
       const at = this.walk(u, this.map.exit, 'up') ?? Date.now();
       this.doorTimer(u, () => {
         this.setDoor(u, null);
+        this.arcade.leave(u);
         u.offlineAt = Date.now();
         this.setPresence(u, 'offline');
       }, Math.max(0, at - Date.now()) + DOOR_PAUSE_MS);
@@ -220,7 +237,7 @@ export class World {
       email,
       id: randomUUID().slice(0, 8), name, look: lookFor(name), lookSet: false, tile: tile ?? { ...this.map.spawn }, dir: 'down',
       move: null, path: null, presence: bot ? 'online' : 'offline', status: '', emote: null, bot, homeDesk: null, door: null, callId: null, deafened: false, hand: false, muted: false,
-      following: null, holding: null, meeting: null, instance: null, plant: null, bloomed: [], achievements: {},
+      following: null, holding: null, meeting: null, instance: null, game: null, plant: null, bloomed: [], achievements: {},
     };
     this.users.set(u.id, u);
     this.broadcast(this.snapshot());
@@ -252,6 +269,7 @@ export class World {
     this.bumpWalk(u);
     const startedAt = Math.round(now + pos.remainingMs);
     face ??= seatAt(this.map, to.x, to.y)?.dir; // sit facing the desk/table
+    this.arcade.leave(u);
     u.prev = u.move && u.path && now < u.move.startedAt + pathDuration(u.path) ? { path: u.path, startedAt: u.move.startedAt } : undefined;
     u.move = { from, to, startedAt, face }; u.path = path; u.tile = to;
     if (face) u.dir = face;
@@ -324,7 +342,7 @@ export class World {
   /** Walk over to an object and use it: take something from it, or flip it on/off. */
   use(u: User, objectId: string, itemId?: string) {
     const o = this.map.objects.find(o => o.id === objectId);
-    if (!o?.use || o.use.kind === 'calendar' || o.use.kind === 'meetings' || o.use.kind === 'achievements' || o.use.kind === 'link' || o.use.kind === 'jukebox' || goingOut(u) || u.instance) return;
+    if (!o?.use || o.use.kind === 'calendar' || o.use.kind === 'meetings' || o.use.kind === 'achievements' || o.use.kind === 'link' || o.use.kind === 'jukebox' || o.use.kind === 'records' || goingOut(u) || u.instance || u.presence === 'offline' || (o.use.kind === 'arcade' && u.bot)) return;
     const item = o.use.kind === 'take' ? o.use.items.find(i => i.id === itemId) ?? o.use.items[0] : null;
     this.setFollowing(u, null);
     clearTimeout(this.errands.get(u.id));
@@ -333,9 +351,22 @@ export class World {
     for (const s of besideObject(this.map, o)) {
       const mine = s.x === here.x && s.y === here.y;
       if (!mine && occ.has(`${s.x},${s.y}`)) continue;
-      const len = mine ? 0 : findPath(this.map, here, s).length;
+      const len = mine ? 0 : (o.use.kind === 'arcade' ? pathTo(this.map, here, s) : findPath(this.map, here, s)).length;
       if (!mine && !len) continue;
       if (!best || len < best.len) best = { spot: s, len };
+    }
+    if (!best && o.use.kind === 'arcade') {
+      const room = roomAt(this.map, o.x, o.y), candidates: Spot[] = [];
+      if (room) for (let y = room.rect.y; y < room.rect.y + room.rect.h; y++) for (let x = room.rect.x; x < room.rect.x + room.rect.w; x++) {
+        if (isWalkable(this.map, x, y)) candidates.push({ x, y, dir: dirBetween({ x, y }, { x: o.x, y: o.y + o.h }) });
+      }
+      const distance = (s: Spot) => Math.abs(s.x - o.x) + Math.abs(s.y - o.y - o.h);
+      candidates.sort((a, b) => distance(a) - distance(b) || a.y - b.y || a.x - b.x);
+      for (const spot of candidates) {
+        if (occ.has(`${spot.x},${spot.y}`) && (spot.x !== here.x || spot.y !== here.y)) continue;
+        const len = pathTo(this.map, here, spot).length;
+        if (len) { best = { spot, len }; break; }
+      }
     }
     if (!best) return; // crowded: nowhere to stand
     const spot = best.spot;
@@ -343,10 +374,13 @@ export class World {
     this.errands.set(u.id, setTimeout(() => {
       this.errands.delete(u.id);
       const d = this.position(u).dest;
-      if (d.x !== spot.x || d.y !== spot.y) return; // wandered off on the way
+      if (d.x !== spot.x || d.y !== spot.y || u.presence === 'offline' || goingOut(u) || u.instance) return; // wandered off on the way
+      const current = this.map.objects.find(it => it.id === objectId);
+      if (!current?.use || current.use.kind !== o.use!.kind) return;
+      if (current.use.kind === 'arcade') { if (!u.bot && this.sockets.get(u.id)?.size) this.arcade.join(u, current.id); return; }
       if (o.use!.kind === 'toggle') this.setObject(o.id, !this.objectOn.get(o.id), u);
       else if (item) this.setHolding(u, item.id, o.id);
-    }, Math.max(0, at - Date.now()) + USE_MS[o.use.kind]));
+    }, Math.max(0, at - Date.now()) + (o.use.kind === 'arcade' ? 0 : USE_MS[o.use.kind])));
   }
   private objectState(id: string) { return { on: this.objectOn.get(id) ?? true }; }
   private setObject(id: string, on: boolean, by: User) {
@@ -628,6 +662,7 @@ export class World {
     }
     const spot = seats[0] ?? floor[Math.floor(Math.random() * floor.length)];
     if (!spot) return;
+    this.arcade.leave(u);
     inst.members.add(u.id);
     u.instance = inst.id;
     this.place(u, spot);
@@ -797,7 +832,7 @@ export class World {
     const out = { objects: [...saved.objects], rugs: saved.rugs };
     for (const o of this.baseLayout.objects) {
       if (!KEEP_TYPES.has(o.type)) continue;
-      const i = out.objects.findIndex(s => s.type === o.type), have = i >= 0 ? out.objects[i] : undefined;
+      const i = out.objects.findIndex(s => o.type === 'arcade' ? s.id === o.id : s.type === o.type), have = i >= 0 ? out.objects[i] : undefined;
       if (have && !!have.wall === !!o.wall && have.w === o.w && have.h === o.h) { out.objects[i] = { ...structuredClone(o), id: have.id, x: have.x, y: have.y }; continue; }
       const next = { ...out, objects: [...out.objects.filter((_, j) => j !== i), structuredClone(o)] };
       const problem = layoutProblem(withLayout(this.map, next), false);
@@ -974,6 +1009,10 @@ export class World {
   handle(u: User, msg: ClientMsg, socket: string) {
     if (!this.sockets.get(u.id)?.has(socket)) return;
     if (msg.t === 'voice_claim') { this.setOwner(u.id, socket); return; }
+    if (typeof msg.t === 'string' && msg.t.startsWith('game_')) {
+      if (this.owners.get(u.id) === socket) this.arcade.handle(u, msg);
+      return;
+    }
     if (['rtc', 'speaking', 'mute', 'deafen', 'hand'].includes(msg.t) && this.owners.get(u.id) !== socket) return;
     switch (msg.t) {
       case 'move': {
@@ -1119,6 +1158,7 @@ export class World {
       }),
       objects: Object.fromEntries(this.objectOn),
       jukebox: Object.fromEntries([...this.jukeboxes].map(([id, j]) => [id, j.dump()])),
+      arcade: this.arcade.dump(),
       layout: this.layoutEdited ? this.layout() : undefined,
       chats: Object.fromEntries(this.chats),
     };
@@ -1137,7 +1177,7 @@ export class World {
         if (!covers(r)) return true;
         console.warn(`saved ${r.color} rug dropped: covers the hole or hatch`); return false;
       });
-      const layout = this.withNewFixtures({ objects, rugs });
+      const layout = this.withNewFixtures(migrateEastWing({ objects, rugs }, this.baseLayout));
       const problem = layoutProblem(withLayout(this.map, layout), false);
       if (problem) console.warn(`saved layout dropped: ${problem}`);
       else {
@@ -1151,9 +1191,10 @@ export class World {
       const tile = this.inDungeon(d.tile) ? this.dungeonExit(false) : isWalkable(this.map, d.tile.x, d.tile.y) || seatAt(this.map, d.tile.x, d.tile.y) ? d.tile : { ...this.map.spawn };
       const legacy = lookFor(d.name);
       const look = { ...legacy, ...d.look, eyes: d.look?.eyes ?? legacy.eyes, shoes: d.look?.shoes ?? legacy.shoes, top: d.look?.top ?? 0, bottom: d.look?.bottom ?? 0, glasses: d.look?.glasses ?? 0, hat: d.look?.hat ?? 0, glassesColor: d.look?.glassesColor ?? legacy.glassesColor, hatColor: d.look?.hatColor ?? legacy.hatColor };
-      this.users.set(d.id, { ...d, look, lookSet: d.lookSet ?? false, homeDesk: d.homeDesk ?? null, plant: d.plant ?? null, bloomed: d.bloomed ?? [], achievements: d.achievements ?? {}, tile, move: null, path: null, emote: null, door: null, callId: null, deafened: false, hand: false, muted: false, following: null, holding: null, meeting: null, instance: null, presence: d.bot ? d.presence : 'offline' });
+      this.users.set(d.id, { ...d, look, lookSet: d.lookSet ?? false, homeDesk: d.homeDesk ?? null, plant: d.plant ?? null, bloomed: d.bloomed ?? [], achievements: d.achievements ?? {}, tile, move: null, path: null, emote: null, door: null, callId: null, deafened: false, hand: false, muted: false, following: null, holding: null, meeting: null, instance: null, game: null, presence: d.bot ? d.presence : 'offline' });
     }
     for (const [id, on] of Object.entries(data.objects ?? {})) if (this.objectOn.has(id)) this.objectOn.set(id, !!on);
+    this.arcade.load(data.arcade);
     const now = Date.now();
     for (const [id, saved] of Object.entries(data.jukebox ?? {})) if (this.jukeboxes.has(id)) this.jukeboxes.set(id, Jukebox.load(TRACKS, saved, now));
     for (const [key, msgs] of Object.entries(data.chats ?? {})) this.chats.set(key, msgs);

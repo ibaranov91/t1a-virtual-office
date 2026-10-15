@@ -2,7 +2,7 @@
 // Layers are 2D arrays of indices into `tiles` (atlas frame names); 0 = nothing.
 // Run: npm run gen (it needs tsx, for the shared layout code)
 import { writeFileSync } from 'node:fs';
-import { applyLayout, findPath, isWalkable, layoutProblem, roomAt } from '../shared/map.ts';
+import { applyLayout, besideObject, findPath, isWalkable, layoutProblem, roomAt } from '../shared/map.ts';
 
 const W = 65, OFFICE_H = 34;
 const dungeonRect = { x: 17, y: OFFICE_H + 2, w: 31, h: 19 };
@@ -54,10 +54,14 @@ const rooms = [
     floor: 'wood', rug: 'blue', homeDesks: true,
     rules: { knock: 'allow', label: 'knock to talk' },
     meeting: { provider: 'meet', url: 'https://meet.google.com/new' } },
-  // music room at the east end, full height: the jukebox plays here so the rest of the office stays quiet
-  { id: 'music', name: 'Music', type: 'music', rect: { x: 54, y: 3, w: 10, h: 20 }, capacity: 12,
+  // Music above the Arcade: reached through the new divider door
+  { id: 'music', name: 'Music', type: 'music', rect: { x: 54, y: 3, w: 10, h: 8 }, capacity: 12,
     floor: 'wood_dark', rug: 'orange',
     rules: { knock: 'allow', label: 'jukebox · knock to talk' },
+    meeting: { provider: 'meet', url: 'https://meet.google.com/new' } },
+  { id: 'arcade', name: 'Arcade', type: 'arcade', rect: { x: 54, y: 13, w: 10, h: 10 }, capacity: 12,
+    floor: 'wood_dark', rug: 'teal',
+    rules: { voice: 'open', knock: 'allow', label: 'arcade · open voice · walk in to talk' },
     meeting: { provider: 'meet', url: 'https://meet.google.com/new' } },
   // south of the building: a glasshouse where plants of people without a home desk stand, and the garden
   { id: 'orangery', name: 'Orangery', type: 'orangery', rect: { x: 1, y: 25, w: 14, h: 8 }, capacity: 12,
@@ -90,9 +94,9 @@ for (let y = 0; y < OFFICE_H; y++) { setWall(0, y, CAP); setWall(W - 1, y, CAP);
 // tall back wall (2 rows of face)
 for (let x = 1; x < W - 1; x++) { setWall(x, 1, 'wall_face_top'); setWall(x, 2, 'wall_face_bottom'); }
 // horizontal divider: cap row 11, short face row 12, with doors
-const hDoors = [6, 7, 19, 20, 32, 33, 46, 47];
+const hDoors = [6, 7, 19, 20, 32, 33, 46, 47, 58, 59];
 for (let x = 1; x < W - 1; x++) {
-  if (hDoors.includes(x) || x >= 54) continue; // the music room runs the full height
+  if (hDoors.includes(x)) continue;
   setWall(x, 11, CAP); setWall(x, 12, 'wall_face_short');
 }
 // vertical dividers
@@ -253,7 +257,12 @@ obj('bookshelf', 47, 22, 2, 1);
 for (const wx of [55, 60]) obj('window', wx, 1, 2, 2, { wall: true });
 obj('plant', 54, 3, 1, 1);
 obj('plant', 63, 3, 1, 1);
-for (const tx of [56, 61]) { obj('table_round', tx, 13); obj('stool', tx - 1, 13, 1, 1, { walkable: true }); obj('stool', tx + 1, 13, 1, 1, { walkable: true }); }
+// Six replacements for the tables/stools: keep every later object id stable.
+for (const x of [54, 56, 61]) obj('arcade', x, 13, 1, 2, { use: { kind: 'arcade', label: 'Deck Park', game: 'park' } });
+obj('records', 62, 12, 2, 1, { wall: true, use: { kind: 'records', label: 'records' } });
+obj('plant', 63, 20);
+obj('painting_small', 55, 12, 1, 1, { wall: true }); // padding for the sixth old object
+rug('teal', 56, 16, 6, 3);
 obj('sofa', 55, 21, 3, 1, { sit: true, dir: 'down' });
 obj('sofa', 60, 21, 3, 1, { sit: true, dir: 'down' });
 obj('lamp', 54, 22, 1, 1, LAMP);
@@ -282,6 +291,7 @@ stand('cowork', [[25, 17, 'down'], [31, 18, 'down'], [36, 13, 'down']]);
 stand('studio', [[46, 7, 'down']]);
 stand('desks', [[42, 17, 'right'], [50, 18, 'left']]);
 stand('music', [[57, 7, 'up'], [60, 8, 'up'], [58, 10, 'up']]);
+stand('arcade', [[55, 16, 'up'], [61, 16, 'up'], [58, 19, 'up']]);
 stand('orangery', [[7, 27, 'down'], [8, 29, 'down'], [7, 31, 'down']]);
 stand('garden', [[42, 29, 'down'], [43, 29, 'down'], [31, 27, 'left'], [56, 28, 'down'], [20, 28, 'down']]);
 
@@ -387,5 +397,7 @@ for (const k of ['hole', 'hatch']) {
 }
 const problem = layoutProblem(map);
 if (problem) throw new Error(problem);
+for (const o of objects) if (o.use?.kind === 'arcade' && !besideObject(map, o).some(t => findPath(map, map.spawn, t).length)) throw new Error(`unreachable cabinet ${o.id}`);
+for (const x of [58, 59]) if (!findPath(map, map.spawn, { x, y: 11 }).length) throw new Error('Music door is unreachable');
 writeFileSync(new URL('../shared/tilemap.json', import.meta.url), JSON.stringify(map));
 console.log(`tilemap: ${W}x${H}, ${tiles.length - 1} tile kinds, ${objects.length} objects, ${rugs.length} rugs, ${rooms.reduce((n, r) => n + r.spots.length, 0)} spots`);

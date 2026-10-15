@@ -249,7 +249,10 @@ wss.on('connection', (ws, req) => {
   if (!user) { ws.close(4001, 'unauthorized'); return; }
   const { socket, close } = world.connect(user.id, msg => { if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(msg)); });
   ws.on('message', raw => {
-    try { world.handle(user, JSON.parse(String(raw)) as ClientMsg, socket); } catch (e) { console.warn('bad message', e); }
+    try {
+      const msg: unknown = JSON.parse(String(raw));
+      if (msg && typeof msg === 'object' && 't' in msg && typeof msg.t === 'string') world.handle(user, msg as ClientMsg, socket);
+    } catch (e) { console.warn('bad message', e); }
   });
   ws.on('close', close);
 });

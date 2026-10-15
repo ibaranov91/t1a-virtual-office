@@ -23,6 +23,7 @@ export interface UseItem { id: string; label: string; icon: string }
 /** What clicking an object offers: take something from it, flip it on/off, or look at your calendar on it. */
 export type ObjectUse = { kind: 'take'; items: UseItem[] } | { kind: 'toggle'; label: string } | { kind: 'calendar'; label: string }
   | { kind: 'jukebox'; label: string }
+  | { kind: 'arcade'; label: string; game: 'park' } | { kind: 'records'; label: string }
   | { kind: 'meetings'; label: string } // the board by the Meeting room: which calendar meetings are on
   | { kind: 'achievements'; label: string } // the Lobby notice board: your plant and your badges
   | { kind: 'link'; label: string; url: string }; // opens a page in a new tab (the safe: the vault)
@@ -311,7 +312,7 @@ export function layoutProblem(m: TileMap, checkDungeonReach = true): string | nu
     if (!ok({ x: s.x + step.x, y: s.y + step.y })) return `that cuts off a seat in ${r.name}`;
   }
   // you walk over to these to use them (the calendars and boards just open)
-  for (const o of m.objects) if ((o.use?.kind === 'take' || o.use?.kind === 'toggle') && !besideObject(m, o).some(ok)) return `nobody could reach the ${objectName(o.type)}`;
+  for (const o of m.objects) if ((o.use?.kind === 'take' || o.use?.kind === 'toggle' || o.use?.kind === 'arcade') && !besideObject(m, o).some(ok)) return `nobody could reach the ${objectName(o.type)}`;
   return null;
 }
 
@@ -320,7 +321,7 @@ export const objectName = (type: string) => ({ table_long: 'long table', table_b
   painting_small: 'small painting', coffee_machine: 'coffee machine', meetings_board: 'meetings board', noticeboard: 'notice board', exit_door: 'exit door' } as Record<string, string>)[type] ?? type.replace(/_/g, ' ');
 
 /** Types that are one of a kind (the way out, the coffee machine…): they can be moved but not removed. */
-export const KEEP_TYPES = new Set(['exit_door', 'coffee_machine', 'fridge', 'jukebox', 'meetings_board', 'noticeboard', 'safe']);
+export const KEEP_TYPES = new Set(['exit_door', 'coffee_machine', 'fridge', 'jukebox', 'arcade', 'records', 'meetings_board', 'noticeboard', 'safe']);
 /** Types that stay exactly where they are. */
 export const FIXED_TYPES = new Set(['exit_door']);
 export const RUG_MIN = 2, RUG_MAX = 24;
@@ -374,4 +375,16 @@ export function withLayout(m: TileMap, l: Layout): TileMap {
   const copy: TileMap = { ...m, layers: { ...m.layers }, rooms: m.rooms.map(r => ({ ...r })) };
   applyLayout(copy, structuredClone(l));
   return copy;
+}
+
+/** Replace the old east wing once, including fixtures moved across its boundary by an admin. */
+export function migrateEastWing(saved: Layout, base: Layout): Layout {
+  if (saved.objects.some(o => o.type === 'arcade')) return saved;
+  const touches = (o: { x: number; y: number; w: number; h: number }) => o.x < 64 && o.x + o.w > 54 && o.y < 23 && o.y + o.h > 3;
+  const objects = base.objects.filter(touches), rugs = base.rugs.filter(touches);
+  const ids = new Set([...objects, ...rugs].map(o => o.id));
+  return {
+    objects: [...saved.objects.filter(o => !touches(o) && !ids.has(o.id)), ...structuredClone(objects)],
+    rugs: [...saved.rugs.filter(o => !touches(o) && !ids.has(o.id)), ...structuredClone(rugs)],
+  };
 }

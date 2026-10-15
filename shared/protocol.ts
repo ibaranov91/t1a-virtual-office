@@ -1,3 +1,11 @@
+import type { GameRole, ParkIncoming, ParkOutgoing } from './park/types';
+export { PARK_FPS, PARK_INPUT_DELAY, PARK_SERVER_LAG, PARK_SPECTATOR_DELAY, PARK_MAX_PLAYERS } from './park/types';
+export type { GameRole, GameEvent, GameMember, GameClear, PublicSession } from './park/types';
+
+export interface ParkRecord { frames: number; coins: number; names: string[]; at: number }
+export type ParkRecords = Record<number, Partial<Record<1 | 2 | 3 | 4, ParkRecord>>>;
+export interface CabinetSummary { cabinet: string; phase: 'lobby' | 'level' | 'clear'; level: number; players: string[]; spectators: number }
+
 import type { Dir, Layout, Move, Tile } from './map';
 
 export const JUKEBOX_QUEUE_MAX = 20;
@@ -86,6 +94,7 @@ export interface PublicUser {
   presence: Presence; status: string; emote: Emote; bot: boolean; door: Door;
   homeDesk: Tile | null;
   callId: string | null;
+  game: { cabinet: string; role: GameRole } | null;
   deafened: boolean; hand: boolean;
   muted: boolean;        // mic muted in that call
   following: string | null; // walks along with this person
@@ -142,6 +151,11 @@ export type LayoutEdit =
 
 // server -> client
 export type ServerMsg =
+  | ParkIncoming
+  | { t: 'game_status'; userId: string; game: PublicUser['game'] }
+  | { t: 'game_cheer'; userId: string; kind: number }
+  | { t: 'arcade'; cabinets: CabinetSummary[] }
+  | { t: 'arcade_records'; records: ParkRecords }
   // the furniture and rugs: on connect, and to everyone after each admin edit. by: who made it; added: a new thing's id
   | { t: 'layout'; layout: Layout; by?: string; added?: string }
   | { t: 'hello'; you: string; serverTime: number; build?: string } // build: the client bundle the server serves (absent in dev)
@@ -187,6 +201,11 @@ export type ServerMsg =
 
 // client -> server
 export type ClientMsg =
+  | ParkOutgoing
+  | { t: 'game_play'; epoch: number }
+  | { t: 'game_leave' }
+  | { t: 'game_menu'; epoch: number; op: 'lobby' | 'restart' }
+  | { t: 'game_cheer'; kind: 0 | 1 | 2 }
   | ({ t: 'jukebox'; objectId: string } & JukeboxAction)
   | { t: 'move'; to: Tile }
   | { t: 'status'; status: string }
