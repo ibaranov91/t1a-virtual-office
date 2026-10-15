@@ -1,11 +1,11 @@
 import type { Dir, Move, Tile } from './map';
 
 export const ROOM_VOICE_MAX = 12;
-export const EARSHOT_TILES = 5;
+export const ZONE_IN_TILES = 6;
+export const ZONE_OUT_TILES = 7;
 export const AFK_MS = 10 * 60_000;
-export type CallRole = 'member' | 'listener';
-/** A map object's shared state. volume: only for objects with a sound — one knob everybody hears (0..1). */
-export interface ObjectState { on: boolean; volume?: number }
+/** A toggle object's shared state. */
+export interface ObjectState { on: boolean }
 
 export type Presence = 'online' | 'away' | 'in_call' | 'offline';
 export type Emote = 'knock' | null;
@@ -42,7 +42,7 @@ export interface PublicUser {
   presence: Presence; status: string; emote: Emote; bot: boolean; door: Door;
   homeDesk: Tile | null;
   callId: string | null;
-  callRole: CallRole | null; deafened: boolean; hand: boolean;
+  deafened: boolean; hand: boolean;
   muted: boolean;        // mic muted in that call
   following: string | null; // walks along with this person
   holding: string | null;   // a UseItem id (coffee, snack…) in hand for a while
@@ -106,14 +106,14 @@ export type ServerMsg =
   | { t: 'instance'; userId: string; instance: string | null; tile: Tile; dir: Dir } // stepped into (or out of) a meeting room
   | { t: 'meetings'; rooms: MeetingRoomInfo[] } // running meeting rooms, for the board
   | { t: 'desk'; userId: string; desk: Tile | null }
-  | { t: 'call'; userId: string; callId: string | null; role?: CallRole; link?: string } // link: the call's Meet room, only to members
+  | { t: 'call'; userId: string; callId: string | null; link?: string } // link: the call's Meet room, only to members
   | { t: 'rtc'; from: string; signal: RtcSignal }
   | { t: 'speaking'; userId: string; on: boolean }
   | { t: 'mute'; userId: string; muted: boolean }
   | { t: 'to_meet'; fromId: string } // someone in your call opened its Meet room; come along
   | { t: 'follow'; userId: string; targetId: string | null }
   | { t: 'holding'; userId: string; item: string | null; objectId?: string; fromId?: string } // objectId: just taken; fromId: handed over
-  | { t: 'object'; id: string; on: boolean; volume?: number; by: string }
+  | { t: 'object'; id: string; on: boolean; by: string }
   | { t: 'react'; fromId: string; toId: string; emoji: Reaction }
   | { t: 'chat'; msg: ChatMsg }
   | { t: 'chat_history'; withId: string; messages: ChatMsg[] }
@@ -154,5 +154,4 @@ export type ClientMsg =
   | { t: 'deafen'; on: boolean }
   | { t: 'hand'; up: boolean }
   | { t: 'leave_room' }
-  | { t: 'voice_claim' }
-  | { t: 'object_volume'; id: string; volume: number } // a sound object's shared volume knob (the radio); only standing next to it;
+  | { t: 'voice_claim' };

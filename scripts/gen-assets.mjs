@@ -407,7 +407,7 @@ for (const n of [1, 2]) {
   const t = new Img(16, 16); // meetings board: a slate sign with names chalked on, a lit "in use" dot
   t.rect(2, 3, 12, 10, '#a86c3a'); t.rect(3, 4, 10, 8, '#3a4048');
   t.hline(4, 6, 5, '#e8e0d0'); t.hline(4, 8, 7, '#c8c0b0'); t.hline(4, 10, 4, '#c8c0b0');
-  t.px(11, 5, '#7cc87c'); t.px(11, 6, '#5fa85f');
+  t.px(11, 5, '#8c8a98'); t.px(11, 6, '#6e6c7a'); // a lamp the client lights with a badge when meetings are on
   frames.meetings_board = t.outline();
 }
 {

@@ -1,15 +1,15 @@
-import { field, reverbImpulse, soundModel } from '../../shared/acoustics';
+import { field, hallLevel, hallVoiceGain, reverbImpulse, soundModel } from '../../shared/acoustics';
 import { roomAt, type Room, type Tile } from '../../shared/map';
-import { audio, output, subscribeAudio } from './audio';
+import { audio, categoryOutput, subscribeAudio } from './audio';
 import { MAP, type Store } from './net';
-import { prefs, volumeFor } from './prefs';
+import { prefs, subscribePrefs, volumeFor, type Category } from './prefs';
 import { playJoin, playLeave } from './sounds';
 
 type Level = { id: string; gain: number; pan: number; cutoff: number; send: number };
 type Clip = { buffer: AudioBuffer };
 interface Source {
   input: AudioNode; low: BiquadFilterNode; dry: GainNode; pan: StereoPannerNode; send: GainNode;
-  bus: ConvolverNode | null; clipGain: number; tile?: Tile; clip?: Clip; loop?: AudioBufferSourceNode;
+  bus: ConvolverNode | null; category: 'voice' | 'music'; clipGain: number; tile?: Tile; clip?: Clip; loop?: AudioBufferSourceNode;
   level: Level;
 }
 const clips = new Map<string, Promise<Clip>>();
@@ -29,6 +29,7 @@ export class Soundscape {
   private admitted = new Map<string, Set<string>>();
   private timer: number;
   private unsub: () => void;
+  private unsubPrefs: () => void;
   private running = false;
   private offset: number;
   private dead = false;
@@ -43,6 +44,7 @@ export class Soundscape {
       if (running && !this.running) this.restartLoops();
       this.running = running; store.changed();
     });
+    this.unsubPrefs = subscribePrefs(() => { this.update(); store.changed(); });
     this.running = audio().state === 'running';
     this.timer = window.setInterval(() => this.update(), 100);
     this.update();
@@ -62,7 +64,7 @@ export class Soundscape {
     this.sources.delete(id);
   }
   destroy() {
-    this.dead = true; clearInterval(this.timer); this.unsub();
+    this.dead = true; clearInterval(this.timer); this.unsub(); this.unsubPrefs();
     for (const id of [...this.sources.keys()]) this.remove(id);
     for (const b of this.buses.values()) b.disconnect();
     this.buses.clear();
@@ -72,18 +74,19 @@ export class Soundscape {
   private add(id: string, input: AudioNode, clipGain: number, tile?: Tile) {
     const c = audio(), low = c.createBiquadFilter(), dry = c.createGain(), pan = c.createStereoPanner(), send = c.createGain();
     low.type = 'lowpass'; low.frequency.value = 20000; dry.gain.value = 0; send.gain.value = 0;
-    input.connect(low); low.connect(dry).connect(pan).connect(output()); low.connect(send);
-    const s: Source = { input, low, dry, pan, send, bus: null, clipGain, tile,
+    const category = tile ? 'music' : 'voice';
+    input.connect(low); low.connect(dry).connect(pan).connect(categoryOutput(category)); low.connect(send);
+    const s: Source = { input, low, dry, pan, send, bus: null, category, clipGain, tile,
       level: { id, gain: 0, pan: 0, cutoff: 20000, send: 0 } };
     this.sources.set(id, s); return s;
   }
-  private bus(room?: Room) {
-    const key = room?.id ?? 'hallway';
+  private bus(category: Category, room?: Room) {
+    const key = `${category}:${room?.id ?? 'hallway'}`;
     if (!this.buses.has(key)) {
       const c = audio(), impulse = reverbImpulse(room ?? null, c.sampleRate);
       const buffer = c.createBuffer(2, impulse[0].length, c.sampleRate);
       buffer.getChannelData(0).set(impulse[0]); buffer.getChannelData(1).set(impulse[1]);
-      const bus = c.createConvolver(); bus.buffer = buffer; bus.connect(output()); this.buses.set(key, bus);
+      const bus = c.createConvolver(); bus.buffer = buffer; bus.connect(categoryOutput(category)); this.buses.set(key, bus);
     }
     return this.buses.get(key)!;
   }
@@ -97,7 +100,7 @@ export class Soundscape {
   private restartLoops() { for (const s of this.sources.values()) if (s.clip) this.startLoop(s); }
   private emitters() {
     const wanted = new Map<string, { clip: string; gain: number; tile?: Tile }>();
-    for (const o of MAP.objects) if (o.sound && (this.store.objects[o.id]?.on ?? o.on ?? true)) wanted.set(`obj:${o.id}`, { ...o.sound, tile: { x: o.x, y: o.y } });
+    for (const o of MAP.objects) if (o.sound) wanted.set(`obj:${o.id}`, { ...o.sound, tile: { x: o.x, y: o.y } });
     for (const [id, s] of this.sources) if (s.clip && !wanted.has(id)) this.remove(id);
     for (const [id, e] of wanted) {
       if (this.sources.has(id) || this.loading.has(id)) continue;
@@ -121,19 +124,20 @@ export class Soundscape {
     for (const [id, s] of this.sources) {
       const u = this.store.users.get(id), p = s.tile ? { ...s.tile, tile: s.tile } : u ? this.store.pose(u) : null;
       if (!p) continue;
-      const flags = s.clip ? {} : { room, sourceMember: !!room && u?.callId === me.callId && u?.callRole === 'member',
-        listener: me.callRole === 'listener', knock: !!me.callId && !room && u?.callId === me.callId };
-      // a sound object's level is its shared knob (everyone hears the same radio); you can only mute it for yourself
-      const knob = s.tile ? this.store.objects[id.slice(4)]?.volume ?? s.clipGain : s.clipGain;
-      const model = soundModel(MAP, distances, pose, p, flags), v = (s.tile ? (prefs.localMuted[id] ? 0 : 1) : volumeFor(id)) * knob;
-      s.level = { id, gain: model.gain * v, pan: model.pan, cutoff: model.cutoff, send: model.send * v };
-      const bus = this.bus(roomAt(MAP, p.tile.x, p.tile.y));
+      const hall = !s.clip && room && u?.callId === me.callId ? room : undefined;
+      const model = soundModel(MAP, distances, pose, p, { room: hall, sourceMember: !!hall,
+        knock: !s.clip && !!me.callId && !room && u?.callId === me.callId });
+      const zone = hall ? hallLevel(MAP, hall, pose.tile) * hallLevel(MAP, hall, p.tile) : 1;
+      const gain = hall ? hallVoiceGain(MAP, hall, pose, p) : model.gain;
+      const v = s.clipGain * (s.clip ? 1 : volumeFor(id)), mix = prefs.mix[s.category];
+      s.level = { id, gain: gain * v * mix, pan: model.pan, cutoff: model.cutoff, send: model.send * zone * v * mix };
+      const bus = this.bus(s.category, roomAt(MAP, p.tile.x, p.tile.y));
       if (s.bus !== bus) { s.send.disconnect(); s.send.connect(bus); s.bus = bus; }
-      s.dry.gain.setTargetAtTime(s.level.gain, c.currentTime, .08);
-      s.send.gain.setTargetAtTime(s.level.send, c.currentTime, .08);
+      s.dry.gain.setTargetAtTime(gain * v, c.currentTime, .08);
+      s.send.gain.setTargetAtTime(model.send * zone * v, c.currentTime, .08);
       s.pan.pan.setTargetAtTime(model.pan, c.currentTime, .08);
       s.low.frequency.setTargetAtTime(model.cutoff, c.currentTime, .08);
-      if (model.gain > 0) audible = true;
+      if (gain > 0) audible = true;
     }
     if (this.audible !== audible) { this.audible = audible; this.store.changed(); }
     this.crossings();
@@ -142,12 +146,12 @@ export class Soundscape {
   resetAdmitted() {
     this.admitted.clear();
     for (const r of MAP.rooms.filter(r => r.rules.voice === 'open')) {
-      this.admitted.set(r.id, new Set([...this.store.users.values()].filter(u => u.callId === `room:${r.id}` && u.callRole === 'member' && this.store.roomOf(u)?.id === r.id).map(u => u.id)));
+      this.admitted.set(r.id, new Set([...this.store.users.values()].filter(u => u.callId === `room:${r.id}` && this.store.roomOf(u)?.id === r.id).map(u => u.id)));
     }
   }
   private crossings() {
     const me = this.store.users.get(this.store.me), room = this.store.roomCallOf(me);
-    const hear = me?.callRole === 'member' && room && this.store.roomOf(me)?.id === room.id;
+    const hear = me && room && this.store.roomOf(me)?.id === room.id;
     for (const r of MAP.rooms.filter(r => r.rules.voice === 'open')) {
       const set = this.admitted.get(r.id) ?? new Set<string>(); this.admitted.set(r.id, set);
       for (const id of [...set]) {
@@ -157,7 +161,7 @@ export class Soundscape {
         }
       }
       for (const u of this.store.users.values()) {
-        if (u.callId !== `room:${r.id}` || u.callRole !== 'member' || u.presence === 'offline' || this.store.roomOf(u)?.id !== r.id || set.has(u.id)) continue;
+        if (u.callId !== `room:${r.id}` || u.presence === 'offline' || this.store.roomOf(u)?.id !== r.id || set.has(u.id)) continue;
         set.add(u.id); if (hear && room.id === r.id) this.atDoor(r, playJoin);
       }
     }
@@ -172,6 +176,6 @@ export class Soundscape {
     if (!tile) return;
     const pose = this.store.pose(me), p = audio().createStereoPanner();
     p.pan.value = soundModel(MAP, field(MAP, pose.tile), pose, { ...tile, tile }).pan;
-    p.connect(output()); play(p); window.setTimeout(() => p.disconnect(), 1000);
+    p.connect(categoryOutput('effects')); play(p); window.setTimeout(() => p.disconnect(), 1000);
   }
 }

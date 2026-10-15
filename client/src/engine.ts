@@ -52,6 +52,7 @@ export class Engine {
   private hoverUser: string | null = null;
   private hoverObject: MapObject | null = null;
   private interactive: MapObject[];
+  private boards: MapObject[]; // meetings boards: a badge when meetings are on
   /** The wheel's target, ringed on the floor. */
   selected: Pick | null = null;
   onPick?: (p: Pick | null) => void;
@@ -72,7 +73,8 @@ export class Engine {
     this.dynamicObjects = MAP.objects.filter(o => !o.wall && !o.walkable);
     this.lights = MAP.objects.filter(o => o.light);
     this.steamers = MAP.objects.filter(o => o.steam);
-    this.interactive = MAP.objects.filter(o => o.use || o.sit);
+    this.interactive = MAP.objects.filter(o => o.use || o.sit || o.sound);
+    this.boards = MAP.objects.filter(o => o.use?.kind === 'meetings');
     this.ro = new ResizeObserver(() => this.resize());
     this.ro.observe(canvas.parentElement!);
     this.resize();
@@ -383,6 +385,7 @@ export class Engine {
     const inside = this.myInstance();
     const obj = inside ? null : this.objectAt(w.x, w.y);
     if (obj?.sit) { this.onPick?.(null); this.manualCam = false; return this.store.moveTo(this.freeSeat(obj, Math.floor(w.x / TS))); }
+    if (obj?.sound) return this.onPick?.(null);
     if (obj) return this.onPick?.({ kind: 'object', id: obj.id });
     this.onPick?.(null);
     const tx = Math.floor(w.x / TS), ty = Math.floor(w.y / TS);
@@ -470,12 +473,14 @@ export class Engine {
       if (o && !(coffeeBusy && o.steam)) this.drawSteam(o, ms);
     }
 
-    for (const o of MAP.objects.filter(o => o.sound && this.isOn(o))) for (let i = 0; i < 3; i++) {
+    for (const o of MAP.objects.filter(o => o.sound)) for (let i = 0; i < 3; i++) {
       const phase = (ms / 2200 + i / 3) % 1;
       ctx.globalAlpha = 1 - phase;
       this.blit(ctx, i % 2 ? 'note_1' : 'note_2', o.x * TS + 5 + Math.round(Math.sin(phase * 6 + i) * 4), o.y * TS - Math.round(phase * 18));
     }
     ctx.globalAlpha = 1;
+
+    if (!me?.instance) this.drawBoardBadges(ctx, ms);
 
     // a meeting's own room: the rest of the office fades away
     if (me?.instance) {
@@ -493,14 +498,21 @@ export class Engine {
 
     this.drawAmbient(ctx, camX, camY);
     if (this.overview && !me?.instance) this.drawRoomTags(users, poses, camX, camY);
+    // one of my meetings is on: say so over the board, readable at any zoom
+    const goable = me && !me.instance && this.hoverObject?.use?.kind !== 'meetings'
+      ? this.store.agenda.find(a => a.start - 10 * 60_000 <= this.store.now() && a.end > this.store.now()) : undefined;
+    if (goable) for (const o of this.boards) {
+      const title = goable.title.length > 22 ? `${goable.title.slice(0, 21)}…` : goable.title;
+      this.drawLabel(`📅 ${title} · click to go`, (o.x + 0.5) * TS, o.y * TS - 6 - Math.round((Math.sin(ms / 220) + 1)), camX, camY);
+    }
 
     // hover tooltip in screen space
     if (this.tapZooms) { /* overview: room tags only */ }
     else if (this.hoverUser) this.drawTooltip(this.hoverUser, poses, camX, camY);
     else if (this.hoverObject && !this.selected) {
       const o = this.hoverObject, fr = this.f(o.type)!;
-      const what = o.use?.kind === 'toggle' ? `${o.use.label[0].toUpperCase()}${o.use.label.slice(1)} · ${this.isOn(o) ? 'on' : 'off'}`
-        : o.use?.kind === 'calendar' ? 'Calendar · your week' : o.use?.kind === 'meetings' ? 'Meetings · who\'s in which' : o.sit ? 'Sofa · click to sit' : o.type === 'coffee_machine' ? 'Coffee machine' : o.type === 'fridge' ? 'Fridge' : o.type;
+      const what = o.sound ? 'Radio · music volume in ⚙' : o.use?.kind === 'toggle' ? `${o.use.label[0].toUpperCase()}${o.use.label.slice(1)} · ${this.isOn(o) ? 'on' : 'off'}`
+        : o.use?.kind === 'calendar' ? 'Calendar · your week' : o.use?.kind === 'meetings' ? `Meetings · ${this.store.meetingRooms.length || 'none'} on now` : o.sit ? 'Sofa · click to sit' : o.type === 'coffee_machine' ? 'Coffee machine' : o.type === 'fridge' ? 'Fridge' : o.type;
       this.drawLabel(what, (o.x + o.w / 2) * TS, (o.y + o.h) * TS - fr.h + 4, camX, camY);
     }
     else if (this.hoverTile) {
@@ -567,8 +579,7 @@ export class Engine {
     if (u.door === 'thinking') return 'bubble_think';
     if (u.door === 'leaving') return null;
     if (u.emote === 'knock') return 'bubble_bang';
-    if (u.callId && u.callRole === 'member') return u.deafened ? 'bubble_deaf' : 'bubble_talk';
-    if (u.callRole === 'listener') return null;
+    if (u.callId) return u.deafened ? 'bubble_deaf' : 'bubble_talk';
     if (u.presence === 'in_call') return 'bubble_headset';
     if (u.presence === 'away') return 'bubble_zzz';
     if (!p.walking && roomAt(MAP, p.tile.x, p.tile.y)?.rules.occupantLabel) return 'bubble_meeting';
@@ -624,7 +635,7 @@ export class Engine {
 
   /** Fake turn-taking for two people on a call, from server time so every viewer sees the same conversation. */
   private isSpeaking(u: ClientUser) {
-    if (!u.callId || u.muted || u.deafened || u.callRole !== 'member') return false;
+    if (!u.callId || u.muted || u.deafened) return false;
     if (!u.bot) return !!u.speaking; // real people: their actual mic activity (voice calls)
     const members = [u, ...this.store.callPeers(u)].map(m => m.id).sort();
     const turn = Math.floor(this.store.now() / 1800); // ~1.8 s turns
@@ -721,6 +732,27 @@ export class Engine {
     ctx.restore();
   }
 
+  /** The meetings board says when something's on: a count badge, bouncing and glowing when one is yours to Go to. */
+  private drawBoardBadges(ctx: CanvasRenderingContext2D, ms: number) {
+    const count = this.store.meetingRooms.length, now = this.store.now();
+    const mine = this.store.agenda.some(a => a.start - 10 * 60_000 <= now && a.end > now);
+    if (!count && !mine) return;
+    const text = count ? String(count) : '!', color = mine ? '#f2b45a' : '#7cc87c';
+    const pulse = mine ? (Math.sin(ms / 220) + 1) / 2 : 0;
+    for (const o of this.boards) {
+      const bx = o.x * TS, by = o.y * TS;
+      if (mine) { // a soft glow around the board
+        ctx.strokeStyle = `rgba(242,180,90,${0.35 + 0.45 * pulse})`; ctx.lineWidth = 1;
+        ctx.strokeRect(bx + 0.5, by + 1.5, TS - 1, TS - 3);
+      }
+      const w = textWidth(text) + 4, h = 7;
+      const x = Math.round(bx + TS - w / 2 - 1), y = Math.round(by - 4 - (mine ? Math.round(pulse * 2) : 0));
+      ctx.fillStyle = '#3a2329'; ctx.fillRect(x - 1, y - 1, w + 2, h + 2);
+      ctx.fillStyle = color; ctx.fillRect(x, y, w, h);
+      drawText(ctx, text, x + 2, y + 1, '#2a1f24');
+    }
+  }
+
   /** Overview: each room's name and headcount on its floor, and a pin over me. */
   private drawRoomTags(users: ClientUser[], poses: Map<string, Pose>, camX: number, camY: number) {
     const count = new Map<string, number>();
@@ -753,7 +785,7 @@ export class Engine {
     const dpr = window.devicePixelRatio || 1;
     const room = roomAt(MAP, p.tile.x, p.tile.y);
     const voiceRoom = this.store.roomCallOf(u);
-    const presence = voiceRoom ? u.callRole === 'member' ? `in ${voiceRoom.name} voice` : `passing ${voiceRoom.name}` : u.door === 'thinking' ? 'packing up…' : u.door === 'leaving' ? 'heading out' : u.door === 'arriving' ? 'just arrived'
+    const presence = voiceRoom ? `in ${voiceRoom.name} voice` : u.door === 'thinking' ? 'packing up…' : u.door === 'leaving' ? 'heading out' : u.door === 'arriving' ? 'just arrived'
       : u.instance ? 'in the meeting' : u.meeting ? `in a meeting until ${this.store.clock(u.meeting)}`
       : u.callId ? `talking with ${this.store.names(this.store.callPeers(u))}` : u.presence === 'in_call' ? 'in a call' : u.presence === 'away' ? 'away' : room?.rules.occupantLabel ?? 'around';
     const lines = [`${u.name}${u.id === this.store.me ? ' (you)' : ''} · ${presence}`];

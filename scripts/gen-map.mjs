@@ -3,7 +3,7 @@
 // Run: node scripts/gen-map.mjs
 import { writeFileSync } from 'node:fs';
 
-const W = 54, H = 24;
+const W = 65, H = 24;
 const tiles = ['']; // index 0 = empty
 const tid = (name) => {
   let i = tiles.indexOf(name);
@@ -50,6 +50,11 @@ const rooms = [
     floor: 'wood', rug: 'blue', homeDesks: true,
     rules: { knock: 'allow', label: 'say hi' },
     meeting: { provider: 'meet', url: 'https://meet.google.com/new' } },
+  // music room at the east end, full height: the radio plays here so the rest of the office stays quiet
+  { id: 'music', name: 'Music', type: 'music', rect: { x: 54, y: 3, w: 10, h: 20 }, capacity: 12,
+    floor: 'wood_dark', rug: 'orange',
+    rules: { knock: 'allow', label: 'radio on' },
+    meeting: { provider: 'meet', url: 'https://meet.google.com/new' } },
 ];
 
 // ---- base floor everywhere inside the outer walls ----
@@ -74,7 +79,7 @@ for (let x = 1; x < W - 1; x++) { setWall(x, 1, 'wall_face_top'); setWall(x, 2, 
 // horizontal divider: cap row 11, short face row 12, with doors
 const hDoors = [6, 7, 19, 20, 32, 33, 46, 47];
 for (let x = 1; x < W - 1; x++) {
-  if (hDoors.includes(x)) continue;
+  if (hDoors.includes(x) || x >= 54) continue; // the music room runs the full height
   setWall(x, 11, CAP); setWall(x, 12, 'wall_face_short');
 }
 // vertical dividers
@@ -85,10 +90,12 @@ for (const vx of [13, 26]) for (let y = 1; y <= 10; y++) {
 for (let y = 12; y <= 22; y++) { if (y === 17 || y === 18) continue; setWall(15, y, CAP); }
 // east wing divider: closed to Coffee (keeps the Studio quiet), a door into Co-working
 for (let y = 1; y <= 22; y++) { if (y === 17 || y === 18) continue; setWall(39, y, CAP); }
+// music room divider: closed to the Studio, a door from Desks
+for (let y = 1; y <= 22; y++) { if (y === 17 || y === 18) continue; setWall(53, y, CAP); }
 // door thresholds get plain wood
 for (const x of hDoors) for (const y of [11, 12]) floor[y][x] = tid('door_floor');
 for (const vx of [13, 26]) for (const y of [6, 7]) floor[y][vx] = tid('door_floor');
-for (const y of [17, 18]) for (const x of [15, 39]) floor[y][x] = tid('door_floor');
+for (const y of [17, 18]) for (const x of [15, 39, 53]) floor[y][x] = tid('door_floor');
 
 // ---- rugs (9-slice into the floor layer) ----
 const rug = (color, x0, y0, w, h) => {
@@ -105,6 +112,7 @@ rug('red', 3, 15, 9, 5);
 rug('teal', 17, 17, 20, 2);
 rug('green', 41, 6, 11, 2);
 rug('blue', 42, 16, 9, 3);
+rug('orange', 55, 6, 8, 4); // music room dance floor
 floor[EXIT.y][EXIT.x] = tid('doormat');
 
 // ---- objects: multi-tile furniture. Footprint blocks walking unless walkable. ----
@@ -181,7 +189,7 @@ obj('lamp', 1, 14, 1, 1, LAMP);
 obj('lamp', 27, 10, 1, 1, LAMP);
 obj('lamp', 14, 10, 1, 1, LAMP);
 
-obj('radio', 13, 14, 1, 1, { sound: { clip: 'radio', gain: 0.8 }, use: { kind: 'toggle', label: 'radio' }, on: true });
+obj('radio', 58, 4, 1, 1, { sound: { clip: 'radio', gain: 0.8 } }); // on the music room's back wall
 
 // wall calendars: click to see your own Google Calendar (after the radio, same reason)
 const CALENDAR = { wall: true, use: { kind: 'calendar', label: 'calendar' } };
@@ -211,6 +219,15 @@ obj('sofa', 45, 17, 3, 1, { sit: true, dir: 'down' });
 obj('plant', 40, 22, 1, 1);
 obj('lamp', 52, 17, 1, 1, LAMP);
 obj('bookshelf', 47, 22, 2, 1);
+// Music room (after the east wing, same reason): windows, tables with stools, sofas along the bottom
+for (const wx of [55, 60]) obj('window', wx, 1, 2, 2, { wall: true });
+obj('plant', 54, 3, 1, 1);
+obj('plant', 63, 3, 1, 1);
+for (const tx of [56, 61]) { obj('table_round', tx, 13); obj('stool', tx - 1, 13, 1, 1, { walkable: true }); obj('stool', tx + 1, 13, 1, 1, { walkable: true }); }
+obj('sofa', 55, 21, 3, 1, { sit: true, dir: 'down' });
+obj('sofa', 60, 21, 3, 1, { sit: true, dir: 'down' });
+obj('lamp', 54, 22, 1, 1, LAMP);
+obj('lamp', 63, 22, 1, 1, LAMP);
 
 // ---- walkable mask ----
 const walkable = grid(1);
@@ -251,6 +268,7 @@ stand('meeting', [[19, 9, 'up'], [24, 8, 'left']]);
 stand('cowork', [[25, 17, 'down'], [31, 18, 'down'], [36, 13, 'down']]);
 stand('studio', [[46, 7, 'down']]);
 stand('desks', [[42, 17, 'right'], [50, 18, 'left']]);
+stand('music', [[57, 7, 'up'], [60, 8, 'up'], [58, 10, 'up']]);
 if (!walkable[EXIT.y][EXIT.x]) throw new Error('exit not walkable');
 for (const r of rooms) for (const s of r.spots) {
   const sofa = objects.find(o => o.sit && s.x >= o.x && s.x < o.x + o.w && s.y >= o.y && s.y < o.y + o.h);
