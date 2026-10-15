@@ -192,7 +192,7 @@ function RoomList({ store, onPick, onClose }: { store: Store; onPick: (id: strin
                   <li key={id} onClick={() => onPick(id)} title={u.status || undefined}>
                     <i style={{ background: PRESENCE_COLOR[u.presence] }} />
                     <span className={id === store.me ? 'me' : ''}>{u.name}</span>
-                    {u.status && <em>{u.status}</em>}
+                    {u.door ? <em>{{ arriving: 'just arrived', thinking: 'packing up…', leaving: 'heading out' }[u.door]}</em> : u.status && <em>{u.status}</em>}
                   </li>
                 );
               })}

@@ -2,6 +2,9 @@ import type { Dir, Move, Tile } from './map';
 
 export type Presence = 'online' | 'away' | 'in_call' | 'offline';
 export type Emote = 'knock' | null;
+/** Coming and going through the exit door: arrive bag in hand; when disconnected, think for a moment
+ *  (they may be back), then grab the bag and walk out. */
+export type Door = 'arriving' | 'thinking' | 'leaving' | null;
 
 /** A reusable Google Meet room link, e.g. https://meet.google.com/abc-defg-hij */
 export const MEET_LINK_RE = /^https:\/\/meet\.google\.com\/[a-z]{3}-[a-z]{4}-[a-z]{3}$/;
@@ -17,7 +20,7 @@ export interface Look { skin: string; hair: string; shirt: string; pants: string
 export interface PublicUser {
   id: string; name: string; look: Look;
   tile: Tile; dir: Dir; move: Move | null;
-  presence: Presence; status: string; emote: Emote; bot: boolean;
+  presence: Presence; status: string; emote: Emote; bot: boolean; door: Door;
   homeDesk: Tile | null;
 }
 
@@ -34,6 +37,7 @@ export type ServerMsg =
   | { t: 'status'; userId: string; status: string }
   | { t: 'presence'; userId: string; presence: Presence }
   | { t: 'emote'; userId: string; emote: Emote }
+  | { t: 'door'; userId: string; door: Door }
   | { t: 'knock'; knockId: string; fromId: string; toId: string }
   | { t: 'knock_reply'; knockId: string; fromId: string; toId: string; reply: 'accept' | 'later' | 'blocked'; link?: string; reason?: string; fallback?: boolean }
   | { t: 'me'; meetLink: string } // private settings, only to the user themselves

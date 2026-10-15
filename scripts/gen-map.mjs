@@ -16,6 +16,9 @@ const floor = grid();
 const walls = grid();
 const hash = (x, y) => ((x * 73856093) ^ (y * 19349663)) >>> 0;
 
+// the way out: a door in the Lobby's back wall; people leave (and come back in) through it
+const EXIT = { x: 12, y: 13 };
+
 // ---- rooms (floor rectangles, walls excluded) ----
 const rooms = [
   { id: 'focus', name: 'Focus', type: 'focus', rect: { x: 1, y: 3, w: 12, h: 8 }, capacity: 6,
@@ -89,6 +92,7 @@ rug('blue', 16, 4, 8, 5);
 rug('orange', 28, 5, 9, 3);
 rug('red', 3, 15, 9, 5);
 rug('teal', 17, 17, 20, 2);
+floor[EXIT.y][EXIT.x] = tid('doormat');
 
 // ---- objects: multi-tile furniture. Footprint blocks walking unless walkable. ----
 // Wall decor (wall:true) sits on wall faces and never blocks.
@@ -153,6 +157,9 @@ obj('plant', 38, 13, 1, 1);
 obj('plant', 16, 22, 1, 1);
 obj('lamp', 38, 22, 1, 1, { light: true });
 
+// Lobby exit door (last, so earlier object ids stay put)
+obj('exit_door', EXIT.x, 12, 1, 1, { wall: true });
+
 // ---- walkable mask ----
 const walkable = grid(1);
 for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (walls[y][x]) walkable[y][x] = 0;
@@ -185,10 +192,11 @@ stand('lobby', [[4, 17, 'down'], [8, 17, 'down'], [6, 20, 'down'], [11, 15, 'up'
 stand('focus', [[7, 7, 'down']]);
 stand('meeting', [[19, 9, 'up'], [24, 8, 'left']]);
 stand('cowork', [[25, 17, 'down'], [31, 18, 'down'], [36, 13, 'down']]);
+if (!walkable[EXIT.y][EXIT.x]) throw new Error('exit not walkable');
 for (const r of rooms) for (const s of r.spots) {
   if (!walkable[s.y][s.x]) throw new Error(`spot ${r.id} ${s.x},${s.y} not walkable`);
 }
 
-const map = { version: 1, width: W, height: H, tileSize: 16, tiles, layers: { floor, walls, walkable }, rooms, objects, spawn: { x: 7, y: 17 } };
+const map = { version: 1, width: W, height: H, tileSize: 16, tiles, layers: { floor, walls, walkable }, rooms, objects, spawn: { x: 7, y: 17 }, exit: EXIT };
 writeFileSync(new URL('../shared/tilemap.json', import.meta.url), JSON.stringify(map));
 console.log(`tilemap: ${W}x${H}, ${tiles.length - 1} tile kinds, ${objects.length} objects, ${rooms.reduce((n, r) => n + r.spots.length, 0)} spots`);

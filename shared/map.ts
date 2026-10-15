@@ -21,6 +21,7 @@ export interface TileMap {
   tiles: string[];
   layers: { floor: number[][]; walls: number[][]; walkable: number[][] };
   rooms: Room[]; objects: MapObject[]; spawn: Tile;
+  exit: Tile; // where people walk to leave, and appear when they come back
 }
 
 export const WALK_MS_PER_TILE = 250; // 4 tiles/s

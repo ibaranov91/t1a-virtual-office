@@ -371,6 +371,27 @@ const counterSeg = (t, y0) => {
   t.ellipse(8, 7, 5, 5, '#f8f4ec'); t.vline(8, 4, 4, OUT); t.hline(8, 7, 3, OUT);
   frames.clock = t.outline();
 }
+{
+  const t = new Img(16, 16); // exit door (sits on the short wall face) with a green EXIT sign
+  t.rect(2, 0, 12, 16, '#6a3c22');
+  t.rect(3, 4, 10, 12, '#9c5f30'); t.vline(3, 4, 12, '#b97a45'); t.vline(8, 5, 11, '#7d4a26');
+  t.rect(4, 6, 3, 4, '#a8693a'); t.rect(9, 6, 3, 4, '#a8693a'); t.px(11, 11, '#f0c040');
+  t.rect(4, 0, 8, 3, '#3f9a5a'); t.hline(5, 1, 6, '#c8f0c8');
+  frames.exit_door = t;
+}
+{
+  const t = new Img(16, 16); // doormat in front of the exit
+  for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) t.px(x, y, (x * 73856093 ^ y * 19349663) % 3 ? '#a0603a' : '#8a4e2c');
+  t.rect(2, 4, 12, 9, '#6e8a4a'); t.rect(3, 5, 10, 7, '#7e9c56');
+  for (let x = 4; x < 12; x += 2) t.vline(x, 6, 5, '#6e8a4a');
+  frames.doormat = t;
+}
+{
+  const t = new Img(10, 10); // work bag, carried on the way out
+  t.hline(3, 1, 4, '#5a3a2a'); t.px(2, 2, '#5a3a2a'); t.px(7, 2, '#5a3a2a');
+  t.rect(1, 3, 8, 6, '#8a5232'); t.hline(1, 3, 8, '#a8683e'); t.hline(1, 5, 8, '#6a3c22'); t.px(5, 5, '#f0c040');
+  frames.bag = t.outline();
+}
 
 // ---------- emote bubbles ----------
 const bubble = (draw) => {
@@ -391,6 +412,13 @@ frames.bubble_headset = bubble((t) => {
 });
 frames.bubble_bang = bubble((t) => { t.rect(6, 2, 2, 4, '#d8463c'); t.rect(6, 7, 2, 2, '#d8463c'); });
 frames.bubble_dots = bubble((t) => { for (const x of [3, 6, 9]) t.rect(x, 5, 2, 2, '#7a5a50'); });
+{
+  const t = new Img(14, 14); // thought cloud: "should I go?"
+  t.ellipse(7, 5, 6, 4.5, '#fff8e8'); t.ellipse(4, 6, 3.5, 3, '#fff8e8'); t.ellipse(10, 6, 3.5, 3, '#fff8e8');
+  t.rect(3, 11, 2, 2, '#fff8e8'); t.px(1, 13, '#fff8e8');
+  for (const x of [3, 6, 9]) t.rect(x, 5, 2, 2, '#9a7a70');
+  frames.bubble_think = t.outline();
+}
 frames.bubble_meeting = bubble((t) => {
   t.rect(3, 3, 8, 5, '#5577a8'); t.rect(4, 4, 6, 3, '#9cc8e0'); t.hline(5, 8, 4, '#4a4a5a');
 });

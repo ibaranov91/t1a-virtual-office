@@ -68,7 +68,7 @@ export function startBots(world: World, count = 4) {
       else if (r < 0.88) { world.setPresence(b, 'in_call'); presenceUntil.set(b.id, now + 25000 + Math.random() * 40000); if (Math.random() < 0.6) goSomewhere(b, 'meeting'); }
       else if (r < 0.92) {
         // occasionally knock on a human who is online, so solo testing sees incoming knocks
-        const humans = [...world.users.values()].filter(u => !u.bot && u.presence === 'online');
+        const humans = [...world.users.values()].filter(u => !u.bot && u.presence === 'online' && u.door !== 'thinking' && u.door !== 'leaving');
         const others = bots().filter(o => o.id !== b.id && o.presence === 'online');
         const target = humans.length && Math.random() < 0.5 ? pick(humans) : others.length ? pick(others) : null;
         if (target) world.knock(b, target);

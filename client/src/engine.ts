@@ -11,7 +11,11 @@ const DIR_ROW: Record<string, number> = { down: 0, left: 1, right: 2, up: 3 };
 const WALK_FPS = 8; // 4 frames per tile at 4 tiles/s
 const SIT_FRAME = 5;
 
-type BubbleKind = 'bubble_bang' | 'bubble_headset' | 'bubble_zzz' | 'bubble_meeting' | 'bubble_dots';
+type BubbleKind = 'bubble_bang' | 'bubble_headset' | 'bubble_zzz' | 'bubble_meeting' | 'bubble_dots' | 'bubble_think';
+// where the bag hangs when carried, per facing; behind = drawn before the body
+const BAG_HAND: Record<string, { dx: number; behind: boolean }> = {
+  down: { dx: 10, behind: false }, up: { dx: -3, behind: false }, left: { dx: 7, behind: true }, right: { dx: -1, behind: true },
+};
 
 const hash = (s: string) => { let h = 0; for (const c of s) h = (h * 31 + c.charCodeAt(0)) | 0; return Math.abs(h); };
 
@@ -279,8 +283,17 @@ export class Engine {
       bob = u.presence === 'away' ? (phase < 900 ? 1 : 0) : phase < 300 ? 1 : 0; // tiny breathing bob
     }
     const row = DIR_ROW[p.dir] ?? 0;
-    ctx.globalAlpha = u.presence === 'away' ? 0.8 : 1;
-    ctx.drawImage(sheet, frame * c.frameW, (DIR_ROW[p.dir] ?? row) * c.frameH, c.frameW, c.frameH, x, baseY - c.frameH + bob - 1, c.frameW, c.frameH);
+    // the bag: in hand walking in and out, on the floor while they think about leaving
+    const hand = BAG_HAND[p.dir] ?? BAG_HAND.down;
+    const swing = p.walking && frame % 2 ? 1 : 0;
+    const carrying = u.door === 'arriving' || u.door === 'leaving';
+    const drawBag = () => this.blit(ctx, 'bag', x + hand.dx, baseY - 13 + swing);
+    if (u.door === 'thinking') this.blit(ctx, 'bag', x + 11, baseY - 9);
+    if (carrying && hand.behind) drawBag();
+    // at the door: already half out
+    ctx.globalAlpha = u.door === 'leaving' && !p.walking ? 0.45 : u.presence === 'away' ? 0.8 : 1;
+    ctx.drawImage(sheet, frame * c.frameW, row * c.frameH, c.frameW, c.frameH, x, baseY - c.frameH + bob - 1, c.frameW, c.frameH);
+    if (carrying && !hand.behind) drawBag();
     ctx.globalAlpha = 1;
     // facing a desk: the chair's backrest is in front of the sitter
     if (seat?.dir === 'up' && this.f('chair_up_back') && MAP.objects.some(o => o.type === 'chair' && o.x === seat.x && o.y === seat.y)) {
@@ -299,6 +312,8 @@ export class Engine {
   }
 
   private bubbleFor(u: ClientUser, p: Pose): BubbleKind | null {
+    if (u.door === 'thinking') return 'bubble_think';
+    if (u.door === 'leaving') return null;
     if (u.emote === 'knock') return 'bubble_bang';
     if (u.presence === 'in_call') return 'bubble_headset';
     if (u.presence === 'away') return 'bubble_zzz';
@@ -407,10 +422,11 @@ export class Engine {
     const ctx = this.ctx;
     const dpr = window.devicePixelRatio || 1;
     const room = roomAt(MAP, p.tile.x, p.tile.y);
-    const presence = u.presence === 'in_call' ? 'in a call' : u.presence === 'away' ? 'away' : room?.rules.occupantLabel ?? 'around';
+    const presence = u.door === 'thinking' ? 'packing up…' : u.door === 'leaving' ? 'heading out' : u.door === 'arriving' ? 'just arrived'
+      : u.presence === 'in_call' ? 'in a call' : u.presence === 'away' ? 'away' : room?.rules.occupantLabel ?? 'around';
     const lines = [`${u.name}${u.id === this.store.me ? ' (you)' : ''} · ${presence}`];
     if (u.status) lines.push(`“${u.status}”`);
-    if (u.id !== this.store.me) lines.push(room?.rules.knock === 'disabled' ? `${room.name}: no knocking` : 'click to knock');
+    if (u.id !== this.store.me && u.door !== 'thinking' && u.door !== 'leaving') lines.push(room?.rules.knock === 'disabled' ? `${room.name}: no knocking` : 'click to knock');
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.font = '600 12px ui-rounded, system-ui, sans-serif';
     const w = Math.max(...lines.map(l => ctx.measureText(l).width)) + 16, lh = 16, hgt = lines.length * lh + 10;
