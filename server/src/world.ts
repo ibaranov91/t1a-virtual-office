@@ -1,18 +1,22 @@
 import { randomUUID } from 'node:crypto';
 import {
-  applyEdit, applyLayout, besideObject, playSpots, dirBetween, doorwayTiles, KEEP_TYPES, migrateEastWing, layoutProblem, objectName, voiceRooms, findPath, isWalkable, pathDuration, pathTo, roomAt, sampleMove, seatAt, uniqueIds, withLayout, WALK_MS_PER_TILE,
+  adminOnly, applyEdit, stallDoor, stallLine, applyLayout, besideObject, playSpots, dirBetween, doorwayTiles, KEEP_TYPES, migrateEastWing, layoutProblem, objectName, voiceRooms, findPath, isWalkable, pathDuration, pathTo, roomAt, sampleMove, seatAt, uniqueIds, withLayout, WALK_MS_PER_TILE,
   type MapObject, type Dir, type Layout, type Room, type Spot, type TileMap, type Tile,
 } from '../../shared/map';
 import {
-  NOTE_RATE, NOTE_BURST, NOTE_HELD_MAX, SEAT_CHANGES_PER_10S, DUNGEON_INSTANCE, underground, MAX_CALL_SIZE, MEETING_ROOM_ID, MAX_CHAT_LEN, normalizeMeetLink, REACTIONS, ROOM_VOICE_MAX,
-  dayNumber, plantDead, BOTANIST_KINDS, PLANT_KINDS, PLANT_STAGES, type Plant,
-  type ChatMsg, type ClientMsg, type Door, type Knock, type LayoutEdit, type Look, type Presence, type PublicUser, type Reaction, type ServerMsg,
+  NOTE_RATE, NOTE_BURST, ITEMS_MAX, TOILET_SHELF_ITEM, toiletFull, NOTE_HELD_MAX, SEAT_CHANGES_PER_10S, DUNGEON_INSTANCE, underground, MAX_CALL_SIZE, MEETING_ROOM_ID, MAX_CHAT_LEN, normalizeMeetLink, REACTIONS, ROOM_VOICE_MAX,
+  CUP_ITEMS, dayNumber, isTimeZone, plantDead, BOTANIST_KINDS, PLANT_KINDS, PLANT_STAGES, type Plant,
+  type ChatMsg, type ClientMsg, type Door, type Effect, type Knock, type LayoutEdit, type Look, type Presence, type PublicUser, type Reaction, type ServerMsg,
 } from '../../shared/protocol';
 import { INSTRUMENTS, validNote } from '../../shared/instruments';
+import { ADMIN_HAT, EFFECTS, HAT_NAMES, JUDGE_HAT, MAX_EFFECTS, hatItem, hatOf, walkMs } from '../../shared/effects';
 import { TRACKS } from '../../shared/music';
 import { Arcade } from './arcade';
 import { Jukebox } from './jukebox';
 import { Meetings } from './meetings';
+import { Creatures } from './creatures';
+import type { Presenter } from './presentation';
+import { Toilets } from './toilets';
 import { authUrl, CALENDAR_SCOPE, createSpace, forgetAccess, googleEnabled, listEvents, revoke, type GoogleLink } from './google';
 
 type DungeonEvent = Extract<ServerMsg, { t: 'dungeon' }>['event'];
@@ -23,6 +27,7 @@ export interface User extends PublicUser {
   lastKeySpot?: Tile;
   dungeonTimers?: Partial<Record<'fall' | 'key' | 'door' | 'opening', DungeonTimer>>;
   path: Tile[] | null; // path of the current move (server-side bookkeeping)
+  items: string[];     // inventory (what the bouncer sold you); only sent to the owner
   email?: string;       // identity from NetBird; never broadcast
   meetLink?: string;    // personal reusable Google Meet room; only shared with knock partners
   google?: GoogleLink;  // Connect Google: encrypted refresh token; never leaves the server
@@ -30,7 +35,7 @@ export interface User extends PublicUser {
   offlineAt?: number;   // when they walked out the door (not persisted)
   lastSpot?: Tile;      // where they were before heading out (not persisted)
   presenceBeforeCall?: Presence;
-  prev?: { path: Tile[]; startedAt: number };
+  prev?: { path: Tile[]; startedAt: number; ms?: number };
   afk?: boolean;
 }
 
@@ -61,11 +66,14 @@ const DOOR_PAUSE_MS = 400;   // a beat at the door before vanishing
 const goingOut = (u: User) => u.door === 'thinking' || u.door === 'leaving';
 const FOLLOW_LAG_MS = 300;   // followers set off a beat after the person they follow
 const HOLD_MS = 3 * 60_000;  // a coffee lasts this long
-const USE_MS = { take: 1200, toggle: 150 }; // brewing a coffee vs flicking a switch
+const USE_MS = { take: 1200, toggle: 150, toilet: 300, dealer: 350 }; // brewing a coffee vs flicking a switch
 const ARRIVAL_SLACK_MS = 50; // timers can fire a millisecond before the walk is over
 
 /** Office admins rearrange the furniture: NetBird emails, or (only for name logins, so dev) plain names. */
 const ADMINS = (process.env.DECK_ADMINS ?? 'ivan.baranov@t1a.com').split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+/** Hackathon judges wear a sparkling hat. Same rules as admins: emails, or plain names for name logins (dev). */
+const JUDGES = (process.env.DECK_JUDGES ?? 'oleg.mikhov@t1a.com').split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+const listed = (list: string[], u: User) => !u.bot && list.some(a => (a.includes('@') ? a === u.email : !u.email && a === u.name.toLowerCase()));
 
 /** Dev bots answer DMs and reactions so there's something to talk to when testing alone. */
 export interface BotHooks { chat(bot: User, from: User, text: string): void; react(bot: User, from: User, emoji: Reaction): void }
@@ -90,11 +98,20 @@ export class World {
   private chats = new Map<string, ChatMsg[]>();           // per pair of people, oldest first
   private lastJukeboxControl = new Map<string, number>();
   private lastReact = new Map<string, number>();
+  toilets = new Toilets({
+    change: (id, state) => { this.broadcast({ t: 'toilet', id, state }); this.lineUp(id); },
+    admit: (id, userId) => { const o = this.map.objects.find(o => o.id === id), u = this.users.get(userId); if (o && u) this.toiletWalk(u, stallDoor(o)); },
+    refuse: (_id, userIds) => { for (const id of userIds) this.sendTo(id, { t: 'notice', text: 'The toilet overflowed 🤢 — the line breaks up' }); },
+  });
+  private toiletWalks = new Set<string>(); // walks the toilets start themselves (into the stall, along the line): not walking off
   botHooks?: BotHooks;
+  present?: Presenter; // slides on the Meeting room screen (index.ts sets it up with the data folder)
 
   arcade = new Arcade({ now: () => Date.now(), send: (id, msg) => this.sendOwner(id, msg),
     broadcast: msg => this.broadcast(msg), user: id => this.users.get(id) });
 
+  creatures = new Creatures({ map: () => this.map, broadcast: msg => this.broadcast(msg),
+    people: () => [...this.users.values()].filter(u => u.presence !== 'offline' && !u.instance).map(u => this.position(u).dest) });
   build?: string; // sent in hello so open pages reload after a deploy
   private baseLayout: Layout;     // as generated, for Reset
   private layoutEdited = false;   // saved only once someone has changed it
@@ -103,14 +120,28 @@ export class World {
     this.baseLayout = structuredClone({ objects: map.objects, rugs: map.rugs });
     for (const o of map.objects) if (o.use?.kind === 'toggle') this.objectOn.set(o.id, o.on ?? true);
     this.syncJukeboxes();
-    setInterval(() => { const now = Date.now(); this.voiceTick(now); this.jukeboxTick(now); this.instrumentTick(now); }, 250).unref();
+    setInterval(() => { const now = Date.now(); this.voiceTick(now); this.jukeboxTick(now); this.instrumentTick(now); this.effectsTick(now); this.toilets.tick(now); }, 250).unref();
   }
 
   // ---------- transport ----------
   broadcast(msg: ServerMsg) { for (const l of this.listeners) l(msg); }
   /** Private settings for the user themselves. */
-  me(u: User): ServerMsg { return { t: 'me', meetLink: u.meetLink ?? '', email: u.email, google: googleEnabled ? u.google?.email ?? null : undefined, calendar: !!u.google?.scopes.includes(CALENDAR_SCOPE), admin: this.isAdmin(u) || undefined }; }
-  isAdmin(u: User) { return !u.bot && ADMINS.some(a => (a.includes('@') ? a === u.email : !u.email && a === u.name.toLowerCase())); }
+  me(u: User): ServerMsg { return { t: 'me', meetLink: u.meetLink ?? '', email: u.email, google: googleEnabled ? u.google?.email ?? null : undefined, calendar: !!u.google?.scopes.includes(CALENDAR_SCOPE), admin: this.isAdmin(u) || undefined, judge: this.isJudge(u) || undefined, items: u.items.length ? u.items : undefined }; }
+  isAdmin(u: User) { return listed(ADMINS, u); }
+  isJudge(u: User) { return listed(JUDGES, u); }
+  hasItem(u: User, item: string) { return u.items.includes(item); }
+  /** Put one in the inventory (at most ITEMS_MAX of a kind) and tell the owner. */
+  addItem(u: User, item: string) {
+    const max = hatOf(item) ? 1 : ITEMS_MAX;
+    if (u.items.filter(i => i === item).length >= max) { this.sendTo(u.id, { t: 'notice', text: hatOf(item) ? 'You already have that hat' : 'Your pockets are full' }); return false; }
+    u.items = [...u.items, item]; this.sendTo(u.id, this.me(u));
+    return true;
+  }
+  takeItem(u: User, item: string) {
+    const i = u.items.indexOf(item); if (i < 0) return false;
+    u.items = u.items.filter((_, j) => j !== i); this.sendTo(u.id, this.me(u));
+    return true;
+  }
   layout(): Layout { return { objects: this.map.objects, rugs: this.map.rugs }; }
   sendTo(userId: string, msg: ServerMsg) { for (const s of this.sockets.get(userId)?.values() ?? []) s(msg); }
   private sendOwner(userId: string, msg: ServerMsg) {
@@ -120,6 +151,7 @@ export class World {
   snapshot(): ServerMsg {
     const objects = Object.fromEntries([...this.objectOn.keys()].map(id => [id, this.objectState(id)]));
     return { t: 'state', serverTime: Date.now(), users: [...this.users.values()].map(this.toPublic), objects,
+      toilets: this.toilets.snapshot(this.map.objects.filter(o => o.use?.kind === 'toilet').map(o => o.id)),
       instruments: Object.fromEntries(this.map.objects.filter(o => o.use?.kind === 'instrument').map(o => [o.id, this.seats.get(o.id)?.user ?? null])),
       jukebox: Object.fromEntries([...this.jukeboxes].map(([id, j]) => [id, j.state])) };
   }
@@ -137,6 +169,7 @@ export class World {
     this.listeners.add(send);
     send({ t: 'hello', you: userId, serverTime: Date.now(), build: this.build });
     this.stayAfterAll(u);
+    this.grantHats(u);
     if (!u.plant && !u.bot) { u.plant = this.newPlant(u, dayNumber(Date.now()) - 1); this.plantChanged(u); } // a pot on your desk from day one; today's status already grows it
     if (u.presence === 'offline') this.comeIn(u);
     send({ t: 'layout', layout: this.layout() }); // before anyone's walk, which every client paths on this floor
@@ -144,11 +177,15 @@ export class World {
     send(this.me(u));
     if (underground(u) && u.dungeon) send({ t: 'dungeon', ...u.dungeon });
     send({ t: 'meetings', rooms: this.meetingRooms() });
+    send({ t: 'creatures', creatures: this.creatures.all() });
+    send({ t: 'cups', cups: this.creatures.cups });
     send({ t: 'arcade', cabinets: this.arcade.summary() });
     send({ t: 'arcade_records', records: structuredClone(this.arcade.records) });
     for (const person of this.users.values()) send({ t: 'game_status', userId: person.id, game: person.game });
     if (!u.bot) this.meetings.sendAgenda(u, true);
     send({ t: 'voice_wait', roomId: this.waiting.get(userId) ?? null });
+    send({ t: 'presentation', live: this.present?.live ?? null });
+    this.present?.back(u.id);
     const call = u.callId ? this.calls.get(u.callId) : undefined; // a reloaded page gets its call's Meet link back
     if (call) send({ t: 'call', userId: u.id, callId: call.id, link: call.link });
     this.setOwner(userId, socket);
@@ -158,7 +195,7 @@ export class World {
       if (this.pendingSeat.get(userId)?.socket === socket) this.cancelSeatWalk(userId);
       for (const [id, seat] of this.seats) if (seat.socket === socket) this.endSeat(id);
       if (this.owners.get(userId) === socket) this.setOwner(userId, [...set.keys()].at(-1));
-      if (set.size === 0 && !u.bot) { this.setWaiting(u, null); this.startLeaving(u); }
+      if (set.size === 0 && !u.bot) { this.setWaiting(u, null); this.startLeaving(u); this.present?.gone(u.id); }
     } };
   }
   private setOwner(userId: string, socket?: string) {
@@ -246,7 +283,7 @@ export class World {
       email,
       id: randomUUID().slice(0, 8), name, look: lookFor(name), lookSet: false, tile: tile ?? { ...this.map.spawn }, dir: 'down',
       move: null, path: null, presence: bot ? 'online' : 'offline', status: '', emote: null, bot, homeDesk: null, door: null, callId: null, deafened: false, hand: false, muted: false,
-      following: null, holding: null, meeting: null, instance: null, game: null, plant: null, bloomed: [], achievements: {},
+      following: null, holding: null, meeting: null, instance: null, game: null, plant: null, bloomed: [], achievements: {}, effects: [], items: [],
     };
     this.users.set(u.id, u);
     this.broadcast(this.snapshot());
@@ -258,11 +295,12 @@ export class World {
   /** Where the user is right now (tile they occupy / are entering) and where they're going. */
   position(u: User, now = Date.now()) {
     if (!u.move || !u.path) return { tile: u.tile, next: u.tile, remainingMs: 0, dest: u.tile };
-    const move = u.prev && now < u.move.startedAt ? u.prev : { path: u.path, startedAt: u.move.startedAt };
-    const s = sampleMove(move.path, move.startedAt, now)!;
+    const move = u.prev && now < u.move.startedAt ? u.prev : { path: u.path, startedAt: u.move.startedAt, ms: u.move.ms };
+    const ms = move.ms ?? WALK_MS_PER_TILE;
+    const s = sampleMove(move.path, move.startedAt, now, ms)!;
     if (s.done) return { tile: s.tile, next: s.tile, remainingMs: 0, dest: s.tile };
-    const seg = Math.max(0, now - move.startedAt) / WALK_MS_PER_TILE;
-    return { tile: s.tile, next: s.next, remainingMs: (Math.ceil(seg) - seg) * WALK_MS_PER_TILE, dest: u.move.to };
+    const seg = Math.max(0, now - move.startedAt) / ms;
+    return { tile: s.tile, next: s.next, remainingMs: (Math.ceil(seg) - seg) * ms, dest: u.move.to };
   }
   roomOf(u: User) { const p = this.position(u); return roomAt(this.map, p.tile.x, p.tile.y); }
 
@@ -270,9 +308,10 @@ export class World {
   walk(u: User, to: Tile, face?: Dir, now = Date.now()): number | null {
     const pos = this.position(u, now);
     const from = pos.next;
-    const path = pathTo(this.map, from, to); // also sits down onto a sofa
+    const keepOut = !this.isAdmin(u); // admins-only rooms: everyone else's path goes around, and never in
+    const path = pathTo(this.map, from, to, keepOut); // also sits down onto a sofa
     if (!path.length) return null; // nothing changes: the current walk (and its dungeon timers) goes on
-    if (path.length > 1) for (const [id, seat] of this.seats) if (seat.user === u.id) this.endSeat(id);
+    if (path.length > 1) { for (const [id, seat] of this.seats) if (seat.user === u.id) this.endSeat(id); if (!this.toiletWalks.has(u.id)) this.toilets.leave(u.id, now); }
     // A due pickup belongs to the old walk even if its callback hasn't run yet.
     const keyTimer = u.dungeonTimers?.key;
     if (underground(u) && keyTimer && keyTimer.at <= now) keyTimer.run();
@@ -280,16 +319,17 @@ export class World {
     const startedAt = Math.round(now + pos.remainingMs);
     face ??= seatAt(this.map, to.x, to.y)?.dir; // sit facing the desk/table
     this.arcade.leave(u);
-    u.prev = u.move && u.path && now < u.move.startedAt + pathDuration(u.path) ? { path: u.path, startedAt: u.move.startedAt } : undefined;
-    u.move = { from, to, startedAt, face }; u.path = path; u.tile = to;
+    u.prev = u.move && u.path && now < u.move.startedAt + pathDuration(u.path, u.move.ms) ? { path: u.path, startedAt: u.move.startedAt, ...(u.move.ms ? { ms: u.move.ms } : {}) } : undefined;
+    const per = walkMs(u.effects), ms = per === WALK_MS_PER_TILE ? undefined : per; // the usual pace stays implicit
+    u.move = { from, to, startedAt, face, ...(ms ? { ms } : {}) }; u.path = path; u.tile = to;
     if (face) u.dir = face;
     else if (path.length > 1) { const a = path[path.length - 2], b = path[path.length - 1]; u.dir = b.x > a.x ? 'right' : b.x < a.x ? 'left' : b.y > a.y ? 'down' : 'up'; }
-    this.broadcast({ t: 'move', userId: u.id, from, to, startedAt, face });
+    this.broadcast({ t: 'move', userId: u.id, from, to, startedAt, face, ms, path: keepOut ? path : undefined }); // clients path without the lock
     for (const f of this.users.values()) if (f.following === u.id) this.trail(f, to, startedAt + FOLLOW_LAG_MS);
-    const end = startedAt + pathDuration(path);
+    const end = startedAt + pathDuration(path, per);
     if (underground(u) && u.dungeon && this.map.dungeon) {
       const key = u.dungeon.key, i = key ? path.findIndex(p => p.x === key.x && p.y === key.y) : -1;
-      if (!u.dungeon.hasKey && i >= 0) this.dungeonTimer(u, 'key', startedAt + i * WALK_MS_PER_TILE, () => {
+      if (!u.dungeon.hasKey && i >= 0) this.dungeonTimer(u, 'key', startedAt + i * per, () => {
         if (!u.dungeon || !underground(u)) return;
         u.dungeon.hasKey = true; u.dungeon.key = null; this.sendDungeon(u, 'key');
       });
@@ -357,7 +397,7 @@ export class World {
     return !u.bot && u.presence !== 'offline' && !goingOut(u) && !u.instance && !!this.sockets.get(u.id)?.size;
   }
   private atInstrument(u: User, o: MapObject, now: number) {
-    return (!u.move || !u.path || now >= u.move.startedAt + pathDuration(u.path)) &&
+    return (!u.move || !u.path || now >= u.move.startedAt + pathDuration(u.path, u.move.ms)) &&
       besideObject(this.map, o).some(s => s.x === u.tile.x && s.y === u.tile.y);
   }
   private recentSeatChanges(user: string, now: number) {
@@ -467,8 +507,9 @@ export class World {
   use(u: User, objectId: string, itemId?: string) {
     this.cancelSeatWalk(u.id);
     const o = this.map.objects.find(o => o.id === objectId);
-    if (!o?.use || o.use.kind === 'instrument' || o.use.kind === 'calendar' || o.use.kind === 'meetings' || o.use.kind === 'achievements' || o.use.kind === 'link' || o.use.kind === 'jukebox' || o.use.kind === 'records' || goingOut(u) || u.instance || u.presence === 'offline' || (o.use.kind === 'arcade' && u.bot)) return;
+    if (!o?.use || o.use.kind === 'instrument' || o.use.kind === 'calendar' || o.use.kind === 'meetings' || o.use.kind === 'achievements' || o.use.kind === 'link' || o.use.kind === 'clock' || o.use.kind === 'jukebox' || o.use.kind === 'records' || o.use.kind === 'presentation' || goingOut(u) || u.instance || u.presence === 'offline' || (o.use.kind === 'arcade' && u.bot)) return;
     const item = o.use.kind === 'take' ? o.use.items.find(i => i.id === itemId) ?? o.use.items[0] : null;
+    if (o.use.kind === 'toilet') return this.useToilet(u, o);
     this.setFollowing(u, null);
     clearTimeout(this.errands.get(u.id));
     const here = this.position(u).next, occ = this.occupied();
@@ -504,8 +545,89 @@ export class World {
       if (!current?.use || current.use.kind !== o.use!.kind) return;
       if (current.use.kind === 'arcade') { if (!u.bot && this.sockets.get(u.id)?.size) this.arcade.join(u, current.id); return; }
       if (o.use!.kind === 'toggle') this.setObject(o.id, !this.objectOn.get(o.id), u);
-      else if (item) this.setHolding(u, item.id, o.id);
+      else if (current.use.kind === 'dealer') {
+        const want = itemId && current.use.items.includes(itemId) ? itemId : current.use.items[0];
+        const hat = hatOf(want);
+        if (this.addItem(u, want)) this.sendTo(u.id, { t: 'notice', text: hat ? `${HAT_NAMES[hat] ?? hat} · in your pockets 🎒` : 'The bouncer slips you something 💊' });
+      }
+      else if (item) {
+        this.setHolding(u, item.id, o.id);
+        if (o.type === 'coffee_machine') this.addEffect(u, 'speed'); // a fresh cup: quick on your feet for a while
+      }
     }, Math.max(0, at - Date.now()) + (o.use.kind === 'arcade' ? 0 : USE_MS[o.use.kind])));
+  }
+  /** Walk over to a table and put down the coffee or tea you're holding. */
+  putCup(u: User, tile: Tile) {
+    if (!u.holding || !CUP_ITEMS.includes(u.holding) || u.instance || goingOut(u) || u.presence === 'offline') return;
+    const problem = this.creatures.cupProblem(tile);
+    if (problem) { this.sendTo(u.id, { t: 'notice', text: problem }); return; }
+    const here = this.position(u).next, occ = this.occupied();
+    const spots = this.creatures.beside(tile).filter(s => (s.x === here.x && s.y === here.y) || !occ.has(`${s.x},${s.y}`))
+      .map(s => ({ s, len: s.x === here.x && s.y === here.y ? 0 : findPath(this.map, here, s).length })).filter(p => p.s.x === here.x && p.s.y === here.y || p.len);
+    spots.sort((a, b) => a.len - b.len);
+    const spot = spots[0]?.s;
+    if (!spot) return;
+    this.setFollowing(u, null);
+    clearTimeout(this.errands.get(u.id));
+    const at = this.walk(u, spot, dirBetween(spot, tile)) ?? Date.now();
+    const item = u.holding;
+    this.errands.set(u.id, setTimeout(() => {
+      this.errands.delete(u.id);
+      const d = this.position(u).dest;
+      if (d.x !== spot.x || d.y !== spot.y || u.holding !== item || u.instance) return; // changed their mind
+      const cup = this.creatures.addCup(tile, item, Date.now());
+      if (typeof cup === 'string') this.sendTo(u.id, { t: 'notice', text: cup });
+      else this.setHolding(u, null);
+    }, Math.max(0, at - Date.now()) + 300));
+  }
+  // ---------- Berghain's toilets ----------
+  /** Walk to the stall's door; there, go in or join the line. */
+  private useToilet(u: User, o: MapObject) {
+    if (this.toilets.inside(u.id) === o.id || this.toilets.waiting(u.id)?.id === o.id) return;
+    if (toiletFull(this.toilets.state(o.id))) return this.sendTo(u.id, { t: 'notice', text: 'Out of order — this stall is full 🤢' });
+    this.setFollowing(u, null);
+    clearTimeout(this.errands.get(u.id));
+    const door = stallDoor(o), here = this.position(u).next;
+    const at = here.x === door.x && here.y === door.y ? Date.now() : this.walk(u, door, 'down');
+    if (at === null) return;
+    this.errands.set(u.id, setTimeout(() => {
+      this.errands.delete(u.id);
+      const d = this.position(u).dest;
+      if (d.x !== door.x || d.y !== door.y || u.presence === 'offline' || goingOut(u) || u.instance) return; // wandered off on the way
+      if (this.map.objects.find(it => it.id === o.id)?.use?.kind !== 'toilet') return;
+      const r = this.toilets.arrive(o.id, u.id, Date.now());
+      if (r === 'full') this.sendTo(u.id, { t: 'notice', text: 'Out of order — this stall is full 🤢' });
+      if (r === 'queued') this.sendTo(u.id, { t: 'notice', text: `In line for the toilet · ${this.toilets.waiting(u.id)!.ahead + 1} ahead of you` });
+    }, Math.max(0, at - Date.now()) + USE_MS.toilet));
+  }
+  private toiletWalk(u: User, to: Tile) {
+    this.toiletWalks.add(u.id);
+    try { return this.walk(u, to, 'down'); } finally { this.toiletWalks.delete(u.id); }
+  }
+  /** Everyone waiting for this stall stands in its line, in order. */
+  private lineUp(id: string) {
+    const o = this.map.objects.find(o => o.id === id), queue = this.toilets.state(id).queue;
+    if (!o || !queue.length) return;
+    const spots = stallLine(this.map, o, queue.length);
+    queue.forEach((userId, i) => {
+      const u = this.users.get(userId), d = u && this.position(u).dest;
+      if (u && d && (d.x !== spots[i].x || d.y !== spots[i].y)) this.toiletWalk(u, { x: spots[i].x, y: spots[i].y });
+    });
+  }
+  private toiletShelf(u: User, objectId: string) {
+    const o = this.map.objects.find(o => o.id === objectId);
+    if (o?.use?.kind !== 'toilet' || this.toilets.inside(u.id) !== o.id) return;
+    if (!this.hasItem(u, TOILET_SHELF_ITEM)) return this.sendTo(u.id, { t: 'notice', text: 'You have nothing to put on the shelf' });
+    if (this.toilets.state(o.id).in.length < 2) return this.sendTo(u.id, { t: 'notice', text: 'Not on your own — wait for company' });
+    if (!this.toilets.shelf(o.id, u.id)) return this.sendTo(u.id, { t: 'notice', text: 'The shelf is full' });
+    this.takeItem(u, TOILET_SHELF_ITEM);
+  }
+  private toiletSniff(u: User, objectId: string) {
+    const o = this.map.objects.find(o => o.id === objectId);
+    if (o?.use?.kind !== 'toilet' || this.toilets.inside(u.id) !== o.id) return;
+    if (!this.toilets.sniff(o.id, u.id)) return this.sendTo(u.id, { t: 'notice', text: 'Nothing on the shelf' });
+    this.addEffect(u, 'unicorns');
+    this.sendTo(u.id, { t: 'notice', text: 'Whoa… are those unicorns? 🦄' });
   }
   private objectState(id: string) { return { on: this.objectOn.get(id) ?? true }; }
   private setObject(id: string, on: boolean, by: User) {
@@ -523,6 +645,58 @@ export class World {
     if (item) this.holdTimers.set(u.id, setTimeout(() => this.setHolding(u, null), HOLD_MS));
     u.holding = item;
     this.broadcast({ t: 'holding', userId: u.id, item, objectId, fromId });
+  }
+
+  // ---------- effects ----------
+  /** Put an effect on someone (replacing one of the same kind), for its rule's duration unless `ms` says otherwise. */
+  addEffect(u: User, kind: string, opts: { ms?: number; data?: Record<string, unknown> } = {}, now = Date.now()) {
+    const rule = EFFECTS[kind]; if (!rule) return;
+    const ms = opts.ms ?? rule.ms;
+    const e: Effect = { kind, ...(ms ? { until: now + ms } : {}), ...(opts.data ? { data: opts.data } : {}) };
+    u.effects = [...u.effects.filter(x => x.kind !== kind), e].slice(-MAX_EFFECTS);
+    this.effectsChanged(u);
+  }
+  removeEffect(u: User, kind: string) {
+    if (!u.effects.some(e => e.kind === kind)) return;
+    u.effects = u.effects.filter(e => e.kind !== kind);
+    this.effectsChanged(u);
+  }
+  private effectsChanged(u: User) { this.broadcast({ t: 'effects', userId: u.id, effects: u.effects }); }
+  effectsTick(now = Date.now()) {
+    for (const u of this.users.values()) {
+      if (!u.effects.some(e => e.until !== undefined && e.until <= now)) continue;
+      u.effects = u.effects.filter(e => e.until === undefined || e.until > now);
+      this.effectsChanged(u);
+    }
+  }
+  /** Judges find the judge's hat in their pockets, office admins the sysadmin cap (by sign-in email). The first time, it goes
+   *  straight on; later they wear what they like. Someone no longer on the list loses the hat. */
+  private grantHats(u: User) {
+    const wearing = u.effects.find(e => e.kind === 'hat')?.data?.style;
+    let changed = false;
+    for (const [style, should] of [[JUDGE_HAT, this.isJudge(u)], [ADMIN_HAT, this.isAdmin(u)]] as const) {
+      const item = hatItem(style), has = u.items.includes(item);
+      if (should && !has) { u.items = [...u.items, item]; changed = true; if (!wearing) this.addEffect(u, 'hat', { data: { style } }); }
+      if (!should && has) { u.items = u.items.filter(i => i !== item); changed = true; if (wearing === style) this.removeEffect(u, 'hat'); }
+    }
+    if (changed) this.sendTo(u.id, this.me(u));
+  }
+  /** A client asks for an effect on someone. Yourself: 'self' effects only; GMs (office admins): anything on anyone. */
+  private requestEffect(u: User, msg: Extract<ClientMsg, { t: 'effect' }>) {
+    const kind = String(msg.kind), rule = Object.prototype.hasOwnProperty.call(EFFECTS, kind) ? EFFECTS[kind] : undefined;
+    const target = this.users.get(String(msg.targetId));
+    if (!rule || !target || target.presence === 'offline') return;
+    const gm = this.isAdmin(u);
+    if (!gm && (target.id !== u.id || rule.who !== 'self')) return;
+    if (!msg.on) return this.removeEffect(target, kind);
+    let data: Record<string, unknown> | undefined;
+    if (rule.styles) {
+      const style = String(msg.style ?? '');
+      if (!(rule.styles as readonly string[]).includes(style)) return;
+      if (kind === 'hat' && !gm && !u.items.includes(hatItem(style))) return; // wear only what's in your pockets
+      data = { style };
+    }
+    this.addEffect(target, kind, { data });
   }
 
   // ---------- reactions & chat ----------
@@ -661,7 +835,7 @@ export class World {
     const r = this.map.dungeon?.rect;
     return !!r && t.x >= r.x && t.x < r.x + r.w && t.y >= r.y && t.y < r.y + r.h;
   }
-  private walkDone(u: User) { return !!u.move && !!u.path && Date.now() >= u.move.startedAt + pathDuration(u.path); }
+  private walkDone(u: User) { return !!u.move && !!u.path && Date.now() >= u.move.startedAt + pathDuration(u.path, u.move.ms); }
   private bumpWalk(u: User) {
     u.walkSeq = (u.walkSeq ?? 0) + 1;
     for (const t of Object.values(u.dungeonTimers ?? {})) clearTimeout(t.timer);
@@ -1100,8 +1274,9 @@ export class World {
     k.state = 'pending';
     this.setEmote(to, 'knock');
     this.broadcast({ t: 'knock', knockId: k.id, fromId: from.id, toId: to.id });
-    if (room?.rules.knock === 'later' || (to.presence === 'in_call' && !to.callId) || to.meeting) {
-      const why = to.meeting ? 'in a meeting' : room?.rules.occupantLabel ?? 'in a call';
+    const stall = this.toilets.inside(to.id);
+    if (room?.rules.knock === 'later' || (to.presence === 'in_call' && !to.callId) || to.meeting || stall) {
+      const why = stall ? 'on the toilet' : to.meeting ? 'in a meeting' : room?.rules.occupantLabel ?? 'in a call';
       k.timer = setTimeout(() => this.closeKnock(k, 'later', `${to.name} is ${why} — sent to Later`), 1400);
     } else {
       k.timer = setTimeout(() => this.closeKnock(k, 'later', `${to.name} didn't answer — sent to Later`), 30_000);
@@ -1159,6 +1334,7 @@ export class World {
         this.setFollowing(u, null);
         const to = { x: msg.to.x | 0, y: msg.to.y | 0 };
         if (underground(u) ? !this.inDungeon(to) : u.instance && !this.inMeetingRoom(to)) break;
+        if (!this.isAdmin(u) && adminOnly(this.map, to.x, to.y)) { this.sendTo(u.id, { t: 'notice', text: `🔒 ${roomAt(this.map, to.x, to.y)?.name ?? 'That room'}: admins only` }); break; }
         const at = this.walk(u, to);
         const hole = this.map.dungeon?.hole;
         if (at !== null && hole && this.sameTile(to, hole)) this.dungeonTimer(u, 'fall', at, () => {
@@ -1168,6 +1344,14 @@ export class World {
         break;
       }
       case 'status': this.setStatus(u, String(msg.status ?? '')); break;
+      case 'effect': this.requestEffect(u, msg); break;
+      case 'tz': {
+        const tz = isTimeZone(msg.tz) ? msg.tz : undefined;
+        if (tz === u.tz || (msg.tz != null && !tz)) break;
+        if (tz) u.tz = tz; else delete u.tz;
+        this.broadcast({ t: 'tz', userId: u.id, tz: tz ?? null });
+        break;
+      }
       case 'look': {
         const color = (v: unknown, fallback: string) => typeof v === 'string' && /^#[0-9a-f]{6}$/i.test(v) ? v : fallback;
         const int = (v: unknown, max: number) => Math.max(0, Math.min(max, Number.isInteger(v) ? Number(v) : 0));
@@ -1186,6 +1370,13 @@ export class World {
       case 'claim_desk': this.claimDesk(u); break;
       case 'edit': if (msg.edit && typeof msg.edit === 'object') this.edit(u, msg.edit); break;
       case 'edit_reset': this.resetLayout(u); break;
+      case 'toilet_plunge': {
+        const o = this.map.objects.find(o => o.id === msg.objectId);
+        if (this.isAdmin(u) && o?.use?.kind === 'toilet' && this.toilets.plunge(o.id, Date.now())) this.sendTo(u.id, { t: 'notice', text: 'Plunged 🪠 — good as new' });
+        break;
+      }
+      case 'toilet_shelf': this.toiletShelf(u, String(msg.objectId)); break;
+      case 'toilet_sniff': this.toiletSniff(u, String(msg.objectId)); break;
       case 'release_desk': this.releaseDesk(u); break;
       case 'meet_link': {
         const raw = String(msg.link ?? '');
@@ -1283,7 +1474,10 @@ export class World {
       }
       case 'use': this.use(u, String(msg.objectId), msg.item === undefined ? undefined : String(msg.item)); break;
       case 'drop': if (u.holding) this.setHolding(u, null); break;
+      case 'cup_put': if (msg.tile) this.putCup(u, { x: msg.tile.x | 0, y: msg.tile.y | 0 }); break;
       case 'give': { const to = this.users.get(String(msg.targetId)); if (to) this.give(u, to); break; }
+      case 'present_slide': this.present?.slide(u.id, msg.slide); break;
+      case 'present_stop': this.present?.stop(u.id); break;
     }
   }
 
@@ -1291,13 +1485,14 @@ export class World {
   dump() {
     return {
       users: [...this.users.values()].map(u => {
-        return { id: u.id, name: u.name, email: u.email, meetLink: u.meetLink, google: u.google, homeDesk: u.homeDesk, look: u.look, lookSet: u.lookSet, tile: underground(u) ? this.dungeonExit(false) : u.tile, dir: u.dir, status: u.status, presence: u.presence, bot: u.bot, plant: u.plant, bloomed: u.bloomed, achievements: u.achievements };
+        return { id: u.id, name: u.name, email: u.email, meetLink: u.meetLink, google: u.google, homeDesk: u.homeDesk, look: u.look, lookSet: u.lookSet, tile: underground(u) ? this.dungeonExit(false) : u.tile, dir: u.dir, status: u.status, presence: u.presence, bot: u.bot, plant: u.plant, bloomed: u.bloomed, achievements: u.achievements, effects: u.effects.filter(e => e.until === undefined), items: u.items };
       }),
       objects: Object.fromEntries(this.objectOn),
       jukebox: Object.fromEntries([...this.jukeboxes].map(([id, j]) => [id, j.dump()])),
       arcade: this.arcade.dump(),
       layout: this.layoutEdited ? this.layout() : undefined,
       chats: Object.fromEntries(this.chats),
+      cups: this.creatures.cups,
     };
   }
   load(data: ReturnType<World['dump']>) {
@@ -1332,12 +1527,13 @@ export class World {
       const tile = this.inDungeon(d.tile) ? this.dungeonExit(false) : isWalkable(this.map, d.tile.x, d.tile.y) || seatAt(this.map, d.tile.x, d.tile.y) ? d.tile : { ...this.map.spawn };
       const legacy = lookFor(d.name);
       const look = { ...legacy, ...d.look, eyes: d.look?.eyes ?? legacy.eyes, shoes: d.look?.shoes ?? legacy.shoes, top: d.look?.top ?? 0, bottom: d.look?.bottom ?? 0, glasses: d.look?.glasses ?? 0, hat: d.look?.hat ?? 0, glassesColor: d.look?.glassesColor ?? legacy.glassesColor, hatColor: d.look?.hatColor ?? legacy.hatColor };
-      this.users.set(d.id, { ...d, look, lookSet: d.lookSet ?? false, homeDesk: d.homeDesk ?? null, plant: d.plant ?? null, bloomed: d.bloomed ?? [], achievements: d.achievements ?? {}, tile, move: null, path: null, emote: null, door: null, callId: null, deafened: false, hand: false, muted: false, following: null, holding: null, meeting: null, instance: null, game: null, presence: d.bot ? d.presence : 'offline' });
+      this.users.set(d.id, { ...d, look, lookSet: d.lookSet ?? false, homeDesk: d.homeDesk ?? null, plant: d.plant ?? null, bloomed: d.bloomed ?? [], achievements: d.achievements ?? {}, items: Array.isArray(d.items) ? d.items.filter((i: unknown): i is string => typeof i === 'string') : [], effects: (d.effects ?? []).filter(e => Object.prototype.hasOwnProperty.call(EFFECTS, e.kind) && e.until === undefined), tile, move: null, path: null, emote: null, door: null, callId: null, deafened: false, hand: false, muted: false, following: null, holding: null, meeting: null, instance: null, game: null, presence: d.bot ? d.presence : 'offline' });
     }
     for (const [id, on] of Object.entries(data.objects ?? {})) if (this.objectOn.has(id)) this.objectOn.set(id, !!on);
     this.arcade.load(data.arcade);
     const now = Date.now();
     for (const [id, saved] of Object.entries(data.jukebox ?? {})) if (this.jukeboxes.has(id)) this.jukeboxes.set(id, Jukebox.load(TRACKS, saved, now));
     for (const [key, msgs] of Object.entries(data.chats ?? {})) this.chats.set(key, msgs);
+    this.creatures.cups = (data.cups ?? []).filter(c => this.creatures.tableAt(c.tile));
   }
 }

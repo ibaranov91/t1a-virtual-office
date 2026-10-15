@@ -1,16 +1,32 @@
 import { INSTRUMENTS } from '../../shared/instruments';
 // The floor: one <canvas>, one requestAnimationFrame loop.
 // Order: static tilemap → y-sorted furniture + sprites → nameplates & bubbles → ambient tint → UI hints.
-import { applyEdit, FIXED_TYPES, findPath, pathTo, sampleMove, pathDuration, WALK_MS_PER_TILE, isWalkable, layoutProblem, objectById, objectName, roomAt, seatAt, withLayout, type MapObject, type Rect, type Rug, type Tile } from '../../shared/map';
+import { adminOnly, applyEdit, FIXED_TYPES, findPath, pathTo, sampleMove, pathDuration, WALK_MS_PER_TILE, isWalkable, layoutProblem, objectById, objectName, roomAt, seatAt, withLayout, type MapObject, type Rect, type Rug, type Tile } from '../../shared/map';
 import { DungeonView } from './dungeon';
-import { roomDoors, type RoomDoor } from './doors';
+import { drawEffects, effectLook, effectSway } from './effects';
+import { CreatureLayer } from './creatures';
+import { lockedDoors, roomDoors, type RoomDoor } from './doors';
 import type { Assets, Frame } from './assets';
 import { drawText, textWidth } from './font';
 import { TRACK } from '../../shared/music';
-import { underground, MEETING_ROOM_ID, PLANT_REVEAL, PLANT_STAGES, plantDead, plantName, type LayoutEdit } from '../../shared/protocol';
+import { TOILET_CAPACITY, toiletFull, cupTableAt, CUP_ITEMS, underground, MEETING_ROOM_ID, PLANT_REVEAL, PLANT_STAGES, plantDead, plantName, type LayoutEdit } from '../../shared/protocol';
 import { ITEMS, MAP, type ClientUser, type Pose, type Store, type DungeonFx } from './net';
 
 const TS = MAP.tileSize;
+/** "🕒 14:35 · Warsaw", plus "tomorrow"/"yesterday" when their date isn't mine. */
+function localTime(tz: string) {
+  const now = new Date(), day = (z?: string) => new Intl.DateTimeFormat('en-CA', { timeZone: z }).format(now), theirs = day(tz), mine = day();
+  const time = new Intl.DateTimeFormat([], { timeZone: tz, hour: '2-digit', minute: '2-digit' }).format(now);
+  return `🕒 ${time}${theirs === mine ? '' : theirs > mine ? ' tomorrow' : ' yesterday'} · ${tz.split('/').pop()!.replace(/_/g, ' ')}`;
+}
+const zoneFmt = new Map<string, Intl.DateTimeFormat>();
+/** Hour and minute on the wall in an IANA zone, right now. */
+function zoneHM(tz: string) {
+  let f = zoneFmt.get(tz); if (!f) zoneFmt.set(tz, f = new Intl.DateTimeFormat('en-US', { timeZone: tz, hourCycle: 'h23', hour: 'numeric', minute: 'numeric' }));
+  const p = f.formatToParts(new Date());
+  return { h: +p.find(x => x.type === 'hour')!.value, m: +p.find(x => x.type === 'minute')!.value };
+}
+function zoneTime(tz: string) { const { h, m } = zoneHM(tz); return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`; }
 const MW = MAP.width * TS, MH = MAP.height * TS;
 const MEETING = MAP.rooms.find(r => r.id === MEETING_ROOM_ID)!.rect;
 const inMeetingRoom = (x: number, y: number) => x >= MEETING.x && x < MEETING.x + MEETING.w && y >= MEETING.y && y < MEETING.y + MEETING.h;
@@ -75,6 +91,9 @@ export class Engine {
   onPick?: (p: Pick | null) => void;
   private hoverTile: { x: number; y: number } | null = null;
   private hoverPlant: PlacedPlant | null = null;
+  private hoverCritter: { text: string; x: number; y: number } | null = null;
+  private cupTile: Tile | null = null; // a table I can put my cup down on, under the pointer
+  critters: CreatureLayer;
   private plants: PlacedPlant[] = [];
   private plantsVersion = -1; // store.version the plants were placed for
   private glow: HTMLCanvasElement; // one lamp's halo at full strength; drawn with alpha per frame
@@ -93,6 +112,7 @@ export class Engine {
   private slots: Tile[] = [];
   private layoutSeen = -1;
   private doors: RoomDoor[] = [];
+  private deniedAt = new Map<string, number>(); // room id → when a locked door last turned someone away (it shakes)
   // ---- edit mode (office admins) ----
   editing = false;
   /** Selected furniture or rug. */
@@ -107,6 +127,7 @@ export class Engine {
   constructor(private canvas: HTMLCanvasElement, private store: Store, private assets: Assets) {
     this.ctx = canvas.getContext('2d')!;
     this.staticLayer = this.furniture = this.lights = this.steamers = this.sounders = this.interactive = this.boards = null!;
+    this.critters = new CreatureLayer(store, () => this.ctx, n => this.f(n), (n, x, y) => this.blit(this.ctx, n, x, y));
     this.refreshLayout();
     this.glow = document.createElement('canvas'); this.glow.width = this.glow.height = 80;
     const gc = this.glow.getContext('2d')!, g = gc.createRadialGradient(40, 40, 2, 40, 40, 40);
@@ -164,6 +185,7 @@ export class Engine {
     const r = MAP.rooms.find(r => r.id === id), me = this.store.users.get(this.store.me); if (!r || !me) return;
     if (underground(me)) return this.blockDungeon();
     if (me.instance || roomAt(MAP, me.tile.x, me.tile.y)?.id === id) return this.focusRoom(id); // a meeting's room has no way out but Leave
+    if (r.rules.access && !this.store.admin) { this.focusRoom(id); return this.denyDoor(r.rect.x, r.rect.y); }
     const { x, y, w, h } = r.rect, cx = x + (w - 1) / 2, cy = y + (h - 1) / 2, taken = this.taken();
     let best: { t: Tile; score: number } | null = null;
     for (let ty = y; ty < y + h; ty++) for (let tx = x; tx < x + w; tx++) {
@@ -261,7 +283,7 @@ export class Engine {
   /** The furniture changed (an admin moved something): redraw the floor and re-sort what's where. */
   private refreshLayout() {
     this.layoutSeen = this.store.layoutVersion;
-    this.doors = roomDoors(MAP);
+    this.doors = [...roomDoors(MAP), ...lockedDoors(MAP)];
     this.staticLayer = this.buildStatic();
     this.furniture = MAP.objects.filter(o => !o.wall && !o.walkable && this.f(o.type)).map(o => {
       const fr = this.f(o.type);
@@ -323,6 +345,24 @@ export class Engine {
     const name = o.dir && this.f(`${o.type}_${o.dir}`) ? `${o.type}_${o.dir}` : o.type!; // chairs face their desk
     const fr = this.f(name);
     return fr && { name, fr, x: o.x * TS + (o.w * TS - fr.w) / 2, y: o.wall ? o.y * TS : (o.y + o.h) * TS - fr.h };
+  }
+  /** The world clocks' hands, from the real time in each one's zone. */
+  private drawClockHands(ctx: CanvasRenderingContext2D) {
+    for (const o of MAP.objects) {
+      if (o.use?.kind !== 'clock') continue;
+      const s = this.sprite(o); if (!s) continue;
+      const { h, m } = zoneHM(o.use.tz), cx = s.x + 8, cy = s.y + 7;
+      const hand = (turns: number, len: number, color: string) => {
+        ctx.fillStyle = color;
+        const a = turns * Math.PI * 2;
+        for (let r = 0; r <= len; r += 0.5) ctx.fillRect(Math.round(cx + Math.sin(a) * r), Math.round(cy - Math.cos(a) * r), 1, 1);
+      };
+      hand(((h % 12) + m / 60) / 12, 2.5, '#3a2a2a'); hand(m / 60, 4, '#3a2a2a');
+      ctx.fillStyle = '#b4534a'; ctx.fillRect(cx, cy, 1, 1);
+      ctx.font = 'bold 4px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'top'; // the zone's name under the face
+      ctx.fillStyle = 'rgba(40,20,20,0.7)'; ctx.fillText(o.use.label, cx + 0.3, s.y + 15.3);
+      ctx.fillStyle = '#ffe9c4'; ctx.fillText(o.use.label, cx, s.y + 15);
+    }
   }
   private drawItem(ctx: CanvasRenderingContext2D, o: Item) {
     if (o.color) return this.drawRug(ctx, o as Rug);
@@ -440,11 +480,12 @@ export class Engine {
   /** Match the server's mid-walk starting tile (the tile we're entering). */
   private routeStart(u: ClientUser) {
     const prev = u.prev && this.store.now() < (u.move?.startedAt ?? 0) ? u.prev : null;
-    return prev ? sampleMove(prev.path, prev.startedAt, this.store.now())?.next ?? u.tile
-      : u.move && u.path ? sampleMove(u.path, u.move.startedAt, this.store.now())?.next ?? u.tile : u.tile;
+    return prev ? sampleMove(prev.path, prev.startedAt, this.store.now(), prev.ms)?.next ?? u.tile
+      : u.move && u.path ? sampleMove(u.path, u.move.startedAt, this.store.now(), u.move.ms)?.next ?? u.tile : u.tile;
   }
   private canWalk(t: Tile) {
     if (this.falling() || !this.inArea(t) || !isWalkable(MAP, t.x, t.y)) return false;
+    if (!this.store.admin && adminOnly(MAP, t.x, t.y)) return false; // the server would refuse it too
     if (!this.areaDown) return !this.myInstance() || inMeetingRoom(t.x, t.y);
     const me = this.store.users.get(this.store.me), seen = this.store.dungeon?.seen;
     if (!me || !seen) return false;
@@ -470,7 +511,7 @@ export class Engine {
       else if (this.store.now() - this.stepPending.at < WALK_MS_PER_TILE * 2) return;
       else this.stepPending = null;
     }
-    if (me.move && me.path && me.move.startedAt + pathDuration(me.path) - this.store.now() > 60) return;
+    if (me.move && me.path && me.move.startedAt + pathDuration(me.path, me.move.ms) - this.store.now() > 60) return;
     const [dx, dy] = [...this.held.values()].at(-1)!, from = me.move?.to ?? me.tile;
     const to = { x: from.x + dx, y: from.y + dy };
     if (!this.inArea(to) || !isWalkable(MAP, to.x, to.y)) return;
@@ -514,6 +555,7 @@ export class Engine {
   /** In a meeting's own room you see only its people; in the office, nobody who's in one. */
   private visible(u: ClientUser | undefined) {
     if (!u || u.presence === 'offline' || u.instance !== this.myInstance()) return false;
+    if (!this.areaDown && this.inStall(u.id) && !this.store.pose(u).walking) return false; // behind the stall door (their head peeks over it)
     return !this.areaDown || u.id === this.store.me || !!this.store.dungeon && this.dungeonView.canSee(this.store.pose(u).tile);
   }
   private myInstance() { return this.falling() ? null : this.store.users.get(this.store.me)?.instance ?? null; }
@@ -539,6 +581,12 @@ export class Engine {
     return seats[0] ?? { x: Math.max(o.x, Math.min(o.x + o.w - 1, x)), y: o.y };
   }
   /** Sprite of an object you can use under this point. */
+  /** Holding a coffee or tea over a free table tile in the office: that's where it can go. */
+  private cupTarget(t: Tile): Tile | null {
+    const me = this.store.users.get(this.store.me);
+    if (!me?.holding || !CUP_ITEMS.includes(me.holding) || me.instance || this.areaDown || !cupTableAt(MAP.objects, t)) return null;
+    return this.store.cups.some(c => c.tile.x === t.x && c.tile.y === t.y) ? null : t;
+  }
   private objectAt(wx: number, wy: number): MapObject | null {
     let best: MapObject | null = null;
     for (const o of this.interactive) {
@@ -663,7 +711,9 @@ export class Engine {
       : this.plants.find(p => w.x >= p.x - 5 && w.x < p.x + 5 && w.y >= p.y - 18 && w.y < p.y) ?? null;
     const tx = Math.floor(w.x / TS), ty = Math.floor(w.y / TS);
     this.hoverTile = this.clickTarget({ x: tx, y: ty });
-    this.canvas.style.cursor = this.tapZooms ? 'zoom-in' : this.hoverUser || this.hoverObject ? 'pointer' : this.hoverTile ? 'crosshair' : 'default';
+    this.hoverCritter = this.hoverUser || this.hoverObject || inside || this.areaDown ? null : this.critters.at(w.x, w.y, this.store.now());
+    this.cupTile = this.hoverUser || this.hoverObject ? null : this.cupTarget({ x: tx, y: ty });
+    this.canvas.style.cursor = this.tapZooms ? 'zoom-in' : this.hoverUser || this.hoverObject || this.cupTile ? 'pointer' : this.hoverTile ? 'crosshair' : 'default';
   };
   private onEditMove(w: { x: number; y: number }) {
     const tx = Math.floor(w.x / TS), ty = Math.floor(w.y / TS), d = this.editDrag;
@@ -710,9 +760,18 @@ export class Engine {
     if (obj) return this.onPick?.({ kind: 'object', id: obj.id });
     this.onPick?.(null);
     const tx = Math.floor(w.x / TS), ty = Math.floor(w.y / TS);
+    const cup = this.cupTarget({ x: tx, y: ty });
+    if (cup) { this.manualCam = false; return this.store.putCup(cup); }
     const target = this.clickTarget({ x: tx, y: ty });
     if (target) this.walkTo(target);
+    else if (!this.store.admin && !this.areaDown && adminOnly(MAP, tx, ty)) this.denyDoor(tx, ty);
   };
+  /** A locked room turned me away: its door shakes and says why. */
+  private denyDoor(tx: number, ty: number) {
+    const room = roomAt(MAP, tx, ty); if (!room) return;
+    this.deniedAt.set(room.id, performance.now());
+    this.store.toast({ kind: 'info', text: `🔒 ${room.name}: admins only`, expires: 3000 });
+  }
 
   /** Plants stand on their owner's home desk, or on an Orangery shelf if they have none. On the desk it goes to the
    *  far end from the chair along the edge you sit at (a desk's other end, a shared table's back corner on your side),
@@ -779,7 +838,7 @@ export class Engine {
     ctx.beginPath(); ctx.rect(this.area.x * TS, this.area.y * TS, this.area.w * TS, this.area.h * TS); ctx.clip();
     ctx.drawImage(this.staticLayer, this.area.x * TS, this.area.y * TS, this.area.w * TS, this.area.h * TS,
       this.area.x * TS, this.area.y * TS, this.area.w * TS, this.area.h * TS);
-    if (this.areaDown) this.drawDungeon(ms);
+    if (this.areaDown) this.drawDungeon(ms); else this.drawClockHands(ctx);
 
     // hover tile + my destination marker
     if (this.hoverTile && !this.hoverUser && !this.tapZooms && !this.editing) {
@@ -806,23 +865,27 @@ export class Engine {
 
     // y-sorted drawables: furniture is sorted per layout (refreshLayout); people and plants are sorted here and merged in
     if (this.plantsVersion !== this.store.version) { this.plants = me?.instance ? [] : this.placePlants(); this.plantsVersion = this.store.version; }
-    type D = { base: number; u?: ClientUser; p?: Pose; plant?: PlacedPlant; door?: RoomDoor; fx?: DungeonFx };
+    type D = { base: number; u?: ClientUser; p?: Pose; plant?: PlacedPlant; door?: RoomDoor; fx?: DungeonFx; draw?: () => void };
     const ds: D[] = [];
+    if (!this.areaDown && !me?.instance) for (const c of this.critters.placed(t, ms)) ds.push(c);
     for (const door of this.areaDown ? [] : this.doors) ds.push({ base: (door.y + door.h) * TS - .5, door });
     for (const u of users) { const p = poses.get(u.id)!; ds.push({ base: p.y * TS + TS, u, p }); }
     if (!this.areaDown) for (const fx of this.store.dungeonFx) if (fx.kind === 'fall' && ms >= fx.at && ms - fx.at < 500) ds.push({ base: (fx.tile.y + 1) * TS, fx });
     for (const plant of this.plants) ds.push({ base: plant.base, plant });
     ds.sort((a, b) => a.base - b.base);
     const drawD = (d: D) => {
+      if (d.draw) return d.draw();
       if (d.fx) return this.drawDungeonFx(d.fx, ms);
       if (d.u) {
         const fx = this.store.dungeonFx.find(f => f.user.id === d.u!.id && f.kind !== 'fall' && ms >= f.at && ms - f.at < 650 && (this.areaDown === (f.kind === 'land')));
         return fx ? this.drawDungeonFx(fx, ms) : this.drawSprite(d.u, d.p!, ms);
       }
-      if (d.door) { // open while someone stands in or right next to the doorway
+      if (d.door) { // open while someone stands in or right next to the doorway; a locked one stays shut for non-admins
         const door = d.door, open = [...poses.values()].some(p => door.tiles.some(t => Math.abs(t.x - p.tile.x) + Math.abs(t.y - p.tile.y) <= 1));
-        const name = `door_${door.horizontal ? 'h' : 'v'}_${open ? 'open' : 'closed'}`, fr = this.f(name);
-        return void (fr && this.blit(ctx, name, door.x * TS + (door.w * TS - fr.w) / 2, (door.y + door.h) * TS - fr.h));
+        const locked = door.locked && !this.store.admin, age = ms - (this.deniedAt.get(door.room.id) ?? -1e9);
+        const shake = locked && age < 450 ? Math.round(Math.sin(age / 22) * 2) : 0;
+        const name = `door_${door.horizontal ? 'h' : 'v'}_${locked ? 'locked' : open ? 'open' : 'closed'}`, fr = this.f(name);
+        return void (fr && this.blit(ctx, name, door.x * TS + (door.w * TS - fr.w) / 2 + shake, (door.y + door.h) * TS - fr.h));
       }
       const p = d.plant!, pl = p.u.plant!, kinded = pl.kind && pl.stage >= PLANT_REVEAL;
       this.blit(ctx, plantDead(pl, t) ? 'pot_dead' : kinded ? `pot_${pl.kind}_${pl.stage}` : `pot_${pl.stage}`, p.x - 6, p.y - 20);
@@ -830,9 +893,12 @@ export class Engine {
     let di = 0;
     for (const f of this.areaDown ? [] : this.furniture) {
       while (di < ds.length && ds[di].base <= f.base) drawD(ds[di++]);
-      this.blit(ctx, f.o.type === 'arcade' && this.store.cabinets.some(c => c.cabinet === f.o.id) ? `arcade_on_${1 + Math.floor(ms / 320) % 2}` : f.off && !this.isOn(f.o) ? `${f.o.type}_off` : f.o.type, f.x, f.y);
+      this.blit(ctx, f.o.type === 'arcade' && this.store.cabinets.some(c => c.cabinet === f.o.id) ? `arcade_on_${1 + Math.floor(ms / 320) % 2}` : f.o.use?.kind === 'toilet' ? this.toiletFrame(f.o.id)
+        : f.o.type === 'server_rack' && Math.floor(ms / 500 + f.o.x * 3 + f.o.y) % 2 ? 'server_rack_1' : f.off && !this.isOn(f.o) ? `${f.o.type}_off` : f.o.type, f.x, f.y);
+      if (f.o.use?.kind === 'toilet') this.drawStall(ctx, f.o, f.x, f.y);
     }
     while (di < ds.length) drawD(ds[di++]);
+    if (!this.areaDown && !me?.instance) this.critters.drawAbove(t, ms);
 
     // coffee steam when someone is in the Coffee room
     const coffeeBusy = users.some(u => roomAt(MAP, poses.get(u.id)!.tile.x, poses.get(u.id)!.tile.y)?.type === 'coffee');
@@ -862,7 +928,7 @@ export class Engine {
     }
     ctx.globalAlpha = 1;
 
-    if (!me?.instance) this.drawBoardBadges(ctx, ms);
+    if (!me?.instance) { this.drawBoardBadges(ctx, ms); this.drawLiveScreen(ctx, ms); }
 
     // a meeting's own room: the rest of the office fades away
     if (me?.instance && !this.areaDown && !this.falling()) {
@@ -882,6 +948,7 @@ export class Engine {
     for (const u of sorted) this.drawOverlay(u, poses.get(u.id)!, ms);
     this.drawReactions(poses, ms);
 
+    if (!this.areaDown && !me?.instance) this.drawClub(ctx, ms);
     if (!this.areaDown) this.drawAmbient(ctx, camX, camY);
     if (this.editing) this.drawEdit(ctx, camX, camY, ms);
     if (this.overview && !me?.instance) this.drawRoomTags(users, poses, camX, camY);
@@ -903,9 +970,15 @@ export class Engine {
       const player = this.store.instruments[o.id];
       const instrumentTip = o.use?.kind === 'instrument' ? `${INSTRUMENTS[o.use.instrument].name} · ${this.store.seat === o.id ? "you're playing · Esc to stand up" : player === this.store.me ? "you're playing in another tab" : player ? `${this.store.name(player).split(' ')[0]} is playing` : 'click to play'}` : '';
       const what = instrumentTip || (o.use?.kind === 'arcade' ? this.store.gameDescription(o.id) : o.use?.kind === 'records' ? 'Deck Park · team records' : o.use?.kind === 'jukebox' ? !jukebox ? 'Jukebox · Reconnecting…' : jukebox.pausedAt !== null ? 'Jukebox · paused' : `Jukebox · ♪ ${track?.title ?? jukebox.track} — ${track?.artist ?? ''}` : o.sound ? 'Radio · music volume in ⚙' : o.use?.kind === 'toggle' ? `${o.use.label[0].toUpperCase()}${o.use.label.slice(1)} · ${this.isOn(o) ? 'on' : 'off'}`
-        : o.use?.kind === 'calendar' ? 'Calendar · your week' : o.use?.kind === 'achievements' ? 'Notice board · your plant and achievements' : o.use?.kind === 'link' ? `Vault 13 · click to open the ${o.use.label}` : o.use?.kind === 'meetings' ? `Meetings · ${this.store.meetingRooms.length || 'none'} on now` : o.sit ? `${o.type === 'bench' ? 'Bench' : 'Sofa'} · click to sit` : o.type === 'coffee_machine' ? 'Coffee machine' : o.type === 'fridge' ? 'Fridge' : o.type);
+        : o.use?.kind === 'calendar' ? 'Calendar · your week' : o.use?.kind === 'achievements' ? 'Notice board · your plant and achievements' : o.use?.kind === 'link' ? `Vault 13 · click to open the ${o.use.label}` : o.use?.kind === 'meetings' ? `Meetings · ${this.store.meetingRooms.length || 'none'} on now`
+        : o.use?.kind === 'presentation' ? (this.store.presentation?.objectId === o.id ? `Screen · LIVE: ${this.store.presentation.deck.title}` : 'Screen · click to present slides') : o.use?.kind === 'clock' ? `Clock · ${o.use.city}, ${zoneTime(o.use.tz)} · click for all our cities` : o.sit ? `${o.type === 'bench' ? 'Bench' : 'Sofa'} · click to sit` : o.type === 'coffee_machine' ? 'Coffee machine' : o.type === 'fridge' ? 'Fridge' : o.use?.kind === 'toilet' ? this.toiletTip(o.id) : o.use?.kind === 'dealer' ? (o.type === 'bouncer' ? 'Bouncer · knows a guy' : 'Hat stand · pick a hat for your pockets') : objectName(o.type));
       this.drawLabel(what, (o.x + o.w / 2) * TS, (o.y + o.h) * TS - fr.h + 4, camX, camY);
     }
+    else if (this.cupTile) {
+      const held = me?.holding ? ITEMS.get(me.holding) : undefined;
+      this.drawLabel(`${held?.icon ?? '☕'} Put your ${held?.label.toLowerCase() ?? 'cup'} down here`, this.cupTile.x * TS + 8, this.cupTile.y * TS + 4, camX, camY);
+    }
+    else if (this.hoverCritter) this.drawLabel(this.hoverCritter.text, this.hoverCritter.x, this.hoverCritter.y, camX, camY);
     else if (this.hoverPlant) {
       const { u, x, y } = this.hoverPlant, mine = u.id === this.store.me, p = u.plant!;
       const state = plantDead(p, t) ? (mine ? 'withered · set a status to replant' : 'withered') : PLANT_STAGES[p.stage] + (mine ? ' · set a status each day' : '');
@@ -926,7 +999,7 @@ export class Engine {
 
   private drawSprite(u: ClientUser, p: Pose, ms: number) {
     const ctx = this.ctx, c = this.assets.atlas.character;
-    const sheet = this.assets.sheet(u.look);
+    const sheet = this.assets.sheet(u.effects?.length ? effectLook(u.look, u.effects) : u.look);
     const x = Math.round(p.x * TS), baseY = Math.round(p.y * TS) + TS;
     const seat = p.walking ? null : seatAt(MAP, p.tile.x, p.tile.y);
     // shadow (a seated sprite's shadow is the chair's)
@@ -935,7 +1008,7 @@ export class Engine {
       ctx.beginPath(); ctx.ellipse(x + 8, baseY - 1.5, 5.5, 2, 0, 0, Math.PI * 2); ctx.fill();
     }
     let frame = 0, bob = 0;
-    if (p.walking) frame = 1 + (Math.floor((ms / 1000) * WALK_FPS) % 4);
+    if (p.walking) frame = 1 + (Math.floor((ms / 1000) * WALK_FPS * WALK_MS_PER_TILE / (u.move?.ms ?? WALK_MS_PER_TILE)) % 4); // quicker steps when quicker
     else if (seat) { frame = SIT_FRAME; p = { ...p, dir: seat.dir }; }
     else {
       const phase = (ms + hash(u.id) * 37) % 1800;
@@ -950,11 +1023,20 @@ export class Engine {
     const drawBag = () => this.blit(ctx, 'bag', x + hand.dx, baseY - 13 + swing);
     if (u.door === 'thinking') this.blit(ctx, 'bag', x + 11, baseY - 9);
     if (carrying && hand.behind) drawBag();
+    // effects: a sway for the whole figure, then layers behind and in front of the body (see effects.ts)
+    const fx = u.effects?.length ? u.effects : null, seed = hash(u.id);
+    const sway = fx ? effectSway(fx, ms, seed, p) : null;
+    if (sway && (sway.dx || sway.rot)) { ctx.save(); ctx.translate(x + 8 + sway.dx, baseY); ctx.rotate(sway.rot); ctx.translate(-x - 8, -baseY); }
+    const top = baseY - c.frameH + bob + walkBob - 1 + (seat ? 2 : 0);
+    const fxCtx = fx && { ctx, x, top, baseY, ms, seed, p, blit: (n: string, bx: number, by: number) => this.blit(ctx, n, Math.round(bx), Math.round(by)), has: (n: string) => !!this.f(n) };
+    if (fxCtx) drawEffects('back', fxCtx, fx);
     // at the door: already half out
     ctx.globalAlpha = u.door === 'leaving' && !p.walking ? 0.45 : u.presence === 'away' ? 0.8 : 1;
     ctx.drawImage(sheet, frame * c.frameW, row * c.frameH, c.frameW, c.frameH, x, baseY - c.frameH + bob + walkBob - 1, c.frameW, c.frameH);
     if (carrying && !hand.behind) drawBag();
     ctx.globalAlpha = 1;
+    if (fxCtx) drawEffects('front', fxCtx, fx);
+    if (sway && (sway.dx || sway.rot)) ctx.restore();
     const icon = u.holding && !carrying ? ITEM_ICON.get(u.holding) : undefined;
     if (icon) {
       const ih = seat ? ITEM_HAND.down : ITEM_HAND[p.dir] ?? ITEM_HAND.down;
@@ -1140,6 +1222,51 @@ export class Engine {
     else if (hover) this.drawLabel(hover.type ? objectName(hover.type) : 'rug', (hover.x + hover.w / 2) * TS, hover.y * TS, camX, camY);
   }
 
+  private toiletTip(id: string) {
+    const s = this.store.toilets[id];
+    if (toiletFull(s)) return this.store.admin ? 'Toilet · full 🤢 · click to plunge' : 'Toilet · out of order 🤢';
+    const names = (ids: string[]) => ids.map(id => this.store.name(id).split(' ')[0]).join(', ');
+    const line = s?.queue.length ? ` · ${s.queue.length} in line` : '';
+    if (s?.in.includes(this.store.me)) return `Toilet · you're in here${s.in.length > 1 ? ` with ${names(s.in.filter(id => id !== this.store.me))}` : ''}`;
+    if (s?.in.length) return `Toilet · ${s.in.length}/${TOILET_CAPACITY} inside (${names(s.in)})${line}`;
+    return `Toilet · ${s?.fill ? `used ${s.fill}× · ` : ''}click to use`;
+  }
+  private toiletFrame(id: string) {
+    const s = this.store.toilets[id];
+    return toiletFull(s) ? 'toilet_full' : s?.in.length ? 'toilet_busy' : 'toilet';
+  }
+  private inStall(id: string) { for (const s of Object.values(this.store.toilets)) if (s.in.includes(id)) return true; return false; }
+  /** Over a stall's sprite: the lines and the card on its shelf, and the heads of whoever's inside, over the half door. */
+  private drawStall(ctx: CanvasRenderingContext2D, o: MapObject, x: number, y: number) {
+    const s = this.store.toilets[o.id]; if (!s) return;
+    for (let i = 0; i < s.shelf; i++) { ctx.fillStyle = '#f4f2f8'; ctx.fillRect(x + 18, y + 6 + i, 5, 1); }
+    if (s.shelf) { ctx.fillStyle = '#e8c840'; ctx.fillRect(x + 24, y + 7, 4, 2); ctx.fillStyle = '#8a6a20'; ctx.fillRect(x + 24, y + 8, 4, 1); }
+    s.in.forEach((id, i) => {
+      const u = this.store.users.get(id); if (!u || (this.store.pose(u).walking)) return;
+      const hx = x + 4 + i * 6, hy = y + 11;
+      ctx.fillStyle = u.look.skin; ctx.fillRect(hx, hy + 1, 5, 4);
+      ctx.fillStyle = u.look.hair; ctx.fillRect(hx, hy, 5, 2); ctx.fillRect(hx, hy + 2, 1, 2);
+      ctx.fillStyle = '#2a2433'; ctx.fillRect(hx + 1, hy + 3, 1, 1); ctx.fillRect(hx + 3, hy + 3, 1, 1);
+    });
+  }
+  /** Berghain: slow neon washes and a strobe now and then, over the club's own floor. */
+  private drawClub(ctx: CanvasRenderingContext2D, ms: number) {
+    for (const r of MAP.rooms) {
+      if (r.type !== 'club') continue;
+      const x = r.rect.x * TS, y = (r.rect.y - 1) * TS, w = r.rect.w * TS, h = (r.rect.h + 1) * TS;
+      ctx.save(); ctx.beginPath(); ctx.rect(x, y, w, h); ctx.clip();
+      ctx.globalCompositeOperation = 'lighter';
+      for (let i = 0; i < 3; i++) { // three coloured spots drifting around the room
+        const a = ms / (2600 + i * 700) + i * 2.1, cx = x + w / 2 + Math.cos(a) * w * 0.32, cy = y + h / 2 + Math.sin(a * 1.3) * h * 0.3;
+        const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, 40);
+        g.addColorStop(0, ['rgba(255,60,200,0.28)', 'rgba(60,220,255,0.24)', 'rgba(150,80,255,0.26)'][i]); g.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = g; ctx.fillRect(x, y, w, h);
+      }
+      const beat = ms % 2400; // a quick double flash every couple of seconds
+      if (beat < 60 || (beat > 140 && beat < 190)) { ctx.fillStyle = 'rgba(255,255,255,0.18)'; ctx.fillRect(x, y, w, h); }
+      ctx.restore();
+    }
+  }
   private drawAmbient(ctx: CanvasRenderingContext2D, camX: number, camY: number) {
     const now = new Date(); const h = now.getHours() + now.getMinutes() / 60;
     // [hour, r,g,b, alpha] keyframes for a multiply tint
@@ -1189,6 +1316,22 @@ export class Engine {
     }
   }
 
+  /** Slides are up: the screen glows and flashes a LIVE tag, so people outside the room notice. */
+  private drawLiveScreen(ctx: CanvasRenderingContext2D, ms: number) {
+    const live = this.store.presentation, o = live && MAP.objects.find(o => o.id === live.objectId);
+    if (!o) return;
+    const pulse = (Math.sin(ms / 260) + 1) / 2, x = o.x * TS, y = o.y * TS, w = o.w * TS;
+    ctx.fillStyle = `rgba(120,230,255,${0.25 + 0.25 * pulse})`; ctx.fillRect(x + 4, y + 6, w - 8, 14); // the picture lights up
+    for (let i = 0; i < 3; i++) { // a soft halo
+      ctx.strokeStyle = `rgba(255,80,200,${(0.5 - i * 0.15) * (0.6 + 0.4 * pulse)})`; ctx.lineWidth = 1;
+      ctx.strokeRect(x + 1.5 - i, y + 3.5 - i, w - 3 + i * 2, 20 + i * 2);
+    }
+    const text = 'LIVE', tw = textWidth(text) + 4, tx = Math.round(x + w / 2 - tw / 2), ty = Math.round(y - 3 - Math.round(pulse * 2));
+    ctx.fillStyle = '#3a2329'; ctx.fillRect(tx - 1, ty - 1, tw + 2, 9);
+    ctx.fillStyle = Math.floor(ms / 500) % 2 ? '#ff4fa8' : '#ffe14f'; ctx.fillRect(tx, ty, tw, 7);
+    drawText(ctx, text, tx + 2, ty + 1, '#2a1f24');
+  }
+
   /** Overview: each room's name and headcount on its floor, and a pin over me. */
   private drawRoomTags(users: ClientUser[], poses: Map<string, Pose>, camX: number, camY: number) {
     const count = new Map<string, number>();
@@ -1227,6 +1370,7 @@ export class Engine {
     const lines = [`${u.name}${u.id === this.store.me ? ' (you)' : ''} · ${presence}`];
     if (u.game) lines.push(this.store.gameDescription(u.game.cabinet, u.id));
     if (u.status) lines.push(`“${u.status}”`);
+    if (u.tz && u.id !== this.store.me) lines.push(localTime(u.tz));
     const extra = [u.following && `following ${this.store.name(u.following).split(' ')[0]}`, u.holding && ITEM_ICON.get(u.holding)].filter(Boolean).join(' · ');
     if (extra) lines.push(extra);
     if (this.selected?.id !== id) lines.push(u.id === this.store.me ? 'click to react'

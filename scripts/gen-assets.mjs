@@ -447,6 +447,13 @@ for (const n of [1, 2]) {
   const t = new Img(16, 16); // clock
   t.ellipse(8, 7, 5, 5, '#f8f4ec'); t.vline(8, 4, 4, OUT); t.hline(8, 7, 3, OUT);
   frames.clock = t.outline();
+  // the world clocks: a coloured rim, no hands (the engine draws those from the real time)
+  for (const [city, rim] of [['nyc', '#d8584a'], ['berlin', '#e8c040'], ['moscow', '#4a88d8']]) {
+    const w = new Img(16, 16);
+    w.ellipse(8, 7, 6, 6, rim); w.ellipse(8, 7, 5, 5, '#f8f4ec');
+    for (const [x, y] of [[8, 3], [8, 11], [4, 7], [12, 7]]) w.px(x, y, '#a89a8c');
+    frames[`clock_${city}`] = w.outline();
+  }
 }
 {
   const t = new Img(16, 16); // wall calendar: red header with rings, a month of days, today marked
@@ -462,6 +469,13 @@ for (const n of [1, 2]) {
   t.hline(4, 6, 5, '#e8e0d0'); t.hline(4, 8, 7, '#c8c0b0'); t.hline(4, 10, 4, '#c8c0b0');
   t.px(11, 5, '#8c8a98'); t.px(11, 6, '#6e6c7a'); // a lamp the client lights with a badge when meetings are on
   frames.meetings_board = t.outline();
+}
+{
+  const t = new Img(32, 32); // wall screen: a dark bezel on a bracket, a blue idle picture; the client lights it when live
+  t.rect(2, 4, 28, 18, '#2a2630'); t.rect(4, 6, 24, 14, '#24406a');
+  t.rect(4, 6, 24, 3, '#2e5488'); t.hline(6, 12, 9, '#4a78b0'); t.hline(6, 15, 14, '#3a6498'); t.hline(6, 17, 6, '#3a6498');
+  t.px(26, 20, '#7cc87c'); t.rect(14, 22, 4, 3, '#4a4652'); t.rect(10, 25, 12, 1, '#4a4652');
+  frames.screen = t.outline();
 }
 {
   const t = new Img(16, 16); // exit door (sits on the short wall face) with a green EXIT sign
@@ -1062,6 +1076,267 @@ for (const open of [false, true]) {
     t.rect(10, 8, 2, 2, OUT); t.px(10, 8, '#b4ae91');
   }
   frames[open ? 'hatch_open' : 'hatch'] = t;
+}
+
+// ---------- effects: hats, auras, critters (drawn over/around a person by client/src/effects.ts) ----------
+// Hats sit on the head: the bottom row lands on the character frame's row 4 (just above the brow).
+{
+  const hat = (name, w, h, draw) => { const t = new Img(w, h); draw(t); frames[`hat_${name}`] = t.outline(); };
+  hat('top', 16, 11, t => { // classic black top hat, red band
+    t.rect(4, 1, 8, 7, '#2a2430'); t.vline(5, 1, 7, '#3e3648'); t.rect(4, 6, 8, 2, '#b4473a');
+    t.rect(1, 8, 14, 2, '#2a2430'); t.hline(2, 8, 12, '#3e3648');
+  });
+  hat('party', 16, 12, t => { // striped cone and a pompom
+    for (let y = 2; y < 11; y++) { const half = Math.floor((y - 1) / 2); t.hline(8 - half, y, half * 2 + 1, y % 4 < 2 ? '#e8607a' : '#f2d060'); }
+    t.ellipse(8, 1.5, 1.6, 1.6, '#7ad0e8');
+  });
+  hat('wizard', 16, 14, t => { // blue cone with a bent tip, stars, wide brim
+    for (let y = 3; y < 12; y++) { const half = Math.floor((y - 2) / 2) + 1; t.hline(8 - half, y, half * 2, '#4a5ab0'); t.px(8 - half, y, '#3a4890'); }
+    t.rect(9, 1, 2, 2, '#4a5ab0'); t.px(11, 0, '#4a5ab0');
+    t.px(7, 6, '#f2d060'); t.px(9, 9, '#f2d060'); t.px(6, 10, '#e8e0d0');
+    t.rect(1, 11, 14, 2, '#3a4890'); t.hline(2, 11, 12, '#5a6ac8');
+  });
+  hat('cowboy', 16, 8, t => { // brown crown with a dent, wide curled brim
+    t.hline(4, 1, 3, '#8a5a30'); t.hline(9, 1, 3, '#8a5a30'); t.rect(4, 2, 8, 3, '#8a5a30'); t.hline(4, 4, 8, '#5a3a20');
+    t.rect(1, 5, 14, 2, '#a06a3a'); t.px(0, 4, '#a06a3a'); t.px(15, 4, '#a06a3a'); t.hline(2, 6, 12, '#7a4a28');
+  });
+  hat('crown', 16, 8, t => { // gold crown with gems
+    t.rect(3, 3, 10, 4, '#e8b830'); t.hline(3, 6, 10, '#b88a20');
+    for (const x of [3, 7, 12]) t.vline(x, 1, 2, '#e8b830'); t.vline(8, 1, 2, '#e8b830');
+    t.px(5, 4, '#d84a4a'); t.px(8, 4, '#4a8ad8'); t.px(11, 4, '#4ab86a'); t.hline(4, 3, 8, '#f8e070');
+  });
+  hat('judge', 16, 13, t => { // tall gold-and-purple top hat with a star: the hackathon judges'
+    t.rect(4, 1, 8, 9, '#6a3a9a'); t.vline(5, 1, 9, '#8a5ac0'); t.rect(4, 7, 8, 2, '#e8b830');
+    t.px(8, 3, '#f8e070'); t.hline(7, 4, 3, '#f8e070'); t.px(8, 5, '#f8e070'); t.px(7, 5, '#f8e070'); t.px(9, 5, '#f8e070');
+    t.rect(1, 10, 14, 2, '#6a3a9a'); t.hline(2, 10, 12, '#e8b830');
+  });
+  hat('admin', 16, 9, t => { // the sysadmin's dark cap with a green cursor: root@t1a
+    t.rect(3, 2, 10, 5, '#2c3440'); t.hline(4, 2, 8, '#3e4858'); t.rect(2, 6, 13, 2, '#1e2630'); t.hline(3, 7, 11, '#141a22');
+    t.px(6, 4, '#5af07a'); t.px(7, 4, '#5af07a'); t.px(8, 3, '#5af07a'); t.px(8, 5, '#5af07a'); t.hline(9, 5, 2, '#5af07a');
+  });
+  { // a hat stand in the Lobby: a pole with pegs and a couple of hats hanging
+    const t = new Img(16, 16);
+    t.rect(6, 1, 4, 14, '#7a5230'); t.vline(7, 1, 14, '#9a6a3e'); t.rect(3, 14, 10, 2, '#5a3a20'); t.hline(4, 14, 8, '#7a5230');
+    t.hline(2, 3, 4, '#5a3a20'); t.hline(10, 5, 4, '#5a3a20'); t.hline(2, 8, 4, '#5a3a20');
+    t.rect(1, 1, 4, 2, '#2a2430'); t.px(2, 0, '#2a2430'); t.px(3, 0, '#2a2430');
+    t.rect(11, 3, 3, 2, '#e8607a'); t.px(12, 2, '#f2d060');
+    t.rect(1, 6, 4, 2, '#8a5a30'); t.hline(2, 5, 2, '#8a5a30');
+    frames.hat_stand = t.outline();
+  }
+  for (const n of [1, 2]) { // a twinkle: big plus, then a small one
+    const t = new Img(5, 5), c = '#fff6c0';
+    if (n === 1) { t.hline(0, 2, 5, c); t.vline(2, 0, 5, c); t.px(2, 2, '#ffffff'); }
+    else { t.hline(1, 2, 3, c); t.vline(2, 1, 3, c); }
+    frames[`sparkle_${n}`] = t;
+  }
+  for (const n of [1, 2]) { // a bat, wings up then down
+    const t = new Img(9, 5), c = '#2a1e30';
+    t.rect(3, 1, 3, 3, c); t.px(3, 0, c); t.px(5, 0, c); t.px(4, 2, '#d84a4a');
+    if (n === 1) { t.hline(0, 0, 3, c); t.px(2, 1, c); t.hline(6, 0, 3, c); t.px(6, 1, c); }
+    else { t.hline(0, 3, 3, c); t.px(2, 2, c); t.hline(6, 3, 3, c); t.px(6, 2, c); }
+    frames[`bat_${n}`] = t;
+  }
+  for (const n of [1, 2, 3]) { // a flame tongue flickering
+    const t = new Img(5, 8);
+    const h = [7, 6, 8][n - 1], lean = [0, 1, -1][n - 1];
+    for (let y = 8 - h; y < 8; y++) {
+      const k = (y - (8 - h)) / h, half = Math.round(k * 2);
+      const x0 = 2 + Math.round(lean * (1 - k)) - half;
+      t.hline(x0, y, half * 2 + 1, k < 0.35 ? '#f8e070' : k < 0.7 ? '#f8a030' : '#d8482a');
+    }
+    frames[`flame_${n}`] = t;
+  }
+  for (const n of [1, 2]) { // a little unicorn trotting right; mirrored for left
+    const t = new Img(13, 11), W = '#f8f4f8', S = '#d8cce0';
+    t.rect(2, 4, 7, 4, W); t.hline(2, 7, 7, S);                       // body
+    t.rect(8, 2, 3, 3, W); t.px(11, 3, W); t.px(11, 4, S);          // head + muzzle
+    t.px(9, 3, '#2a1e30');                                          // eye
+    t.px(10, 1, '#f2d060'); t.px(11, 0, '#f2d060');                 // horn
+    const mane = ['#e8607a', '#f2a040', '#f2d060', '#6ac870', '#5a8ae8', '#9a6ac8'];
+    mane.forEach((c, i) => t.px(7 - (i >> 1), 2 + (i & 1) + (i >> 2), c));
+    mane.forEach((c, i) => t.px(1 - (i & 1), 4 + i % 3, c));        // tail
+    const legs = n === 1 ? [[2, 8, 2], [4, 8, 1], [6, 8, 2], [8, 8, 1]] : [[2, 8, 1], [4, 8, 2], [6, 8, 1], [8, 8, 2]];
+    for (const [x, y, h] of legs) t.vline(x, y, h, S);
+    const img = t.outline();
+    frames[`unicorn_r_${n}`] = img; frames[`unicorn_l_${n}`] = img.mirror();
+  }
+  { // vampire cape: drawn behind the body (or over the back when walking away)
+    const t = new Img(14, 13);
+    for (let y = 0; y < 13; y++) { const half = 5 + (y > 6 ? 1 : 0) + (y > 10 ? 1 : 0); t.hline(7 - half, y, half * 2, y < 2 ? '#1a1418' : '#8a1a2a'); }
+    t.vline(1, 2, 9, '#5a0e1a'); t.vline(12, 2, 9, '#5a0e1a');
+    frames.cape = t.outline('#140c10');
+  }
+}
+
+// ---------- creatures (cat, dog, bat, the cleaner, a ghost) and cups left on tables; no shared random calls ----------
+// Side views facing right; the engine mirrors them for left.
+{
+  const C = '#e0924a', CD = '#b86a2e', CL = '#f4c088', PINK = '#e8909a';
+  const cat = (draw) => { const t = new Img(16, 12); draw(t); return t.outline(); };
+  for (const f of [0, 1]) frames[`cat_walk_${f}`] = cat(t => {
+    t.ellipse(7.5, 7, 5, 2.5, C); t.hline(4, 6, 6, CD);
+    for (const [x, up] of [[4, f], [6, 1 - f], [9, f], [11, 1 - f]]) t.vline(x, 9, up ? 1 : 2, CD);
+    t.ellipse(12.5, 4.5, 2.6, 2.3, C); t.px(11, 2, C); t.px(14, 2, C); t.px(11, 1, CD); t.px(14, 1, CD);
+    t.px(13, 4, OUT); t.px(15, 5, PINK); t.px(12, 6, CL);
+    t.vline(2, 3, 4, C); t.px(1, 2, CD); t.px(3, 7, C);
+  });
+  frames.cat_sit = cat(t => {
+    t.ellipse(8, 7.5, 3.5, 3.5, C); t.ellipse(9, 8, 1.5, 2.5, CL); t.hline(4, 10, 8, CD);
+    t.ellipse(9, 3.5, 2.6, 2.3, C); t.px(7, 1, C); t.px(11, 1, C); t.px(7, 0, CD); t.px(11, 0, CD);
+    t.px(8, 3, OUT); t.px(10, 3, OUT); t.px(9, 4, PINK);
+    t.hline(1, 10, 4, C); t.px(1, 9, CD);
+  });
+  frames.cat_nap = cat(t => {
+    t.ellipse(7.5, 8.5, 5.5, 2.6, C); t.hline(3, 7, 8, CD);
+    t.ellipse(12, 8.5, 2.4, 2, C); t.px(11, 6, C); t.px(13, 6, CD); t.hline(11, 8, 2, OUT);
+    t.hline(3, 10, 8, CL);
+  });
+  const D = '#c89a64', DD = '#8a5e36', DL = '#ecc890';
+  const dog = (draw) => { const t = new Img(16, 14); draw(t); return t.outline(); };
+  for (const f of [0, 1]) frames[`dog_walk_${f}`] = dog(t => {
+    t.ellipse(7, 8, 5.5, 3, D); t.ellipse(7, 9.5, 3.5, 1.2, DL);
+    for (const [x, up] of [[3, f], [5, 1 - f], [9, f], [11, 1 - f]]) t.vline(x, 11, up ? 2 : 3, DD);
+    t.ellipse(12.5, 5, 2.8, 2.6, D); t.rect(14, 6, 2, 2, DL); t.px(15, 6, OUT);
+    t.rect(11, 3, 2, 4, DD); t.px(13, 4, OUT);
+    t.vline(1, 4 + f, 4, D); t.px(1, 3 + f, DL);
+    t.hline(9, 6, 3, '#d04848');
+  });
+  frames.dog_sit = dog(t => {
+    t.ellipse(8, 9, 3.5, 4, D); t.ellipse(9, 9.5, 1.6, 3, DL); t.hline(4, 13, 9, DD);
+    t.ellipse(9.5, 4, 2.8, 2.6, D); t.rect(11, 5, 2, 2, DL); t.px(12, 5, OUT);
+    t.rect(7, 2, 2, 4, DD); t.px(10, 3, OUT); t.hline(7, 6, 4, '#d04848');
+    t.hline(2, 12, 3, D); t.px(1, 11, D);
+  });
+  frames.dog_nap = dog(t => {
+    t.ellipse(7.5, 10, 6, 3, D); t.hline(3, 12, 9, DL);
+    t.ellipse(13, 10, 2.4, 2.2, D); t.rect(11, 8, 2, 4, DD); t.hline(13, 9, 2, OUT);
+  });
+  const B = '#4a3a5a', BD = '#2e2438', BW = '#6a5880';
+  for (const f of [0, 1]) {
+    const t = new Img(14, 8);
+    t.ellipse(7, 4, 1.8, 2.2, B); t.px(6, 1, B); t.px(8, 1, B); t.px(6, 3, '#f0d060'); t.px(8, 3, '#f0d060');
+    if (f === 0) for (const s of [-1, 1]) { t.hline(7 + s * 2, 3, 1, BW); t.hline(7 + s * 3, 2, 1, BW); t.hline(7 + s * 4, 1, 1, BW); t.hline(7 + s * 5, 2, 1, BD); t.px(7 + s * 4, 2, BW); t.px(7 + s * 3, 3, BW); }
+    else for (const s of [-1, 1]) { t.hline(7 + s * 2, 4, 1, BW); t.px(7 + s * 3, 5, BW); t.px(7 + s * 4, 5, BW); t.px(7 + s * 5, 6, BD); t.px(7 + s * 3, 4, BW); t.px(7 + s * 4, 4, BD); }
+    frames[`bat_fly_${f}`] = t.outline();
+  }
+  {
+    const t = new Img(8, 10); // hanging upside down, wings folded
+    t.vline(4, 0, 2, BD); t.ellipse(4, 5, 2.4, 3.2, B); t.vline(2, 3, 4, BD); t.vline(6, 3, 4, BD);
+    t.px(3, 7, '#f0d060'); t.px(5, 7, '#f0d060'); t.px(3, 9, B); t.px(5, 9, B);
+    frames.bat_hang = t.outline();
+  }
+  // the cleaner: headscarf, blue smock, white apron, a mop
+  const SK = '#e8b890', SC = '#c8484a', SM = '#4a6aa0', SMD = '#36507e', AP = '#f0ece0';
+  const cleaner = (legs, wipe) => {
+    const t = new Img(18, 24);
+    t.vline(14 + wipe, 6, 17, '#8a6a40'); t.rect(12 + wipe, 21, 5, 2, '#d8d0b8');
+    t.rect(5, 9, 7, 9, SM); t.vline(5, 9, 9, SMD); t.rect(6, 11, 5, 7, AP); t.hline(6, 11, 5, '#d8d0c0');
+    t.rect(5, 18, 7, 2, SMD);
+    for (const [x, d] of [[6, legs], [9, 1 - legs]]) t.rect(x, 20, 2, 3 - d, SK), t.rect(x, 23 - d, 2, 1, '#3a2a2a');
+    t.ellipse(8.5, 5.5, 3.2, 3.4, SK); t.px(10, 5, OUT); t.px(11, 7, '#d89878');
+    t.ellipse(8, 3.5, 3.6, 2.4, SC); t.rect(5, 3, 2, 5, SC); t.px(4, 8, SC); t.px(9, 1, '#e86a6a');
+    t.rect(11, 10, 2, 4 - wipe, SM); t.rect(12 + wipe, 13 - wipe, 2, 2, SK);
+    return t.outline();
+  };
+  frames.cleaner_0 = cleaner(0, 0); frames.cleaner_1 = cleaner(1, 0);
+  frames.cleaner_clean_0 = cleaner(0, 1); frames.cleaner_clean_1 = cleaner(0, 2);
+  // the ghost of Mazurkevich, the old office manager: a sheet, a moustache, a little clipboard
+  for (const f of [0, 1]) {
+    const t = new Img(16, 22), G = '#eef2ff', GS = '#c8d0ea';
+    t.ellipse(8, 7, 6, 6, G); t.rect(2, 7, 12, 11, G); t.vline(2, 8, 10, GS);
+    for (let x = 2; x < 14; x++) if ((x + f) % 4 < 2) t.rect(x, 18, 1, 2, G); else t.px(x, 18, GS);
+    t.rect(5, 6, 2, 3, '#2a2a3a'); t.rect(9, 6, 2, 3, '#2a2a3a');
+    t.hline(5, 10, 6, '#6a5040'); t.px(4, 11, '#6a5040'); t.px(11, 11, '#6a5040');
+    t.rect(11, 12, 4, 5, '#c8a070'); t.hline(12, 14, 2, '#6a6a7a'); t.hline(12, 15, 2, '#6a6a7a');
+    frames[`ghost_${f}`] = t.outline('#8a90b8');
+  }
+  // cups on a table
+  for (const [k, c] of [['coffee', '#5a3420'], ['tea', '#b88a3a']]) {
+    const t = new Img(6, 6);
+    t.rect(0, 1, 4, 4, '#f4f0e8'); t.hline(0, 1, 4, c); t.px(4, 2, '#f4f0e8'); t.px(5, 3, '#f4f0e8'); t.px(4, 4, '#f4f0e8'); t.hline(0, 5, 4, '#c8c0b0');
+    frames[`cup_${k}`] = t.outline();
+  }
+}
+
+// ---------- the Admin room and Berghain (no shared random calls: existing art stays unchanged) ----------
+for (let v = 0; v < 3; v++) { // raised server-room floor: grey panels with perforations
+  const t = new Img(16, 16);
+  t.rect(0, 0, 16, 16, '#8f98a3'); t.hline(0, 0, 16, '#a9b1bb'); t.vline(0, 0, 16, '#a9b1bb'); t.hline(0, 15, 16, '#6f7782'); t.vline(15, 0, 16, '#6f7782');
+  for (let y = 4; y < 13; y += 4) for (let x = 4; x < 13; x += 4) if ((x + y + v * 4) % 12) t.px(x, y, '#737b86');
+  if (v === 2) { t.rect(6, 6, 4, 4, '#7d8590'); t.hline(6, 6, 4, '#b8c0c9'); }
+  frames[`raised_${v}`] = t;
+}
+for (let v = 0; v < 3; v++) { // the club's floor: near-black concrete
+  const t = new Img(16, 16);
+  t.rect(0, 0, 16, 16, '#1d1922'); t.hline(0, 15, 16, '#15121a'); t.vline(15, 0, 16, '#15121a');
+  for (const [x, y] of [[3 + v * 4, 4], [11 - v * 3, 10], [6, 13 - v * 2]]) t.px(x, y, '#2b2533');
+  if (v === 1) t.px(9, 6, '#3c3247');
+  frames[`club_${v}`] = t;
+}
+for (const blink of [0, 1]) { // a rack of servers, LEDs blinking
+  const t = new Img(16, 32);
+  t.rect(1, 3, 14, 28, '#2a2d36'); t.hline(1, 3, 14, '#4a4f5c'); t.rect(2, 5, 12, 24, '#1a1c22');
+  for (let i = 0; i < 6; i++) {
+    const y = 6 + i * 4;
+    t.rect(3, y, 10, 3, '#3a3e4a'); t.hline(3, y, 10, '#505665');
+    t.px(4, y + 1, (i + blink) % 3 ? '#7cd87c' : '#2f5a2f'); t.px(6, y + 1, (i * 2 + blink) % 4 ? '#e8b860' : '#6a5328');
+    for (let x = 8; x < 12; x++) t.px(x, y + 1, '#262931');
+  }
+  t.rect(2, 30, 3, 1, OUT); t.rect(11, 30, 3, 1, OUT);
+  frames[blink ? 'server_rack_1' : 'server_rack'] = t.outline();
+}
+{
+  const t = new Img(32, 16); // pink and cyan neon on a dark plate
+  t.rect(1, 2, 30, 12, '#211a2b');
+  t.rect(3, 4, 26, 1, '#ff5ec8'); t.rect(3, 11, 26, 1, '#ff5ec8'); t.vline(3, 4, 8, '#ff5ec8'); t.vline(28, 4, 8, '#ff5ec8');
+  for (let x = 6; x < 26; x++) t.px(x, 7 + Math.abs(((x - 6) % 6) - 3) - 1, '#5ef0ff');
+  frames.neon_sign = t.outline();
+}
+{
+  const t = new Img(48, 24); // DJ booth: two decks and a mixer
+  t.rect(1, 9, 46, 14, '#16131c'); t.rect(1, 8, 46, 3, '#3a3346'); t.hline(1, 8, 46, '#5a5068');
+  t.hline(2, 15, 44, '#ff5ec8'); t.hline(2, 18, 44, '#5ef0ff');
+  for (const cx of [10, 38]) { t.ellipse(cx, 6, 6, 3.5, '#2a2a30'); t.ellipse(cx, 6, 4, 2.4, '#111015'); t.px(cx, 6, '#e8dcc8'); t.hline(cx + 3, 3, 3, '#a0a4ae'); }
+  t.rect(20, 3, 8, 5, '#2f2c38'); for (const x of [21, 23, 25]) t.vline(x, 4, 3, '#a0a4ae'); t.px(26, 4, '#7cd87c');
+  frames.dj_booth = t.outline();
+}
+{
+  const t = new Img(16, 24); // the bouncer: arms folded, shades on
+  t.rect(3, 9, 10, 12, '#34343f'); t.rect(2, 11, 12, 6, '#34343f'); t.vline(2, 11, 6, '#565666'); t.vline(13, 11, 6, '#565666');
+  t.rect(7, 9, 2, 3, '#e8e6ee'); // shirt collar
+  t.rect(3, 13, 10, 3, '#454552'); t.hline(3, 13, 10, '#646475'); // folded arms
+  t.rect(5, 1, 6, 7, '#c89474'); t.hline(5, 1, 6, '#d8a888'); t.rect(5, 4, 6, 1, '#111'); t.px(8, 4, '#3a3a40');
+  t.rect(6, 7, 4, 1, '#a87454'); t.rect(7, 8, 2, 1, '#1a1a1f');
+  t.rect(4, 21, 3, 2, '#111'); t.rect(9, 21, 3, 2, '#111'); t.rect(4, 20, 8, 1, '#2a2a30');
+  t.px(12, 10, '#e8b860'); // earpiece
+  frames.bouncer = t.outline();
+}
+const stall = (state) => { // a roomy stall for up to four: free (door open), busy (half door shut), full (overflowing, taped off)
+  const t = new Img(32, 32);
+  t.rect(0, 0, 32, 32, '#3a3346'); t.rect(2, 2, 28, 29, '#2a2433'); // partitions and back wall
+  t.vline(0, 0, 32, '#6d6080'); t.vline(31, 0, 32, '#6d6080'); t.hline(0, 0, 32, '#8a7aa0');
+  t.rect(5, 4, 8, 6, '#e8e6ee'); t.hline(5, 4, 8, '#ffffff'); t.px(11, 5, '#a0a4ae'); // tank
+  t.ellipse(9, 17, 5, 4, '#e8e6ee'); t.ellipse(9, 17, 3, 2.4, state === 'full' ? '#7a5a2e' : '#7ab8d8'); t.rect(7, 20, 5, 6, '#d8d6de');
+  t.rect(17, 6, 12, 4, '#a8825a'); t.hline(17, 6, 12, '#c49c70'); t.hline(17, 10, 12, '#6a4a32'); // the little shelf
+  t.px(18, 11, '#6a4a32'); t.px(27, 11, '#6a4a32');
+  if (state === 'free') { t.rect(2, 16, 3, 15, '#6b4a8a'); t.vline(4, 16, 15, '#8a64b0'); } // door swung open
+  if (state === 'busy') {
+    t.rect(2, 16, 28, 15, '#6b4a8a'); t.hline(2, 16, 28, '#8a64b0'); t.vline(16, 17, 14, '#5a3c76');
+    t.rect(25, 22, 3, 2, '#d84a4a'); t.px(14, 24, '#e8b860'); t.px(18, 24, '#e8b860');
+  }
+  if (state === 'full') {
+    t.ellipse(14, 28, 13, 3, '#8a6a3a'); t.ellipse(14, 28, 10, 2, '#a07e4a'); t.ellipse(5, 24, 3, 1.5, '#8a6a3a');
+    for (let i = 0; i < 32; i++) { const c = i % 4 < 2 ? '#e8c840' : '#1a1a1f'; t.px(i, 8 + (i >> 1), c); t.px(i, 23 - (i >> 1), c); } // tape across
+    t.px(9, 2, '#111'); t.px(20, 3, '#111'); t.px(24, 1, '#111'); // flies
+  }
+  return t.outline();
+};
+frames.toilet = stall('free'); frames.toilet_busy = stall('busy'); frames.toilet_full = stall('full');
+for (const axis of ['h', 'v']) { // a room door only admins open: the closed door with a red light and a padlock
+  const c = frames[`door_${axis}_closed`], t = new Img(c.w, c.h); t.blit(c, 0, 0);
+  t.rect(c.w / 2 - 3, 20, 6, 5, '#e8b860'); t.rect(c.w / 2 - 2, 17, 4, 3, OUT); t.rect(c.w / 2 - 1, 18, 2, 2, [0, 0, 0, 0]);
+  t.px(c.w / 2, 22, OUT); t.rect(c.w / 2 - 2, 9, 4, 2, '#e84a4a');
+  frames[`door_${axis}_locked`] = t;
 }
 
 // ---------- pack world atlas (shelf packer) ----------

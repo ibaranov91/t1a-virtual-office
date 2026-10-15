@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { World, type User } from './world';
 import { findPath, doorwayTiles, pathDuration, reindexMap, roomAt, sampleMove, seatAt, voiceRooms, WALK_MS_PER_TILE, type TileMap, type Tile } from '../../shared/map';
 import { TRACKS } from '../../shared/music';
+import { ADMIN_HAT, EFFECTS, JUDGE_HAT, hatItem, SPEED_FACTOR, walkMs } from '../../shared/effects';
 import { PLANT_DIES_DAYS, PLANT_STAGES, plantDead, ROOM_VOICE_MAX, type ClientMsg, type ServerMsg } from '../../shared/protocol';
 const map: TileMap = JSON.parse(readFileSync(new URL('../../shared/tilemap.json', import.meta.url), 'utf8'));
 const coffee = map.rooms.find(r => r.id === 'coffee')!;
@@ -366,6 +367,17 @@ test('a saved layout is brought up to date with the vault door: added, moved int
   const objects = load(blocked);
   assert.equal(objects.some(o => o.type === 'safe'), false);
   assert.equal(objects.find(o => o.id === painting.id)!.x, safe.x);
+});
+test('a saved layout with plain world clocks gets their zones, where the admin left them', t => {
+  const { w } = setup(t), clocks = map.objects.filter(o => o.type.startsWith('clock_'));
+  assert.deepEqual(clocks.map(o => o.use?.kind === 'clock' && o.use.tz), ['America/New_York', 'Europe/Berlin', 'Europe/Moscow']);
+  const r = new World(structuredClone(map));
+  const objects = map.objects.map(o => (o.type === 'clock_berlin' ? { id: 'old', type: o.type, x: 30, y: o.y, w: 1, h: 1, wall: true } : o.type.startsWith('clock_') ? null : o)).filter((o): o is typeof map.objects[number] => !!o);
+  r.load({ ...w.dump(), layout: structuredClone({ objects, rugs: map.rugs }) });
+  const got = r.map.objects.filter(o => o.type.startsWith('clock_'));
+  assert.equal(got.length, 3); // the missing ones come back at their generated spots
+  const berlin = got.find(o => o.type === 'clock_berlin')!;
+  assert.deepEqual([berlin.id, berlin.x, berlin.use], ['old', 30, clocks[1].use]);
 });
 // gen-map.mjs numbers objects in order, so a build that adds one shifts every id after it (the safe took o57 from a plant)
 const olderBuild = (objects: TileMap['objects']) => objects.map(o => ({ ...structuredClone(o), id: `o${Number(o.id.slice(1)) + 1}` }));
@@ -745,7 +757,7 @@ test('edits cannot leave the office, cover either entrance (even walkable object
     assert.ok(admin.messages.some(m => m.t === 'notice' && m.text.includes(reason)), JSON.stringify(admin.messages));
   };
   refused({ op: 'add', type: 'plant', ...w.map.dungeon!.landing }, 'outside the office');
-  refused({ op: 'rug_add', x: 64, y: 32, w: 2, h: 2 }, 'outside the office');
+  refused({ op: 'rug_add', x: w.map.office.w - 1, y: 32, w: 2, h: 2 }, 'outside the office');
   for (const name of ['hole', 'hatch'] as const) {
     const p = w.map.dungeon![name];
     refused({ op: 'add', type: 'plant', ...p }, `covers the ${name}`);
@@ -1022,4 +1034,121 @@ test('note bucket permits the burst then only the sustained rate, including afte
   tick(1000);
   for (let i = 0; i < 41; i++) { note(a); note(a, { on: false }); }
   assert.equal(notes(b.messages).length, 144); // 40 ons + 40 offs
+});
+
+// ---------- effects ----------
+const GM_EMAIL = 'ivan.baranov@t1a.com', JUDGE_EMAIL = 'oleg.mikhov@t1a.com';
+function people(t: TestContext) {
+  const s = setup(t);
+  const person = (name: string, email?: string, tile: Tile = { x: 32, y: 12 }) => {
+    const u = s.w.addUser(name, false, tile, email); u.presence = 'online';
+    const messages: ServerMsg[] = [];
+    return { u, messages, ...s.w.connect(u.id, m => messages.push(m)) };
+  };
+  return { ...s, person };
+}
+const effect = (targetId: string, kind: string, on = true, style?: string): ClientMsg => ({ t: 'effect', targetId, kind, on, style });
+const kinds = (u: User) => u.effects.map(e => e.kind).sort();
+
+test('effects: GM debuffs anyone, they broadcast and wear off on time', t => {
+  const { w, person, tick } = people(t), gm = person('Gm', GM_EMAIL), b = person('B', undefined, { x: 32, y: 8 });
+  w.handle(gm.u, effect(b.u.id, 'drunk'), gm.socket);
+  w.handle(gm.u, effect(b.u.id, 'unicorns'), gm.socket);
+  assert.deepEqual(kinds(b.u), ['drunk', 'unicorns']);
+  const sent = b.messages.filter(m => m.t === 'effects' && m.userId === b.u.id);
+  assert.equal(sent.length, 2);
+  assert.equal((w.snapshot() as Extract<ServerMsg, { t: 'state' }>).users.find(u => u.id === b.u.id)?.effects.length, 2);
+  tick(EFFECTS.drunk.ms! - 1); assert.deepEqual(kinds(b.u), ['drunk', 'unicorns']);
+  tick(250); assert.deepEqual(kinds(b.u), ['unicorns']);
+  assert.deepEqual(b.messages.at(-1), { t: 'effects', userId: b.u.id, effects: b.u.effects });
+  tick(EFFECTS.unicorns.ms!); assert.deepEqual(kinds(b.u), []);
+  w.handle(gm.u, effect(b.u.id, 'vampire'), gm.socket); w.handle(gm.u, effect(b.u.id, 'vampire', false), gm.socket);
+  assert.deepEqual(kinds(b.u), []);
+});
+
+test('effects: people only put hats on themselves; GM-only and server-only effects are refused', t => {
+  const { w, person } = people(t), a = person('A'), b = person('B', undefined, { x: 32, y: 8 });
+  for (const kind of ['vampire', 'fire_aura', 'gum', 'drunk', 'unicorns', 'speed', 'nope', '__proto__', 'constructor'])
+    w.handle(a.u, effect(a.u.id, kind), a.socket);
+  assert.deepEqual(kinds(a.u), []);
+  w.handle(a.u, effect(b.u.id, 'hat', true, 'party'), a.socket); assert.deepEqual(kinds(b.u), []);
+  w.handle(a.u, effect(a.u.id, 'hat', true, 'judge'), a.socket);
+  w.handle(a.u, effect(a.u.id, 'hat', true, '<script>'), a.socket);
+  w.handle(a.u, { t: 'effect', targetId: a.u.id, kind: 'hat', on: true } as ClientMsg, a.socket);
+  assert.deepEqual(kinds(a.u), []);
+  a.u.items = ['hat:wizard', 'hat:cowboy', 'hat:top']; // from the Lobby hat stand
+  w.handle(a.u, effect(a.u.id, 'hat', true, 'wizard'), a.socket);
+  assert.deepEqual(a.u.effects, [{ kind: 'hat', data: { style: 'wizard' } }]); // no end: worn until taken off
+  w.handle(a.u, effect(a.u.id, 'hat', true, 'cowboy'), a.socket);
+  assert.deepEqual(a.u.effects, [{ kind: 'hat', data: { style: 'cowboy' } }]); // replaced, not stacked
+  w.handle(a.u, effect(a.u.id, 'hat', false), a.socket); assert.deepEqual(kinds(a.u), []);
+  // the hat is saved; timed effects aren't
+  w.handle(a.u, effect(a.u.id, 'hat', true, 'top'), a.socket); w.addEffect(a.u, 'speed');
+  const saved = w.dump().users.find(u => u.id === a.u.id)!;
+  assert.deepEqual(saved.effects, [{ kind: 'hat', data: { style: 'top' } }]);
+  const w2 = new World(structuredClone(map)); w2.load(JSON.parse(JSON.stringify(w.dump())));
+  assert.deepEqual(w2.users.get(a.u.id)!.effects, [{ kind: 'hat', data: { style: 'top' } }]);
+  assert.deepEqual(w2.users.get(a.u.id)!.items, ['hat:wizard', 'hat:cowboy', 'hat:top'], 'pockets survive a restart');
+});
+
+test('effects: judges and admins find their hats in their pockets, put on once, and wear only what they own', t => {
+  const { w, person } = people(t), judge = person('Oleg', JUDGE_EMAIL), gm = person('Gm', GM_EMAIL, { x: 32, y: 8 }), a = person('A', undefined, { x: 33, y: 8 });
+  assert.deepEqual(judge.u.items, [hatItem(JUDGE_HAT)]);
+  assert.deepEqual(judge.u.effects, [{ kind: 'hat', data: { style: JUDGE_HAT } }]);
+  assert.ok(judge.messages.some(m => m.t === 'me' && m.judge && m.items?.includes(hatItem(JUDGE_HAT))));
+  assert.deepEqual(gm.u.items, [hatItem(ADMIN_HAT)]);
+  assert.deepEqual(gm.u.effects, [{ kind: 'hat', data: { style: ADMIN_HAT } }]);
+  w.handle(judge.u, effect(judge.u.id, 'hat', false), judge.socket);
+  assert.equal(judge.u.effects.length, 0, 'a judge may take the hat off');
+  w.handle(judge.u, effect(judge.u.id, 'hat', true, 'party'), judge.socket);
+  assert.equal(judge.u.effects.length, 0, 'not in the pockets');
+  w.handle(judge.u, effect(judge.u.id, 'hat', true, JUDGE_HAT), judge.socket);
+  assert.deepEqual(judge.u.effects, [{ kind: 'hat', data: { style: JUDGE_HAT } }]);
+  w.handle(a.u, effect(a.u.id, 'hat', true, JUDGE_HAT), a.socket);
+  w.handle(a.u, effect(a.u.id, 'hat', true, 'top'), a.socket);
+  assert.equal(a.u.effects.length, 0, 'no hats in the pockets, nothing to wear');
+  const stand = w.map.objects.find(o => o.type === 'hat_stand')!;
+  a.u.tile = { x: stand.x, y: stand.y + 1 };
+  w.use(a.u, stand.id, 'hat:top'); t.mock.timers.tick(2000);
+  assert.deepEqual(a.u.items, ['hat:top']);
+  w.use(a.u, stand.id, 'hat:top'); t.mock.timers.tick(2000);
+  assert.deepEqual(a.u.items, ['hat:top'], 'one of each');
+  w.handle(a.u, effect(a.u.id, 'hat', true, 'top'), a.socket);
+  assert.deepEqual(a.u.effects, [{ kind: 'hat', data: { style: 'top' } }]);
+  w.handle(gm.u, effect(a.u.id, 'hat', true, 'crown'), gm.socket);
+  assert.deepEqual(a.u.effects, [{ kind: 'hat', data: { style: 'crown' } }], 'a GM may put any hat on anyone');
+});
+
+test('effects: coffee makes you walk faster, timed the same on server and in the move message', t => {
+  const { w, person, tick } = people(t), a = person('A', undefined, { x: 32, y: 12 });
+  const machine = w.map.objects.find(o => o.type === 'coffee_machine')!;
+  w.use(a.u, machine.id); tick(20_000);
+  assert.equal(a.u.holding, 'coffee');
+  const speed = a.u.effects.find(e => e.kind === 'speed')!;
+  assert.ok(speed.until && speed.until > Date.now() && speed.until <= Date.now() + EFFECTS.speed.ms!);
+  const ms = walkMs(a.u.effects);
+  assert.equal(ms, Math.round(WALK_MS_PER_TILE / SPEED_FACTOR));
+  a.messages.length = 0;
+  const start = Date.now(), end = w.walk(a.u, { x: 32, y: 12 })!;
+  const move = a.messages.find(m => m.t === 'move') as Extract<ServerMsg, { t: 'move' }>;
+  assert.equal(move.ms, ms); assert.equal(a.u.move!.ms, ms);
+  assert.equal(end - move.startedAt, pathDuration(a.u.path!, ms));
+  assert.ok(end - start < pathDuration(a.u.path!)); // quicker than a plain walk
+  const mid = move.startedAt + 2.5 * ms; // the server's idea of where they are follows the quicker pace
+  assert.deepEqual(w.position(a.u, mid).tile, sampleMove(a.u.path!, move.startedAt, mid, ms)!.tile);
+  tick(EFFECTS.speed.ms!); assert.equal(a.u.effects.some(e => e.kind === 'speed'), false);
+  a.messages.length = 0; w.walk(a.u, { x: 32, y: 8 });
+  assert.equal((a.messages.find(m => m.t === 'move') as Extract<ServerMsg, { t: 'move' }>).ms, undefined);
+});
+
+test('a shared time zone reaches everyone, is validated, can be hidden, and is never saved', t => {
+  const { w, add } = setup(t), a = add('A'), b = add('B');
+  w.handle(a.u, { t: 'tz', tz: 'Europe/Warsaw' }, a.socket);
+  assert.deepEqual(b.messages.filter(m => m.t === 'tz'), [{ t: 'tz', userId: a.u.id, tz: 'Europe/Warsaw' }]);
+  assert.equal((w.snapshot() as Extract<ServerMsg, { t: 'state' }>).users.find(u => u.id === a.u.id)!.tz, 'Europe/Warsaw');
+  w.handle(a.u, { t: 'tz', tz: '<b>hi</b>' }, a.socket); assert.equal(a.u.tz, 'Europe/Warsaw'); // junk is ignored
+  assert.equal(JSON.stringify(w.dump()).includes('Warsaw'), false);
+  w.handle(a.u, { t: 'tz', tz: null }, a.socket);
+  assert.equal(a.u.tz, undefined);
+  assert.deepEqual(b.messages.filter(m => m.t === 'tz').pop(), { t: 'tz', userId: a.u.id, tz: null });
 });

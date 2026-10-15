@@ -9,8 +9,10 @@ import { needsGesture, resume } from './audio';
 import { prefs, savePrefs, type Category } from './prefs';
 import { ITEMS, MAP, Store, type ClientUser } from './net';
 import { inNativeApp, syncNative } from './native';
-import { ACHIEVEMENTS, underground, dayNumber, JUKEBOX_PER_PERSON, JUKEBOX_QUEUE_MAX, MAX_CHAT_LEN, MEET_LINK_RE, meetAs, normalizeMeetLink, kindName, PLANT_DIES_DAYS, PLANT_KINDS, PLANT_REVEAL, PLANT_STAGES, plantDead, plantName, REACTIONS, type JukeboxState, type Plant } from '../../shared/protocol';
+import { LiveChip, PresentPanel, SlideOverlay } from './Presentation';
+import { ACHIEVEMENTS, underground, dayNumber, JUKEBOX_PER_PERSON, JUKEBOX_QUEUE_MAX, MAX_CHAT_LEN, MEET_LINK_RE, meetAs, normalizeMeetLink, kindName, PLANT_DIES_DAYS, PLANT_KINDS, PLANT_REVEAL, PLANT_STAGES, plantDead, plantName, REACTIONS, TOILET_CAPACITY, TOILET_SHELF_ITEM, TOILET_SHELF_MAX, TOILET_USE_MS, toiletFull, type JukeboxState, type Plant } from '../../shared/protocol';
 import { GENRES, jukeboxPosition, TRACK, TRACKS } from '../../shared/music';
+import { ALL_HATS, EFFECTS, HAT_NAMES, effectOf, hatItem, hatOf } from '../../shared/effects';
 import { FIXED_TYPES, KEEP_TYPES, objectName, RUG_COLORS, RUG_MAX, RUG_MIN, seatAt } from '../../shared/map';
 
 // Dev server: sign in automatically as ?as=<name> (default "Dev"); each name keeps its own session,
@@ -120,6 +122,8 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
   const [, tick] = useState(0);
   const [engine, setEngine] = useState<Engine | null>(null);
   const [editing, setEditing] = useState(false);
+  const [gmOpen, setGmOpen] = useState(false);
+  const [pocketsOpen, setPocketsOpen] = useState(false);
 
   useEffect(() => { store.connect(); return () => store.close(); }, [store]);
   useEffect(() => { const s = new Soundscape(store); return () => s.destroy(); }, [store]);
@@ -149,8 +153,10 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
       if (use?.kind === 'records') { setPick(null); return store.openRecords(); }
       if (use?.kind === 'jukebox' && p) { setPick(null); return store.openJukebox(p.id); }
       if (use?.kind === 'calendar') { setPick(null); return store.openCalendar(); }
+      if (use?.kind === 'clock') { setPick(null); return store.openClock(); }
       if (use?.kind === 'meetings') { setPick(null); return store.openMeetings(); }
       if (use?.kind === 'achievements') { setPick(null); return store.openAchievements(); }
+      if (use?.kind === 'presentation' && p) { setPick(null); return store.openPresent(p.id); }
       if (use?.kind === 'link') { setPick(null); return store.openLink(use); } // a panel, like the calendar: its link is a real tap
       setPick(cur => (p && cur?.kind === p.kind && cur.id === p.id ? null : p)); // same target again: close
     };
@@ -174,40 +180,47 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
       <div className="office-chrome" ref={chromeRef}>
       <TopBar store={store} roomName={myRoom?.name} onToggleRooms={() => setShowRooms(s => !s)} onLogout={onLogout}
         onToggleMeet={() => setShowMeet(s => !s)} onToggleAppearance={() => setShowAppearance(s => me?.lookSet ? !s : true)} engine={engine}
-        editing={editing} onToggleEdit={() => setEditing(e => !e)} />
+        editing={editing} onToggleEdit={() => setEditing(e => !e)} gmOpen={gmOpen} onToggleGm={() => setGmOpen(o => !o)}
+        pocketsOpen={pocketsOpen} onTogglePockets={() => setPocketsOpen(o => !o)} />
       <div className="stage">
         <div className="canvas-wrap"><canvas ref={canvasRef} /></div>
         {!assets && <div className="loading">Unlocking the door…</div>}
         {!store.connected && assets && <div className="loading small">Reconnecting…</div>}
+        {store.presentation && store.inPresentationRoom() && !store.slidesHidden && <SlideOverlay store={store} />}
         {showRooms && <RoomList store={store} onPerson={openPerson} onClose={() => setShowRooms(false)}
           onPick={id => { engineRef.current?.walkToUser(id); if (compact()) setShowRooms(false); }}
           onRoom={id => { engineRef.current?.walkToRoom(id); if (compact()) setShowRooms(false); }} />}
         {editing && store.admin && !down && engine && <EditPanel store={store} engine={engine} assets={assets} onDone={() => setEditing(false)} />}
+        {gmOpen && store.admin && !editing && <GmPanel store={store} picked={pick?.kind === 'user' ? pick.id : null} assets={assets} onClose={() => setGmOpen(false)} />}
+        {pocketsOpen && me && <PocketsPanel store={store} me={me} assets={assets} onClose={() => setPocketsOpen(false)} />}
         {store.calendarOpen && <CalendarPanel store={store} />}
         {store.meetingsOpen && <MeetingsPanel store={store} />}
         {store.jukeboxOpen && <JukeboxPanel key={store.jukeboxOpen} store={store} id={store.jukeboxOpen} />}
         {store.recordsOpen && <RecordsPopover store={store} />}
         {store.linkOpen && <LinkPanel store={store} />}
+        {store.presentOpen && <PresentPanel key={store.presentOpen} store={store} id={store.presentOpen} />}
+        {store.clockOpen && <ClockPanel store={store} />}
         {store.achievementsOpen && me && <AchievementsPanel store={store} me={me} assets={assets} />}
         {(showMeet || store.pendingKnock) && <MeetSetup key={store.pendingKnock ?? 'panel'} store={store} onClose={() => setShowMeet(false)} />}
-        {showAppearance && me && <AppearanceMenu key={me.id} look={me.look} assets={assets} firstTime={!me.lookSet}
+        {showAppearance && me && <AppearanceMenu key={me.id} look={me.look} assets={assets} firstTime={!me.lookSet} store={store}
           onSave={(look) => { store.setLook(look); setShowAppearance(false); }} onClose={() => setShowAppearance(false)} />}
         <div className="chips">
           <MeetingChip store={store} />
+          <LiveChip store={store} onGo={room => engineRef.current?.walkToRoom(room)} />
           <NowPlayingChip store={store} />
           <DungeonChip store={store} />
           {me?.callId && !store.roomCallOf(me) && store.voiceOwner && <CallChip store={store} voice={voice} />}
           <DeskChip store={store} />
         </div>
         <Toasts store={store} />
-        {pick && engineRef.current && <ActionWheel key={`${pick.kind}:${pick.id}`} store={store} engine={engineRef.current} pick={pick} onPerson={openPerson} onClose={() => setPick(null)} />}
+        {pick && engineRef.current && <ActionWheel key={`${pick.kind}:${pick.id}`} store={store} engine={engineRef.current} pick={pick} assets={assets} onPerson={openPerson} onClose={() => setPick(null)} />}
         <div className="self-stack">
           {store.chatWith && <ChatPanel key={store.chatWith} store={store} withId={store.chatWith} />}
           <SelfPanel store={store} voice={voice} />
         </div>
         {personMenu && <PersonMenu key={personMenu.id} store={store} at={personMenu} onClose={() => setPersonMenu(null)} />}
         {store.seat && <InstrumentPanel key={store.seat} store={store} id={store.seat}
-          dialogOpen={!!(showAppearance || showMeet || store.pendingKnock || store.calendarOpen || store.meetingsOpen || store.jukeboxOpen || store.achievementsOpen || store.chatWith || personMenu || pick)} />}
+          dialogOpen={!!(showAppearance || showMeet || store.pendingKnock || store.calendarOpen || store.meetingsOpen || store.clockOpen || store.jukeboxOpen || store.achievementsOpen || store.presentOpen || store.chatWith || personMenu || pick)} />}
         <Dock store={store} engine={engine} roomsOpen={showRooms} onRooms={() => setShowRooms(s => !s)} />
       </div>
       </div>
@@ -296,9 +309,9 @@ function InstrumentPanel({ store, id, dialogOpen }: { store: Store; id: string; 
   </section>;
 }
 
-function TopBar({ store, roomName, onToggleRooms, onToggleMeet, onToggleAppearance, onLogout, engine, editing, onToggleEdit }: {
+function TopBar({ store, roomName, onToggleRooms, onToggleMeet, onToggleAppearance, onLogout, engine, editing, onToggleEdit, gmOpen, onToggleGm, pocketsOpen, onTogglePockets }: {
   store: Store; roomName?: string; onToggleRooms: () => void; onToggleMeet: () => void; onToggleAppearance: () => void; onLogout: () => void; engine: Engine | null;
-  editing: boolean; onToggleEdit: () => void;
+  editing: boolean; onToggleEdit: () => void; gmOpen: boolean; onToggleGm: () => void; pocketsOpen: boolean; onTogglePockets: () => void;
 }) {
   const me = store.users.get(store.me);
   const [draft, setDraft] = useState<string | null>(null);
@@ -349,6 +362,10 @@ function TopBar({ store, roomName, onToggleRooms, onToggleMeet, onToggleAppearan
         title={editing ? 'Done rearranging' : 'Rearrange the office (admins)'} aria-label="Rearrange the office">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16v4ZM13 7l4 4" /></svg>
       </button>}
+      {store.admin && me && <button onClick={onToggleGm} className={`hanger-btn gm-btn${gmOpen ? ' on' : ''}`} aria-pressed={gmOpen}
+        title="GM superpowers: buffs and debuffs (admins)" aria-label="GM superpowers">✨</button>}
+      <button onClick={onTogglePockets} className={`hanger-btn gm-btn${pocketsOpen ? ' on' : ''}`} aria-pressed={pocketsOpen}
+        title={`Pockets · ${store.items.length || 'nothing'} ${store.items.length === 1 ? 'thing' : 'things'}`} aria-label="Pockets">🎒</button>
       <button onClick={onToggleAppearance} className="hanger-btn" title="Character appearance" aria-label="Character appearance">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a2 2 0 0 0-2 2c0 1 .7 1.6 1.6 2.4.6.5 1.1 1 1.1 1.8V11M12 9l-7 9h14l-7-9ZM3 21h18" /></svg>
       </button>
@@ -367,8 +384,23 @@ const LOOK_COLORS = {
   hatColor: ['#3e5a8a', '#b4534a', '#3a5a4a', '#282832', '#d0a040', '#e8e0d0', '#6b3e26'],
 };
 
-function AppearanceMenu({ look, assets, firstTime, onSave, onClose }: {
-  look: PublicLook; assets: Assets | null; firstTime: boolean; onSave: (look: PublicLook) => void; onClose: () => void;
+/** Whether colleagues see my local time, and which zone: the browser's, or one picked by hand (a laptop set to the wrong zone, a VPN). */
+function TimeZoneField({ store }: { store: Store }) {
+  const zones = useMemo(() => { try { return Intl.supportedValuesOf('timeZone'); } catch { return []; } }, []);
+  const picked = store.pickedTz, shown = picked ?? store.detectedTz;
+  return (
+    <div className="tz-field small muted" title="Colleagues see your local time when they hover over you. Only the time zone is shared, not your location.">
+      <label><input type="checkbox" checked={store.shareTz} onChange={e => store.setShareTz(e.target.checked)} /> Show my local time</label>
+      <select value={picked ?? ''} disabled={!store.shareTz} onChange={e => store.setPickedTz(e.target.value || null)} aria-label="Time zone">
+        <option value="">Automatic: {store.detectedTz}</option>
+        {zones.filter(z => z !== store.detectedTz || picked).map(z => <option key={z} value={z}>{z}</option>)}
+      </select>
+      {store.shareTz && <span>{new Intl.DateTimeFormat([], { timeZone: shown, hour: '2-digit', minute: '2-digit' }).format(new Date())} now</span>}
+    </div>
+  );
+}
+function AppearanceMenu({ look, assets, firstTime, store, onSave, onClose }: {
+  look: PublicLook; assets: Assets | null; firstTime: boolean; store: Store; onSave: (look: PublicLook) => void; onClose: () => void;
 }) {
   const [draft, setDraft] = useState(look);
   const [tab, setTab] = useState<'body' | 'clothes'>('body');
@@ -417,9 +449,11 @@ function AppearanceMenu({ look, assets, firstTime, onSave, onClose }: {
             {select('Top', draft.top, tops, 'top')}{colors('Top color', 'shirt')}
             {select('Bottom', draft.bottom, bottoms, 'bottom')}{colors('Bottom color', 'pants')}
             {colors('Shoe color', 'shoes')}
+            <p className="small">Hats are in your pockets 🎒 (take one from the Lobby hat stand){store.judge ? ' · judges find theirs there ✨' : ''}</p>
           </>}
         </div>
         <footer className="appearance-actions">
+          <TimeZoneField store={store} />
           {!firstTime && <button className="ghost" onClick={onClose}>Cancel</button>}
           <button onClick={() => onSave(draft)}>{firstTime ? 'Save & enter office' : 'Save changes'}</button>
         </footer>
@@ -718,6 +752,71 @@ function EditPanel({ store, engine, assets, onDone }: { store: Store; engine: En
   );
 }
 
+/** What's in your pockets: hats to wear (one at a time) and whatever the bouncer sold you. */
+function PocketsPanel({ store, me, assets, onClose }: { store: Store; me: ClientUser; assets: Assets | null; onClose: () => void }) {
+  const wearing = String(effectOf(me.effects, 'hat')?.data?.style ?? '');
+  const hats = store.items.flatMap(i => (hatOf(i) ? [hatOf(i)!] : []));
+  const rest = new Map<string, number>();
+  for (const i of store.items) if (!hatOf(i)) rest.set(i, (rest.get(i) ?? 0) + 1);
+  const names: Record<string, [string, string]> = { drugs: ['💊', 'Drugs'] };
+  return (
+    <div className="edit-panel gm-panel">
+      <div className="rooms-head"><span>🎒 Pockets</span><button className="ghost" onClick={onClose} aria-label="Close">×</button></div>
+      {!store.items.length && <p className="hint">Nothing yet. Hats hang on the stand in the Lobby.</p>}
+      {hats.length > 0 && <>
+        <h3>Hats</h3>
+        <div className="palette">
+          {hats.map(h => <button key={h} className={wearing === h ? 'on' : ''} onClick={() => store.setEffect(me.id, 'hat', wearing !== h, h)} title={wearing === h ? 'Take it off' : 'Wear it'}>
+            <HatSprite assets={assets} style={h} /><span>{HAT_NAMES[h] ?? h}{wearing === h ? ' · on' : ''}</span>
+          </button>)}
+        </div>
+      </>}
+      {rest.size > 0 && <>
+        <h3>Other</h3>
+        <div className="palette">
+          {[...rest].map(([i, n]) => <button key={i} disabled title={i === 'drugs' ? 'Rack it on a shelf in a Berghain stall' : i}><b className="gm-icon">{names[i]?.[0] ?? '📦'}</b><span>{names[i]?.[1] ?? i} × {n}</span></button>)}
+        </div>
+      </>}
+    </div>
+  );
+}
+
+/** Office admins as game masters: buffs, debuffs and hats on themselves or the person they clicked. */
+function GmPanel({ store, picked, assets, onClose }: { store: Store; picked: string | null; assets: Assets | null; onClose: () => void }) {
+  const [target, setTarget] = useState(picked ?? store.me);
+  useEffect(() => { if (picked) setTarget(picked); }, [picked]);
+  const u = store.users.get(target) ?? store.users.get(store.me);
+  if (!u) return null;
+  const people = [...store.users.values()].filter(p => p.presence !== 'offline').sort((a, b) => a.name.localeCompare(b.name));
+  const now = store.now();
+  const left = (until?: number) => until === undefined ? '' : ` ${Math.max(0, Math.ceil((until - now) / 1000))}s`;
+  return (
+    <div className="edit-panel gm-panel">
+      <div className="rooms-head"><span>✨ GM superpowers</span><button className="ghost" onClick={onClose} aria-label="Close">×</button></div>
+      <label className="look-select">On<select value={u.id} onChange={e => setTarget(e.target.value)}>
+        {people.map(p => <option value={p.id} key={p.id}>{p.id === store.me ? `${p.name} (you)` : p.name}</option>)}
+      </select></label>
+      <p className="hint">Click someone on the floor to aim at them.</p>
+      <div className="palette">
+        {Object.entries(EFFECTS).filter(([k]) => k !== 'hat').map(([k, r]) => {
+          const on = effectOf(u.effects, k);
+          return <button key={k} className={on ? 'on' : ''} onClick={() => store.setEffect(u.id, k, !on)} title={on ? `Take ${r.label.toLowerCase()} off` : r.label}>
+            <b className="gm-icon">{r.icon}</b><span>{r.label}{on ? left(on.until) : ''}</span>
+          </button>;
+        })}
+      </div>
+      <h3>Hat</h3>
+      <div className="palette">
+        {ALL_HATS.map(h => {
+          const on = effectOf(u.effects, 'hat')?.data?.style === h;
+          return <button key={h} className={on ? 'on' : ''} onClick={() => store.setEffect(u.id, 'hat', !on, h)}><HatSprite assets={assets} style={h} /><span>{HAT_NAMES[h]}</span></button>;
+        })}
+      </div>
+      {u.effects.length > 0 && <button className="ghost reset" onClick={() => u.effects.forEach(e => store.setEffect(u.id, e.kind, false))}>Clear everything on {u.name.split(' ')[0]}</button>}
+    </div>
+  );
+}
+
 /** A world-atlas frame, scaled to fit a 32×32 box, crisp. */
 function ItemThumb({ assets, frame }: { assets: Assets | null; frame: string }) {
   const ref = useRef<HTMLCanvasElement>(null);
@@ -740,6 +839,18 @@ function PlantSprite({ assets, plant, now, scale = 4 }: { assets: Assets | null;
     ctx.drawImage(assets.world, f.x, f.y, f.w, f.h, 0, 0, f.w * scale, f.h * scale);
   }, [assets, name, scale]);
   return <canvas ref={ref} width={12 * scale} height={20 * scale} className="plant-sprite" />;
+}
+
+/** A hat as it looks on a head, from the world atlas (`hat_<style>`), scaled up and centered. */
+function HatSprite({ assets, style, scale = 2 }: { assets: Assets | null; style: string; scale?: number }) {
+  const ref = useRef<HTMLCanvasElement>(null);
+  const name = `hat_${style}`;
+  useEffect(() => {
+    const c = ref.current, f = assets?.atlas.frames[name]; if (!c || !assets) return;
+    const ctx = c.getContext('2d')!; ctx.imageSmoothingEnabled = false; ctx.clearRect(0, 0, c.width, c.height);
+    if (f) ctx.drawImage(assets.world, f.x, f.y, f.w, f.h, Math.floor((c.width - f.w * scale) / 2), Math.floor((c.height - f.h * scale) / 2), f.w * scale, f.h * scale);
+  }, [assets, name, scale]);
+  return <canvas ref={ref} width={16 * scale} height={14 * scale} className="hat-sprite" aria-hidden="true" />;
 }
 
 /** The Lobby notice board (and the 🏆 button): how your plant is doing, what makes it grow, and your achievements. */
@@ -812,6 +923,52 @@ function MeetingsPanel({ store }: { store: Store }) {
       </div>
     </div>
   );
+}
+
+/** Where our people are: [region, [city, IANA zone][]]. Edit here; daylight saving comes from the zone names. */
+const CLOCK_REGIONS: [string, [string, string][]][] = [
+  ['USA', [['New York', 'America/New_York'], ['Chicago', 'America/Chicago'], ['Denver', 'America/Denver'], ['Los Angeles', 'America/Los_Angeles']]],
+  ['Canada', [['Toronto', 'America/Toronto'], ['Vancouver', 'America/Vancouver']]],
+  ['West Europe', [['London', 'Europe/London'], ['Paris', 'Europe/Paris'], ['Madrid', 'Europe/Madrid']]],
+  ['East Europe', [['Warsaw', 'Europe/Warsaw'], ['Kyiv', 'Europe/Kyiv'], ['Bucharest', 'Europe/Bucharest']]],
+];
+
+/** The Lobby clock: the time in each city, a day marker when it isn't your date, your own zone highlighted. */
+function ClockPanel({ store }: { store: Store }) {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => { const i = setInterval(() => setNow(new Date()), 10_000); return () => clearInterval(i); }, []);
+  const mine = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const day = (tz: string) => new Intl.DateTimeFormat('en-CA', { timeZone: tz }).format(now); // yyyy-mm-dd
+  const myDay = day(mine);
+  const offset = (tz: string) => offsetOf(tz, mine, now);
+  return (
+    <div className="modal-backdrop" {...backdropClose(() => store.closeClock())}>
+      <div className="meet-panel guided">
+        <div className="rooms-head"><span>🕰️ Our time zones</span><button type="button" className="ghost" onClick={() => store.closeClock()}>×</button></div>
+        {CLOCK_REGIONS.map(([region, cities]) => (
+          <div key={region}>
+            <p className="small muted"><b>{region}</b></p>
+            <ul className="meeting-list">
+              {cities.map(([city, tz]) => {
+                const d = day(tz), here = offset(tz) === 0;
+                return (
+                  <li key={tz} style={here ? { fontWeight: 600 } : undefined}>
+                    <span>{city}{here && <small className="muted"> · your time</small>}</span>
+                    <span>{new Intl.DateTimeFormat([], { timeZone: tz, hour: '2-digit', minute: '2-digit' }).format(now)}{d !== myDay && <small className="muted"> · {d > myDay ? 'tomorrow' : 'yesterday'}</small>}</span>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+/** Minutes by which `tz` is ahead of `base` right now. */
+function offsetOf(tz: string, base: string, at: Date) {
+  const wall = (z: string) => { const p = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: z, hourCycle: 'h23', year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric' }).formatToParts(at).map(x => [x.type, +x.value])); return Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute) / 60_000; };
+  return wall(tz) - wall(base);
 }
 
 /** The vault door: where the team's vault lives, and a link that opens it in a new tab. */
@@ -943,23 +1100,22 @@ function MacAppButton() {
 
 /** Props for a modal backdrop that closes on a tap on the backdrop itself: one that both started and ended there.
  *  A click that only *ends* on it (iOS sends a compatibility click after the canvas tap that opened the panel) is ignored. */
+let backdropArmed = false; // outside the closure: a re-render between pointerdown and click (the store ticks) mustn't lose it
 function backdropClose(close: () => void) {
-  let armed = false;
   return {
-    onPointerDown: (e: React.PointerEvent) => { armed = e.target === e.currentTarget; },
-    onClick: (e: React.MouseEvent) => { if (armed && e.target === e.currentTarget) close(); armed = false; },
+    onPointerDown: (e: React.PointerEvent) => { backdropArmed = e.target === e.currentTarget; },
+    onClick: (e: React.MouseEvent) => { if (backdropArmed && e.target === e.currentTarget) close(); backdropArmed = false; },
   };
 }
 
 /** Always opens in a new tab — never replaces the office (some shells ignore target=_blank; the Mac app hands it to the browser). */
-function openExternal(href: string): boolean {
+function openExternal(href: string) {
   const w = window.open(href, '_blank');
-  if (w) { w.opener = null; return true; }
-  if (inNativeApp()) return true; // the Mac app opened it in the system browser and gave us nothing back
-  // popup blocked: fall back to a real new-tab anchor click (iOS ignores this too outside a real click, hence false)
+  if (w) { w.opener = null; return; }
+  if (inNativeApp()) return; // the Mac app opened it in the system browser and gave us nothing back
+  // popup blocked: fall back to a real new-tab anchor click
   const a = document.createElement('a');
   a.href = href; a.target = '_blank'; a.rel = 'noopener noreferrer'; a.click();
-  return false;
 }
 function ExternalLink({ href, onOpen, className, children }: { href: string; onOpen?: () => void; className?: string; children: React.ReactNode }) {
   const open = (e: React.MouseEvent) => { e.preventDefault(); openExternal(href); onOpen?.(); };
@@ -1123,10 +1279,10 @@ function Toasts({ store }: { store: Store }) {
   );
 }
 
-type WheelItem = { icon: string; label: string; onClick: () => void; disabled?: boolean; title?: string; active?: boolean };
+type WheelItem = { icon: string; label: string; onClick: () => void; disabled?: boolean; title?: string; active?: boolean; hat?: string }; // hat: draw that hat's sprite instead of the icon
 
 /** Click a person or a thing: a ring of actions around it, following it as it moves. */
-function ActionWheel({ store, engine, pick, onPerson, onClose }: { store: Store; engine: Engine; pick: Pick; onPerson: (at: PersonMenuAt) => void; onClose: () => void }) {
+function ActionWheel({ store, engine, pick, assets, onPerson, onClose }: { store: Store; engine: Engine; pick: Pick; assets: Assets | null; onPerson: (at: PersonMenuAt) => void; onClose: () => void }) {
   const ref = useRef<HTMLDivElement>(null);
   const isMe = pick.kind === 'user' && pick.id === store.me;
   const [emoji, setEmoji] = useState(isMe);
@@ -1173,8 +1329,33 @@ function ActionWheel({ store, engine, pick, onPerson, onClose }: { store: Store;
     }
   } else {
     const o = MAP.objects.find(o => o.id === pick.id);
-    if (!o?.use || o.use.kind === 'instrument' || o.use.kind === 'calendar' || o.use.kind === 'meetings' || o.use.kind === 'achievements' || o.use.kind === 'link' || o.use.kind === 'jukebox' || o.use.kind === 'arcade' || o.use.kind === 'records') return null;
-    if (o.use.kind === 'toggle') {
+    if (!o?.use || o.use.kind === 'instrument' || o.use.kind === 'calendar' || o.use.kind === 'meetings' || o.use.kind === 'achievements' || o.use.kind === 'link' || o.use.kind === 'clock' || o.use.kind === 'jukebox' || o.use.kind === 'arcade' || o.use.kind === 'records' || o.use.kind === 'presentation') return null;
+    if (o.use.kind === 'toilet') {
+      const s = store.toilets[o.id], full = toiletFull(s), inside = !!s?.in.includes(store.me), queued = s?.queue.indexOf(store.me) ?? -1;
+      title = full ? 'Toilet · out of order' : inside ? `Toilet · ${s!.in.length}/${TOILET_CAPACITY} inside` : queued >= 0 ? `Toilet · #${queued + 1} in line` : s?.in.length ? `Toilet · ${s.in.length}/${TOILET_CAPACITY} inside` : 'Toilet';
+      if (inside) {
+        const has = store.items.includes(TOILET_SHELF_ITEM), company = s!.in.length > 1;
+        items = [{ icon: '💳', label: 'Rack', disabled: !has || !company || s!.shelf >= TOILET_SHELF_MAX,
+          title: !has ? 'Rack a line · you need drugs (ask the bouncer)' : !company ? 'Rack a line · not on your own, wait for company' : s!.shelf >= TOILET_SHELF_MAX ? 'Rack a line · the shelf is full' : `Rack a line on the shelf (${s!.shelf} there)`,
+          onClick: act(() => store.rackLine(o.id)) },
+          { icon: '👃', label: 'Sniff', disabled: !s!.shelf, title: s!.shelf ? `Sniff a line · ${s!.shelf} on the shelf` : 'Sniff · nothing on the shelf', onClick: act(() => store.sniffLine(o.id)) },
+          { icon: '🚪', label: 'Leave', onClick: act(() => store.moveTo({ x: o.x, y: o.y - 2 })) }];
+      } else {
+        const crowded = (s?.in.length ?? 0) >= TOILET_CAPACITY || !!s?.queue.length;
+        items = [{ icon: '🚽', label: crowded ? 'Line up' : 'Use', disabled: full || queued >= 0, title: full ? 'Full — it drains in a few minutes' : queued >= 0 ? "You're in line" : crowded ? `Full house — ${s!.queue.length} in line` : `Go in for ${TOILET_USE_MS / 1000} s`, onClick: act(() => store.use(o.id)) }];
+      }
+      if (store.admin) items.push({ icon: '🪠', label: 'Plunge', disabled: !s?.fill, title: 'Admins: clean it right away', onClick: act(() => store.plunge(o.id)) });
+    } else if (o.use.kind === 'dealer') {
+      if (o.type === 'bouncer') {
+        const n = store.items.filter(i => i === 'drugs').length;
+        title = n ? `Bouncer · ${n} 💊 in your pockets` : 'Bouncer';
+        items = [{ icon: '💊', label: 'Score', title: 'Ask the bouncer for something', onClick: act(() => store.use(o.id, 'drugs')) }];
+      } else {
+        title = 'Hat stand';
+        items = o.use.items.map(it => { const h = hatOf(it) ?? it, have = store.items.includes(it);
+          return { icon: '🎩', hat: h, label: (HAT_NAMES[h] ?? h).replace(/ hat$/, ''), disabled: have, title: have ? `${HAT_NAMES[h]} · already in your pockets` : `Take the ${(HAT_NAMES[h] ?? h).toLowerCase()}`, onClick: act(() => store.use(o.id, it)) }; });
+      }
+    } else if (o.use.kind === 'toggle') {
       const on = store.objects[o.id]?.on ?? o.on ?? true;
       title = o.use.label[0].toUpperCase() + o.use.label.slice(1);
       items = [{ icon: on ? '🌑' : '💡', label: on ? 'Turn off' : 'Turn on', onClick: act(() => store.use(o.id)) }];
@@ -1199,7 +1380,7 @@ function ActionWheel({ store, engine, pick, onPerson, onClose }: { store: Store;
           <button key={i} className={`wheel-item${it.active ? ' active' : ''}${it.label ? '' : ' bare'}`} disabled={it.disabled} title={it.title ?? it.label}
             style={{ left: Math.round(Math.cos(a) * R), top: Math.round(Math.sin(a) * R), animationDelay: `${i * 18}ms` }}
             onClick={e => { e.stopPropagation(); it.onClick(); }}>
-            <span className="ic">{it.icon}</span>
+            <span className="ic">{it.hat ? <HatSprite assets={assets} style={it.hat} scale={1} /> : it.icon}</span>
             {it.label && <small>{it.label}</small>}
           </button>
         );
