@@ -190,8 +190,8 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
           onPick={id => { engineRef.current?.walkToUser(id); if (compact()) setShowRooms(false); }}
           onRoom={id => { engineRef.current?.walkToRoom(id); if (compact()) setShowRooms(false); }} />}
         {editing && store.admin && !down && engine && <EditPanel store={store} engine={engine} assets={assets} onDone={() => setEditing(false)} />}
-        {gmOpen && store.admin && !editing && <GmPanel store={store} picked={pick?.kind === 'user' ? pick.id : null} onClose={() => setGmOpen(false)} />}
-        {pocketsOpen && me && <PocketsPanel store={store} me={me} onClose={() => setPocketsOpen(false)} />}
+        {gmOpen && store.admin && !editing && <GmPanel store={store} picked={pick?.kind === 'user' ? pick.id : null} assets={assets} onClose={() => setGmOpen(false)} />}
+        {pocketsOpen && me && <PocketsPanel store={store} me={me} assets={assets} onClose={() => setPocketsOpen(false)} />}
         {store.calendarOpen && <CalendarPanel store={store} />}
         {store.meetingsOpen && <MeetingsPanel store={store} />}
         {store.jukeboxOpen && <JukeboxPanel key={store.jukeboxOpen} store={store} id={store.jukeboxOpen} />}
@@ -216,7 +216,7 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
           <DeskChip store={store} />
         </div>
         <Toasts store={store} />
-        {pick && engineRef.current && <ActionWheel key={`${pick.kind}:${pick.id}`} store={store} engine={engineRef.current} pick={pick} onPerson={openPerson} onClose={() => setPick(null)} />}
+        {pick && engineRef.current && <ActionWheel key={`${pick.kind}:${pick.id}`} store={store} engine={engineRef.current} pick={pick} assets={assets} onPerson={openPerson} onClose={() => setPick(null)} />}
         <div className="self-stack">
           {store.chatWith && <ChatPanel key={store.chatWith} store={store} withId={store.chatWith} />}
           <SelfPanel store={store} voice={voice} />
@@ -741,7 +741,7 @@ function EditPanel({ store, engine, assets, onDone }: { store: Store; engine: En
 }
 
 /** What's in your pockets: hats to wear (one at a time) and whatever the bouncer sold you. */
-function PocketsPanel({ store, me, onClose }: { store: Store; me: ClientUser; onClose: () => void }) {
+function PocketsPanel({ store, me, assets, onClose }: { store: Store; me: ClientUser; assets: Assets | null; onClose: () => void }) {
   const wearing = String(effectOf(me.effects, 'hat')?.data?.style ?? '');
   const hats = store.items.flatMap(i => (hatOf(i) ? [hatOf(i)!] : []));
   const rest = new Map<string, number>();
@@ -755,7 +755,7 @@ function PocketsPanel({ store, me, onClose }: { store: Store; me: ClientUser; on
         <h3>Hats</h3>
         <div className="palette">
           {hats.map(h => <button key={h} className={wearing === h ? 'on' : ''} onClick={() => store.setEffect(me.id, 'hat', wearing !== h, h)} title={wearing === h ? 'Take it off' : 'Wear it'}>
-            <b className="gm-icon">{h === 'judge' ? '✨' : h === 'admin' ? '🧢' : '🎩'}</b><span>{HAT_NAMES[h] ?? h}{wearing === h ? ' · on' : ''}</span>
+            <HatSprite assets={assets} style={h} /><span>{HAT_NAMES[h] ?? h}{wearing === h ? ' · on' : ''}</span>
           </button>)}
         </div>
       </>}
@@ -770,7 +770,7 @@ function PocketsPanel({ store, me, onClose }: { store: Store; me: ClientUser; on
 }
 
 /** Office admins as game masters: buffs, debuffs and hats on themselves or the person they clicked. */
-function GmPanel({ store, picked, onClose }: { store: Store; picked: string | null; onClose: () => void }) {
+function GmPanel({ store, picked, assets, onClose }: { store: Store; picked: string | null; assets: Assets | null; onClose: () => void }) {
   const [target, setTarget] = useState(picked ?? store.me);
   useEffect(() => { if (picked) setTarget(picked); }, [picked]);
   const u = store.users.get(target) ?? store.users.get(store.me);
@@ -797,7 +797,7 @@ function GmPanel({ store, picked, onClose }: { store: Store; picked: string | nu
       <div className="palette">
         {ALL_HATS.map(h => {
           const on = effectOf(u.effects, 'hat')?.data?.style === h;
-          return <button key={h} className={on ? 'on' : ''} onClick={() => store.setEffect(u.id, 'hat', !on, h)}><span>{HAT_NAMES[h]}</span></button>;
+          return <button key={h} className={on ? 'on' : ''} onClick={() => store.setEffect(u.id, 'hat', !on, h)}><HatSprite assets={assets} style={h} /><span>{HAT_NAMES[h]}</span></button>;
         })}
       </div>
       {u.effects.length > 0 && <button className="ghost reset" onClick={() => u.effects.forEach(e => store.setEffect(u.id, e.kind, false))}>Clear everything on {u.name.split(' ')[0]}</button>}
@@ -827,6 +827,18 @@ function PlantSprite({ assets, plant, now, scale = 4 }: { assets: Assets | null;
     ctx.drawImage(assets.world, f.x, f.y, f.w, f.h, 0, 0, f.w * scale, f.h * scale);
   }, [assets, name, scale]);
   return <canvas ref={ref} width={12 * scale} height={20 * scale} className="plant-sprite" />;
+}
+
+/** A hat as it looks on a head, from the world atlas (`hat_<style>`), scaled up and centered. */
+function HatSprite({ assets, style, scale = 2 }: { assets: Assets | null; style: string; scale?: number }) {
+  const ref = useRef<HTMLCanvasElement>(null);
+  const name = `hat_${style}`;
+  useEffect(() => {
+    const c = ref.current, f = assets?.atlas.frames[name]; if (!c || !assets) return;
+    const ctx = c.getContext('2d')!; ctx.imageSmoothingEnabled = false; ctx.clearRect(0, 0, c.width, c.height);
+    if (f) ctx.drawImage(assets.world, f.x, f.y, f.w, f.h, Math.floor((c.width - f.w * scale) / 2), Math.floor((c.height - f.h * scale) / 2), f.w * scale, f.h * scale);
+  }, [assets, name, scale]);
+  return <canvas ref={ref} width={16 * scale} height={14 * scale} className="hat-sprite" aria-hidden="true" />;
 }
 
 /** The Lobby notice board (and the 🏆 button): how your plant is doing, what makes it grow, and your achievements. */
@@ -1209,10 +1221,10 @@ function Toasts({ store }: { store: Store }) {
   );
 }
 
-type WheelItem = { icon: string; label: string; onClick: () => void; disabled?: boolean; title?: string; active?: boolean };
+type WheelItem = { icon: string; label: string; onClick: () => void; disabled?: boolean; title?: string; active?: boolean; hat?: string }; // hat: draw that hat's sprite instead of the icon
 
 /** Click a person or a thing: a ring of actions around it, following it as it moves. */
-function ActionWheel({ store, engine, pick, onPerson, onClose }: { store: Store; engine: Engine; pick: Pick; onPerson: (at: PersonMenuAt) => void; onClose: () => void }) {
+function ActionWheel({ store, engine, pick, assets, onPerson, onClose }: { store: Store; engine: Engine; pick: Pick; assets: Assets | null; onPerson: (at: PersonMenuAt) => void; onClose: () => void }) {
   const ref = useRef<HTMLDivElement>(null);
   const isMe = pick.kind === 'user' && pick.id === store.me;
   const [emoji, setEmoji] = useState(isMe);
@@ -1283,7 +1295,7 @@ function ActionWheel({ store, engine, pick, onPerson, onClose }: { store: Store;
       } else {
         title = 'Hat stand';
         items = o.use.items.map(it => { const h = hatOf(it) ?? it, have = store.items.includes(it);
-          return { icon: '🎩', label: (HAT_NAMES[h] ?? h).replace(/ hat$/, ''), disabled: have, title: have ? `${HAT_NAMES[h]} · already in your pockets` : `Take the ${(HAT_NAMES[h] ?? h).toLowerCase()}`, onClick: act(() => store.use(o.id, it)) }; });
+          return { icon: '🎩', hat: h, label: (HAT_NAMES[h] ?? h).replace(/ hat$/, ''), disabled: have, title: have ? `${HAT_NAMES[h]} · already in your pockets` : `Take the ${(HAT_NAMES[h] ?? h).toLowerCase()}`, onClick: act(() => store.use(o.id, it)) }; });
       }
     } else if (o.use.kind === 'toggle') {
       const on = store.objects[o.id]?.on ?? o.on ?? true;
@@ -1310,7 +1322,7 @@ function ActionWheel({ store, engine, pick, onPerson, onClose }: { store: Store;
           <button key={i} className={`wheel-item${it.active ? ' active' : ''}${it.label ? '' : ' bare'}`} disabled={it.disabled} title={it.title ?? it.label}
             style={{ left: Math.round(Math.cos(a) * R), top: Math.round(Math.sin(a) * R), animationDelay: `${i * 18}ms` }}
             onClick={e => { e.stopPropagation(); it.onClick(); }}>
-            <span className="ic">{it.icon}</span>
+            <span className="ic">{it.hat ? <HatSprite assets={assets} style={it.hat} scale={1} /> : it.icon}</span>
             {it.label && <small>{it.label}</small>}
           </button>
         );

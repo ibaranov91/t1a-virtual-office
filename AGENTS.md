@@ -116,6 +116,10 @@ npm run typecheck    # run before every commit or deploy
   company inside, "Rack a line" puts a line + card on the stall's shelf; it needs `drugs` in your inventory. The
   bouncer (`use.kind: 'dealer'`) puts `drugs` in your inventory (`User.items`, saved, sent only to you in `me`, at most
   `ITEMS_MAX` of a kind); racking takes one. **Sniff** (`toilet_sniff`) takes a line off the shelf and gives you the `unicorns` effect.
+- **Pockets (inventory)** are `User.items` (strings): `drugs` from the bouncer and hats as `hat:<style>` from the Lobby hat stand
+  (`use.kind: 'dealer'` hands out one of its `items`; one of each hat). The 🎒 button lists them; wearing a hat is the `hat`
+  effect, and a non-GM may only wear a hat that's in their pockets. Judges (`DECK_JUDGES`) find `hat:judge` and office admins
+  `hat:admin` in their pockets on connect (`grantHats`, by sign-in email; put on the first time, removable after).
 - **Room behavior is data.** Knock rules, meeting links and home-desk rooms live in `tilemap.json`
   (from `gen-map.mjs`), not in code.
 

@@ -349,6 +349,8 @@ button:focus-visible, summary:focus-visible, input[type="range"]:focus-visible {
 .edit-panel .hint { margin: 0; color: var(--muted); font-size: 12px; }
 .gm-panel { bottom: auto; max-height: calc(100% - 16px); }
 .gm-panel .gm-icon { font-size: 18px; line-height: 1; }
+.hat-sprite { image-rendering: pixelated; display: block; }
+.wheel-item .ic .hat-sprite { width: 16px; height: 14px; }
 .edit-panel h3 { margin: 4px 0 0; font-size: 13px; }
 .edit-panel h3 small { display: block; color: var(--muted); font-weight: 400; }
 .edit-sel { display: grid; gap: 6px; padding: 8px; border-radius: 6px; background: var(--panel2); }
