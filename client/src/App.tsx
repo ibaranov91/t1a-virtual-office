@@ -142,11 +142,7 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
       if (use?.kind === 'calendar') { setPick(null); return store.openCalendar(); }
       if (use?.kind === 'meetings') { setPick(null); return store.openMeetings(); }
       if (use?.kind === 'achievements') { setPick(null); return store.openAchievements(); }
-      if (use?.kind === 'link') { // open it now where a click can (desktop, the Mac app); walk over either way, and a phone gets the link on arrival
-        const o = MAP.objects.find(o => o.id === p!.id)!;
-        store.goToLink(o as Parameters<typeof store.goToLink>[0], openExternal(use.url));
-        return setPick(null);
-      }
+      if (use?.kind === 'link') { setPick(null); return store.openLink(use); } // a panel, like the calendar: its link is a real tap
       setPick(cur => (p && cur?.kind === p.kind && cur.id === p.id ? null : p)); // same target again: close
     };
     e.onZoom = () => tick(n => n + 1);
@@ -178,6 +174,7 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
         {editing && store.admin && engine && <EditPanel store={store} engine={engine} assets={assets} onDone={() => setEditing(false)} />}
         {store.calendarOpen && <CalendarPanel store={store} />}
         {store.meetingsOpen && <MeetingsPanel store={store} />}
+        {store.linkOpen && <LinkPanel store={store} />}
         {store.achievementsOpen && me && <AchievementsPanel store={store} me={me} assets={assets} />}
         {(showMeet || store.pendingKnock) && <MeetSetup key={store.pendingKnock ?? 'panel'} store={store} onClose={() => setShowMeet(false)} />}
         {showAppearance && me && <AppearanceMenu key={me.id} look={me.look} assets={assets} firstTime={!me.lookSet}
@@ -612,6 +609,21 @@ function MeetingsPanel({ store }: { store: Store }) {
   );
 }
 
+/** The vault door: where the team's vault lives, and a link that opens it in a new tab. */
+function LinkPanel({ store }: { store: Store }) {
+  const { label, url } = store.linkOpen!;
+  const host = url.replace(/^https?:\/\//, '').replace(/\/$/, '');
+  return (
+    <div className="modal-backdrop" onClick={e => { if (e.target === e.currentTarget) store.closeLink(); }}>
+      <div className="meet-panel guided">
+        <div className="rooms-head"><span>🔐 Vault 13</span><button type="button" className="ghost" onClick={() => store.closeLink()}>×</button></div>
+        <p className="small muted">The team's {label} is at <b>{host}</b>. It opens in a new tab.</p>
+        <p className="row"><ExternalLink className="button" href={url} onOpen={() => store.closeLink()}>Open the {label} ↗</ExternalLink></p>
+      </div>
+    </div>
+  );
+}
+
 /** Your week from Google Calendar, opened from a wall calendar. Only you see it. */
 function CalendarPanel({ store }: { store: Store }) {
   const account = store.meetAccount;
@@ -734,9 +746,9 @@ function openExternal(href: string): boolean {
   a.href = href; a.target = '_blank'; a.rel = 'noopener noreferrer'; a.click();
   return false;
 }
-function ExternalLink({ href, onOpen, children }: { href: string; onOpen?: () => void; children: React.ReactNode }) {
+function ExternalLink({ href, onOpen, className, children }: { href: string; onOpen?: () => void; className?: string; children: React.ReactNode }) {
   const open = (e: React.MouseEvent) => { e.preventDefault(); openExternal(href); onOpen?.(); };
-  return <a href={href} target="_blank" rel="noopener noreferrer" onClick={open}>{children}</a>;
+  return <a href={href} target="_blank" rel="noopener noreferrer" className={className} onClick={open}>{children}</a>;
 }
 
 const userIcons = (u: ClientUser) => `${u.muted ? ' 🔇' : ''}${u.deafened ? ' 🎧' : ''}${u.hand ? ' ✋' : ''}`;
@@ -887,7 +899,7 @@ function Toasts({ store }: { store: Store }) {
           {t.kind === 'chat' && t.userId && <button onClick={() => store.openChat(t.userId!)}>Reply</button>}
           {t.kind === 'meeting' && t.meetingKey && <button onClick={() => store.goToMeeting(t.meetingKey!)}>Go</button>}
           {t.kind === 'meeting' && t.link && <ExternalLink href={meetAs(t.link, store.meetAccount)}>Join call</ExternalLink>}
-          {t.kind === 'link' && t.link && <ExternalLink href={t.linkLabel ? t.link : meetAs(t.link, store.meetAccount)} onOpen={() => store.dismiss(t.id)}>{t.linkLabel ?? 'Join Meet'}</ExternalLink>}
+          {t.kind === 'link' && t.link && <ExternalLink href={meetAs(t.link, store.meetAccount)} onOpen={() => store.dismiss(t.id)}>Join Meet</ExternalLink>}
           {t.kind !== 'knock_in' && t.kind !== 'knock_out' && <button className="ghost x" onClick={() => store.dismiss(t.id)}>×</button>}
         </div>
       ))}
