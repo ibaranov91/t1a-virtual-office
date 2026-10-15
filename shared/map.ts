@@ -12,9 +12,15 @@ export interface Room {
   rules: { knock: KnockRule; label?: string; occupantLabel?: string };
   meeting: { provider: 'meet' | 'teams'; url: string };
 }
+/** Something you can hold for a while, taken from an object (a coffee from the machine). */
+export interface UseItem { id: string; label: string; icon: string }
+/** What clicking an object offers: take something from it, or flip it on/off. */
+export type ObjectUse = { kind: 'take'; items: UseItem[] } | { kind: 'toggle'; label: string };
 export interface MapObject {
   id: string; type: string; x: number; y: number; w: number; h: number;
   wall?: boolean; walkable?: boolean; light?: boolean; steam?: boolean; dir?: Dir;
+  use?: ObjectUse; on?: boolean; // on: starting state of a toggle
+  sit?: boolean; // a sofa: blocks walking, but every tile is a seat facing `dir`, reached from the tile in front
 }
 export interface TileMap {
   version: number; width: number; height: number; tileSize: number;
@@ -106,12 +112,36 @@ export function sampleMove(path: Tile[], startedAt: number, t: number) {
   return { x: a.x + (b.x - a.x) * f, y: a.y + (b.y - a.y) * f, dir: dirBetween(a, b), done: false, tile: f < 0.5 ? a : b, next: b };
 }
 
+const STEP: Record<Dir, Tile> = { down: { x: 0, y: 1 }, up: { x: 0, y: -1 }, left: { x: -1, y: 0 }, right: { x: 1, y: 0 } };
+/** Path to `to`. Sofa seats aren't walkable: you sit down onto one from the tile in front, and get up the same way. */
+export function pathTo(m: TileMap, from: Tile, to: Tile): Tile[] {
+  if (from.x === to.x && from.y === to.y) return [{ ...from }];
+  const front = (t: Tile) => {
+    if (isWalkable(m, t.x, t.y)) return null;
+    const s = seatAt(m, t.x, t.y);
+    return s && { x: t.x + STEP[s.dir].x, y: t.y + STEP[s.dir].y };
+  };
+  const up = front(from), down = front(to);
+  if (!isWalkable(m, to.x, to.y) && !down) return [];
+  const mid = findPath(m, up ?? from, down ?? to);
+  if (!mid.length) return [];
+  return [...(up ? [{ ...from }] : []), ...mid, ...(down ? [{ ...to }] : [])];
+}
+
 export const pathDuration = (path: Tile[]) => Math.max(0, path.length - 1) * WALK_MS_PER_TILE;
+
+/** Free walkable tiles touching an object's footprint, each with the direction that faces the object. */
+export function besideObject(m: TileMap, o: MapObject): Spot[] {
+  const out: Spot[] = [];
+  for (let x = o.x; x < o.x + o.w; x++) { out.push({ x, y: o.y + o.h, dir: 'up' }); out.push({ x, y: o.y - 1, dir: 'down' }); }
+  for (let y = o.y; y < o.y + o.h; y++) { out.push({ x: o.x - 1, y, dir: 'right' }); out.push({ x: o.x + o.w, y, dir: 'left' }); }
+  return out.filter(t => isWalkable(m, t.x, t.y));
+}
 
 const SEAT_TYPES = new Set(['chair', 'stool']);
 /** Seat (chair/stool) on this tile, with the direction a sitter faces. */
 export function seatAt(m: TileMap, x: number, y: number): (Spot & { homeDesk: boolean }) | null {
-  const o = m.objects.find(o => SEAT_TYPES.has(o.type) && o.x === x && o.y === y);
+  const o = m.objects.find(o => (SEAT_TYPES.has(o.type) && o.x === x && o.y === y) || (o.sit && x >= o.x && x < o.x + o.w && y >= o.y && y < o.y + o.h));
   if (!o) return null;
   return { x, y, dir: o.dir ?? 'down', homeDesk: o.type === 'chair' && !!roomAt(m, x, y)?.homeDesks };
 }

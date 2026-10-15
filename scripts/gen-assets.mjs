@@ -223,6 +223,14 @@ const W1 = '#c8874a', W1L = '#dba066', W1D = '#9c5f30', W1DD = '#7d4a26';
   frames.lamp = t.outline();
 }
 {
+  const t = new Img(16, 32); // the same lamp, switched off: a cool, dim shade
+  for (let y = 2; y <= 10; y++) { const w = 4 + Math.floor((y - 2) / 2); t.hline(8 - w, y, w * 2, y < 4 ? '#bfb6a6' : '#a89e8e'); }
+  t.hline(4, 10, 8, '#8a8070');
+  t.rect(7, 11, 2, 17, '#5a4a40'); t.vline(7, 11, 17, '#6e5c50');
+  t.rect(4, 27, 8, 3, '#5a4a40'); t.hline(4, 27, 8, '#6e5c50');
+  frames.lamp_off = t.outline();
+}
+{
   const t = new Img(32, 32); // bookshelf
   t.rect(1, 1, 30, 30, '#8a5232'); t.rect(3, 3, 26, 26, '#4e2c1a');
   const BOOKS = ['#b4534a', '#5577a8', '#7a9a55', '#d0a040', '#8a5aa0', '#e8dcc8', '#4f9a92'];
