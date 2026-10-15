@@ -365,6 +365,58 @@ test('a saved layout is brought up to date with the vault door: added, moved int
   assert.equal(objects.some(o => o.type === 'safe'), false);
   assert.equal(objects.find(o => o.id === painting.id)!.x, safe.x);
 });
+// gen-map.mjs numbers objects in order, so a build that adds one shifts every id after it (the safe took o57 from a plant)
+const olderBuild = (objects: TileMap['objects']) => objects.map(o => ({ ...structuredClone(o), id: `o${Number(o.id.slice(1)) + 1}` }));
+const loadLayout = (w: World, objects: TileMap['objects']) => {
+  const r = new World(structuredClone(map)); r.load({ ...w.dump(), layout: structuredClone({ objects, rugs: map.rugs }) }); return r;
+};
+const idsOf = (w: World) => [...w.layout().objects, ...w.layout().rugs].map(o => o.id);
+const asAdmin = (w: World) => { const u = w.addUser('Admin', false, { x: 32, y: 12 }); u.email = 'ivan.baranov@t1a.com'; return u; };
+test('a fixture new in this build never takes an id a saved layout already uses, and neither does an admin addition', t => {
+  const { w } = setup(t), safe = map.objects.find(o => o.type === 'safe')!;
+  const saved = olderBuild(map.objects.filter(o => o.type !== 'safe'));
+  const holder = saved.find(o => o.id === safe.id)!, cabinets = saved.filter(o => o.type === 'arcade');
+  cabinets[1].x = 57;
+  const lastRun = { id: `e${Date.now().toString(36)}0`, type: 'plant', x: 3, y: 20, w: 1, h: 1 }; // an addition from before a restart
+  const r = loadLayout(w, [...saved, lastRun]), ids = idsOf(r);
+  assert.equal(new Set(ids).size, ids.length);
+  assert.deepEqual(r.map.objects.find(o => o.id === safe.id), safe);
+  assert.deepEqual(r.map.objects.find(o => o.id === `${safe.id}-2`), { ...holder, id: `${safe.id}-2` });
+  // the cabinets are matched by order, not by their (shifted) ids: three of them, where the admin left them
+  assert.deepEqual(r.map.objects.filter(o => o.type === 'arcade').map(o => [o.id, o.x]), cabinets.map(o => [o.id, o.x]));
+  assert.equal(r.map.objects.length, saved.length + 2);
+  const admin = asAdmin(r);
+  r.edit(admin, { op: 'add', type: 'plant', x: 62, y: 25 }); r.edit(admin, { op: 'add', type: 'plant', x: 20, y: 31 });
+  const after = idsOf(r);
+  assert.equal(after.length, ids.length + 2); assert.equal(new Set(after).size, after.length);
+});
+test('ids saved twice (prod: a plant and the safe were both o57) are repaired on load, the same way every time', t => {
+  const { w } = setup(t), safe = map.objects.find(o => o.type === 'safe')!, plant = map.objects.find(o => o.type === 'plant' && o.x === 1 && o.y === 22)!;
+  const saved = [{ ...plant, id: safe.id }, ...map.objects.filter(o => o.id !== plant.id)]; // the plant comes first
+  const r = loadLayout(w, saved), ids = idsOf(r);
+  assert.equal(new Set(ids).size, ids.length);
+  assert.deepEqual(r.map.objects.find(o => o.id === safe.id), safe); // the build's fixture keeps its id
+  assert.deepEqual(r.map.objects.find(o => o.id === `${safe.id}-2`), { ...plant, id: `${safe.id}-2` });
+  assert.equal(r.map.objects.length, saved.length);
+  const dumped = r.dump(); assert.deepEqual(dumped.layout, r.layout()); // saved repaired
+  const again = new World(structuredClone(map)); again.load(structuredClone(dumped)); assert.deepEqual(again.layout(), r.layout());
+  assert.deepEqual(loadLayout(w, saved).layout(), r.layout());
+  // edit mode reaches each by its own id
+  const admin = asAdmin(r), notices: ServerMsg[] = []; r.connect(admin.id, m => notices.push(m));
+  r.edit(admin, { op: 'remove', id: safe.id });
+  assert.ok(notices.some(m => m.t === 'notice' && m.text.includes('needs its safe'))); assert.ok(r.map.objects.some(o => o.x === 1 && o.y === 22));
+  r.edit(admin, { op: 'remove', id: `${safe.id}-2` });
+  assert.equal(r.map.objects.some(o => o.x === 1 && o.y === 22), false); assert.deepEqual(r.map.objects.find(o => o.id === safe.id), safe);
+});
+test('the east-wing migration keeps every saved object outside the wing, whatever ids its build gave them', t => {
+  const { w } = setup(t), key = (o: { type: string; x: number; y: number }) => `${o.type}@${o.x},${o.y}`;
+  const inWing = (o: { x: number; y: number; w: number; h: number }) => o.x < 64 && o.x + o.w > 54 && o.y < 23 && o.y + o.h > 3;
+  const saved = olderBuild(map.objects.filter(o => o.type !== 'arcade' && o.type !== 'records'));
+  const r = loadLayout(w, saved), ids = idsOf(r), kept = new Set(r.map.objects.map(key));
+  assert.deepEqual(saved.filter(o => !inWing(o) && !kept.has(key(o))).map(key), []);
+  assert.deepEqual(r.map.objects.filter(inWing).map(key).sort(), map.objects.filter(inWing).map(key).sort());
+  assert.equal(new Set(ids).size, ids.length);
+});
 test('a pot on first login; a status a day grows it, blooms earn badges, a week without one kills it', t => {
   const { w, add, tick } = setup(t), a = add('A'), DAY = 86_400_000, stage = () => a.u.plant?.stage;
   assert.equal(stage(), 0); assert.ok(a.u.plant?.kind); // planted on connect
