@@ -112,6 +112,7 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
   const [pick, setPick] = useState<Pick | null>(null);
   const [personMenu, setPersonMenu] = useState<PersonMenuAt | null>(null);
   const openPerson = (at: PersonMenuAt) => { setPick(null); setPersonMenu(at); };
+  const [showAppearance, setShowAppearance] = useState(false);
   const [, tick] = useState(0);
   const [engine, setEngine] = useState<Engine | null>(null);
 
@@ -152,11 +153,12 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
 
   const me = store.users.get(store.me);
   const myRoom = me ? store.roomOf(me) : undefined;
+  useEffect(() => { if (me && !me.lookSet) setShowAppearance(true); }, [me?.id, me?.lookSet]);
 
   return (
     <div className="office">
       <TopBar store={store} roomName={myRoom?.name} onToggleRooms={() => setShowRooms(s => !s)} onLogout={onLogout}
-        onToggleMeet={() => setShowMeet(s => !s)} engine={engine} />
+        onToggleMeet={() => setShowMeet(s => !s)} onToggleAppearance={() => setShowAppearance(s => me?.lookSet ? !s : true)} engine={engine} />
       <div className="stage">
         <div className="canvas-wrap"><canvas ref={canvasRef} /></div>
         {!assets && <div className="loading">Unlocking the door…</div>}
@@ -167,6 +169,8 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
         {store.calendarOpen && <CalendarPanel store={store} />}
         {store.meetingsOpen && <MeetingsPanel store={store} />}
         {(showMeet || store.pendingKnock) && <MeetSetup key={store.pendingKnock ?? 'panel'} store={store} onClose={() => setShowMeet(false)} />}
+        {showAppearance && me && <AppearanceMenu key={me.id} look={me.look} assets={assets} firstTime={!me.lookSet}
+          onSave={(look) => { store.setLook(look); setShowAppearance(false); }} onClose={() => setShowAppearance(false)} />}
         <div className="chips">
           <MeetingChip store={store} />
           {me?.callId && !store.roomCallOf(me) && store.voiceOwner && <CallChip store={store} voice={voice} />}
@@ -185,8 +189,8 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
   );
 }
 
-function TopBar({ store, roomName, onToggleRooms, onToggleMeet, onLogout, engine }: {
-  store: Store; roomName?: string; onToggleRooms: () => void; onToggleMeet: () => void; onLogout: () => void; engine: Engine | null;
+function TopBar({ store, roomName, onToggleRooms, onToggleMeet, onToggleAppearance, onLogout, engine }: {
+  store: Store; roomName?: string; onToggleRooms: () => void; onToggleMeet: () => void; onToggleAppearance: () => void; onLogout: () => void; engine: Engine | null;
 }) {
   const me = store.users.get(store.me);
   const [draft, setDraft] = useState<string | null>(null);
@@ -228,9 +232,86 @@ function TopBar({ store, roomName, onToggleRooms, onToggleMeet, onLogout, engine
         <button onClick={onToggleRooms} title="Rooms" className="rooms-btn">Rooms</button>
         <button onClick={onLogout} title="Sign out" className="ghost">Leave</button>
       </div>
+      <button onClick={onToggleAppearance} className="hanger-btn" title="Character appearance" aria-label="Character appearance">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a2 2 0 0 0-2 2c0 1 .7 1.6 1.6 2.4.6.5 1.1 1 1.1 1.8V11M12 9l-7 9h14l-7-9ZM3 21h18" /></svg>
+      </button>
     </header>
   );
 }
+
+const LOOK_COLORS = {
+  skin: ['#f8dcc0', '#f2c79b', '#e2ad7f', '#c98d5e', '#a46a43', '#7c4f32'],
+  hair: ['#2b1d1f', '#4f2b1a', '#6b3e26', '#a0603a', '#d8a050', '#ecd59a', '#b4473a', '#8c8a98', '#3e5a8a', '#c8789a'],
+  eyes: ['#2b1d1f', '#4b2e1e', '#3e5a8a', '#4f7d45', '#6b9ac4', '#7a4c32'],
+  shirt: ['#4a7ab0', '#b4534a', '#7a9a55', '#d0a040', '#8a5aa0', '#4f9a92', '#d8805a', '#e8e0d0', '#5a5a6e', '#c8607a', '#6a8ad0', '#9a7a50'],
+  pants: ['#3d3a52', '#2c3e5a', '#5a4030', '#4a4a4a', '#6a5a7a', '#3a5a4a'],
+  shoes: ['#4a3028', '#282832', '#68432e', '#85766b', '#b05b42', '#d0b58a'],
+  glassesColor: ['#282832', '#4a3028', '#d0b58a', '#85766b', '#3e5a8a', '#b4473a', '#e8e0d0'],
+  hatColor: ['#3e5a8a', '#b4534a', '#3a5a4a', '#282832', '#d0a040', '#e8e0d0', '#6b3e26'],
+};
+
+function AppearanceMenu({ look, assets, firstTime, onSave, onClose }: {
+  look: PublicLook; assets: Assets | null; firstTime: boolean; onSave: (look: PublicLook) => void; onClose: () => void;
+}) {
+  const [draft, setDraft] = useState(look);
+  const [tab, setTab] = useState<'body' | 'clothes'>('body');
+  const previewRef = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const canvas = previewRef.current;
+    if (!canvas || !assets) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    const frame = assets.atlas.character;
+    canvas.width = frame.frameW; canvas.height = frame.frameH;
+    ctx.imageSmoothingEnabled = false;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(assets.sheet(draft), 0, 0, frame.frameW, frame.frameH, 0, 0, frame.frameW, frame.frameH);
+  }, [assets, draft]);
+  const set = <K extends keyof PublicLook>(key: K, value: PublicLook[K]) => setDraft(d => ({ ...d, [key]: value }));
+  const colors = (label: string, key: 'skin' | 'hair' | 'eyes' | 'shirt' | 'pants' | 'shoes' | 'glassesColor' | 'hatColor') => (
+    <fieldset className="look-colors"><legend>{label}</legend><div className="swatches">
+      {LOOK_COLORS[key].map(color => <button key={color} type="button" className={`swatch${draft[key] === color ? ' selected' : ''}`}
+        style={{ backgroundColor: color }} title={color} aria-label={`${label} ${color}`} aria-pressed={draft[key] === color} onClick={() => set(key, color)} />)}
+    </div></fieldset>
+  );
+  const select = (label: string, value: number, options: string[], key: 'style' | 'top' | 'bottom' | 'glasses' | 'hat') => (
+    <label className="look-select">{label}<select value={value} onChange={e => set(key, Number(e.target.value))}>
+      {options.map((option, i) => <option value={i} key={option}>{option}</option>)}
+    </select></label>
+  );
+  const styles = (assets?.atlas.character.styles ?? ['short', 'long', 'ponytail']).map(s => s[0].toUpperCase() + s.slice(1));
+  const tops = assets?.atlas.character.tops ?? ['T-shirt', 'Button-up shirt', 'Sweater'];
+  const bottoms = assets?.atlas.character.bottoms ?? ['Trousers', 'Skirt', 'Shorts'];
+  return (
+    <div className="appearance-backdrop" onClick={e => { if (e.target === e.currentTarget && !firstTime) onClose(); }}>
+      <section className="appearance-panel" role="dialog" aria-modal="true" aria-labelledby="appearance-title">
+        <header className="appearance-head"><div><h2 id="appearance-title">Your character</h2><p>{firstTime ? 'Choose your look before stepping into the office.' : 'Make the office feel a little more like you.'}</p></div>
+          {!firstTime && <button className="ghost" onClick={onClose} aria-label="Close appearance settings">×</button>}</header>
+        <div className="appearance-preview"><div className="avatar-frame"><canvas ref={previewRef} /></div><span>{styles[draft.style]} hair</span></div>
+        <nav className="appearance-tabs" aria-label="Appearance categories">
+          <button className={tab === 'body' ? 'active' : ''} onClick={() => setTab('body')}>Body</button>
+          <button className={tab === 'clothes' ? 'active' : ''} onClick={() => setTab('clothes')}>Clothes</button>
+        </nav>
+        <div className="appearance-options">
+          {tab === 'body' ? <>
+            {select('Hairstyle', draft.style, styles, 'style')}
+            {colors('Hair color', 'hair')}{colors('Skin tone', 'skin')}{colors('Eye color', 'eyes')}
+          </> : <>
+            {select('Top', draft.top, tops, 'top')}{colors('Top color', 'shirt')}
+            {select('Bottom', draft.bottom, bottoms, 'bottom')}{colors('Bottom color', 'pants')}
+            {colors('Shoe color', 'shoes')}
+          </>}
+        </div>
+        <footer className="appearance-actions">
+          {!firstTime && <button className="ghost" onClick={onClose}>Cancel</button>}
+          <button onClick={() => onSave(draft)}>{firstTime ? 'Save & enter office' : 'Save changes'}</button>
+        </footer>
+      </section>
+    </div>
+  );
+}
+
+type PublicLook = import('../../shared/protocol').Look;
 
 const PRESENCE_COLOR: Record<string, string> = { online: '#7cc87c', away: '#e0b050', in_call: '#d86a5a', offline: '#666' };
 

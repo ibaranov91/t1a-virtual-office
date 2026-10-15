@@ -1,5 +1,5 @@
-// Procedural placeholder art pack: writes client/public/assets/{world.png,characters.png,atlas.json}.
-// Swap these three files for a real pack (Kenney etc.) without touching code — the client
+// Procedural placeholder art pack: writes client/public/assets/{world.png,characters.png,accessories.png,atlas.json}.
+// Swap these files for a real pack (Kenney etc.) without touching code — the client
 // only knows frame names from atlas.json.
 // Run: node scripts/gen-assets.mjs
 import { writeFileSync } from 'node:fs';
@@ -496,15 +496,20 @@ for (const [i, hs] of [[0, [1, 2, 1, 2]], [1, [2, 5, 3, 4]], [2, [4, 3, 5, 2]]])
 const K = {
   skin: '#f2c79b', skinShade: '#d9a073', hair: '#6b3e26', hairShade: '#4f2b1a',
   shirt: '#4a7ab0', shirtShade: '#355a87', pants: '#3d3a52', pantsShade: '#2c293d',
+  eyes: '#2b1d1f', shoes: '#4a3028',
 };
-const SHOE = '#4a3028', EYE = '#2b1d1f', BLUSH = '#ec9a8a';
-const STYLES = ['short', 'long', 'bun'];
+const SHOE = K.shoes, EYE = K.eyes, BLUSH = '#ec9a8a';
+const STYLES = ['short', 'long', 'ponytail'];
+const TOPS = ['T-shirt', 'Button-up shirt', 'Sweater'];
+const BOTTOMS = ['Pants', 'Skirt', 'Shorts'];
 const DIRS = ['down', 'left', 'right', 'up'];
+const ACCESSORY_KEYS = { primary: '#ff00ff', highlight: '#00ffff' };
+const ACCESSORY_ITEMS = ['round_glasses', 'rectangular_glasses', 'cap', 'bowler'];
 
-function drawChar(style, dir, f) {
+function drawChar(style, dir, f, top = 0, bottom = 0) {
   const t = new Img(16, 24);
   const sit = f === 5; // seated: body drops 2px, legs fold forward
-  const bob = sit ? 2 : f === 2 || f === 4 ? -1 : 0;
+  const bob = sit ? 2 : 0;
   const stepA = f === 1, stepB = f === 3;
   if (dir === 'down' || dir === 'up') {
     // legs + shoes (grounded, no bob)
@@ -548,16 +553,20 @@ function drawChar(style, dir, f) {
       if (dir === 'down') { t.rect(2, hy + 3, 2, 10, K.hair); t.rect(12, hy + 3, 2, 10, K.hair); t.vline(2, hy + 3, 10, K.hairShade); t.vline(13, hy + 3, 10, K.hairShade); }
       else { t.rect(3, hy + 9, 10, 5, K.hair); t.hline(3, hy + 13, 10, K.hairShade); }
     }
-    if (style === 'bun') { t.rect(5, hy - 2, 6, 2, K.hair); t.hline(6, hy - 2, 4, K.hairShade); }
+    if (style === 'ponytail' && dir === 'up') {
+      t.rect(6, hy + 8, 4, 6, K.hair); t.vline(9, hy + 9, 4, K.hairShade);
+      t.hline(6, hy + 7, 4, '#b4534a');
+    }
   } else { // left (right is mirrored)
     const front = stepA ? -2 : stepB ? 1 : 0, back = stepA ? 2 : stepB ? -1 : 0;
     // back leg
-    if (!sit) { t.rect(8 + back, 19, 2, 3, K.pantsShade); t.rect(7 + back, 22, 3, 1, SHOE); }
+    const backH = stepB ? 4 : stepA ? 2 : 3, frontH = stepA ? 4 : stepB ? 2 : 3;
+    if (!sit) { t.rect(8 + back, 19, 2, backH, K.pantsShade); t.rect(7 + back, 19 + backH, 3, 1, SHOE); }
     // torso
     t.rect(5, 13 + bob, 6, 7, K.shirt); t.vline(10, 13 + bob, 7, K.shirtShade); t.hline(5, 19 + bob, 6, K.shirtShade);
     // front leg (seated: thigh forward, shin down)
     if (sit) { t.rect(3, 19, 7, 2, K.pants); t.hline(3, 20, 7, K.pantsShade); t.rect(3, 21, 2, 1, K.pants); t.rect(2, 22, 3, 1, SHOE); }
-    else { t.rect(6 + front, 19, 2, 3, K.pants); t.rect(5 + front, 22, 3, 1, SHOE); }
+    else { t.rect(6 + front, 19, 2, frontH, K.pants); t.rect(5 + front, 19 + frontH, 3, 1, SHOE); }
     // arm
     const ax = sit ? 6 : stepA ? 9 : stepB ? 6 : 7;
     t.rect(ax, 14 + bob, 2, 3, K.shirtShade); t.hline(ax, 17 + bob, 2, K.skin);
@@ -570,20 +579,103 @@ function drawChar(style, dir, f) {
     t.px(9, hy + 6, K.skin); t.px(9, hy + 7, K.skinShade); // ear
     t.vline(4, hy + 5, 2, EYE); t.px(5, hy + 8, BLUSH);
     if (style === 'long') { t.rect(9, hy + 9, 4, 6, K.hair); t.vline(12, hy + 9, 6, K.hairShade); }
-    if (style === 'bun') { t.rect(10, hy - 2, 4, 3, K.hair); t.vline(13, hy - 2, 3, K.hairShade); }
+    if (style === 'ponytail') {
+      t.rect(12, hy + 9, 3, 5, K.hair); t.vline(14, hy + 10, 4, K.hairShade);
+      t.hline(12, hy + 8, 3, '#b4534a');
+    }
+  }
+  if (top === 1 && dir === 'down') { // front-facing button-up; the neck stays like the T-shirt
+    t.px(7, 14 + bob, '#e8dcc8');
+    t.px(7, 16 + bob, '#e8dcc8');
+  } else if (top === 2) { // sweater band and cuffs
+    t.hline(dir === 'down' || dir === 'up' ? 4 : 5, 18 + bob, dir === 'down' || dir === 'up' ? 8 : 6, K.shirtShade);
+    t.px(dir === 'down' ? 3 : 6, 16 + bob, K.shirt);
+    t.px(dir === 'down' ? 12 : 10, 16 + bob, K.shirt);
+  }
+  if (bottom === 1) { // skirt silhouette over the legs
+    if (dir === 'down' || dir === 'up') {
+      t.rect(4, 19, 8, 3, K.pants); t.hline(4, 21, 8, K.pantsShade); t.vline(8, 19, 3, K.pantsShade);
+    } else {
+      t.rect(4, 19, 8, 3, K.pants); t.hline(4, 21, 8, K.pantsShade);
+    }
+  } else if (bottom === 2) { // shorts: raised hem on each leg
+    if (dir === 'down' || dir === 'up') { t.hline(5, 20, 3, K.pantsShade); t.hline(8, 20, 3, K.pantsShade); }
+    else t.hline(5, 20, 5, K.pantsShade);
   }
   return t.outline();
 }
 
 const CW = 16, CH = 24, FPD = 6; // idle, 4 walk, sit
-const chars = new Img(CW * FPD, CH * DIRS.length * STYLES.length);
-STYLES.forEach((style, si) => DIRS.forEach((dir, di) => {
-  for (let f = 0; f < FPD; f++) {
-    let img = drawChar(style, dir === 'right' ? 'left' : dir, f);
-    if (dir === 'right') img = img.mirror();
-    chars.blit(img, f * CW, (si * DIRS.length + di) * CH);
+const chars = new Img(CW * FPD, CH * DIRS.length * STYLES.length * TOPS.length * BOTTOMS.length);
+const accessories = new Img(CW, CH * ACCESSORY_ITEMS.length * DIRS.length);
+function drawAccessory(item, dir) {
+  const a = new Img(CW, CH), primary = ACCESSORY_KEYS.primary, light = ACCESSORY_KEYS.highlight;
+  if (item.endsWith('glasses')) {
+    const round = item === 'round_glasses';
+    if (dir === 'down') {
+      if (round) {
+        a.hline(4, 7, 4, primary); a.px(3, 8, primary); a.px(3, 9, light); a.px(4, 10, primary); a.hline(5, 8, 2, light);
+        a.hline(9, 7, 4, primary); a.px(8, 8, primary); a.px(8, 9, light); a.px(9, 10, primary); a.hline(10, 8, 2, light);
+      } else {
+        a.hline(4, 7, 4, primary); a.vline(3, 8, 2, primary); a.vline(7, 8, 2, primary); a.hline(4, 10, 4, primary); a.hline(4, 8, 3, light);
+        a.hline(9, 7, 4, primary); a.vline(8, 8, 2, primary); a.vline(12, 8, 2, primary); a.hline(9, 10, 4, primary); a.hline(9, 8, 3, light);
+      }
+      a.hline(7, 8, 2, primary); a.px(4, 8, primary); a.px(13, 8, primary);
+    } else if (dir === 'left' || dir === 'right') {
+      const x = dir === 'left' ? 3 : 9;
+      a.hline(x, 7, 4, primary); a.vline(x, 8, 2, primary); a.vline(x + 3, 8, 2, primary); a.hline(x, 10, 4, primary);
+      a.hline(x + 1, 8, 2, light); a.px(dir === 'left' ? 7 : 8, 8, primary);
+      if (round) { a.px(x, 9, light); a.px(x + 3, 9, light); }
+    }
+    return a;
   }
-}));
+  if (item === 'cap') {
+    if (dir === 'down') {
+      // Full crown wraps over the scalp; the lower bill projects toward the viewer.
+      a.hline(5, 0, 6, OUT); a.rect(3, 1, 10, 4, OUT); a.rect(2, 3, 2, 3, OUT); a.rect(12, 3, 2, 3, OUT);
+      a.hline(4, 6, 8, OUT); a.hline(5, 1, 6, primary); a.rect(4, 2, 8, 2, primary);
+      a.vline(3, 4, 2, primary); a.vline(12, 4, 2, primary); a.hline(4, 5, 8, primary);
+      a.hline(4, 6, 8, light); a.hline(5, 2, 4, light); a.vline(4, 3, 2, light);
+    } else if (dir === 'up') {
+      // Back view keeps the same crown height and width, with a short rear band.
+      a.hline(5, 0, 6, OUT); a.rect(3, 1, 10, 4, OUT); a.hline(4, 5, 8, OUT);
+      a.hline(5, 1, 6, primary); a.rect(4, 2, 8, 2, primary); a.hline(5, 4, 6, primary);
+      a.hline(7, 4, 2, light); a.hline(5, 2, 4, light);
+    } else {
+      const left = dir === 'left';
+      // Side profile: the crown covers the back hair down to the ear, while the bill
+      // projects two pixels past the face in the direction the character is looking.
+      if (left) {
+        a.hline(5, 0, 7, OUT); a.rect(3, 1, 11, 5, OUT); a.rect(12, 3, 3, 5, OUT); a.rect(2, 3, 2, 3, OUT);
+        a.hline(5, 1, 7, primary); a.rect(3, 2, 10, 4, primary); a.hline(4, 5, 9, primary);
+        a.vline(12, 5, 3, primary); a.vline(13, 4, 3, primary); a.vline(3, 4, 2, primary);
+        a.hline(6, 2, 5, light); a.vline(4, 3, 2, light); a.hline(0, 6, 9, OUT); a.hline(1, 7, 7, OUT);
+        a.hline(0, 6, 8, primary); a.hline(1, 7, 6, primary); a.hline(2, 7, 3, light);
+      } else {
+        a.hline(4, 0, 7, OUT); a.rect(2, 1, 11, 5, OUT); a.rect(1, 3, 3, 5, OUT); a.rect(12, 3, 2, 3, OUT);
+        a.hline(4, 1, 7, primary); a.rect(3, 2, 9, 3, primary); a.vline(2, 4, 3, primary); a.vline(12, 4, 2, primary);
+        a.hline(5, 2, 5, light); a.vline(11, 3, 2, light); a.hline(7, 6, 9, OUT); a.hline(8, 7, 7, OUT);
+        a.hline(8, 6, 8, primary); a.hline(9, 7, 6, primary); a.hline(11, 7, 3, light);
+      }
+      a.hline(5, 2, 4, light);
+    }
+    return a;
+  }
+  // Bowler: round crown and a short brim whose direction follows the facing.
+  a.hline(5, 0, 6, primary); a.rect(4, 1, 8, 2, primary);
+  a.hline(dir === 'left' ? 3 : dir === 'right' ? 6 : 3, 3, dir === 'left' || dir === 'right' ? 10 : 10, primary);
+  a.hline(6, 1, 4, light); a.px(5, 2, light);
+  return a;
+}
+ACCESSORY_ITEMS.forEach((item, ai) => DIRS.forEach((dir, di) => accessories.blit(drawAccessory(item, dir), 0, (ai * DIRS.length + di) * CH)));
+STYLES.forEach((style, si) => TOPS.forEach((top, ti) => BOTTOMS.forEach((bottom, bi) => DIRS.forEach((dir, di) => {
+  for (let f = 0; f < FPD; f++) {
+    let img = drawChar(style, dir === 'right' ? 'left' : dir, f, ti, bi);
+    if (dir === 'right') img = img.mirror();
+    const row = ((si * TOPS.length + ti) * BOTTOMS.length + bi) * DIRS.length + di;
+    chars.blit(img, f * CW, row * CH);
+  }
+}))));
 
 // ---------- pack world atlas (shelf packer) ----------
 const names = Object.keys(frames).sort((a, b) => frames[b].h - frames[a].h || frames[b].w - frames[a].w);
@@ -599,8 +691,10 @@ for (const n of names) world.blit(frames[n], rects[n].x, rects[n].y);
 const out = new URL('../client/public/assets/', import.meta.url);
 writeFileSync(new URL('world.png', out), png(world));
 writeFileSync(new URL('characters.png', out), png(chars));
+writeFileSync(new URL('accessories.png', out), png(accessories));
 writeFileSync(new URL('atlas.json', out), JSON.stringify({
   name: 'deck-procedural-v1', license: 'CC0', image: 'world.png', tileSize: 16, frames: rects,
-  character: { image: 'characters.png', frameW: CW, frameH: CH, framesPerDir: FPD, dirs: DIRS, styles: STYLES, keys: K },
+  character: { image: 'characters.png', frameW: CW, frameH: CH, framesPerDir: FPD, dirs: DIRS, styles: STYLES, tops: TOPS, bottoms: BOTTOMS, keys: K,
+    accessories: { image: 'accessories.png', frameW: CW, frameH: CH, items: ACCESSORY_ITEMS, keys: ACCESSORY_KEYS } },
 }, null, 1));
-console.log(`atlas: ${names.length} frames, world ${AW}x${world.h}, characters ${chars.w}x${chars.h}`);
+console.log(`atlas: ${names.length} frames, world ${AW}x${world.h}, characters ${chars.w}x${chars.h}, accessories ${accessories.w}x${accessories.h}`);

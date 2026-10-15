@@ -130,6 +130,7 @@ export class Store {
     this.dismiss(this.toasts.find(t => t.knockId === knockId)?.id ?? -1);
   }
   setStatus(status: string) { this.send({ t: 'status', status }); }
+  setLook(look: PublicUser['look']) { this.send({ t: 'look', look }); }
   setPresence(presence: 'online' | 'away' | 'in_call') { this.send({ t: 'presence', presence }); }
   setMeetLink(link: string) { this.send({ t: 'meet_link', link }); }
   /** The Google account Meet links should open as. */
@@ -364,6 +365,7 @@ export class Store {
       case 'speaking': { const u = this.users.get(msg.userId); if (u) u.speaking = msg.on; break; }
       case 'mute': { const u = this.users.get(msg.userId); if (u) { u.muted = msg.muted; if (msg.muted) u.speaking = false; } break; }
       case 'status': { const u = this.users.get(msg.userId); if (u) u.status = msg.status; break; }
+      case 'look': { const u = this.users.get(msg.userId); if (u) { u.look = msg.look; u.lookSet = msg.lookSet; } break; }
       case 'presence': { const u = this.users.get(msg.userId); if (u) u.presence = msg.presence; break; }
       case 'emote': { const u = this.users.get(msg.userId); if (u) u.emote = msg.emote; break; }
       case 'door': { const u = this.users.get(msg.userId); if (u) u.door = msg.door; break; }

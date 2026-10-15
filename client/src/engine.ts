@@ -539,6 +539,7 @@ export class Engine {
       bob = u.presence === 'away' ? (phase < 900 ? 1 : 0) : phase < 300 ? 1 : 0; // tiny breathing bob
     }
     const row = DIR_ROW[p.dir] ?? 0;
+    const walkBob = p.walking && (frame === 2 || frame === 4) ? -1 : 0;
     // the bag: in hand walking in and out, on the floor while they think about leaving
     const hand = BAG_HAND[p.dir] ?? BAG_HAND.down;
     const swing = p.walking && frame % 2 ? 1 : 0;
@@ -548,7 +549,7 @@ export class Engine {
     if (carrying && hand.behind) drawBag();
     // at the door: already half out
     ctx.globalAlpha = u.door === 'leaving' && !p.walking ? 0.45 : u.presence === 'away' ? 0.8 : 1;
-    ctx.drawImage(sheet, frame * c.frameW, row * c.frameH, c.frameW, c.frameH, x, baseY - c.frameH + bob - 1, c.frameW, c.frameH);
+    ctx.drawImage(sheet, frame * c.frameW, row * c.frameH, c.frameW, c.frameH, x, baseY - c.frameH + bob + walkBob - 1, c.frameW, c.frameH);
     if (carrying && !hand.behind) drawBag();
     ctx.globalAlpha = 1;
     const icon = u.holding && !carrying ? ITEM_ICON.get(u.holding) : undefined;

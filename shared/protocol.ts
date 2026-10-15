@@ -34,10 +34,11 @@ export const meetAs = (link: string, email?: string | null) => {
   } catch { return link; }
 };
 
-export interface Look { skin: string; hair: string; shirt: string; pants: string; style: number }
+export interface Look { skin: string; hair: string; shirt: string; pants: string; eyes: string; shoes: string; glassesColor: string; hatColor: string; style: number; top: number; bottom: number; glasses: number; hat: number }
 
 export interface PublicUser {
   id: string; name: string; look: Look;
+  lookSet: boolean;
   tile: Tile; dir: Dir; move: Move | null;
   presence: Presence; status: string; emote: Emote; bot: boolean; door: Door;
   homeDesk: Tile | null;
@@ -121,7 +122,8 @@ export type ServerMsg =
   | { t: 'hand'; userId: string; up: boolean }
   | { t: 'notice'; text: string }
   | { t: 'voice_wait'; roomId: string | null }
-  | { t: 'voice_owner'; owner: boolean };
+  | { t: 'voice_owner'; owner: boolean }
+  | { t: 'look'; userId: string; look: Look; lookSet: boolean };
 
 // client -> server
 export type ClientMsg =
@@ -154,4 +156,5 @@ export type ClientMsg =
   | { t: 'deafen'; on: boolean }
   | { t: 'hand'; up: boolean }
   | { t: 'leave_room' }
-  | { t: 'voice_claim' };
+  | { t: 'voice_claim' }
+  | { t: 'look'; look: Look };

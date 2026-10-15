@@ -643,7 +643,17 @@
   "styles": [
    "short",
    "long",
-   "bun"
+   "ponytail"
+  ],
+  "tops": [
+   "T-shirt",
+   "Button-up shirt",
+   "Sweater"
+  ],
+  "bottoms": [
+   "Pants",
+   "Skirt",
+   "Shorts"
   ],
   "keys": {
    "skin": "#f2c79b",
@@ -653,7 +663,24 @@
    "shirt": "#4a7ab0",
    "shirtShade": "#355a87",
    "pants": "#3d3a52",
-   "pantsShade": "#2c293d"
+   "pantsShade": "#2c293d",
+   "eyes": "#2b1d1f",
+   "shoes": "#4a3028"
+  },
+  "accessories": {
+   "image": "accessories.png",
+   "frameW": 16,
+   "frameH": 24,
+   "items": [
+    "round_glasses",
+    "rectangular_glasses",
+    "cap",
+    "bowler"
+   ],
+   "keys": {
+    "primary": "#ff00ff",
+    "highlight": "#00ffff"
+   }
   }
  }
 }
