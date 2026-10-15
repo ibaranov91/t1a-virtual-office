@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalS
 import { loadAssets, type Assets } from './assets';
 import { Engine, type Pick } from './engine';
 import { Voice } from './voice';
+import { ArcadeOverlay, RecordsPopover } from './park/ArcadeOverlay';
 import { Soundscape } from './soundscape';
 import { needsGesture, resume } from './audio';
 import { prefs, savePrefs, type Category } from './prefs';
@@ -106,6 +107,8 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
   useSyncExternalStore(store.subscribe, store.getVersion);
   const [assets, setAssets] = useState<Assets | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const chromeRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => { if (chromeRef.current) chromeRef.current.inert = store.gameOpen; }, [store.gameOpen]);
   const engineRef = useRef<Engine | null>(null);
   const [showRooms, setShowRooms] = useState(() => window.innerWidth > 900);
   const [showMeet, setShowMeet] = useState(false);
@@ -140,6 +143,8 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
     e.onPick = p => {
       // a wall calendar opens your calendar right away (nothing to walk over for)
       const use = p?.kind === 'object' ? MAP.objects.find(o => o.id === p.id)?.use : undefined;
+      if (use?.kind === 'arcade' && p) { setPick(null); return store.use(p.id); }
+      if (use?.kind === 'records') { setPick(null); return store.openRecords(); }
       if (use?.kind === 'jukebox' && p) { setPick(null); return store.openJukebox(p.id); }
       if (use?.kind === 'calendar') { setPick(null); return store.openCalendar(); }
       if (use?.kind === 'meetings') { setPick(null); return store.openMeetings(); }
@@ -163,6 +168,7 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
 
   return (
     <div className="office">
+      <div className="office-chrome" ref={chromeRef}>
       <TopBar store={store} roomName={myRoom?.name} onToggleRooms={() => setShowRooms(s => !s)} onLogout={onLogout}
         onToggleMeet={() => setShowMeet(s => !s)} onToggleAppearance={() => setShowAppearance(s => me?.lookSet ? !s : true)} engine={engine}
         editing={editing} onToggleEdit={() => setEditing(e => !e)} />
@@ -177,6 +183,7 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
         {store.calendarOpen && <CalendarPanel store={store} />}
         {store.meetingsOpen && <MeetingsPanel store={store} />}
         {store.jukeboxOpen && <JukeboxPanel key={store.jukeboxOpen} store={store} id={store.jukeboxOpen} />}
+        {store.recordsOpen && <RecordsPopover store={store} />}
         {store.linkOpen && <LinkPanel store={store} />}
         {store.achievementsOpen && me && <AchievementsPanel store={store} me={me} assets={assets} />}
         {(showMeet || store.pendingKnock) && <MeetSetup key={store.pendingKnock ?? 'panel'} store={store} onClose={() => setShowMeet(false)} />}
@@ -197,6 +204,8 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
         {personMenu && <PersonMenu key={personMenu.id} store={store} at={personMenu} onClose={() => setPersonMenu(null)} />}
         <Dock store={store} engine={engine} roomsOpen={showRooms} onRooms={() => setShowRooms(s => !s)} />
       </div>
+      </div>
+      {store.gameOpen && assets && store.park && <ArcadeOverlay store={store} assets={assets} voice={voice} />}
     </div>
   );
 }
@@ -371,7 +380,7 @@ function RoomList({ store, onPick, onRoom, onPerson, onClose }: {
                 return (
                   <li key={id} onContextMenu={e => menu(u, e)} title={u.status || undefined}>
                     <i style={{ background: PRESENCE_COLOR[u.presence] }} />
-                    <button className={`ghost person-name${id === store.me ? ' me' : ''}`} onClick={() => onPick(id)} title={id === store.me ? 'Show me' : `Walk to ${u.name}`}>{u.name}{store.roomCallOf(u) ? ` 🎙${userIcons(u)}` : ''}</button>
+                    <button className={`ghost person-name${id === store.me ? ' me' : ''}`} onClick={() => onPick(id)} title={id === store.me ? 'Show me' : `Walk to ${u.name}`}>{u.name}{u.game ? u.game.role === 'player' ? ' 🕹' : ' 👀' : ''}{store.roomCallOf(u) ? ` 🎙${userIcons(u)}` : ''}</button>
                     {more(u)}
                     {!!store.unread.get(id) && <b className="unread" title="Unread messages" onClick={e => { e.stopPropagation(); store.openChat(id); }}>💬 {store.unread.get(id)}</b>}
                     {u.door ? <em>{{ arriving: 'just arrived', thinking: 'packing up…', leaving: 'heading out' }[u.door]}</em>
@@ -869,7 +878,7 @@ function PersonMenu({ store, at, onClose }: { store: Store; at: PersonMenuAt; on
     const previous = document.activeElement;
     ref.current?.querySelector('input')?.focus();
     const outside = (e: PointerEvent) => { if (e.target instanceof Node && !ref.current?.contains(e.target)) onClose(); };
-    const key = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.stopPropagation(); onClose(); if (previous instanceof HTMLElement && previous.isConnected) previous.focus(); } };
+    const key = (e: KeyboardEvent) => { if (!store.gameOpen && e.key === 'Escape') { e.stopPropagation(); onClose(); if (previous instanceof HTMLElement && previous.isConnected) previous.focus(); } };
     window.addEventListener('pointerdown', outside); window.addEventListener('keydown', key);
     return () => { window.removeEventListener('pointerdown', outside); window.removeEventListener('keydown', key); };
   }, [at.id]);
@@ -899,7 +908,7 @@ function SelfPanel({ store, voice }: { store: Store; voice: Voice | null }) {
   useEffect(() => {
     if (!settings) return;
     const outside = (e: PointerEvent) => { if (e.target instanceof Node && !ref.current?.contains(e.target)) setSettings(false); };
-    const key = (e: KeyboardEvent) => { if (e.key === 'Escape') setSettings(false); };
+    const key = (e: KeyboardEvent) => { if (!store.gameOpen && e.key === 'Escape') setSettings(false); };
     window.addEventListener('pointerdown', outside); window.addEventListener('keydown', key);
     return () => { window.removeEventListener('pointerdown', outside); window.removeEventListener('keydown', key); };
   }, [settings]);
@@ -1019,7 +1028,7 @@ function ActionWheel({ store, engine, pick, onPerson, onClose }: { store: Store;
     let raf = 0;
     const tick = () => { if (!engine.anchor(pick)) return onClose(); raf = requestAnimationFrame(tick); };
     tick();
-    const key = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    const key = (e: KeyboardEvent) => { if (!store.gameOpen && e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', key);
     return () => { cancelAnimationFrame(raf); window.removeEventListener('keydown', key); };
   }, [engine, pick]);

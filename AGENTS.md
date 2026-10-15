@@ -78,6 +78,10 @@ npm run typecheck    # run before every commit or deploy
   name the current `playId`, so stale clicks do nothing). Clients stream a track through one `<audio>` element into
   the soundscape and only while it's audible, so nobody outside the room downloads music. Static files support HTTP
   Range (`server/src/static.ts`), which media seeking needs.
+- **Arcade** (Deck Park): clicking one of the three cabinets walks you over and opens its 1–4-player session;
+  later arrivals watch from the balcony, and the records board shows best runs by level and team size. The server
+  sequences inputs; clients predict locally and roll back with the shared `Runner`. `npm test` includes the deterministic
+  simulation and delayed-transport netcode harness; `scripts/park-replay.mjs <level> <team> [--every 30]` replays solutions.
 - **Edit mode** (pencil in the top bar, admins only: `DECK_ADMINS`, emails, default `ivan.baranov@t1a.com`; `npm run dev`
   adds the name `dev`, and names only count for logins without an email). Admins drag furniture and rugs, add from the
   catalog (one of each generated type), recolor/resize rugs, Reset. Walls, floors and rooms stay as generated; the

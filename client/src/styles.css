@@ -365,3 +365,43 @@ button:focus-visible, summary:focus-visible, input[type="range"]:focus-visible {
 .palette button span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .palette canvas { width: 32px; height: 32px; image-rendering: pixelated; }
 .edit-panel .reset { align-self: start; font-size: 12px; }
+
+/* Deck Park keeps the office mounted; only the cabinet owns input while it is open. */
+.office-chrome { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.park-overlay { position: fixed; inset: 0; z-index: 100; display: flex; flex-direction: column; min-width: 0;
+  background: var(--bg); color: var(--text); outline: none; }
+.park-header { display: flex; align-items: center; gap: 8px; flex: none; background: var(--panel); border-bottom: 2px solid var(--wood);
+  padding: max(8px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) 8px max(12px, env(safe-area-inset-left)); }
+.park-header h1 { margin: 0 auto 0 0; color: var(--accent); font-size: 18px; letter-spacing: 1px; }
+.park-header button { min-width: 40px; min-height: 40px; font-size: 18px; }
+.park-area { flex: 1; min-height: 0; min-width: 0; position: relative; display: grid; place-items: center; padding: 4px; overflow: hidden; }
+.park-cabinet { border: 4px solid var(--wood); background: #21161f; flex: none; }
+.park-cabinet canvas { image-rendering: pixelated; }
+.park-menu-backdrop { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(20,12,16,.72); padding: 8px; }
+.park-menu { display: grid; gap: 8px; background: var(--panel); border: 2px solid var(--wood); padding: 16px; width: min(280px, 100%); max-height: 100%; overflow: auto; }
+.park-menu b { color: var(--accent); margin-bottom: 4px; }
+.park-menu button { min-height: 40px; }
+.park-connection { position: absolute; top: 8px; left: 50%; transform: translateX(-50%); padding: 6px 12px; background: var(--panel); border: 1px solid var(--wood); }
+.park-touch, .park-cheers { display: flex; flex: none; align-items: center; justify-content: center; gap: 12px; background: var(--panel);
+  border-top: 2px solid var(--wood); padding: 8px max(12px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)); }
+.park-touch button { min-width: 64px; min-height: 52px; font-size: 24px; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+.park-touch button:last-child { margin-left: min(12vw, 100px); }
+.park-cheers button { min-height: 44px; min-width: 64px; font-size: 22px; }
+.park-cheers small { font-size: 11px; }
+.park-records.meet-panel.guided { width: min(900px, calc(100% - 24px)); }
+.park-records-scroll { overflow: auto; scrollbar-color: var(--wood) var(--panel); }
+.park-records table { border-collapse: collapse; width: 100%; text-align: left; font-size: 13px; font-variant-numeric: tabular-nums; }
+.park-records th, .park-records td { padding: 12px 8px; border-bottom: 1px solid var(--line); vertical-align: top; min-width: 115px; }
+.park-records th { color: var(--accent); }
+.park-records td span, .park-records td small { display: block; margin-top: 4px; }
+.park-records td small { color: var(--muted); overflow-wrap: anywhere; }
+.park-no-record { color: var(--muted); }
+@media (max-width: 560px), (max-height: 500px) {
+  .park-header { gap: 2px; padding-left: max(6px, env(safe-area-inset-left)); padding-right: max(6px, env(safe-area-inset-right)); }
+  .park-header h1 { font-size: 14px; letter-spacing: 0; }
+  .park-header button { padding: 4px 6px; }
+  .park-touch { gap: 8px; padding-top: 5px; }
+  .park-touch button { min-height: 44px; min-width: 60px; }
+  .park-records.meet-panel.guided { inset: auto 0 0; transform: none; width: 100%; max-height: calc(100% - 8px); border-radius: 12px 12px 0 0; border-width: 2px 0 0; padding-bottom: calc(12px + env(safe-area-inset-bottom)); }
+  .park-records button { min-height: 40px; min-width: 40px; }
+}

@@ -92,3 +92,23 @@ export function playHand(dest: AudioNode = categoryOutput('effects')) {
     osc.onended = () => { osc.disconnect(); gain.disconnect(); };
   }
 }
+
+/** Short cabinet effects, all routed through the shared Effects mix and deafen control. */
+export function playPark(kind: import('../../shared/park/sim').FxKind | 'cheer') {
+  const notes: Record<typeof kind, number[]> = {
+    jump: [260, 520], coin: [880, 1320], key: [660, 990, 1320], door: [220, 330, 440],
+    button: [180, 240], stomp: [180, 100], death: [320, 200, 100], respawn: [330, 440, 660],
+    clear: [523, 659, 784, 1047], select: [440, 660], cheer: [520, 880],
+  };
+  try {
+    const c = audio(), dest = categoryOutput('effects'), sequence = notes[kind];
+    sequence.forEach((hz, i) => {
+      const at = c.currentTime + .01 + i * .055, osc = c.createOscillator(), gain = c.createGain();
+      osc.type = kind === 'death' || kind === 'stomp' ? 'triangle' : 'sine'; osc.frequency.value = hz;
+      gain.gain.setValueAtTime(0, at); gain.gain.linearRampToValueAtTime(.055, at + .005);
+      gain.gain.exponentialRampToValueAtTime(.0001, at + .12);
+      osc.connect(gain).connect(dest); osc.start(at); osc.stop(at + .14);
+      osc.onended = () => { osc.disconnect(); gain.disconnect(); };
+    });
+  } catch { /* audio unavailable: stay silent */ }
+}
