@@ -291,7 +291,7 @@ export type ServerMsg =
   | { t: 'present_open'; objectId: string } // you walked up to the board: show the upload/present panel
   | { t: 'voice_wait'; roomId: string | null }
   | { t: 'voice_owner'; owner: boolean }
-  | { t: 'look'; userId: string; look: Look; lookSet: boolean }
+  | { t: 'look'; userId: string; look: Look; lookSet: boolean; name?: string }
   | { t: 'presentation'; live: LiveDeck | null };
 
 // client -> server
@@ -352,7 +352,7 @@ export type ClientMsg =
   | { t: 'ring'; objectId: string }  // ring a bell (walks you over first if you're not beside it)
   | { t: 'toilet_shelf'; objectId: string }  // inside with company and the item in your inventory: rack a line
   | { t: 'toilet_sniff'; objectId: string }  // inside, a line on the shelf: take it (and see unicorns)
-  | { t: 'look'; look: Look }
+  | { t: 'look'; look: Look; name?: string } // name: optional manual display name ("First Las")
   // put an effect on someone (on: true) or take it off. Yourself: 'self' effects; office admins (GMs): anyone, any effect.
   | { t: 'gm_items'; targetId: string } // office admins only: ask what someone carries in their pockets
   | { t: 'gift_hat'; targetId: string; style: string } // office admins only: put a hat in someone's pockets and on their head

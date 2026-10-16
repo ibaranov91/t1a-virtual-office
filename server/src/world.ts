@@ -25,6 +25,7 @@ import { authUrl, CALENDAR_SCOPE, createSpace, forgetAccess, googleEnabled, list
 type DungeonEvent = Extract<ServerMsg, { t: 'dungeon' }>['event'];
 interface DungeonTimer { seq: number; at: number; timer: NodeJS.Timeout; run: () => void }
 export interface User extends PublicUser {
+  nameSet?: boolean;    // the person typed their name themselves; sign-in no longer rewrites it from the email (saved)
   walkSeq?: number;
   dungeon?: { key: Tile | null; hasKey: boolean };
   lastKeySpot?: Tile;
@@ -1637,7 +1638,9 @@ export class World {
           glasses: int(msg.look.glasses, 2), hat: int(msg.look.hat, 2),
         };
         u.lookSet = true;
-        this.broadcast({ t: 'look', userId: u.id, look: u.look, lookSet: true });
+        const name = typeof msg.name === 'string' ? msg.name.replace(/\s+/g, ' ').trim().slice(0, 24) : '';
+        if (name && name !== u.name && !(this.findByName(name) && this.findByName(name) !== u)) { u.name = name; u.nameSet = true; }
+        this.broadcast({ t: 'look', userId: u.id, look: u.look, lookSet: true, name: u.name });
         break;
       }
       case 'claim_desk': this.claimDesk(u); break;
@@ -1764,7 +1767,7 @@ export class World {
     return {
       version: STATE_VERSION,
       users: [...this.users.values()].map(u => {
-        return { id: u.id, name: u.name, email: u.email, meetLink: u.meetLink, google: u.google, homeDesk: u.homeDesk, look: u.look, lookSet: u.lookSet, tile: underground(u) ? this.dungeonExit(false) : u.tile, dir: u.dir, status: u.status, presence: u.presence, bot: u.bot, plant: u.plant, bloomed: u.bloomed, achievements: u.achievements, effects: u.effects.filter(e => e.until === undefined), items: u.items, danced: u.danced };
+        return { id: u.id, name: u.name, nameSet: u.nameSet, email: u.email, meetLink: u.meetLink, google: u.google, homeDesk: u.homeDesk, look: u.look, lookSet: u.lookSet, tile: underground(u) ? this.dungeonExit(false) : u.tile, dir: u.dir, status: u.status, presence: u.presence, bot: u.bot, plant: u.plant, bloomed: u.bloomed, achievements: u.achievements, effects: u.effects.filter(e => e.until === undefined), items: u.items, danced: u.danced };
       }),
       objects: Object.fromEntries(this.objectOn),
       jukebox: Object.fromEntries([...this.jukeboxes].map(([id, j]) => [id, j.dump()])),

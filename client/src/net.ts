@@ -250,7 +250,7 @@ export class Store {
   setPickedTz(tz: string | null) { try { if (tz) localStorage.setItem('deck.tz', tz); else localStorage.removeItem('deck.tz'); } catch { /* storage unavailable */ } this.sendTz(); this.emit(); }
   private sendTz() { this.send({ t: 'tz', tz: this.shareTz ? this.pickedTz ?? this.detectedTz : null }); }
   setStatus(status: string) { this.send({ t: 'status', status }); }
-  setLook(look: PublicUser['look']) { this.send({ t: 'look', look }); }
+  setLook(look: PublicUser['look'], name?: string) { this.send({ t: 'look', look, name }); }
   /** Put an effect on someone (yourself, or anyone if you're a GM), or take it off. */
   gmItems = new Map<string, string[]>(); // GM only: pockets of the people I looked at
   requestGmItems(targetId: string) { this.send({ t: 'gm_items', targetId }); }
@@ -679,7 +679,7 @@ export class Store {
         this.presentation = msg.live; break;
       }
       case 'tz': { const u = this.users.get(msg.userId); if (u) { if (msg.tz) u.tz = msg.tz; else delete u.tz; } break; }
-      case 'look': { const u = this.users.get(msg.userId); if (u) { u.look = msg.look; u.lookSet = msg.lookSet; } break; }
+      case 'look': { const u = this.users.get(msg.userId); if (u) { u.look = msg.look; u.lookSet = msg.lookSet; if (msg.name) u.name = msg.name; } break; }
       case 'effects': { const u = this.users.get(msg.userId); if (u) u.effects = msg.effects; break; }
       case 'presence': { const u = this.users.get(msg.userId); if (u) u.presence = msg.presence; break; }
       case 'emote': { const u = this.users.get(msg.userId); if (u) u.emote = msg.emote; break; }

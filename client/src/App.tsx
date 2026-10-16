@@ -217,8 +217,8 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
         {store.clockOpen && <ClockPanel store={store} />}
         {store.achievementsOpen && me && <AchievementsPanel store={store} me={me} assets={assets} />}
         {(showMeet || store.pendingKnock) && <MeetSetup key={store.pendingKnock ?? 'panel'} store={store} onClose={() => setShowMeet(false)} />}
-        {showAppearance && me && <AppearanceMenu key={me.id} look={me.look} assets={assets} firstTime={!me.lookSet} store={store}
-          onSave={(look) => { store.setLook(look); setShowAppearance(false); }} onClose={() => setShowAppearance(false)} />}
+        {showAppearance && me && <AppearanceMenu key={me.id} look={me.look} name={me.name} assets={assets} firstTime={!me.lookSet} store={store}
+          onSave={(look, name) => { store.setLook(look, name); setShowAppearance(false); }} onClose={() => setShowAppearance(false)} />}
         <div className="chips">
           <MeetingChip store={store} />
           <LiveChip store={store} onGo={room => engineRef.current?.walkToRoom(room)} />
@@ -402,10 +402,11 @@ function TimeZoneField({ store }: { store: Store }) {
     </div>
   );
 }
-function AppearanceMenu({ look, assets, firstTime, store, onSave, onClose }: {
-  look: PublicLook; assets: Assets | null; firstTime: boolean; store: Store; onSave: (look: PublicLook) => void; onClose: () => void;
+function AppearanceMenu({ look, name, assets, firstTime, store, onSave, onClose }: {
+  look: PublicLook; name: string; assets: Assets | null; firstTime: boolean; store: Store; onSave: (look: PublicLook, name: string) => void; onClose: () => void;
 }) {
   const [draft, setDraft] = useState(look);
+  const [nameDraft, setNameDraft] = useState(name);
   const [tab, setTab] = useState<'body' | 'clothes'>('body');
   const previewRef = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
@@ -439,7 +440,8 @@ function AppearanceMenu({ look, assets, firstTime, store, onSave, onClose }: {
       <section className="appearance-panel" role="dialog" aria-modal="true" aria-labelledby="appearance-title">
         <header className="appearance-head"><div><h2 id="appearance-title">Your character</h2><p>{firstTime ? 'Choose your look before stepping into the office.' : 'Make the office feel a little more like you.'}</p></div>
           {!firstTime && <button className="ghost" onClick={onClose} aria-label="Close appearance settings">×</button>}</header>
-        <div className="appearance-preview"><div className="avatar-frame"><canvas ref={previewRef} /></div><span>{styles[draft.style]} hair</span></div>
+        <div className="appearance-preview"><div className="avatar-frame"><canvas ref={previewRef} /></div><span>{styles[draft.style]} hair</span>
+          <label className="look-select">Name<input value={nameDraft} maxLength={24} placeholder="First Las" onChange={e => setNameDraft(e.target.value)} /></label></div>
         <nav className="appearance-tabs" aria-label="Appearance categories">
           <button className={tab === 'body' ? 'active' : ''} onClick={() => setTab('body')}>Body</button>
           <button className={tab === 'clothes' ? 'active' : ''} onClick={() => setTab('clothes')}>Clothes</button>
@@ -458,7 +460,7 @@ function AppearanceMenu({ look, assets, firstTime, store, onSave, onClose }: {
         <footer className="appearance-actions">
           <TimeZoneField store={store} />
           {!firstTime && <button className="ghost" onClick={onClose}>Cancel</button>}
-          <button onClick={() => onSave(draft)}>{firstTime ? 'Save & enter office' : 'Save changes'}</button>
+          <button onClick={() => onSave(draft, nameDraft.trim())}>{firstTime ? 'Save & enter office' : 'Save changes'}</button>
         </footer>
       </section>
     </div>
