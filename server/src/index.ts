@@ -1,5 +1,5 @@
 import { createServer, type IncomingMessage } from 'node:http';
-import { createReadStream, existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
+import { copyFileSync, createReadStream, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { mkdir, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -43,13 +43,37 @@ const DECKS_DIR = fileURLToPath(new URL('decks/', DATA));
 world.present = new Presenter(DECKS_DIR, map, msg => world.broadcast(msg));
 const sessions = new Map<string, string>(); // session id -> user id
 
+const BACKUPS = new URL('backups/', DATA);
+// One copy a day (the first save of the day), the last BACKUP_DAYS kept. Snapshots from deploy.sh
+// (state-predeploy-*) share the folder and are pruned by deploy.sh itself.
+const BACKUP_DAYS = 7;
+const backup = () => {
+  try {
+    if (!existsSync(STATE_FILE)) return;
+    const file = `state-${new Date().toISOString().slice(0, 10)}.json`;
+    mkdirSync(BACKUPS, { recursive: true });
+    if (existsSync(new URL(file, BACKUPS))) return;
+    copyFileSync(STATE_FILE, new URL(file, BACKUPS));
+    const daily = readdirSync(BACKUPS).filter(f => /^state-\d{4}-\d{2}-\d{2}\.json$/.test(f)).sort();
+    for (const f of daily.slice(0, -BACKUP_DAYS)) unlinkSync(new URL(f, BACKUPS));
+  } catch (e) { console.warn('could not back up state:', e); }
+};
+
 if (existsSync(STATE_FILE)) {
   try {
     const saved = JSON.parse(readFileSync(STATE_FILE, 'utf8'));
     world.load(saved);
     for (const [s, u] of Object.entries(saved.sessions ?? {})) sessions.set(s, u as string);
     console.log(`loaded ${world.users.size} users`);
-  } catch (e) { console.warn('could not load state:', e); }
+    backup();
+  } catch (e) {
+    // Keep running (an office that won't start is worse than an empty one), but move the file aside first so
+    // the next save can't overwrite it. To restore: stop the service, copy this file or one from backups/ to
+    // state.json, start it again.
+    const bad = new URL(`state.json.bad-${new Date().toISOString().replace(/[:.]/g, '-')}`, DATA);
+    renameSync(STATE_FILE, bad);
+    console.error(`could not load state, moved it to ${fileURLToPath(bad)}; starting empty (backups in ${fileURLToPath(BACKUPS)}):`, e);
+  }
 }
 // Written only when something changed; the periodic save goes through the async fs so it never stalls the event loop.
 let lastSaved = '';
@@ -59,6 +83,7 @@ const save = () => {
   mkdirSync(DATA, { recursive: true });
   const tmp = new URL('state.json.tmp', DATA);
   writeFileSync(tmp, json); renameSync(tmp, STATE_FILE); lastSaved = json;
+  backup();
 };
 let saving = false;
 const saveAsync = async () => {
@@ -69,6 +94,7 @@ const saveAsync = async () => {
     await mkdir(DATA, { recursive: true });
     const tmp = new URL('state.json.tmp', DATA);
     await writeFile(tmp, json); await rename(tmp, STATE_FILE); lastSaved = json;
+    backup();
   } catch (e) { console.warn('could not save state:', e); }
   finally { saving = false; }
 };

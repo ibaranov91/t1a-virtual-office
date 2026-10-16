@@ -45,6 +45,8 @@ export interface User extends PublicUser {
 
 interface Call { id: string; members: Set<string>; link?: string; fallback: boolean; room?: Room }
 
+// data/state.json format; bump it with a migration in load that checks data.version
+export const STATE_VERSION = 1;
 const WALK_HOME_AFTER_MS = 5 * 60_000; // back within this: return to where you were, else your home desk
 
 const SKINS = ['#f8dcc0', '#f2c79b', '#e2ad7f', '#c98d5e', '#a46a43', '#7c4f32'];
@@ -1714,6 +1716,7 @@ export class World {
   // ---------- persistence ----------
   dump() {
     return {
+      version: STATE_VERSION,
       users: [...this.users.values()].map(u => {
         return { id: u.id, name: u.name, email: u.email, meetLink: u.meetLink, google: u.google, homeDesk: u.homeDesk, look: u.look, lookSet: u.lookSet, tile: underground(u) ? this.dungeonExit(false) : u.tile, dir: u.dir, status: u.status, presence: u.presence, bot: u.bot, plant: u.plant, bloomed: u.bloomed, achievements: u.achievements, effects: u.effects.filter(e => e.until === undefined), items: u.items, danced: u.danced };
       }),
@@ -1727,6 +1730,9 @@ export class World {
     };
   }
   load(data: ReturnType<World['dump']>) {
+    // files from before versioning have none (0); new migrations should key on this, not on the content
+    const version = data.version ?? 0;
+    if (version > STATE_VERSION) console.warn(`state.json is version ${version}, newer than this build (${STATE_VERSION}); unknown fields are dropped on the next save`);
     // saved in the radio days: the radio goes (withNewFixtures then brings in the jukebox)
     if (data.layout) data.layout = { ...data.layout, objects: data.layout.objects.filter(o => o.type !== 'radio') };
     if (data.layout) { // an admin rearranged the office; if it no longer fits the generated floor, start over from that
