@@ -1,6 +1,6 @@
 # Voice policy: muted by default, auto-mute, idle and calls that end themselves
 
-Status: approved by Andrii on 2026-10-16. Knock calls start live. Codex (read-only) checked the findings against the
+Status: approved by Andrii on 2026-10-16. Knock calls require local consent to start live. Codex (read-only) checked the findings against the
 code.
 
 ## Why
@@ -88,18 +88,16 @@ asks first.**
 
 ### 1. Mic state on join
 
-- **Shared spaces** (halls, small rooms, meeting rooms): muted on every entry, as today.
-  - **New:** the microphone opens only on your first unmute in that space, so walking through Coffee never prompts
-    or lights the mic indicator.
-  - From then on the device stays open until you leave the space, so the next unmute is instant and the "you're
-    muted" hint works.
-  - Leaving the space closes it, and coming back starts muted again.
-- **Knock calls**: live on accept, for the people who accepted and for anyone who knocks their way in. Accepting means
-  "I'm ready to talk now", like answering a phone, a Slack DM huddle or a Teams 1:1 call. This is the one exception to
-  "muted everywhere"; see "Your call".
-- **Same knock call, new owner** (reload, Use voice here): mute state and On Meet carry over, stored per call id in
-  `localStorage` (`deck.voice.calls`, pruned to the last 20 calls). Shared spaces aren't stored, so a reload there
-  comes back muted, the safe default.
+Shared spaces (halls, small rooms, meeting rooms, all `room:` ids) start muted on every entry and open the device
+only on unmute; knock calls start live only after your own Knock/Accept within 5 minutes, consumed by one join.
+A call the server starts without that intent joins muted with an Unmute action, unless its remembered mute/On Meet
+state in `deck.voice.calls` is at most 10 minutes old (reload, reconnect or voice hand-over); pagehide refreshes it,
+and leaving a private call while connected and owning voice deletes its entry.
+Idle mutes and releases locally before sending `afk`, and only your own unmute can reopen the mic.
+After 2 minutes continuously muted, or immediately on switching to On Meet, both the local track and meter clone
+are stopped and peer senders detached while connections stay up; the muted-speech hint works until release, and
+unmute reopens and reattaches the mic.
+
 - **A blocked or missing mic** doesn't lock the button. Clicking unmute tries again, and a denial shows how to allow
   the mic.
 
@@ -217,10 +215,7 @@ call starts or stops speaking, and it ends the call after **2 h of total silence
 
 ## Your call
 
-Knock calls start **live**. You said muted should be the default everywhere. Every comparable app goes live when you
-*answer* a call and muted when you *walk into* a shared space. Starting a 1:1 muted makes the first line of nearly
-every call "you're muted". If you still want muted everywhere, it's one line (`muted = true` for knock calls too).
-Everything else follows the research above.
+Knock calls start **live** after your own Knock/Accept, subject to the local consent and resume rules in section 1.
 
 ## Build and test
 

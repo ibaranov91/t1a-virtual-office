@@ -82,7 +82,10 @@ npm run typecheck    # run before every commit or deploy
   `journalctl -u coturn` on the box. A NetBird policy narrowed from "all ports" must still allow users → box on
   UDP 3478 and 50000-50199 (and TCP 3478), both directions, besides TCP 8080-8084 for the instances.
 - **Voice policy** (`client/src/voicePolicy.ts`, spec `docs/superpowers/specs/2026-10-16-voice-policy-design.md`): shared
-  spaces (`room:*`) start muted and open the mic only on the first unmute; knock calls start live. Auto-mute after 1 min
+  spaces (`room:*`) start muted and open the mic only on the first unmute; knock calls start live only after your own
+  Knock/Accept within 5 min, or resume their remembered state within 10 min. A call the server starts without either
+  joins muted with an Unmute action. Idle mutes and releases the mic locally; only your own unmute can reopen it.
+  The mic is released after 2 min continuously muted, or immediately on switching to On Meet. Auto-mute after 1 min
   of silence alone (at once on switching away) or 5 min with others; "you're muted" hint; ⌘⇧M / ⌘⇧D. Idle = 10 min with
   no input, no own speech and nobody speaking on your voice → "Still here?" → `afk` 2 min later. Outside any call the same 10 min just
   marks you `afk` (no prompt, nothing to leave). `afk` is public: the sprite dozes (dimmed, nodding, z's) and the sidebar says
