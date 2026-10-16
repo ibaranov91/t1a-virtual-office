@@ -13,6 +13,8 @@ import { loadAssets, type Assets } from './assets';
 import { Engine, type Pick } from './engine';
 import { Voice } from './voice';
 import { TableOverlay } from './table/TableOverlay';
+import { Icon, IconButton } from './Icon';
+import { VoiceToggle } from './VoiceToggle';
 import { ArcadeOverlay, RecordsPopover } from './park/ArcadeOverlay';
 import { LofiTV } from './LofiTV';
 import { Soundscape } from './soundscape';
@@ -262,8 +264,8 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
           <LiveChip store={store} onGo={room => engineRef.current?.walkToRoom(room)} />
           <NowPlayingChip store={store} />
           <DungeonChip store={store} />
-          {isCompact && me?.callId && !me.instance && !store.roomCallOf(me) && store.voiceOwner && <CallChip store={store} voice={voice} />}
-          {isCompact && <RoomVoiceChip store={store} voice={voice} />}
+          {me?.callId && !me.instance && !store.roomCallOf(me) && store.voiceOwner && <CallChip store={store} voice={voice} />}
+          <RoomVoiceChip store={store} voice={voice} />
           <TalkConflictChip store={store} />
           <DeskChip store={store} />
         </div>
@@ -393,29 +395,29 @@ function TopBar({ store, voice, roomName, onToggleMeet, onToggleAppearance, onLo
         {isCompact && <VoiceIcons store={store} voice={voice} />}
         <UnreadButton store={store} />
         <LaterButton store={store} />
-        <button className="chip ghost more-btn" aria-label="More" aria-expanded={more} onClick={() => setMore(m => !m)}>⋯</button>
+        <button className="chip ghost more-btn" aria-label="More" aria-expanded={more} onClick={() => setMore(m => !m)}><Icon name="more" /></button>
         <div className={`top-more${more ? ' open' : ''}`} onClick={e => { if (!(e.target as HTMLElement).closest('.mac-app')) setMore(false); }}>
           <button onClick={onToggleMeet} className={`chip meet-btn${store.meetLink === '' && !store.google ? ' unset' : ''}`}
-            title={store.google ? `Google connected: ${store.google}` : store.meetLink ? `Your Meet room: ${store.meetLink}` : 'Set up Google Meet'}>Meet</button>
+            title={store.google ? `Google connected: ${store.google}` : store.meetLink ? `Your Meet room: ${store.meetLink}` : 'Set up Google Meet'}><Icon name="monitor" />Meet</button>
           <MacAppButton />
-          <button onClick={onLogout} title="Sign out" className="chip ghost">Leave</button>
+          <button onClick={onLogout} title="Sign out" className="chip ghost"><Icon name="logout" />Leave</button>
         </div>
         <div className="hangers">
           <button onClick={() => store.openAchievements(!store.achievementsOpen)} className="chip hanger-btn trophy-btn"
             title={me?.plant && needsWater(me.plant, store.now()) ? 'Achievements · your plant needs a status today' : 'Achievements and your plant'} aria-label="Achievements and your plant">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 4h8v5a4 4 0 0 1-8 0V4ZM8 6H5v1a3 3 0 0 0 3 3M16 6h3v1a3 3 0 0 1-3 3M12 13v4M8 20h8M9 17h6" /></svg>
+            <Icon name="trophy" />
             {me?.plant && needsWater(me.plant, store.now()) && <b className="dot" />}
           </button>
           {store.admin && me && !underground(me) && <button onClick={onToggleEdit} className={`chip hanger-btn${editing ? ' on' : ''}`} aria-pressed={editing}
             title={editing ? 'Done rearranging' : 'Rearrange the office (admins)'} aria-label="Rearrange the office">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16v4ZM13 7l4 4" /></svg>
+            <Icon name="edit" />
           </button>}
           {store.admin && me && <button onClick={onToggleGm} className={`chip hanger-btn gm-btn${gmOpen ? ' on' : ''}`} aria-pressed={gmOpen}
-            title="GM superpowers: buffs and debuffs (admins)" aria-label="GM superpowers">✨</button>}
+            title="GM superpowers: buffs and debuffs (admins)" aria-label="GM superpowers"><Icon name="sparkles" /></button>}
           <button onClick={onTogglePockets} className={`chip hanger-btn gm-btn${pocketsOpen ? ' on' : ''}`} aria-pressed={pocketsOpen}
-            title={`Pockets · ${store.items.length || 'nothing'} ${store.items.length === 1 ? 'thing' : 'things'}`} aria-label="Pockets">🎒</button>
+            title={`Pockets · ${store.items.length || 'nothing'} ${store.items.length === 1 ? 'thing' : 'things'}`} aria-label="Pockets"><Icon name="backpack" /></button>
           <button onClick={onToggleAppearance} className="chip hanger-btn" title="Character appearance" aria-label="Character appearance">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a2 2 0 0 0-2 2c0 1 .7 1.6 1.6 2.4.6.5 1.1 1 1.1 1.8V11M12 9l-7 9h14l-7-9ZM3 21h18" /></svg>
+            <Icon name="shirt" />
           </button>
         </div>
       </div>
@@ -487,7 +489,7 @@ function AppearanceMenu({ look, name, assets, firstTime, store, onSave, onClose 
     <div className="appearance-backdrop" onClick={e => { if (e.target === e.currentTarget && !firstTime) onClose(); }}>
       <section className="appearance-panel" role="dialog" aria-modal="true" aria-labelledby="appearance-title">
         <header className="appearance-head"><div><h2 id="appearance-title">Your character</h2><p>{firstTime ? 'Choose your look before stepping into the office.' : 'Make the office feel a little more like you.'}</p></div>
-          {!firstTime && <button className="ghost" onClick={onClose} aria-label="Close appearance settings">×</button>}</header>
+          {!firstTime && <button className="ghost" onClick={onClose} aria-label="Close appearance settings"><Icon name="close" /></button>}</header>
         <div className="appearance-preview"><div className="avatar-frame"><canvas ref={previewRef} /></div>
           <label className="look-select">Name<input value={nameDraft} maxLength={24} placeholder="First Las" onChange={e => setNameDraft(e.target.value)} /></label></div>
         <nav className="appearance-tabs" aria-label="Appearance categories">
@@ -539,7 +541,7 @@ function MeetSetup({ store, onClose }: { store: Store; onClose: () => void }) {
       <form className={`meet-panel${knockTo ? ' guided' : ''}`} onSubmit={e => { e.preventDefault(); if (parsed) save(parsed); }}>
         <div className="rooms-head">
           <span>{knockTo ? `Before you knock on ${knockTo.name.split(' ')[0]}…` : google ? 'Google Meet' : 'Your Google Meet room'}</span>
-          <button type="button" className="ghost" onClick={() => done('cancel')}>×</button>
+          <button aria-label="Close" type="button" className="ghost" onClick={() => done('cancel')}><Icon name="close" /></button>
         </div>
         {google !== undefined && <div className="google-row">
           {google
@@ -600,7 +602,7 @@ function MeetingChip({ store, voice }: { store: Store; voice: Voice | null }) {
     return <div className="desk-chip call-chip meeting-chip">
       <span>📅 <b>{a.title}</b> <small>· in the meeting until {store.clock(a.end)} · knocks go to Later</small></span>
       <button onClick={() => store.goToMeeting(a.key)}>Rejoin</button>
-      <button className="end" title="You're no longer busy: knocks come through again" onClick={() => store.leaveMeetingForGood(a.key)}>Leave meeting</button>
+      <button className="end" title="You're no longer busy: knocks come through again" onClick={() => store.leaveMeetingForGood(a.key)}><Icon name="logout" /> Leave meeting</button>
     </div>;
   }
   const m = store.myMeeting, room = store.meetingRooms.find(r => r.id === me.instance);
@@ -612,17 +614,15 @@ function MeetingChip({ store, voice }: { store: Store; voice: Voice | null }) {
     {m?.adhoc && <button onClick={() => store.openRoom(true)}>Invite</button>}
     {talking ? <>
       <span className={`dot ${voiceState(voice) === 'live' ? 'live' : ''}`} title={`Voice in this room · ${voiceState(voice)}`} />
-      {voice!.deafened ? <button className="ghost" onClick={() => voice!.toggleDeafen()}>Hear again</button>
-        : voice!.micError ? <small>listen-only</small>
-        : voice!.muted ? <button onClick={() => voice!.setMuted(false)}>🎙 Unmute</button>
-        : <button className="ghost" onClick={() => voice!.setMuted(true)}>Mute</button>}
-      <button className={me.hand ? '' : 'ghost'} title={me.hand ? 'Lower your hand' : 'Raise your hand'} onClick={() => store.setHand(!me.hand)}>✋</button>
-      <button className="ghost" title="Stop hearing and talking in this room (the room stays open)" onClick={() => store.roomVoice(false)}>Leave voice</button>
+      <VoiceToggle kind="mic" voice={voice} disabled={!store.connected || !store.voiceOwner} />
+      <VoiceToggle kind="headphones" voice={voice} disabled={!store.connected || !store.voiceOwner} />
+      <IconButton icon="hand" label={me.hand ? 'Lower hand' : 'Raise hand'} aria-pressed={!!me.hand} className="vbtn chip" data-state={me.hand ? 'active' : 'ready'} onClick={() => store.setHand(!me.hand)} />
+      <IconButton icon="disconnect" label="Leave voice" title="Stop hearing and talking in this room (the room stays open)" className="end" onClick={() => store.roomVoice(false)} />
     </> : waiting ? <button className="ghost" title="Voice is full: you'll join when a place frees up" onClick={() => store.roomVoice(false)}>In line · cancel</button>
-      : <button disabled={!store.voiceOwner} title={full ? `Voice is full (${ROOM_VOICE_MAX}): you'll wait in line · or use Meet` : 'Talk with the others in this room'} onClick={() => store.roomVoice(true)}>🎙 Talk{onCall ? ` (${onCall}/${ROOM_VOICE_MAX})` : ''}</button>}
+      : <button disabled={!store.voiceOwner} title={full ? `Voice is full (${ROOM_VOICE_MAX}): you'll wait in line · or use Meet` : 'Talk with the others in this room'} onClick={() => store.roomVoice(true)}><Icon name="mic" /> Talk{onCall ? ` (${onCall}/${ROOM_VOICE_MAX})` : ''}</button>}
     {m?.adhoc && (meet ? <ExternalLink href={meetAs(meet, store.meetAccount)}>Join Meet</ExternalLink> : <button className="ghost" title="Make a Google Meet room for everyone in here" onClick={() => store.useRoomMeet()}>Use Meet</button>)}
     {m?.link && <ExternalLink href={meetAs(m.link, store.meetAccount)}>Join call</ExternalLink>}
-    <button className="end" onClick={() => store.leaveMeeting()}>Leave</button>
+    <button className="end" onClick={() => store.leaveMeeting()} aria-label="Leave room" title="Leave room"><Icon name="logout" /></button>
   </div>;
 }
 
@@ -633,8 +633,8 @@ function JukeboxControls({ store, id, state, disabled }: { store: Store; id: str
   const paused = state.pausedAt !== null;
   return <>
     <button aria-label={paused ? 'Play' : 'Pause'} disabled={disabled}
-      onClick={() => store.jukeboxAction(id, { action: paused ? 'play' : 'pause', playId: state.playId })}>{paused ? '▶' : '⏸'}</button>
-    <button aria-label="Skip" disabled={disabled} onClick={() => store.jukeboxAction(id, { action: 'skip', playId: state.playId })}>⏭</button>
+      onClick={() => store.jukeboxAction(id, { action: paused ? 'play' : 'pause', playId: state.playId })}><Icon name={paused ? "play" : "pause"} /></button>
+    <button aria-label="Skip" disabled={disabled} onClick={() => store.jukeboxAction(id, { action: 'skip', playId: state.playId })}><Icon name="skip" /></button>
   </>;
 }
 
@@ -677,7 +677,7 @@ function JukeboxPanel({ store, id }: { store: Store; id: string }) {
   };
   return <div className="modal-backdrop" {...backdropClose(close)}>
     <div ref={panel} tabIndex={-1} role="dialog" aria-modal="true" aria-label="Jukebox" onKeyDown={onKey} className="meet-panel guided calendar-panel jukebox-panel">
-      <div className="rooms-head"><span>🎵 {box?.kind === 'jukebox' ? box.label.replace(/^./, c => c.toUpperCase()) : 'Jukebox'}</span><button className="ghost" aria-label="Close jukebox" onClick={close}>×</button></div>
+      <div className="rooms-head"><span><Icon name="music" /> {box?.kind === 'jukebox' ? box.label.replace(/^./, c => c.toUpperCase()) : 'Jukebox'}</span><button className="ghost" aria-label="Close jukebox" onClick={close}><Icon name="close" /></button></div>
       {!known && <p role="status">Reconnecting…</p>}
       {!inside && <div className="jukebox-walk"><span>Walk into {room?.name ?? 'the room'} to pick music</span><button disabled={!known} onClick={() => store.walkToJukebox(id)}>Walk over</button></div>}
       <label className="volume-control jukebox-volume"><span>Volume for me</span>
@@ -701,7 +701,7 @@ function JukeboxPanel({ store, id }: { store: Store; id: string }) {
         <ol className="jukebox-tracks">
           {state?.queue.map(e => { const t = TRACK.get(e.track); return t && <li key={e.id}>
             <div><b>{t.title}</b><small>{t.artist} · picked by {store.name(e.by)}</small></div>
-            {e.by === store.me && <button className="ghost" disabled={disabled} aria-label={`Remove ${t.title} from queue`} onClick={() => store.jukeboxAction(id, { action: 'unqueue', entry: e.id })}>×</button>}
+            {e.by === store.me && <button className="ghost" disabled={disabled} aria-label={`Remove ${t.title} from queue`} onClick={() => store.jukeboxAction(id, { action: 'unqueue', entry: e.id })}><Icon name="close" /></button>}
           </li>; })}
         </ol>
       </section>
@@ -714,7 +714,7 @@ function JukeboxPanel({ store, id }: { store: Store; id: string }) {
                 : mine >= JUKEBOX_PER_PERSON ? `You have ${JUKEBOX_PER_PERSON} tracks queued` : (state?.queue.length ?? 0) >= JUKEBOX_QUEUE_MAX ? 'The queue is full' : undefined;
               return <li key={t.id}>
                 <div><b>{t.title}</b><small>{t.artist} · {musicTime(t.duration)} · <ExternalLink href={t.page}>CC0</ExternalLink></small></div>
-                <span title={reason}><button disabled={disabled || !!reason} title={reason} aria-label={`Queue ${t.title}`} onClick={() => store.jukeboxAction(id, { action: 'queue', track: t.id })}>+</button></span>
+                <span title={reason}><button disabled={disabled || !!reason} title={reason} aria-label={`Queue ${t.title}`} onClick={() => store.jukeboxAction(id, { action: 'queue', track: t.id })}><Icon name="plus" /></button></span>
               </li>;
             })}
           </ul>
@@ -755,13 +755,13 @@ function EditPanel({ store, engine, assets, onDone }: { store: Store; engine: En
             onClick={() => store.edit({ op: 'rug', id: sel.id, pattern: p })}><ItemThumb assets={assets} frame={rugFrame({ color: sel.color ?? 'green', pattern: p }, 'c')} /></button>)}</div>
           <div className="rug-size">
             <span>{sel.w} × {sel.h}</span>
-            <button onClick={() => resize(-1, 0)} disabled={sel.w <= RUG_MIN} title="Narrower">↔−</button>
-            <button onClick={() => resize(1, 0)} disabled={sel.w >= RUG_MAX} title="Wider (shift →)">↔+</button>
-            <button onClick={() => resize(0, -1)} disabled={sel.h <= RUG_MIN} title="Shorter">↕−</button>
-            <button onClick={() => resize(0, 1)} disabled={sel.h >= RUG_MAX} title="Longer (shift ↓)">↕+</button>
+            <IconButton icon="shrink-horizontal" label="Narrower" onClick={() => resize(-1, 0)} disabled={sel.w <= RUG_MIN} />
+            <IconButton icon="expand-horizontal" label="Wider" title="Wider (shift →)" onClick={() => resize(1, 0)} disabled={sel.w >= RUG_MAX} />
+            <IconButton icon="shrink-vertical" label="Shorter" onClick={() => resize(0, -1)} disabled={sel.h <= RUG_MIN} />
+            <IconButton icon="expand-vertical" label="Longer" title="Longer (shift ↓)" onClick={() => resize(0, 1)} disabled={sel.h >= RUG_MAX} />
           </div>
         </>}
-        {sel.type && SEAT_TYPES.has(sel.type) && <button onClick={() => store.edit({ op: 'rotate', id: sel.id })} title="Turn (R)">⟳ Turn</button>}
+        {sel.type && SEAT_TYPES.has(sel.type) && <button onClick={() => store.edit({ op: 'rotate', id: sel.id })} title="Turn (R)"><Icon name="rotate" /> Turn</button>}
         {sel.type && FIXED_TYPES.has(sel.type) ? <p className="hint">This one stays where it is.</p>
           : sel.type && KEEP_TYPES.has(sel.type) ? <p className="hint">The office needs this one: move it, but it stays.</p>
           : <button className="danger" onClick={() => store.edit({ op: 'remove', id: sel.id })}>Remove</button>}
@@ -795,7 +795,7 @@ function PocketsPanel({ store, me, assets, onClose }: { store: Store; me: Client
   }, []);
   return (
     <div className="edit-panel gm-panel">
-      <div className="rooms-head"><span>🎒 Pockets</span><button className="ghost" onClick={onClose} aria-label="Close">×</button></div>
+      <div className="rooms-head"><span><Icon name="backpack" /> Pockets</span><button className="ghost" onClick={onClose} aria-label="Close"><Icon name="close" /></button></div>
       {!store.items.length && <p className="hint">Nothing yet. Hats hang on the stand in the Lobby.</p>}
       {hats.length > 0 && <>
         <h3>Hats</h3>
@@ -831,7 +831,7 @@ function GmPanel({ store, picked, assets, onClose }: { store: Store; picked: str
   const left = (until?: number) => until === undefined ? '' : ` ${Math.max(0, Math.ceil((until - now) / 1000))}s`;
   return (
     <div className="edit-panel gm-panel">
-      <div className="rooms-head"><span>✨ GM superpowers</span><button className="ghost" onClick={onClose} aria-label="Close">×</button></div>
+      <div className="rooms-head"><span><Icon name="sparkles" /> GM superpowers</span><button className="ghost" onClick={onClose} aria-label="Close"><Icon name="close" /></button></div>
       <label className="look-select">On<select value={u.id} onChange={e => setTarget(e.target.value)}>
         {people.map(p => <option value={p.id} key={p.id}>{p.id === store.me ? `${p.name} (you)` : p.name}</option>)}
       </select></label>
@@ -840,10 +840,10 @@ function GmPanel({ store, picked, assets, onClose }: { store: Store; picked: str
       <label className="look-select">Theme<select value={store.halloweenWorld ? 'halloween' : 'normal'} onChange={e => store.setHalloweenWorld(e.target.value === 'halloween')}>
         <option value="normal">Normal</option><option value="halloween">Halloween</option>
       </select></label>
-      {u.id !== store.me && <button className="ghost reset" onClick={() => store.teleport(u.id)}>🌀 Teleport to {u.name.split(' ')[0]}</button>}
+      {u.id !== store.me && <button className="ghost reset" onClick={() => store.teleport(u.id)}><Icon name="portal" /> Teleport to {u.name.split(' ')[0]}</button>}
       {!u.bot && <form className="rug-size" onSubmit={e => { e.preventDefault(); const v = renaming.trim(); if (v && v !== u.name) { store.rename(u.id, v); setRenaming(''); } }}>
         <input value={renaming} maxLength={24} onChange={e => setRenaming(e.target.value)} placeholder={`Rename ${u.name}`} aria-label={`New name for ${u.name}`} />
-        <button type="submit" disabled={!renaming.trim() || renaming.trim() === u.name}>✏️ Rename</button>
+        <button type="submit" disabled={!renaming.trim() || renaming.trim() === u.name}><Icon name="edit" /> Rename</button>
       </form>}
       <div className="palette">
         {Object.entries(EFFECTS).filter(([k]) => k !== 'hat').map(([k, r]) => {
@@ -911,7 +911,7 @@ function AchievementsPanel({ store, me, assets }: { store: Store; me: ClientUser
   return (
     <div className="modal-backdrop" {...backdropClose(close)}>
       <div className="meet-panel guided calendar-panel achievements">
-        <div className="rooms-head"><span>🏆 Achievements</span><button type="button" className="ghost" aria-label="Close" onClick={close}>×</button></div>
+        <div className="rooms-head"><span><Icon name="trophy" /> Achievements</span><button type="button" className="ghost" aria-label="Close" onClick={close}><Icon name="close" /></button></div>
         <section className="plant-card">
           {p && <PlantSprite assets={assets} plant={p} now={now} />}
           <div>
@@ -955,7 +955,7 @@ function MeetingsPanel({ store }: { store: Store }) {
   return (
     <div className="modal-backdrop" {...backdropClose(() => store.closeMeetings())}>
       <div className="meet-panel guided calendar-panel">
-        <div className="rooms-head"><span>🚪 Meetings on now</span><button type="button" className="ghost" onClick={() => store.closeMeetings()}>×</button></div>
+        <div className="rooms-head"><span>🚪 Meetings on now</span><button aria-label="Close" type="button" className="ghost" onClick={() => store.closeMeetings()}><Icon name="close" /></button></div>
         {!store.meetingRooms.length && !goable.length && <p className="muted small">No meetings in their rooms right now. When a calendar meeting starts, its people get a Go button.</p>}
         <ul className="meeting-list">
           {store.meetingRooms.map(r => {
@@ -994,7 +994,7 @@ function ClockPanel({ store }: { store: Store }) {
   return (
     <div className="modal-backdrop" {...backdropClose(() => store.closeClock())}>
       <div className="meet-panel guided">
-        <div className="rooms-head"><span>🕰️ Our time zones</span><button type="button" className="ghost" onClick={() => store.closeClock()}>×</button></div>
+        <div className="rooms-head"><span><Icon name="clock" /> Our time zones</span><button aria-label="Close" type="button" className="ghost" onClick={() => store.closeClock()}><Icon name="close" /></button></div>
         {CLOCK_REGIONS.map(([region, cities]) => (
           <div key={region}>
             <p className="small muted"><b>{region}</b></p>
@@ -1028,7 +1028,7 @@ function LinkPanel({ store }: { store: Store }) {
   return (
     <div className="modal-backdrop" {...backdropClose(() => store.closeLink())}>
       <div className="meet-panel guided">
-        <div className="rooms-head"><span>🔐 Vault 13</span><button type="button" className="ghost" onClick={() => store.closeLink()}>×</button></div>
+        <div className="rooms-head"><span><Icon name="lock" /> Vault 13</span><button aria-label="Close" type="button" className="ghost" onClick={() => store.closeLink()}><Icon name="close" /></button></div>
         <p className="small muted">The team's {label} is at <b>{host}</b>. It opens in a new tab.</p>
         <p className="row"><ExternalLink className="button" href={url} onOpen={() => store.closeLink()}>Open the {label} ↗</ExternalLink></p>
       </div>
@@ -1085,7 +1085,7 @@ function CalendarPanel({ store }: { store: Store }) {
       <div className="meet-panel guided calendar-panel">
         <div className="rooms-head">
           <span>📅 {account ? `Calendar · ${account}` : 'Your calendar'}</span>
-          <button type="button" className="ghost" onClick={() => store.closeCalendar()}>×</button>
+          <button aria-label="Close" type="button" className="ghost" onClick={() => store.closeCalendar()}><Icon name="close" /></button>
         </div>
         {body}
         <div className="row"><ExternalLink href={calendarHome}>Open Google Calendar</ExternalLink></div>
@@ -1101,13 +1101,13 @@ function Dock({ store, voice, engine, roomsOpen, onRooms }: { store: Store; voic
   const chatWith = [...store.unread.keys()][0] ?? [...store.chats.keys()].at(-1);
   return (
     <nav className="dock" aria-label="Floor">
-      <button className={roomsOpen ? 'on' : ''} aria-pressed={roomsOpen} onClick={onRooms}><span className="ic">👥</span><small>People</small></button>
+      <button className={roomsOpen ? 'on' : ''} aria-pressed={roomsOpen} onClick={onRooms}><Icon name="users" /><small>People</small></button>
       <button className={z?.overview ? 'on' : ''} aria-pressed={!!z?.overview} onClick={() => engine?.toggleOverview()}>
-        <span className="ic">🗺️</span><small>{z?.overview ? 'Back' : 'Floor'}</small></button>
-      <button onClick={() => engine?.recenter()}><span className="ic">📍</span><small>Me</small></button>
+        <Icon name="map" /><small>{z?.overview ? 'Back' : 'Floor'}</small></button>
+      <button onClick={() => engine?.recenter()}><Icon name="locate" /><small>Me</small></button>
       <button onClick={() => (chatWith ? store.openChat(chatWith) : onRooms())} title={chatWith ? undefined : 'Pick someone in People to message'}>
-        <span className="ic">💬</span>{total > 0 && <b className="badge">{total}</b>}<small>Chat</small></button>
-      {store.later.length > 0 && <button onClick={() => store.openLater()} title="Knocks you missed"><span className="ic">🔔</span><b className="badge">{store.later.length}</b><small>Later</small></button>}
+        <Icon name="message" />{total > 0 && <b className="badge">{total}</b>}<small>Chat</small></button>
+      {store.later.length > 0 && <button onClick={() => store.openLater()} title="Knocks you missed"><Icon name="bell" /><b className="badge">{store.later.length}</b><small>Later</small></button>}
       <VoiceIcons store={store} voice={voice} dock />
     </nav>
   );
@@ -1120,14 +1120,14 @@ function UnreadButton({ store }: { store: Store }) {
   if (!total) return null;
   return (
     <button className="chip unread-btn" onClick={() => store.openChat(senders[0])}
-      title={`Unread from ${store.names(senders.map(id => store.users.get(id)!).filter(Boolean))}`}>💬 {total}</button>
+      title={`Unread from ${store.names(senders.map(id => store.users.get(id)!).filter(Boolean))}`} aria-label={`${total} unread messages`}><Icon name="message" />{total}</button>
   );
 }
 
 /** 🔔 N in the top bar while knocks sit in your Later list. */
 function LaterButton({ store }: { store: Store }) {
   if (!store.later.length) return null;
-  return <button className="chip unread-btn later-btn" onClick={() => store.openLater()} title="Knocks you missed">🔔 {store.later.length}</button>;
+  return <button className="chip unread-btn later-btn" onClick={() => store.openLater()} title="Knocks you missed" aria-label={`${store.later.length} missed knocks`}><Icon name="bell" />{store.later.length}</button>;
 }
 
 const ago = (at: number) => { const m = Math.floor((Date.now() - at) / 60_000); return m < 1 ? 'just now' : m < 60 ? `${m} min ago` : `${Math.floor(m / 60)} h ago`; };
@@ -1137,14 +1137,14 @@ function LaterPanel({ store }: { store: Store }) {
       <div className="meet-panel guided later-panel">
         <div className="rooms-head">
           <span>🔔 Missed knocks</span>
-          <button type="button" className="ghost" onClick={() => store.closeLater()}>×</button>
+          <button aria-label="Close" type="button" className="ghost" onClick={() => store.closeLater()}><Icon name="close" /></button>
         </div>
         <ul className="later-list">
           {store.later.map(i => (
             <li key={i.id}>
               <span className="txt"><b>{store.name(i.fromId)}</b> · {ago(i.at)} · {i.why}</span>
               <button onClick={() => store.laterKnockBack(i.fromId)}>Knock back</button>
-              <button className="ghost x" aria-label="Dismiss" onClick={() => store.laterDismiss(i.id)}>×</button>
+              <button className="ghost x" aria-label="Dismiss" onClick={() => store.laterDismiss(i.id)}><Icon name="close" /></button>
             </li>
           ))}
         </ul>
@@ -1196,10 +1196,10 @@ function backdropClose(close: () => void) {
 function ZoomCluster({ engine }: { engine: Engine }) {
   const z = engine.zoom;
   return <div className="zoom" role="group" aria-label="Zoom">
-    <button className="chip" onClick={() => engine.zoomOut()} disabled={!z.canOut} title="Zoom out (−, ⌘ scroll or pinch)" aria-label="Zoom out">−</button>
-    <button className="chip" onClick={() => engine.zoomIn()} disabled={!z.canIn} title="Zoom in (+, ⌘ scroll or pinch)" aria-label="Zoom in">+</button>
+    <button className="chip" onClick={() => engine.zoomOut()} disabled={!z.canOut} title="Zoom out (−, ⌘ scroll or pinch)" aria-label="Zoom out"><Icon name="minus" /></button>
+    <button className="chip" onClick={() => engine.zoomIn()} disabled={!z.canIn} title="Zoom in (+, ⌘ scroll or pinch)" aria-label="Zoom in"><Icon name="plus" /></button>
     <button onClick={() => engine.toggleOverview()} className={`chip${z.overview ? ' on' : ''}`} aria-pressed={z.overview}
-      title={z.overview ? 'Back to where you were (M)' : 'Whole floor (M)'}>⤢</button>
+      aria-label={z.overview ? 'Back to previous view' : 'Whole floor'} title={z.overview ? 'Back to where you were (M)' : 'Whole floor (M)'}><Icon name="expand" /></button>
   </div>;
 }
 
@@ -1241,14 +1241,14 @@ function Toasts({ store }: { store: Store }) {
           {t.kind === 'meeting' && t.meetingKey && <button onClick={() => store.goToMeeting(t.meetingKey!)}>Go</button>}
           {t.kind === 'meeting' && t.link && <ExternalLink href={meetAs(t.link, store.meetAccount)}>Join call</ExternalLink>}
           {t.kind === 'link' && t.link && <ExternalLink href={meetAs(t.link, store.meetAccount)} onOpen={() => store.dismiss(t.id)}>Join Meet</ExternalLink>}
-          {t.kind !== 'knock_in' && t.kind !== 'knock_out' && <button className="ghost x" onClick={() => store.dismiss(t.id)}>×</button>}
+          {t.kind !== 'knock_in' && t.kind !== 'knock_out' && <button aria-label="Close" className="ghost x" onClick={() => store.dismiss(t.id)}><Icon name="close" /></button>}
         </div>
       ))}
     </div>
   );
 }
 
-type WheelItem = { icon: string; label: string; onClick: () => void; disabled?: boolean; title?: string; active?: boolean; hat?: string }; // hat: draw that hat's sprite instead of the icon
+type WheelItem = { icon: React.ReactNode; label: string; onClick: () => void; disabled?: boolean; title?: string; active?: boolean; hat?: string }; // hat: draw that hat's sprite instead of the icon
 
 /** Click a person or a thing: a ring of actions around it, following it as it moves. */
 function ActionWheel({ store, engine, pick, assets, onPerson, onClose }: { store: Store; engine: Engine; pick: Pick; assets: Assets | null; onPerson: (at: PersonAnchor) => void; onClose: () => void }) {
@@ -1278,25 +1278,25 @@ function ActionWheel({ store, engine, pick, assets, onPerson, onClose }: { store
     } else if (emoji) {
       items = REACTIONS.map(e => ({ icon: e, label: '', onClick: act(() => store.react(u.id, e)) }));
       const held = isMe && me?.holding ? ITEMS.get(me.holding) : undefined;
-      if (isMe && me?.eating) items.push({ icon: me.eating.open ? '🔕' : '💬', label: me.eating.open ? 'Quiet' : 'Chat', title: me.eating.open ? 'Go quiet: knocks go to Later' : 'Open to chat: anyone at the table can knock', onClick: act(() => store.lunchOpen(!me.eating!.open)) });
-      if (!isMe) items.push({ icon: '↩', label: 'Back', onClick: () => setEmoji(false) });
+      if (isMe && me?.eating) items.push({ icon: <Icon name={me.eating.open ? "bell" : "message"} off={me.eating.open} />, label: me.eating.open ? 'Quiet' : 'Chat', title: me.eating.open ? 'Go quiet: knocks go to Later' : 'Open to chat: anyone at the table can knock', onClick: act(() => store.lunchOpen(!me.eating!.open)) });
+      if (!isMe) items.push({ icon: <Icon name="arrow-left" />, label: 'Back', onClick: () => setEmoji(false) });
       else if (held) items.push({ icon: held.icon, label: 'Finish', title: `Finish your ${held.label.toLowerCase()}`, onClick: act(() => store.drop()) });
-      if (isMe && me?.following) items.push({ icon: '🛑', label: 'Stop following', onClick: act(() => store.follow(null)) });
+      if (isMe && me?.following) items.push({ icon: <Icon name="stop" />, label: 'Stop following', onClick: act(() => store.follow(null)) });
     } else {
       const away = u.door === 'thinking' || u.door === 'leaving';
       const dungeon = store.dungeonReason(u);
       const following = me?.following === u.id, noKnock = store.knockReason(u);
       items = [
-        { icon: '✊', label: 'Knock', onClick: act(() => store.requestKnock(u.id)), disabled: !!noKnock,
+        { icon: <Icon name="knock" />, label: 'Knock', onClick: act(() => store.requestKnock(u.id)), disabled: !!noKnock,
           title: noKnock ?? 'Knock for a voice call' },
-        { icon: '👣', label: following ? 'Unfollow' : 'Follow', active: following, onClick: act(() => store.follow(following ? null : u.id)), disabled: away || !!dungeon, title: dungeon ?? undefined },
-        { icon: '😊', label: 'React', onClick: () => setEmoji(true) },
-        { icon: '💬', label: 'Message', onClick: act(() => store.openChat(u.id)) },
+        { icon: <Icon name="follow" />, label: following ? 'Unfollow' : 'Follow', active: following, onClick: act(() => store.follow(following ? null : u.id)), disabled: away || !!dungeon, title: dungeon ?? undefined },
+        { icon: <Icon name="smile" />, label: 'React', onClick: () => setEmoji(true) },
+        { icon: <Icon name="message" />, label: 'Message', onClick: act(() => store.openChat(u.id)) },
       ];
       if (isMe && (store.dancing || (store.roomOf(u)?.id === DANCE_ROOM && !u.instance))) items.push({ icon: '💃', label: store.dancing ? 'Stop dancing' : 'Dance', onClick: act(() => store.dance()) });
-      if (me?.callId && me.callId === u.callId) items.push({ icon: '🔊', label: 'Volume', onClick: act(() => { if (at) onPerson({ id: u.id, x, y }); }) });
-      if (!isMe && !away) { const why = store.roomReason(u); if (!why) items.push({ icon: '🔒', label: 'Private room', title: `Take ${u.name.split(' ')[0]} to a private room`, onClick: act(() => store.createRoom([u.id])) }); }
-      if (store.admin && me && !me.instance && !u.instance && !away) items.push({ icon: '🌀', label: 'Teleport', title: `Step through a portal to ${u.name.split(' ')[0]}`, onClick: act(() => store.teleport(u.id)) });
+      if (me?.callId && me.callId === u.callId) items.push({ icon: <Icon name="volume" />, label: 'Volume', onClick: act(() => { if (at) onPerson({ id: u.id, x, y }); }) });
+      if (!isMe && !away) { const why = store.roomReason(u); if (!why) items.push({ icon: <Icon name="lock" />, label: 'Private room', title: `Take ${u.name.split(' ')[0]} to a private room`, onClick: act(() => store.createRoom([u.id])) }); }
+      if (store.admin && me && !me.instance && !u.instance && !away) items.push({ icon: <Icon name="portal" />, label: 'Teleport', title: `Step through a portal to ${u.name.split(' ')[0]}`, onClick: act(() => store.teleport(u.id)) });
       const held = me?.holding ? ITEMS.get(me.holding) : undefined;
       if (held) items.push({ icon: held.icon, label: 'Give', disabled: !!u.holding || away || !!dungeon,
         title: dungeon ?? (u.holding ? `${u.name.split(' ')[0]}'s hands are full` : `Give ${u.name.split(' ')[0]} your ${held.label.toLowerCase()}`),
@@ -1307,8 +1307,8 @@ function ActionWheel({ store, engine, pick, assets, onPerson, onClose }: { store
     const meal = o?.type === 'chair' && me?.holding ? ITEMS.get(me.holding) : undefined;
     if (o && meal && picnicSeat(MAP, o)) { // a chair at a picnic table, food in hand
       title = `${meal.icon} Eat lunch here`;
-      items = [{ icon: '🔕', label: 'Eat quietly', title: 'Eat here; knocks go to Later', onClick: act(() => store.lunch({ x: o.x, y: o.y }, false)) },
-        { icon: '💬', label: 'Eat & chat', title: 'Eat here; anyone at the table can knock', onClick: act(() => store.lunch({ x: o.x, y: o.y }, true)) }];
+      items = [{ icon: <Icon name="bell" off />, label: 'Eat quietly', title: 'Eat here; knocks go to Later', onClick: act(() => store.lunch({ x: o.x, y: o.y }, false)) },
+        { icon: <Icon name="message" />, label: 'Eat & chat', title: 'Eat here; anyone at the table can knock', onClick: act(() => store.lunch({ x: o.x, y: o.y }, true)) }];
     } else if (!o || !routes(o.use, 'wheel')) return null; // the other kinds act on the click (e.onPick above)
     else if (o.use.kind === 'toilet') {
       const s = store.toilets[o.id], full = toiletFull(s), inside = !!s?.in.includes(store.me), queued = s?.queue.indexOf(store.me) ?? -1;
@@ -1319,7 +1319,7 @@ function ActionWheel({ store, engine, pick, assets, onPerson, onClose }: { store
           title: !has ? 'Rack a line · you need drugs (ask the bouncer)' : !company ? 'Rack a line · not on your own, wait for company' : s!.shelf >= TOILET_SHELF_MAX ? 'Rack a line · the shelf is full' : `Rack a line on the shelf (${s!.shelf} there)`,
           onClick: act(() => store.rackLine(o.id)) },
           { icon: '👃', label: 'Sniff', disabled: !s!.shelf, title: s!.shelf ? `Sniff a line · ${s!.shelf} on the shelf` : 'Sniff · nothing on the shelf', onClick: act(() => store.sniffLine(o.id)) },
-          { icon: '🚪', label: 'Leave', onClick: act(() => store.moveTo({ x: o.x, y: o.y - 2 })) }];
+          { icon: <Icon name="logout" />, label: 'Leave', onClick: act(() => store.moveTo({ x: o.x, y: o.y - 2 })) }];
       } else {
         const crowded = (s?.in.length ?? 0) >= TOILET_CAPACITY || !!s?.queue.length;
         items = [{ icon: '🚽', label: crowded ? 'Line up' : 'Use', disabled: full || queued >= 0, title: full ? 'Full — it drains in a few minutes' : queued >= 0 ? "You're in line" : crowded ? `Full house — ${s!.queue.length} in line` : `Go in for ${TOILET_USE_MS / 1000} s`, onClick: act(() => store.use(o.id)) }];
@@ -1337,7 +1337,7 @@ function ActionWheel({ store, engine, pick, assets, onPerson, onClose }: { store
     } else if (o.use.kind === 'toggle') {
       const on = store.objects[o.id]?.on ?? o.on ?? true;
       title = o.use.label[0].toUpperCase() + o.use.label.slice(1);
-      items = [{ icon: on ? '🌑' : '💡', label: on ? 'Turn off' : 'Turn on', onClick: act(() => store.use(o.id)) }];
+      items = [{ icon: <Icon name="light" off={on} />, label: on ? 'Turn off' : 'Turn on', onClick: act(() => store.use(o.id)) }];
     } else if (o.use.kind === 'take') {
       title = o.type === 'coffee_machine' ? 'Coffee machine' : o.type === 'fridge' ? 'Fridge' : o.type === 'food_cart' ? 'Food cart' : o.type;
       items = o.use.items.map(i => ({ icon: i.icon, label: i.label, onClick: act(() => store.use(o.id, i.id)) }));
@@ -1381,7 +1381,7 @@ function ChatPanel({ store, withId }: { store: Store; withId: string }) {
     <aside className="chat" onKeyDown={e => { if (e.key === 'Escape') store.closeChat(); }}>
       <div className="rooms-head">
         <span><i className="pdot" style={{ background: PRESENCE_COLOR[other?.presence ?? 'offline'] }} />{other?.name ?? 'someone'}</span>
-        <button className="ghost" onClick={() => store.closeChat()} title="Close">×</button>
+        <button aria-label="Close" className="ghost" onClick={() => store.closeChat()} title="Close"><Icon name="close" /></button>
       </div>
       <div className="chat-list" ref={listRef}>
         {!msgs.length && <p className="muted">Say hi to {other?.name.split(' ')[0] ?? 'them'} 👋{other?.presence === 'offline' ? ' They\'ll see it when they\'re back.' : ''}</p>}
@@ -1393,7 +1393,7 @@ function ChatPanel({ store, withId }: { store: Store; withId: string }) {
       </div>
       <form className="chat-input" onSubmit={e => { e.preventDefault(); send(); }}>
         <input autoFocus value={draft} maxLength={MAX_CHAT_LEN} placeholder="Message…" onChange={e => setDraft(e.target.value)} />
-        <button disabled={!draft.trim()}>Send</button>
+        <button disabled={!draft.trim()} aria-label="Send message" title="Send message"><Icon name="send" /></button>
       </form>
     </aside>
   );

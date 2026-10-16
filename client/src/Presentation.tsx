@@ -1,3 +1,4 @@
+import { Icon } from './Icon';
 // Presentation mode: the screen's upload panel, the slides as a 90s games-magazine page, and the Live chip.
 import { useEffect, useRef, useState } from 'react';
 import { drawText, textWidth } from './font';
@@ -86,14 +87,14 @@ export function PresentPanel({ store, id }: { store: Store; id: string }) {
   return (
     <div className="modal-backdrop present-backdrop" onClick={e => { if (e.target === e.currentTarget) close(); }}>
       <div className="meet-panel guided present-panel" role="dialog" aria-label="Present slides">
-        <div className="rooms-head"><span>📺 Screen</span><button type="button" className="ghost" onClick={close} aria-label="Close">×</button></div>
+        <div className="rooms-head"><span><Icon name="monitor" /> Screen</span><button type="button" className="ghost" onClick={close} aria-label="Close"><Icon name="close" /></button></div>
         {live && <div className="present-live">
           <span>{taken ? <><b>{store.name(live.presenter)}</b> is presenting <b>{live.deck?.title ?? 'their screen'}</b></> : <>LIVE: <b>{live.deck?.title ?? 'Your screen'}</b> · you're presenting</>}</span>
           {mine ? <button onClick={() => { store.presentStop(); close(); }}>Stop</button> : <button className="ghost" onClick={watch}>Watch</button>}
         </div>}
         <div className="present-tabs">
           <span className="present-tab-label">Slides</span>
-          <button className="present-share" disabled={taken || busy} onClick={() => void shareScreen()}>🖥 Share screen</button>
+          <button className="present-share" disabled={taken || busy} onClick={() => void shareScreen()}><Icon name="monitor" /> Share screen</button>
         </div>
         <p className="small muted">Put slides up for everyone {store.users.get(store.me)?.instance ? 'in this meeting' : `in the ${MAP.rooms.find(r => r.id === (live?.room ?? 'meeting'))?.name ?? 'Meeting'} room`}. PNG or JPG images (one per slide, in file-name order) or one PDF.{taken && ' Uploads are saved to your decks until the screen is free.'}</p>
         <form className="present-form" onSubmit={e => { e.preventDefault(); if (files.length && !busy) void upload(); }}>
@@ -109,7 +110,7 @@ export function PresentPanel({ store, id }: { store: Store; id: string }) {
           {lib.decks.map(d => <div key={d.id} className="row">
             <span className="present-deck-title" title={d.title}>{d.title}<span className="muted small"> · {d.count} slide{d.count > 1 ? 's' : ''} · {mb(d.bytes)} MB · {age(d.at)}</span></span>
             <button className="ghost" disabled={taken || busy} onClick={() => void call('/api/present/start', { deck: d.id })}>Present</button>
-            <button className="ghost" aria-label={`Delete ${d.title}`} onClick={() => void remove(d)}>🗑</button>
+            <button className="ghost" aria-label={`Delete ${d.title}`} onClick={() => void remove(d)}><Icon name="trash" /></button>
           </div>)}
           {lib.limit > 0 && <div className="present-usage" title="Library space used"><div style={{ width: `${Math.min(100, lib.used / lib.limit * 100)}%` }} /><span>{mb(lib.used)} / {mb(lib.limit)} MB</span></div>}
         </div>}
@@ -147,7 +148,7 @@ export function SlideOverlay({ store }: { store: Store }) {
       <div className="watch-modal" role="dialog" aria-label={`Slides: ${deck.title}`}>
         <div className="watch-head">
           <span><b className="live-dot">● LIVE</b>{shared ? ' screen' : ` ${deck.title}`} · {presenter}</span>
-          <button type="button" className="ghost" onClick={() => store.hideSlides(true)} aria-label="Close">×</button>
+          <button type="button" className="ghost" onClick={() => store.hideSlides(true)} aria-label="Close"><Icon name="close" /></button>
         </div>
         <div className="watch-slide">
           {shared ? (store.frame ? <img src={store.frame.url} alt={`${presenter}'s screen`} draggable={false} /> : <span className="watch-wait">waiting for the first frame…</span>)
@@ -184,9 +185,9 @@ export function SlideOverlay({ store }: { store: Store }) {
         <footer className="mag-foot">
           {live.away && <span className="mag-away">{presenter} lost connection · ends in {left}s</span>}
           {mine ? <>
-            <button onClick={() => store.presentSlide(live.slide - 1)} disabled={live.slide === 0} aria-label="Previous slide">◀</button>
+            <button onClick={() => store.presentSlide(live.slide - 1)} disabled={live.slide === 0} aria-label="Previous slide"><Icon name="chevron-left" /></button>
             <span className="mag-page">{n} / {total}</span>
-            <button onClick={() => store.presentSlide(live.slide + 1)} disabled={n === total} aria-label="Next slide">▶</button>
+            <button onClick={() => store.presentSlide(live.slide + 1)} disabled={n === total} aria-label="Next slide"><Icon name="chevron-right" /></button>
             <button className="mag-stop" onClick={() => store.presentStop()}>Stop</button>
           </> : <>
             <span className="mag-page">{n} / {total}</span>

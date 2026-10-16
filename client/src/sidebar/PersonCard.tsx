@@ -1,3 +1,4 @@
+import { Icon } from '../Icon';
 import { useEffect, useState } from 'react';
 import type { Store } from '../net';
 import type { Engine } from '../engine';
@@ -25,7 +26,7 @@ export function PersonCard({ store, engine, assets, at, compact, onClose, onActi
   const reason = knock || walk || follow;
   const act = (fn: () => void) => { onAction(); fn(); };
   return <div {...surface} className={`sb-card sb-surface${compact ? ' sb-surface-sheet' : ''}`} role="dialog" aria-label={u.name}>
-    <header>{compact ? <button className="ghost" onClick={onClose}>← Back</button> : <button className="ghost" onClick={onClose} aria-label="Close person card">×</button>}
+    <header>{compact ? <button className="ghost" onClick={onClose}>← Back</button> : <button className="ghost" onClick={onClose} aria-label="Close person card"><Icon name="close" /></button>}
       <div className="sb-card-head"><Avatar assets={assets} user={u} size={48} ring={speaking.has(u.id)} />
         <div><b>{u.name}</b><small>{{ online: 'Online', away: 'Away', in_call: 'In a call', offline: 'Offline' }[u.presence]} · {place(store, u)}</small>
           {u.tz && <small>{new Intl.DateTimeFormat([], { timeZone: u.tz, hour: '2-digit', minute: '2-digit' }).format(new Date())} their time</small>}</div></div>
@@ -41,7 +42,6 @@ export function PersonCard({ store, engine, assets, at, compact, onClose, onActi
           <button data-action className={following ? 'on' : ''} aria-pressed={following} disabled={!!follow} onClick={() => store.follow(following ? null : u.id)}>{following ? 'Unfollow' : 'Follow'}</button>
           {!away && !store.roomReason(u) && <button data-action title={`Take ${u.name.split(' ')[0]} to a private room`} onClick={() => act(() => store.createRoom([u.id]))}>Private room</button>}
           {store.admin && me && !me.instance && !u.instance && !away && !offline && <button data-action onClick={() => act(() => store.teleport(u.id))}>Teleport</button>}
-          {store.admin && !u.bot && <button data-action onClick={() => act(() => { const v = window.prompt(`New name for ${u.name}`, u.name); if (v?.trim()) store.rename(u.id, v); })}>Rename</button>}
         </>}
       </div>
       {!mine && reason && <p className="sb-reason">{reason}</p>}

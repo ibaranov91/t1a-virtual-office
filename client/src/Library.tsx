@@ -1,3 +1,4 @@
+import { Icon } from './Icon';
 // The reading room: the Library panel (shelf by topic, publish form, log) and the reading overlay.
 import { useEffect, useState } from 'react';
 import type { Store } from './net';
@@ -31,7 +32,7 @@ export function LibraryPanel({ store }: { store: Store }) {
         <b>{a.title}</b>
         <small>{host(a.url)} · {mine ? 'you' : store.name(a.by)} · {n} read{n === 1 ? '' : 's'}</small>
       </div>
-      {(mine || store.admin) && <button type="button" className="ghost" aria-label={`Take down ${a.title}`} title="Take down" onClick={() => store.removeArticle(a.id)}>×</button>}
+      {(mine || store.admin) && <button type="button" className="ghost" aria-label={`Take down ${a.title}`} title="Take down" onClick={() => store.removeArticle(a.id)}><Icon name="close" /></button>}
       <button type="button" disabled={!store.connected || busy} onClick={() => store.readArticle(a.id)}>Read</button>
     </li>;
   };
@@ -50,7 +51,7 @@ export function LibraryPanel({ store }: { store: Store }) {
   return (
     <div className="modal-backdrop" onClick={e => { if (e.target === e.currentTarget) close(); }}>
       <div className="meet-panel guided calendar-panel library-panel" role="dialog" aria-modal="true" aria-label="Library">
-        <div className="rooms-head"><span>📚 Library</span><button type="button" className="ghost" aria-label="Close library" onClick={close}>×</button></div>
+        <div className="rooms-head"><span><Icon name="book" /> Library</span><button type="button" className="ghost" aria-label="Close library" onClick={close}><Icon name="close" /></button></div>
         <div className="library-tabs" role="tablist">
           <button type="button" role="tab" aria-selected={tab === 'shelf'} className={tab === 'shelf' ? '' : 'ghost'} onClick={() => setTab('shelf')}>Shelf</button>
           <button type="button" role="tab" aria-selected={tab === 'log'} className={tab === 'log' ? '' : 'ghost'} onClick={() => setTab('log')}>Log</button>
