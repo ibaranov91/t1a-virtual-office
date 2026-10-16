@@ -1426,7 +1426,7 @@ export class World {
     clearTimeout(this.callTimers.get(u.id)); this.callTimers.delete(u.id);
     if (!u.callId) return;
     this.broadcast({ t: 'speaking', userId: u.id, on: false }); this.lowerHand(u);
-    if (call && !call.room) {
+    if (call ? !call.room : u.presenceBeforeCall) { // a dissolved knock call is already gone from this.calls
       this.setPresence(u, u.presenceBeforeCall ?? 'online'); u.presenceBeforeCall = undefined;
     }
     u.callId = null;
