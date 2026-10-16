@@ -1318,3 +1318,26 @@ test('a cup the cleaner takes first is simply gone when you arrive', t => {
   assert.equal(a.u.achievements.tidy, undefined);
   assert.equal(w.creatures.cups.length, 0);
 });
+
+test('walking onto the Berghain dance floor starts dancing on arrival; changing course or being a bot does not', t => {
+  const { w, add, settle, tick } = setup(t), floor = map.objects.find(o => o.use?.kind === 'dance')!;
+  const club = map.rooms.find(r => r.id === 'berghain')!, door = club.stand.find(s => !(s.x >= floor.x && s.x < floor.x + floor.w && s.y >= floor.y && s.y < floor.y + floor.h))!;
+  const a = add('A'), bot = add('Bot', undefined, true);
+  const dancing = (u: User) => u.effects.some(e => e.kind === 'dance');
+  settle(a.u, door);
+  w.handle(a.u, { t: 'move', to: { x: floor.x + 1, y: floor.y + 1 } }, a.socket);
+  assert.equal(dancing(a.u), false, 'not until you get there');
+  tick(10_000);
+  assert.equal(dancing(a.u), true, 'on the floor: dancing');
+
+  const b = add('B'); settle(b.u, door);
+  w.handle(b.u, { t: 'move', to: { x: floor.x + 2, y: floor.y } }, b.socket);
+  w.handle(b.u, { t: 'move', to: door }, b.socket); // changed their mind on the way
+  tick(10_000);
+  assert.equal(dancing(b.u), false);
+
+  settle(bot.u, door);
+  w.walk(bot.u, { x: floor.x + 3, y: floor.y + 2 });
+  tick(10_000);
+  assert.equal(dancing(bot.u), false, 'bots stay off the floor');
+});

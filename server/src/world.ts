@@ -348,6 +348,10 @@ export class World {
     else if (path.length > 1) { const a = path[path.length - 2], b = path[path.length - 1]; u.dir = b.x > a.x ? 'right' : b.x < a.x ? 'left' : b.y > a.y ? 'down' : 'up'; }
     this.broadcast({ t: 'move', userId: u.id, from, to, startedAt, face, ms, path: keepOut ? path : undefined }); // clients path without the lock
     for (const f of this.users.values()) if (f.following === u.id) this.trail(f, to, startedAt + FOLLOW_LAG_MS);
+    if (!u.bot && !u.effects.some(e => e.kind === 'dance') && this.onDanceFloor(to)) { // walked onto the floor: dance once there
+      const seq = u.walkSeq;
+      setTimeout(() => { if (u.walkSeq === seq) this.startDance(u); }, Math.max(0, startedAt + pathDuration(path, per) - now));
+    }
     const end = startedAt + pathDuration(path, per);
     if (underground(u) && u.dungeon && this.map.dungeon) {
       const key = u.dungeon.key, i = key ? path.findIndex(p => p.x === key.x && p.y === key.y) : -1;
@@ -898,6 +902,7 @@ export class World {
     return u.presence !== 'offline' && !u.instance && roomAt(this.map, u.tile.x, u.tile.y)?.id === DANCE_ROOM && !seatAt(this.map, u.tile.x, u.tile.y)
       && !this.toilets.inside(u.id) && !this.toilets.waiting(u.id);
   }
+  private onDanceFloor(t: Tile) { return this.map.objects.some(o => o.use?.kind === 'dance' && t.x >= o.x && t.x < o.x + o.w && t.y >= o.y && t.y < o.y + o.h); }
   startDance(u: User, now = Date.now()) {
     if (!this.canDance(u)) return;
     this.addEffect(u, 'dance', {}, now);
