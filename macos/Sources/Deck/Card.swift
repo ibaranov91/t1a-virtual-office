@@ -3,7 +3,7 @@
 import AppKit
 
 struct DeckState {
-  var connected = false, inCall = false, busy = false
+  var connected = false, inCall = false, busy = false, muted = false, deafened = false
   var knocks: [(id: String, text: String)] = []
   var unread: [(id: String, name: String, count: Int)] = [] // oldest first
 }
