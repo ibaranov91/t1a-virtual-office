@@ -3,6 +3,7 @@
 import { sampleMove, WALK_MS_PER_TILE, type Dir, type Rect } from '../../shared/map';
 import { isPlate, LUNCH_MS, plateFood } from '../../shared/lunch';
 import { CUP_ITEMS, cupTableAt, type Creature, type Cup } from '../../shared/protocol';
+import { phrase } from '../../shared/phrases';
 import type { Frame } from './assets';
 import { itemTop } from './tableTops';
 import { MAP, type Store } from './net';
@@ -36,6 +37,8 @@ export function ghostWindow(now: number, forced: { from: number; to: number } | 
   return now >= from && now < to ? { from, to } : null;
 }
 const ROOMS = ['lobby', 'coffee'].map(id => MAP.rooms.find(r => r.id === id)!.rect);
+const BOUNCER = MAP.objects.find(o => o.type === 'bouncer'); // a map object, not a creature: his lines are client-only, like the ghost
+const SAY_MS = 5000;
 /** Where he drifts: between spots in the Lobby and the Coffee room, straight through walls, a tile every second or so. */
 export function ghostAt(win: { from: number; to: number }, now: number) {
   const pts: { x: number; y: number }[] = [];
@@ -57,6 +60,7 @@ export function ghostAt(win: { from: number; to: number }, now: number) {
 export class CreatureLayer {
   private facing = new Map<string, boolean>(); // left? kept while walking up or down
   forcedGhost: { from: number; to: number } | null = null;
+  private bouncer = { say: '', until: 0, next: 0 }; // his idle line and its clock (each client rolls its own)
   constructor(private store: Store, private ctx: () => CanvasRenderingContext2D, private f: (name: string) => Frame | undefined,
     private blit: (name: string, x: number, y: number) => void) {}
 
@@ -123,6 +127,12 @@ export class CreatureLayer {
   /** Everything that stands on the floor, for the engine's y-sorted pass. */
   placed(t: number, ms: number): Placed[] {
     const out: Placed[] = [];
+    if (BOUNCER) {
+      const b = this.bouncer;
+      b.next ||= t + 20_000 + Math.random() * 60_000;
+      if (t >= b.next) { b.say = phrase('bouncer', 'idle'); b.until = t + SAY_MS; b.next = t + 60_000 + Math.random() * 120_000; }
+      if (t < b.until) out.push({ base: (BOUNCER.y + BOUNCER.h) * TS + 0.5, draw: () => this.say(b.say, (BOUNCER.x + BOUNCER.w / 2) * TS, BOUNCER.y * TS - 6) });
+    }
     for (const cup of this.store.cups) {
       const table = cupTableAt(MAP.objects, cup.tile);
       const base = table ? (table.y + table.h) * TS - 0.25 : (cup.tile.y + 1) * TS;
@@ -181,7 +191,7 @@ export class CreatureLayer {
         const doing = POSE_NAME[c.pose];
         if (c.kind === 'bat' && c.pose === 'hang' && !p.walking) return { text: 'Bat · catch it!', x: cx, y: bottom - h + 4, id: c.id };
         if (c.kind === 'cat' || c.kind === 'dog') return { text: `${c.name} · the office ${c.kind} · click to pet`, x: cx, y: bottom - h + 4, id: c.id };
-        return { text: `${c.name} · ${c.kind === 'cleaner' ? (c.pose === 'clean' ? 'tidying up the cups' : 'the cleaner') : KIND_NAME[c.kind]}${doing && c.kind !== 'cleaner' && !p.walking ? ` · ${doing}` : ''}`, x: cx, y: bottom - h + 4 };
+        return { text: `${c.name} · ${c.kind === 'cleaner' ? (c.pose === 'clean' ? 'tidying up the cups' : 'on her rounds') : KIND_NAME[c.kind]}${doing && c.kind !== 'cleaner' && !p.walking ? ` · ${doing}` : ''}`, x: cx, y: bottom - h + 4 };
       }
     }
     return null;

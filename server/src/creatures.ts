@@ -3,6 +3,7 @@
 // never counted. Cups are server state, saved with the rest.
 import { dirBetween, findPath, isWalkable, roomAt, type Tile, type TileMap } from '../../shared/map';
 import { isPlate, LUNCH_MS, MAX_PLATES } from '../../shared/lunch';
+import { phrase, type Speaker } from '../../shared/phrases';
 import { cupTableAt, MAX_CUPS, type Creature, type CreatureKind, type CreaturePose, type Cup, type ServerMsg } from '../../shared/protocol';
 
 export const CUP_LINGER_MS = 12_000;       // the cleaner leaves a fresh cup alone for a bit
@@ -17,9 +18,7 @@ export const BAT_CHANCE = 0.7;             // per try
 export const BAT_COOLDOWN_MS = 1000;
 export const BAT_RESPAWN_MS = 10 * 60_000; // after a catch
 export const SAY_MS = 5000;                // a phrase stays up this long
-const PRAISE = ['Oh! Thank you, dear.', 'Finally, someone with manners!', 'Look at you, tidying up!', 'I could kiss you. I won\'t.', 'A rare and beautiful sight.'];
-const PHRASES = ['Who left a cup AGAIN?', 'Spotless. Almost.', 'Mind the wet floor!', 'I saw that crumb.', 'Tables are not coat racks.',
-  'Coffee rings: my nemesis.', 'Dust never sleeps.', 'Somebody loves their mug a bit too much.', 'Cleaner floors, calmer minds.', 'Do not feed the printer.'];
+const TALKERS: Partial<Record<CreatureKind, Speaker>> = { cleaner: 'cleaner', cat: 'cat', dog: 'dog' }; // who has lines in shared/phrases.ts
 const SPEED: Record<CreatureKind, number> = { cat: 320, dog: 230, bat: 150, cleaner: 300 };
 
 export interface CreatureHost {
@@ -34,7 +33,7 @@ interface Live extends Creature {
   until: number;                                   // busy (walking, sitting, napping…) until then
   then?: { pose: CreaturePose; ms: number }; // what to do on arrival
   cleaning?: string;                          // the cleaner: the cup (or `stall:<id>`) she's on her way to (or wiping up)
-  humUntil?: number; sayUntil?: number; nextSayAt?: number; // the cleaner's humming stretch, her phrase, when the next one comes
+  humUntil?: number; sayUntil?: number; nextSayAt?: number; // the cleaner's humming stretch; a phrase, when the next one comes
   follow?: { userId: string; until: number }; // a petted cat or dog trots after its person for a while
 }
 
@@ -123,7 +122,7 @@ export class Creatures {
     const bat = this.list.get('bat');
     if (bat && !this.batSeason(date)) this.remove('bat');
     for (const c of this.list.values()) {
-      if (c.kind === 'cleaner') this.voice(c, now);
+      if (TALKERS[c.kind]) this.voice(c, now);
       if (now < c.until) continue;
       if (c.then) { // just arrived
         const gone = c.cleaning && !this.stillDirty(c.cleaning);
@@ -143,6 +142,7 @@ export class Creatures {
   petBy(c: Live, userId: string, now: number) {
     this.settle(c, 'pet', PET_MS, now);
     c.follow = { userId, until: now + PET_FOLLOW_MS };
+    this.sayNow(c, phrase(c.kind === 'cat' ? 'cat' : 'dog', 'pet'), now);
   }
   /** A try at the hanging bat. 'missed': it darts off to another room. 'caught': it's gone for a while. null: not catchable now. */
   tryBat(now: number): 'caught' | 'missed' | null {
@@ -231,13 +231,20 @@ export class Creatures {
     }
     c.until = now + 1000;
   }
-  /** The cleaner's humming and her occasional phrase: set and cleared by the clock, announced when they change. */
+  /** The cleaner's humming and anyone's occasional idle phrase: set and cleared by the clock, announced when they change.
+   *  Nobody talks while wiping a table or asleep. */
   private voice(c: Live, now: number) {
+    const busy = c.pose === 'clean' || c.pose === 'nap';
     const hum = !!c.humUntil && now < c.humUntil && c.pose !== 'clean', say = c.sayUntil && now < c.sayUntil ? c.say : undefined;
     c.nextSayAt ??= now + rand(60_000, 150_000);
     let nextSay = say;
-    if (!say && now >= c.nextSayAt && c.pose !== 'clean') { nextSay = pick(PHRASES); c.sayUntil = now + SAY_MS; c.nextSayAt = now + rand(120_000, 300_000); }
+    if (!say && now >= c.nextSayAt && !busy) { nextSay = phrase(TALKERS[c.kind]!, 'idle'); c.sayUntil = now + SAY_MS; c.nextSayAt = now + rand(120_000, 300_000); }
     if (hum !== !!c.hum || nextSay !== c.say) { c.hum = hum; c.say = nextSay; this.announce(c); }
+  }
+  /** Say this right away (an answer to something), and hold the next idle line off for a while. */
+  private sayNow(c: Live, text: string, now: number) {
+    c.say = text; c.sayUntil = now + SAY_MS; c.nextSayAt = now + rand(120_000, 300_000);
+    this.announce(c);
   }
   /** Someone cleared a cup away themselves. If the cleaner is in that room right now (mid-walk counts where she is),
    *  she says so: true. */
@@ -246,8 +253,7 @@ export class Creatures {
     if (!c || !roomId) return false;
     const at = c.walk ? c.walk.path[Math.max(0, Math.min(c.walk.path.length - 1, Math.floor((now - c.walk.startedAt) / c.walk.ms)))] : c.tile;
     if (roomAt(this.map, at.x, at.y)?.id !== roomId) return false;
-    c.say = pick(PRAISE); c.sayUntil = now + SAY_MS; c.nextSayAt = now + rand(120_000, 300_000);
-    this.announce(c);
+    this.sayNow(c, phrase('cleaner', 'praise'), now);
     return true;
   }
   private stillDirty(target: string) {
@@ -284,7 +290,7 @@ export function startCreatures(c: Creatures, pets: boolean, batAlways = false) {
     const spotIn = (id: string) => rooms(id)?.stand.find(s => isWalkable(m, s.x, s.y)) ?? m.spawn;
     c.add('cat', 'Biscuit', spotIn('lobby'));
     c.add('dog', 'Pixel', spotIn('cowork'));
-    c.add('cleaner', 'Valentina', c.base());
+    c.add('cleaner', 'Cleaning lady', c.base());
   }
   setInterval(() => {
     const now = Date.now();

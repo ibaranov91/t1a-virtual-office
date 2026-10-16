@@ -5,11 +5,12 @@ import {
 } from '../../shared/map';
 import {
   NOTE_RATE, NOTE_BURST, ITEMS_MAX, TOILET_SHELF_ITEM, toiletFull, NOTE_HELD_MAX, SEAT_CHANGES_PER_10S, DUNGEON_INSTANCE, underground, MAX_CALL_SIZE, MEETING_ROOM_ID, MAX_CHAT_LEN, normalizeMeetLink, REACTIONS, ROOM_VOICE_MAX,
-  CUP_ITEMS, BOOK_ITEM, BOOKWORM_READS, EDITOR_READERS, dayNumber, isTimeZone, plantDead, BOTANIST_KINDS, PLANT_KINDS, PLANT_STAGES, type Plant,
+  CUP_ITEMS, BOOK_ITEM, BOOKWORM_READS, EDITOR_READERS, dayNumber, isTimeZone, plantDead, BOTANIST_KINDS, PLANT_KINDS, PLANT_STAGES, presentScope, type Plant,
   type ChatMsg, type ClientMsg, type Door, type Effect, type Knock, type LayoutEdit, type Look, type Presence, type PublicUser, type Reaction, type ServerMsg,
 } from '../../shared/protocol';
 import { FOOD_ITEMS, LUNCH_MS, PLATE_PREFIX, picnicSeat, type Eating } from '../../shared/lunch';
 import { INSTRUMENTS, validNote } from '../../shared/instruments';
+import { phrase } from '../../shared/phrases';
 import { ADMIN_HAT, ALL_HATS, BAT_HAT, DANCE_ROOM, EFFECTS, HAT_NAMES, MAX_EFFECTS, RAVER_MS, hatItem, hatOf, walkMs } from '../../shared/effects';
 import { tracksFor } from '../../shared/music';
 import { Arcade } from './arcade';
@@ -18,7 +19,7 @@ import { Library } from './library';
 import { migrateBookClub, migrateLibrary, readingSeats } from '../../shared/library';
 import { Meetings } from './meetings';
 import { BAT_COOLDOWN_MS, Creatures } from './creatures';
-import type { Presenter } from './presentation';
+import { PresentError, type Presenter } from './presentation';
 import { Toilets } from './toilets';
 import { authUrl, CALENDAR_SCOPE, createSpace, forgetAccess, googleEnabled, listEvents, revoke, type GoogleLink } from './google';
 
@@ -118,6 +119,25 @@ export class World {
   private toiletWalks = new Set<string>(); // walks the toilets start themselves (into the stall, along the line): not walking off
   botHooks?: BotHooks;
   present?: Presenter; // slides on the Meeting room screen (index.ts sets it up with the data folder)
+  /** Presentation scope: the office floor, a meeting instance, or null (offline, or underground: no screen there). */
+  presentScopeOf(userId: string): string | null {
+    const u = this.users.get(userId);
+    if (!u || u.presence === 'offline' || underground(u)) return null;
+    return presentScope(u.instance);
+  }
+  /** What's on the screen in `u`'s scope now (and the last frame of a screen share): on connect and whenever they change scope. */
+  private syncPresentation(u: User, send: (m: ServerMsg) => void = m => this.sendTo(u.id, m)) {
+    if (!this.present) return send({ t: 'presentation', live: null });
+    send({ t: 'presentation', live: this.present.liveFor(u.id) });
+    const frame = this.present.frameFor(u.id); if (frame) send(frame);
+  }
+  /** Everyone in a presentation scope (office floor or one meeting instance), except one person. */
+  toScope(scope: string, msg: ServerMsg, except?: string) {
+    for (const u of this.users.values()) {
+      if (u.id === except || u.presence === 'offline' || presentScope(u.instance) !== scope) continue;
+      this.sendTo(u.id, msg);
+    }
+  }
 
   arcade = new Arcade({ now: () => Date.now(), send: (id, msg) => this.sendOwner(id, msg),
     broadcast: msg => this.broadcast(msg), user: id => this.users.get(id) });
@@ -209,7 +229,7 @@ export class World {
     for (const person of this.users.values()) send({ t: 'game_status', userId: person.id, game: person.game });
     if (!u.bot) this.meetings.sendAgenda(u, true);
     send({ t: 'voice_wait', roomId: this.waiting.get(userId) ?? null });
-    send({ t: 'presentation', live: this.present?.live ?? null });
+    this.syncPresentation(u, send);
     this.present?.back(u.id);
     const call = u.callId ? this.calls.get(u.callId) : undefined; // a reloaded page gets its call's Meet link back
     if (call) send({ t: 'call', userId: u.id, callId: call.id, link: call.link });
@@ -331,7 +351,7 @@ export class World {
   /** Standing beside the object (or heading to a tile beside it, with `settled` false). */
   isBeside(userId: string, objectId: string, settled = true) {
     const u = this.users.get(userId), o = this.map.objects.find(o => o.id === objectId);
-    if (!u || !o || u.instance || u.presence === 'offline') return false;
+    if (!u || !o || (u.instance && (underground(u) || o.use?.kind !== 'presentation')) || u.presence === 'offline') return false; // a meeting has its own copy of the board
     const p = this.position(u), t = settled ? p.next : p.dest;
     if (settled && (p.next.x !== p.dest.x || p.next.y !== p.dest.y)) return false;
     return Math.max(o.x - t.x, t.x - (o.x + o.w - 1), 0) <= 1 && Math.max(o.y - t.y, t.y - (o.y + o.h - 1), 0) <= 1;
@@ -547,12 +567,12 @@ export class World {
   use(u: User, objectId: string, itemId?: string) {
     this.cancelSeatWalk(u.id);
     const o = this.map.objects.find(o => o.id === objectId);
-    if (!o || !routes(o.use, 'use') || goingOut(u) || u.instance || u.presence === 'offline' || ((o.use.kind === 'arcade' || o.use.kind === 'presentation') && u.bot)) return;
+    if (!o || !routes(o.use, 'use') || goingOut(u) || (u.instance && (underground(u) || o.use.kind !== 'presentation')) || u.presence === 'offline' || ((o.use.kind === 'arcade' || o.use.kind === 'presentation') && u.bot)) return;
     const item = o.use.kind === 'take' ? o.use.items.find(i => i.id === itemId) ?? o.use.items[0] : null;
     if (o.use.kind === 'toilet') return this.useToilet(u, o);
     this.setFollowing(u, null);
     clearTimeout(this.errands.get(u.id));
-    const here = this.position(u).next, occ = this.occupied();
+    const here = this.position(u).next, occ = this.occupied(u.instance);
     let best: { spot: Spot; len: number } | null = null;
     for (const s of besideObject(this.map, o)) {
       const mine = s.x === here.x && s.y === here.y;
@@ -580,7 +600,7 @@ export class World {
     this.errands.set(u.id, setTimeout(() => {
       this.errands.delete(u.id);
       const d = this.position(u).dest;
-      if (d.x !== spot.x || d.y !== spot.y || u.presence === 'offline' || goingOut(u) || u.instance) return; // wandered off on the way
+      if (d.x !== spot.x || d.y !== spot.y || u.presence === 'offline' || goingOut(u) || (u.instance && o.use!.kind !== 'presentation')) return; // wandered off on the way
       const current = this.map.objects.find(it => it.id === objectId);
       if (!current?.use || current.use.kind !== o.use!.kind) return;
       if (current.use.kind === 'arcade') { if (!u.bot && this.sockets.get(u.id)?.size) this.arcade.join(u, current.id); return; }
@@ -590,7 +610,7 @@ export class World {
       else if (current.use.kind === 'dealer') {
         const want = itemId && current.use.items.includes(itemId) ? itemId : current.use.items[0];
         const hat = hatOf(want);
-        if (this.addItem(u, want)) this.sendTo(u.id, { t: 'notice', text: hat ? `${HAT_NAMES[hat] ?? hat} · in your pockets 🎒` : 'The bouncer slips you something 💊' });
+        if (this.addItem(u, want)) this.sendTo(u.id, { t: 'notice', text: hat ? `${HAT_NAMES[hat] ?? hat} · in your pockets 🎒` : phrase('bouncer', 'deal') });
       }
       else if (item) {
         this.setHolding(u, item.id, o.id);
@@ -1265,6 +1285,7 @@ export class World {
     u.tile = { ...tile }; u.move = null; u.path = null; u.prev = undefined;
     u.dir = seatAt(this.map, tile.x, tile.y)?.dir ?? 'down';
     this.broadcast({ t: 'instance', userId: u.id, instance: u.instance, tile: u.tile, dir: u.dir });
+    this.present?.moved(u.id); this.syncPresentation(u); // a new scope has its own screen
   }
   /** One click from the heads-up: into the meeting's room, at a free chair. */
   enterMeeting(u: User, key: string) {
@@ -1308,7 +1329,7 @@ export class World {
     this.place(u, back);
     if (inst) {
       inst.members.delete(u.id);
-      if (!inst.members.size) this.instances.delete(inst.id);
+      if (!inst.members.size) { this.instances.delete(inst.id); this.present?.endScope(inst.id); }
     }
     if (announce) this.broadcast({ t: 'meetings', rooms: this.meetingRooms() });
   }
@@ -1322,7 +1343,7 @@ export class World {
         this.leaveMeeting(u, false);
         this.sendTo(id, { t: 'notice', text: 'Meeting\'s over: back to the office' });
       }
-      this.instances.delete(inst.id); changed = true;
+      this.instances.delete(inst.id); this.present?.endScope(inst.id); changed = true;
     }
     if (changed) this.broadcast({ t: 'meetings', rooms: this.meetingRooms() });
   }
@@ -1651,6 +1672,10 @@ export class World {
     if (!this.sockets.get(u.id)?.has(socket)) return;
     if (['move', 'use', 'follow', 'instrument'].includes(msg.t)) this.cancelSeatWalk(u.id);
     if (msg.t === 'voice_claim') { this.setOwner(u.id, socket); return; }
+    if (msg.t === 'ping') { // answered at once: the client times the round trip to estimate the server clock
+      if (Number.isFinite(msg.id)) this.sockets.get(u.id)?.get(socket)?.({ t: 'pong', id: msg.id, serverTime: Date.now() });
+      return;
+    }
     if (typeof msg.t === 'string' && msg.t.startsWith('game_')) {
       if (this.owners.get(u.id) === socket) this.arcade.handle(u, msg);
       return;
@@ -1824,6 +1849,8 @@ export class World {
       case 'cup_take': this.takeCup(u, String(msg.cupId)); break;
       case 'give': { const to = this.users.get(String(msg.targetId)); if (to) this.give(u, to); break; }
       case 'present_slide': this.present?.slide(u.id, msg.slide); break;
+      case 'present_share': if (!u.bot) try { this.present?.share(u.id, msg.objectId); } catch (e) { if (e instanceof PresentError) this.sendTo(u.id, { t: 'notice', text: e.message }); else throw e; } break;
+      case 'present_frame': this.present?.frame(u.id, msg.seq, msg.data); break;
       case 'present_stop': this.present?.stop(u.id); break;
     }
   }
