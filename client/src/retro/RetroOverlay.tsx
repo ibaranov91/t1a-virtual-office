@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Store } from '../net';
-import { prefs } from '../prefs';
+import { prefs, savePrefs, subscribePrefs } from '../prefs';
 import { games } from '../../../shared/retro/games';
 import { RetroInput } from './input';
 const COMPACT = '(max-width: 560px), (max-height: 500px)';
@@ -10,6 +10,9 @@ export function RetroOverlay({ store }: { store: Store }) {
   const root = useRef<HTMLDivElement>(null), canvas = useRef<HTMLCanvasElement>(null), area = useRef<HTMLDivElement>(null);
   const input = useRef<RetroInput | null>(null);
   const [page, setPage] = useState<'menu' | 'controls' | 'credits'>('menu'), [scale, setScale] = useState(1);
+  const [, prefsChanged] = useState(0);
+  useEffect(() => subscribePrefs(() => prefsChanged(n => n + 1)), []);
+  const silent = prefs.retroMuted || !prefs.retroVolume;
   const [touch, setTouch] = useState(() => navigator.maxTouchPoints > 0 || matchMedia(COMPACT).matches);
   const game = games[view.game], spectator = view.kind !== 'playing' || view.role !== 'player';
   const toggle = () => { client.setMenu(!client.menu); setPage('menu'); input.current?.refresh(); root.current?.focus(); };
@@ -51,6 +54,13 @@ export function RetroOverlay({ store }: { store: Store }) {
       else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first?.focus(); }
     }}>
     <header className="park-header retro-header"><div><h1>{game.title}</h1><span>{view.kind === 'playing' ? spectator ? `Watching ${store.name(view.player)}` : 'Playing' : 'Retro cabinet'}</span></div>
+      <div className="volume-control retro-volume">
+        <button className="ghost retro-mute" aria-pressed={prefs.retroMuted} aria-label={prefs.retroMuted ? 'Unmute game sound' : 'Mute game sound'}
+          title={prefs.retroMuted ? 'Unmute game sound' : 'Mute game sound'} onClick={() => { prefs.retroMuted = !prefs.retroMuted; savePrefs(); root.current?.focus(); }}>{silent ? '🔇' : '🔊'}</button>
+        <input type="range" min="0" max="100" step="5" value={prefs.retroMuted ? 0 : Math.round(prefs.retroVolume * 100)} aria-label="Game volume for me"
+          onChange={e => { prefs.retroVolume = Number(e.target.value) / 100; prefs.retroMuted = false; savePrefs(); }}
+          onPointerUp={() => root.current?.focus()} /><output>{prefs.retroMuted ? 0 : Math.round(prefs.retroVolume * 100)}%</output>
+      </div>
       <button className="ghost" aria-expanded={client.menu} onClick={toggle}>Menu</button>
       <button className="ghost" onClick={() => store.retroLeave()}>Leave</button></header>
     <div className="park-area retro-area" ref={area} onPointerDown={e => { if (e.target === e.currentTarget || e.target === canvas.current) root.current?.focus(); }}>

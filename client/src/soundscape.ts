@@ -182,7 +182,7 @@ export class Soundscape {
     }
     const cabinet = this.store.retro?.cabinet;
     const retro = MAP.objects.find(o => o.id === cabinet && o.use?.kind === 'retro');
-    if (retro && !this.sources.has(`retro:${retro.id}`)) this.add(`retro:${retro.id}`, 'retro', audio().createGain(), .6, { x: retro.x, y: retro.y });
+    if (retro && !this.sources.has(`retro:${retro.id}`)) this.add(`retro:${retro.id}`, 'retro', audio().createGain(), .5, { x: retro.x, y: retro.y });
     // the jukebox can be moved (edit mode): follow it, and drop one that's gone
     for (const [id, s] of this.sources) if (s.kind === 'jukebox' || s.kind === 'instrument') {
       const o = MAP.objects.find(o => `obj:${o.id}` === id && o.use?.kind === s.kind);
@@ -248,7 +248,7 @@ export class Soundscape {
         (other.instrument.held.size > 0 || now - other.instrument.lastActivity < 5000)) ? .25 : 1;
       if (s.kind === 'jukebox' && duck !== (s.duck ?? 1)) s.jukebox!.duck.gain.setTargetAtTime(duck, c.currentTime, duck < 1 ? .1 : .5);
       s.duck = duck;
-      const local = s.kind === 'voice' ? volumeFor(id) : s.kind === 'jukebox' ? prefs.jukeboxVolumes[id.slice(4)] ?? 1 : 1;
+      const local = s.kind === 'voice' ? volumeFor(id) : s.kind === 'jukebox' ? prefs.jukeboxVolumes[id.slice(4)] ?? 1 : s.kind === 'retro' ? (prefs.retroMuted ? 0 : prefs.retroVolume) : 1;
       const tvMute = s.kind === 'jukebox' && sourceRoom?.id === this.tvRoom;
       const v = s.clipGain * (tvMute ? 0 : local), mix = prefs.mix[s.category];
       s.level = { id, gain: gain * v * mix * duck, pan: model.pan, send: send * v * mix * duck };
