@@ -1,3 +1,4 @@
+import { diag } from './voiceDiag';
 // One context for voices, emitters, meters and UI sounds.
 import { prefs, subscribePrefs, type Category } from './prefs';
 let ctx: AudioContext | null = null;
@@ -15,6 +16,7 @@ export const DIRECT_VOICE = typeof navigator !== 'undefined' && /AppleWebKit/.te
 export function audio() {
   if (!ctx) {
     ctx = new AudioContext();
+    diag.observeContext(ctx);
     ctx.addEventListener('statechange', changed);
   }
   return ctx;
@@ -57,7 +59,7 @@ export async function playMedia(el: HTMLAudioElement, current = () => true, quie
   let result: 'playing' | 'blocked' | 'error' | 'aborted' = 'playing';
   try { await el.play(); if (valid()) failed.delete(el); }
   catch (err) {
-    if (!valid()) return 'aborted';
+    if (!valid()) { diag.mediaResult(el, 'aborted'); return 'aborted'; }
     if (err instanceof DOMException && err.name === 'NotAllowedError') { if (!quiet) failed.add(el); result = 'blocked'; }
     else {
       failed.delete(el);
@@ -65,7 +67,8 @@ export async function playMedia(el: HTMLAudioElement, current = () => true, quie
       else { console.warn('audio playback', err); result = 'error'; }
     }
   }
-  if (!valid()) return 'aborted';
+  if (!valid()) { diag.mediaResult(el, 'aborted'); return 'aborted'; }
+  diag.mediaResult(el, result);
   changed(); return result;
 }
 export function forgetMedia(el: HTMLAudioElement) {

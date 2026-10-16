@@ -1,3 +1,4 @@
+import { diag } from './voiceDiag';
 import { NoteClock, type InstrumentKind } from '../../shared/instruments';
 import { startVoice, type SynthVoice } from './synth';
 import { distanceGain, reverbImpulse, soundModel } from '../../shared/acoustics';
@@ -131,8 +132,10 @@ export class Soundscape {
   }
   /** The jukebox should be playing for me but is still loading (or waiting for data). */
   jukeboxLoading(id: string) { return !!this.sources.get(`obj:${id}`)?.jukebox?.loading; }
+  voiceLevel(id: string) { const s = this.sources.get(id); return s?.kind === 'voice' ? { level: { ...s.level }, modelGain: s.modelGain } : null; }
   levels(): Level[] { return [...this.sources.values()].map(s => ({ ...s.level })); }
   addVoice(id: string, stream: MediaStream, el: HTMLAudioElement) {
+    diag.event('addVoice', { id, path: DIRECT_VOICE ? 'direct' : 'webAudio' });
     this.remove(id);
     if (DIRECT_VOICE) { this.add(id, 'voice', audio().createGain(), 1).el = el; el.volume = 0; el.muted = false; void playMedia(el); } // re-played unmuted, so a Safari block shows "Enable sound"
     else this.add(id, 'voice', audio().createMediaStreamSource(stream), 1);
@@ -140,6 +143,7 @@ export class Soundscape {
   }
   remove(id: string) {
     const s = this.sources.get(id); if (!s) return;
+    if (s.kind === 'voice') diag.event('removeVoice', { id, path: DIRECT_VOICE ? 'direct' : 'webAudio' });
     if (s.el) s.el.muted = true;
     if (s.instrument) { this.allOff(id.slice(4)); s.instrument.analyser?.disconnect(); }
     if (s.kind === 'jukebox') { s.jukebox!.player.destroy(); s.jukebox!.analyser?.disconnect(); }

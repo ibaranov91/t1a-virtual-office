@@ -75,6 +75,9 @@ npm run typecheck    # run before every commit or deploy
   no input, no own speech and nobody speaking on your voice → "Still here?" → `afk` 2 min later. `active` clears
   `u.afk` and is relayed to your other tabs. A new tab takes voice only when you're not in a call (or it's the same
   `deck.tab`). Knock calls end after `CALL_SILENCE_MS` (2 h) of total silence. Dev: `__voice.timeScale` shortens timers.
+- **Voice diagnostics** observe only: voice/audio lifecycle, devices, page/errors and in-call stats go to
+  `data/diag/<date>/<userId>.jsonl` on the instance, with 3-day retention. Inspect the pending buffer with
+  `window.__voiceDiag.dump()` (all builds).
 - **Talking bubbles** come from real mic activity (`speaking` messages). Bots fake turn-taking.
 - **Private data never gets broadcast.** `email`, `meetLink` and `google` are stripped in `World.toPublic`. A Meet link
   goes only to the people in that knock or call.
