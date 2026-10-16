@@ -210,6 +210,7 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
         {gmOpen && store.admin && !editing && <GmPanel store={store} picked={pick?.kind === 'user' ? pick.id : null} assets={assets} onClose={() => setGmOpen(false)} />}
         {pocketsOpen && me && <PocketsPanel store={store} me={me} assets={assets} onClose={() => setPocketsOpen(false)} />}
         {store.calendarOpen && <CalendarPanel store={store} />}
+        {store.laterOpen && <LaterPanel store={store} />}
         {store.meetingsOpen && <MeetingsPanel store={store} />}
         {store.libraryOpen && <LibraryPanel store={store} />}
         {me?.reading && <ReadingOverlay key={me.reading} store={store} articleId={me.reading} />}
@@ -239,7 +240,7 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
         </div>
         {personMenu && <PersonMenu key={personMenu.id} store={store} at={personMenu} onClose={() => setPersonMenu(null)} />}
         {store.seat && <InstrumentPanel key={store.seat} store={store} id={store.seat}
-          dialogOpen={!!(showAppearance || showMeet || store.pendingKnock || store.calendarOpen || store.meetingsOpen || store.clockOpen || store.jukeboxOpen || store.libraryOpen || !!me?.reading || store.achievementsOpen || store.presentOpen || store.roomOpen || store.chatWith || personMenu || pick)} />}
+          dialogOpen={!!(showAppearance || showMeet || store.pendingKnock || store.calendarOpen || store.laterOpen || store.meetingsOpen || store.clockOpen || store.jukeboxOpen || store.libraryOpen || !!me?.reading || store.achievementsOpen || store.presentOpen || store.roomOpen || store.chatWith || personMenu || pick)} />}
         <Dock store={store} voice={voice} engine={engine} roomsOpen={showRooms} onRooms={() => setShowRooms(s => !s)} />
       </div>
       </div>
@@ -349,6 +350,7 @@ function TopBar({ store, voice, roomName, onToggleRooms, onToggleMeet, onToggleA
       <div className="top-right">
         <VoiceIcons store={store} voice={voice} />
         <UnreadButton store={store} />
+        <LaterButton store={store} />
         <button className="chip ghost more-btn" aria-label="More" aria-expanded={more} onClick={() => setMore(m => !m)}>⋯</button>
         <div className={`top-more${more ? ' open' : ''}`} onClick={e => { if (!(e.target as HTMLElement).closest('.mac-app')) setMore(false); }}>
           <button onClick={onToggleMeet} className={`chip meet-btn${store.meetLink === '' && !store.google ? ' unset' : ''}`}
@@ -1102,6 +1104,7 @@ function Dock({ store, voice, engine, roomsOpen, onRooms }: { store: Store; voic
       <button onClick={() => engine?.recenter()}><span className="ic">📍</span><small>Me</small></button>
       <button onClick={() => (chatWith ? store.openChat(chatWith) : onRooms())} title={chatWith ? undefined : 'Pick someone in People to message'}>
         <span className="ic">💬</span>{total > 0 && <b className="badge">{total}</b>}<small>Chat</small></button>
+      {store.later.length > 0 && <button onClick={() => store.openLater()} title="Knocks you missed"><span className="ic">🔔</span><b className="badge">{store.later.length}</b><small>Later</small></button>}
       <VoiceIcons store={store} voice={voice} dock />
     </nav>
   );
@@ -1115,6 +1118,36 @@ function UnreadButton({ store }: { store: Store }) {
   return (
     <button className="chip unread-btn" onClick={() => store.openChat(senders[0])}
       title={`Unread from ${store.names(senders.map(id => store.users.get(id)!).filter(Boolean))}`}>💬 {total}</button>
+  );
+}
+
+/** 🔔 N in the top bar while knocks sit in your Later list. */
+function LaterButton({ store }: { store: Store }) {
+  if (!store.later.length) return null;
+  return <button className="chip unread-btn later-btn" onClick={() => store.openLater()} title="Knocks you missed">🔔 {store.later.length}</button>;
+}
+
+const ago = (at: number) => { const m = Math.floor((Date.now() - at) / 60_000); return m < 1 ? 'just now' : m < 60 ? `${m} min ago` : `${Math.floor(m / 60)} h ago`; };
+function LaterPanel({ store }: { store: Store }) {
+  return (
+    <div className="modal-backdrop" {...backdropClose(() => store.closeLater())}>
+      <div className="meet-panel guided later-panel">
+        <div className="rooms-head">
+          <span>🔔 Missed knocks</span>
+          <button type="button" className="ghost" onClick={() => store.closeLater()}>×</button>
+        </div>
+        <ul className="later-list">
+          {store.later.map(i => (
+            <li key={i.id}>
+              <span className="txt"><b>{store.name(i.fromId)}</b> · {ago(i.at)} · {i.why}</span>
+              <button onClick={() => store.laterKnockBack(i.fromId)}>Knock back</button>
+              <button className="ghost x" aria-label="Dismiss" onClick={() => store.laterDismiss(i.id)}>×</button>
+            </li>
+          ))}
+        </ul>
+        <div className="row"><button className="ghost" onClick={() => store.laterClear()}>Clear all</button></div>
+      </div>
+    </div>
   );
 }
 

@@ -2,7 +2,7 @@
 import mapJson from '../../shared/tilemap.json';
 import { applyLayout, besideObject, doorwayTiles, isWalkable, objectById, pathTo, roomAt, sampleMove, type Dir, type Tile, type TileMap } from '../../shared/map';
 import { FOOD_ITEMS } from '../../shared/lunch';
-import { ACHIEVEMENTS, underground, DUNGEON_INSTANCE, PLANT_STAGES, plantName, ROOM_VOICE_MAX, type JukeboxState, type JukeboxAction, type AgendaItem, type LayoutEdit, type CalEvent, type MeetingRoomInfo, type ChatMsg, type LiveDeck, presentScope, type ObjectState, type ToiletState, type ClientMsg, type PublicUser, type Reaction, type RtcSignal, type ServerMsg, type Creature, type Cup, CUP_ITEMS, type LibraryState } from '../../shared/protocol';
+import { ACHIEVEMENTS, underground, DUNGEON_INSTANCE, PLANT_STAGES, plantName, ROOM_VOICE_MAX, type JukeboxState, type JukeboxAction, type AgendaItem, type LayoutEdit, type CalEvent, type MeetingRoomInfo, type ChatMsg, type LiveDeck, presentScope, type ObjectState, type ToiletState, type ClientMsg, type LaterItem, type PublicUser, type Reaction, type RtcSignal, type ServerMsg, type Creature, type Cup, CUP_ITEMS, type LibraryState } from '../../shared/protocol';
 import { ParkLoop } from './park/loop';
 import type { CabinetSummary, ParkRecords } from '../../shared/protocol';
 import { playPark, playHand, playKnock, playPop, playDungeon, playPet } from './sounds';
@@ -61,6 +61,8 @@ export class Store {
   calendarAccess = false;               // Google Calendar access granted
   calendarAuthUrl: string | null = null; // same, but also asking for Calendar
   calendarOpen = false;
+  later: LaterItem[] = []; // knocks that went to Later while I was busy (server-kept, newest first)
+  laterOpen = false;
   calendarEvents: CalEvent[] | null = null; // null = loading
   calendarError: string | null = null;
   agenda: AgendaItem[] = [];               // my calendar meetings now and soon
@@ -292,6 +294,11 @@ export class Store {
     this.emit();
   }
   closeCalendar() { this.calendarOpen = false; this.emit(); }
+  openLater() { this.laterOpen = true; this.emit(); }
+  closeLater() { this.laterOpen = false; this.emit(); }
+  laterDismiss(id: string) { this.send({ t: 'later_dismiss', id }); }
+  laterClear() { this.send({ t: 'later_clear' }); this.laterOpen = false; this.emit(); }
+  laterKnockBack(fromId: string) { this.requestKnock(fromId); this.laterOpen = false; this.emit(); } // knocking clears the entry on the server
   openMeetings() { this.meetingsOpen = true; this.emit(); }
   openJukebox(id: string) { this.jukeboxOpen = id; this.emit(); }
   closeJukebox() { this.jukeboxOpen = null; this.emit(); }
@@ -725,6 +732,13 @@ export class Store {
         if (!was && msg.roomId) this.toast({ kind: 'info', text: `${MAP.rooms.find(r => r.id === msg.roomId)?.name ?? 'Room'} voice is full (${ROOM_VOICE_MAX}) — you'll join when someone leaves`, expires: 6000 });
         break;
       }
+      case 'later': this.later = msg.items; if (!msg.items.length) this.laterOpen = false; break;
+      case 'later_nudge': {
+        playKnock();
+        const id = msg.userId;
+        this.toast({ kind: 'info', text: `🔔 ${msg.text}`, expires: 30000, actions: id ? [{ label: 'Knock back', run: () => this.requestKnock(id) }] : [{ label: 'Open', run: () => this.openLater() }] });
+        break;
+      }
       case 'notice': this.toast({ kind: 'info', text: msg.text, expires: 6000 }); break;
       case 'deafen': { const u = this.users.get(msg.userId); if (u) { u.deafened = msg.on; if (msg.on) u.speaking = false; } break; }
       case 'hand': {
@@ -777,8 +791,8 @@ export class Store {
           this.toast({ kind: 'info', text: `🎙 Voice call with ${other}`, expires: 4000 });
         }
         else if (mine && msg.reply === 'blocked') this.toast({ kind: 'info', text: msg.reason ?? `Can't knock on ${other} now`, expires: 5000 });
-        else if (mine) this.toast({ kind: 'knock_again', userId: otherId, text: msg.reason ?? `${other} said later`, expires: 12000 });
-        else if (forMe && msg.reason) this.toast({ kind: 'knock_again', userId: otherId, text: `Missed a knock from ${other}`, expires: 30000 });
+        else if (mine) this.toast({ kind: 'knock_again', userId: otherId, text: msg.reason ?? `${other} said later`, expires: 30000 });
+        else if (forMe && msg.reason && !msg.kept) this.toast({ kind: 'knock_again', userId: otherId, text: `Missed a knock from ${other}`, expires: 30000 });
         break;
       }
     }

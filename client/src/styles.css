@@ -195,6 +195,9 @@ canvas { display: block; image-rendering: pixelated; touch-action: none; }
 .google-row > span:first-child { flex: 1; }
 .google-row a { white-space: nowrap; font-weight: 600; }
 .calendar-panel { width: min(440px, calc(100% - 32px)); max-height: min(560px, calc(100% - 32px)); overflow-y: auto; }
+.later-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.later-list li { display: flex; align-items: center; gap: 6px; font-size: 13px; padding: 4px 6px; border-radius: 5px; background: var(--panel2); }
+.later-list .txt { flex: 1; min-width: 0; }
 .cal-days { display: grid; gap: 10px; }
 .cal-days h4 { margin: 0 0 4px; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
 .cal-days ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
