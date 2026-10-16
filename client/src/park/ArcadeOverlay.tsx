@@ -1,3 +1,5 @@
+import { games as retroGames, type RetroGameId } from '../../../shared/retro/games';
+import { ranked as retroRanked } from '../../../shared/retro/boards';
 import { useEffect, useRef, useState } from 'react';
 import type { Assets } from '../assets';
 import type { Store } from '../net';
@@ -130,7 +132,7 @@ export function ArcadeOverlay({ store, assets, voice }: { store: Store; assets: 
 
 export function RecordsPopover({ store }: { store: Store }) {
   const ref = useRef<HTMLDivElement>(null), [tab, setTab] = useState('This week');
-  const tabs = ['This week', 'Champions', 'Oracle', 'Table', 'Deck Park', 'Hall of Fame'];
+  const tabs = ['This week', 'Champions', 'Oracle', 'Table', 'Deck Park', 'Hall of Fame', 'Retro'];
   useEffect(() => { const previous = document.activeElement; ref.current?.focus(); return () => { if (previous instanceof HTMLElement && previous.isConnected) previous.focus(); }; }, []);
   const close = () => store.openRecords(false), boards = store.arcadeBoards;
   const names = (id: string) => boards.week.players[id]?.name ?? store.name(id);
@@ -149,6 +151,7 @@ export function RecordsPopover({ store }: { store: Store }) {
       <div className="rooms-head"><span>Arcade boards</span><button className="ghost" onClick={close} aria-label="Close boards">×</button></div>
       <nav className="party-tabs" aria-label="Arcade boards">{tabs.map(name => <button key={name} aria-pressed={tab === name} onClick={() => setTab(name)}>{name}</button>)}</nav>
       <div className="park-records-scroll">
+        {tab === 'Retro' && <RetroBoards store={store} />}
         {tab === 'This week' && <><p>Week of {boards.week.key || '…'} · Europe/Warsaw · best 10 sets</p>{ranking(Object.fromEntries(Object.entries(boards.week.players).map(([id, p]) => [id, weeklyTotal(p)])), 'Points')}</>}
         {tab === 'Oracle' && ranking(boards.week.oracle, 'Correct predictions')}
         {tab === 'Table' && <p className="muted">No table results yet.</p>}
@@ -161,5 +164,21 @@ export function RecordsPopover({ store }: { store: Store }) {
         </table>}
       </div>
     </div>
+  </div>;
+}
+
+function RetroBoards({ store }: { store: Store }) {
+  const [game, setGame] = useState<RetroGameId>('tobu'), [scope, setScope] = useState<'week' | 'all'>('week');
+  const def = retroGames[game];
+  return <div className="retro-boards">
+    <nav className="party-tabs" aria-label="Retro game">{(['tobu', 'lobster'] as const).map(id => <button key={id} aria-pressed={game === id} onClick={() => setGame(id)}>{id === 'tobu' ? 'Tobu Tobu Girl' : retroGames[id].title}</button>)}</nav>
+    <nav className="party-tabs" aria-label="Retro board period">{(['week', 'all'] as const).map(id => <button key={id} aria-pressed={scope === id} onClick={() => setScope(id)}>{id === 'week' ? 'This week' : 'All time'}</button>)}</nav>
+    {scope === 'week' && <p>Week of {store.retroBoards.week || '…'} · Europe/Warsaw</p>}
+    {def.tracks.map(track => {
+      const rows = retroRanked(store.retroBoards.games[game][track.id]?.[scope] ?? {}), own = rows.find(r => r.userId === store.me);
+      const extra = own && !rows.slice(0, 10).includes(own) ? own : null;
+      const row = (r: typeof rows[number]) => <tr key={r.userId} className={r.userId === store.me ? 'retro-own' : ''}><td>{r.rank}</td><td>{r.name}{r.userId === store.me ? ' (you)' : ''}</td><td>{r.score}</td>{track.timed && <td>{Math.floor((r.time ?? 0) / 60)}:{String((r.time ?? 0) % 60).padStart(2, '0')}</td>}</tr>;
+      return <section key={track.id}><h3>{track.label}</h3>{rows.length ? <table><caption className="sr-only">{track.label} · {scope === 'week' ? 'This week' : 'All time'}</caption><thead><tr><th>Rank</th><th>Player</th><th>{track.unit === 'waves' ? 'Waves' : 'Points'}</th>{track.timed && <th>Time</th>}</tr></thead><tbody>{rows.slice(0, 10).map(row)}</tbody>{extra && <tbody className="retro-own-divider">{row(extra)}</tbody>}</table> : <p className="muted">Play the {game === 'tobu' ? 'Tobu Tobu Girl' : def.title} cabinet to get on the board.</p>}</section>;
+    })}
   </div>;
 }

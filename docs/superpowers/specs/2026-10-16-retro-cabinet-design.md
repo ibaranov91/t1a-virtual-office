@@ -323,8 +323,9 @@ type RetroView =
   since the game's time is its frame count). Before each step it samples the controls and normalizes them; if the bits
   differ from the previous step's, it records `[gb.frame, bits]`. Every 100 ms (and before `retro_leave`) it sends the
   batch since the last send.
-- **Pause**: the overlay menu, a hidden tab or a blurred window stops stepping (and silences the game). Nothing is sent
-  in between; the game simply continues from the same frame afterwards (both games also have their own pause on
+- **Pause**: the overlay menu, a hidden tab or a blurred window stops stepping (and silences the game). The frames
+  played before the pause are sent at once (so results and watchers aren't left behind); nothing is sent in between;
+  the game simply continues from the same frame afterwards (both games also have their own pause on
   Start).
 - **Server validation**, in this order:
   1. **Ignored** (no reply): the sender isn't the session's player on their owner socket, `runId` isn't the

@@ -1,3 +1,8 @@
+import { RetroClient } from './retro/client';
+import { games as retroGames } from '../../shared/retro/games';
+import { emptyBoards as emptyRetroBoards } from '../../shared/retro/boards';
+import type { RetroCabinet } from '../../shared/protocol';
+import type { FrameBatch } from './retro/player';
 // WebSocket client + the client-side mirror of server state.
 import mapJson from '../../shared/tilemap.json';
 import { applyLayout, besideObject, doorwayTiles, isWalkable, objectById, pathTo, roomAt, sampleMove, type Dir, type Tile, type TileMap } from '../../shared/map';
@@ -78,7 +83,12 @@ export class Store {
   jukeboxOpen: string | null = null;
   private jukeboxReady = false;
   park: ParkLoop | null = null;
-  gameOpen = false;
+  arcadeOpen = false;
+  retroClient = new RetroClient(this);
+  get retro() { return this.retroClient.view; }
+  get gameOpen() { return this.arcadeOpen || !!this.retro; }
+  retroCabinets: RetroCabinet[] = [];
+  retroBoards = emptyRetroBoards('');
   cabinets: CabinetSummary[] = [];
   arcadeRecords: ParkRecords = {};
   arcadeBoards: ArcadeBoards = { records: {}, week: emptyWeek(''), hall: [] };
@@ -125,12 +135,12 @@ export class Store {
     ws.onopen = () => { this.connected = true; this.emit(); };
     ws.onmessage = (e) => this.onMessage(JSON.parse(e.data));
     ws.onclose = (e) => {
-      this.clearInstruments(); this.park?.runner.setLocalBits(0); this.cabinets = []; this.connected = false; this.voiceOwner = false; this.jukebox = {}; this.jukeboxReady = false; this.soundscape?.resetCrossings(); this.emit();
+      this.retroClient.socketLost(); this.retroCabinets = []; this.clearInstruments(); this.park?.runner.setLocalBits(0); this.cabinets = []; this.connected = false; this.voiceOwner = false; this.jukebox = {}; this.jukeboxReady = false; this.soundscape?.resetCrossings(); this.emit();
       if (e.code === 4001) return this.onUnauthorized();
       if (!this.closed) setTimeout(() => this.connect(), 1500);
     };
   }
-  close() { this.closed = true; this.clearInstruments(); this.park?.runner.setLocalBits(0); this.cabinets = []; this.connected = false; this.voiceOwner = false; this.jukebox = {}; this.jukeboxReady = false; this.soundscape?.resetCrossings(); this.emit(); this.ws?.close(); }
+  close() { this.closed = true; this.retroClient.destroy(); this.retroCabinets = []; this.clearInstruments(); this.park?.runner.setLocalBits(0); this.cabinets = []; this.connected = false; this.voiceOwner = false; this.jukebox = {}; this.jukeboxReady = false; this.soundscape?.resetCrossings(); this.emit(); this.ws?.close(); }
   send(msg: ClientMsg) { if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(msg)); }
 
   private clearInstruments() {
@@ -151,10 +161,13 @@ export class Store {
   }
   // ---------- actions ----------
   openRecords(open = true) { this.recordsOpen = open; this.emit(); }
+  retroFrames(batch: FrameBatch) { this.send(batch); }
+  retroLeave() { this.retroClient.leave(); }
+  retroResync() { this.send({ t: 'retro_resync' }); }
   gamePlay() { const s = this.park?.runner.session; if (s) this.send({ t: 'game_play', epoch: s.epoch }); }
   gameLeave() {
     this.send({ t: 'game_leave' }); this.park?.receive({ t: 'game_session', session: null });
-    this.gameOpen = false; this.gameCheers.clear(); this.emit();
+    this.arcadeOpen = false; this.gameCheers.clear(); this.emit();
   }
   gameMenu(op: 'lobby' | 'restart') {
     const s = this.park?.runner.session; if (s) this.send({ t: 'game_menu', epoch: s.epoch, op });
@@ -162,8 +175,14 @@ export class Store {
   crewName(name: string) { this.send({ t: 'crew_name', name }); }
   gamePredict(userId: string) { const s = this.park?.runner.session; if (s) this.send({ t: 'game_predict', epoch: s.epoch, userId }); }
   gameFavourite(userId: string) { const s = this.park?.runner.session; if (s) this.send({ t: 'game_favourite', epoch: s.epoch, userId }); }
-  gameCheer(kind: 0 | 1 | 2) { if (this.gameOpen && this.connected) this.send({ t: 'game_cheer', kind }); }
+  gameCheer(kind: 0 | 1 | 2) { if (this.arcadeOpen && this.connected) this.send({ t: 'game_cheer', kind }); }
   gameDescription(cabinet: string, userId?: string) {
+    const retro = this.retroCabinets.find(s => s.cabinet === cabinet);
+    if (retro) {
+      const title = retro.game === 'tobu' ? 'Tobu Tobu Girl' : retroGames[retro.game].title;
+      if (!retro.player) return `At the ${title} cabinet`;
+      return userId && this.users.get(userId)?.game?.role === 'spectator' ? `Watching ${this.name(retro.player)} play ${title}` : `Playing ${title}`;
+    }
     const s = this.cabinets.find(s => s.cabinet === cabinet);
     if (!s) return 'Arcade · click to play';
     const game = s.game === 'hub' ? 'Arcade hub' : gameDef(s.game).name;
@@ -472,10 +491,15 @@ export class Store {
         this.build ??= msg.build;
         this.sendTz();
         break;
+      case 'retro_session': this.retroClient.session(msg.view, msg.reason); break;
+      case 'retro_frames': this.retroClient.receiveFrames(msg); return;
+      case 'retro_result': this.retroClient.receiveResult(msg); return;
+      case 'retro_cabinets': this.retroCabinets = msg.cabinets; break;
+      case 'retro_boards': this.retroBoards = msg.boards; break;
       case 'game_session':
-        if (msg.session) { this.gameOpen = true; this.gameCheers.clear(); }
+        if (msg.session) { this.arcadeOpen = true; this.gameCheers.clear(); }
         else {
-          this.gameOpen = false; this.gameCheers.clear();
+          this.arcadeOpen = false; this.gameCheers.clear();
           if (msg.reason) this.toast({ kind: 'info', text: msg.reason === 'empty' ? 'Everyone left' : 'Playing in another tab', expires: 6000 });
         }
         this.park?.receive(msg);
@@ -488,7 +512,7 @@ export class Store {
       case 'game_cheer':
         if (msg.kind >= 0 && msg.kind <= 2) {
           this.gameCheers.set(msg.userId, { kind: msg.kind as 0 | 1 | 2, at: performance.now() });
-          if (this.gameOpen) playPark('cheer');
+          if (this.arcadeOpen) playPark('cheer');
         }
         return;
       case 'arcade': this.cabinets = msg.cabinets; break;
