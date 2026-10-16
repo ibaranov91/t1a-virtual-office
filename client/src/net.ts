@@ -521,6 +521,7 @@ export class Store {
       case 'note': this.soundscape?.receiveNote(msg.id, msg.by, msg.note, msg.on, msg.vel, msg.preset, msg.at); return;
       case 'jukebox': if (this.jukeboxReady) this.jukebox = { ...this.jukebox, [msg.id]: msg.state }; break;
       case 'object': this.objects = { ...this.objects, [msg.id]: { on: msg.on } }; break;
+      case 'present_open': this.presentOpen = msg.objectId; break;
       case 'bell': {
         const me = this.users.get(this.me), by = this.users.get(msg.userId);
         if (me?.instance || by?.instance) break;

@@ -184,7 +184,6 @@ const FRIDGE = { kind: 'take', items: [{ id: 'snack', label: 'Snack', icon: 'ðŸ¥
 
 // outer windows & wall decor
 for (const wx of [3, 9, 29, 36]) obj('window', wx, 1, 2, 2, { wall: true });
-obj('whiteboard', 18, 1, 3, 2, { wall: true });
 obj('painting', 23, 1, 1, 2, { wall: true });
 obj('noticeboard', 2, 12, 2, 1, { wall: true, use: { kind: 'achievements', label: 'achievements' } });
 obj('painting_small', 10, 12, 1, 1, { wall: true });
@@ -314,8 +313,8 @@ obj('keyboard', 55, 4, 2, 1, { use: { kind: 'instrument', instrument: 'keys', la
 obj('drum_kit', 58, 4, 2, 2, { use: { kind: 'instrument', instrument: 'drums', label: 'drums' } });
 obj('bass_amp', 61, 4, 1, 1, { use: { kind: 'instrument', instrument: 'bass', label: 'bass' } });
 
-// the Meeting room's wall screen: upload slides (PIN) and present them to the room (appended, same reason)
-obj('screen', 21, 1, 2, 2, { wall: true, use: { kind: 'presentation', label: 'screen' } });
+// the Meeting room's one board (the old whiteboard's spot is part of it): upload slides (PIN) and present them to the room (appended, same reason)
+obj('screen', 18, 1, 5, 2, { wall: true, use: { kind: 'presentation', label: 'screen' } });
 // the Admin room and Berghain (last, so earlier object ids stay put)
 obj('window', 71, 1, 2, 2, { wall: true });
 for (const y of [3, 7]) for (let x = 65; x <= 69; x++) obj('server_rack', x, y);

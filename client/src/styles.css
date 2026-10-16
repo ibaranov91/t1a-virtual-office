@@ -616,5 +616,10 @@ button:focus-visible, summary:focus-visible, input[type="range"]:focus-visible {
 .watch-head span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .watch-foot { justify-content: flex-end; }
 .watch-slide { min-height: 0; display: grid; place-items: center; background: #000; }
+.watch-slide { position: relative; }
+.watch-pip { position: absolute; right: 10px; bottom: 6px; width: 48px; height: auto; image-rendering: pixelated; filter: drop-shadow(0 2px 0 rgba(0,0,0,.5)); transform-origin: 50% 100%; animation: pip-hop .45s ease-out, pip-sway 2.4s ease-in-out .45s infinite; }
+@keyframes pip-hop { 0% { transform: translateY(0); } 35% { transform: translateY(-10px) rotate(-4deg); } 100% { transform: translateY(0); } }
+@keyframes pip-sway { 0%, 100% { transform: rotate(-2deg); } 50% { transform: rotate(2deg) translateY(-1px); } }
+@media (prefers-reduced-motion: reduce) { .watch-pip { animation: none; } }
 .watch-slide img { max-width: 100%; max-height: calc(80vh - 80px); object-fit: contain; display: block; }
 @media (max-width: 700px) { .watch-modal { width: calc(100% - 16px); } }

@@ -40,7 +40,7 @@ const STATE_FILE = new URL('state.json', DATA);
 const map: TileMap = JSON.parse(readFileSync(new URL('../../shared/tilemap.json', import.meta.url), 'utf8'));
 const world = new World(map);
 const DECKS_DIR = fileURLToPath(new URL('decks/', DATA));
-world.present = new Presenter(DECKS_DIR, map, msg => world.broadcast(msg));
+world.present = new Presenter(DECKS_DIR, map, msg => world.broadcast(msg), (id, obj, settled) => world.isBeside(id, obj, settled));
 const sessions = new Map<string, string>(); // session id -> user id
 
 const BACKUPS = new URL('backups/', DATA);

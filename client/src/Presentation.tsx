@@ -2,8 +2,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { drawText, textWidth } from './font';
 import { MAP, type Store } from './net';
+import type { Assets } from './assets';
 import { PdfError, renderPdf } from './pdfSlides';
-import { seatAt } from '../../shared/map';
 import { PRESENT_AWAY_MS, PRESENT_MAX_BYTES, PRESENT_MAX_SLIDES, slideUrl, type DeckInfo } from '../../shared/protocol';
 
 /** Chunky text in the office's own 3×5 pixel font, with a hard drop shadow. */
@@ -100,7 +100,7 @@ export function PresentPanel({ store, id }: { store: Store; id: string }) {
 const SCORES = ['GRAPHICS', 'SOUND', 'GAMEPLAY', 'SLIDES'];
 
 /** The slides as a page out of a 90s games magazine. The presenter turns pages with ← →. */
-export function SlideOverlay({ store }: { store: Store }) {
+export function SlideOverlay({ store, assets }: { store: Store; assets?: Assets | null }) {
   const live = store.presentation!, deck = live.deck, mine = live.presenter === store.me;
   const n = live.slide + 1, total = deck.count;
   const [awaySince, setAwaySince] = useState<number | null>(null);
@@ -129,7 +129,10 @@ export function SlideOverlay({ store }: { store: Store }) {
           <span><b className="live-dot">● LIVE</b> {deck.title} · {presenter}</span>
           <button type="button" className="ghost" onClick={() => store.hideSlides(true)} aria-label="Close">×</button>
         </div>
-        <div className="watch-slide"><img key={n} src={slideUrl(deck, live.slide)} alt={`Slide ${n} of ${total}`} draggable={false} /></div>
+        <div className="watch-slide">
+          <img key={n} src={slideUrl(deck, live.slide)} alt={`Slide ${n} of ${total}`} draggable={false} />
+          <PresenterPip store={store} assets={assets} slide={live.slide} />
+        </div>
         <div className="watch-foot">
           {live.away && <span className="mag-away">{presenter} lost connection · ends in {left}s</span>}
           <span className="mag-page">{n} / {total}</span>
@@ -197,23 +200,19 @@ export function LiveChip({ store, onGo }: { store: Store; onGo: (room: string) =
   );
 }
 
-/** Sitting down on a chair in the screen's room while slides are up asks whether to watch. Standing up closes them. */
+/** Standing still in the screen's room while slides are up asks once per deck whether to watch. Leaving the room closes them. */
 export function WatchPrompt({ store }: { store: Store }) {
   const [ask, setAsk] = useState(false);
-  const asked = useRef<string | null>(null), seated = useRef(false);
+  const asked = useRef<string | null>(null);
   useEffect(() => {
     const tick = () => {
       const live = store.presentation, me = store.users.get(store.me);
-      if (!live || !me || me.bot || live.presenter === me.id) { asked.current = null; seated.current = false; setAsk(false); return; }
-      const p = store.pose(me), inRoom = store.inPresentationRoom();
-      const seat = !p.walking && inRoom ? seatAt(MAP, p.tile.x, p.tile.y) : null;
-      if (seat?.type === 'chair') {
-        seated.current = true;
-        const key = `${live.deck.id}@${seat.x},${seat.y}`;
-        if (asked.current !== key) { asked.current = key; if (store.slidesHidden) setAsk(true); }
-      } else if (seated.current || !inRoom) {
+      if (!live || !me || me.bot || live.presenter === me.id) { asked.current = null; setAsk(false); return; }
+      if (store.inPresentationRoom()) {
+        if (!store.pose(me).walking && asked.current !== live.deck.id) { asked.current = live.deck.id; if (store.slidesHidden) setAsk(true); }
+      } else {
         if (!store.slidesHidden) store.hideSlides(true);
-        seated.current = false; asked.current = null; setAsk(false);
+        asked.current = null; setAsk(false);
       }
     };
     tick();
@@ -229,4 +228,20 @@ export function WatchPrompt({ store }: { store: Store }) {
       <button className="ghost" onClick={() => setAsk(false)}>Not now</button>
     </div>
   );
+}
+
+/** The presenter in the slides' corner: swaying a little, and a hop whenever they turn the page. */
+function PresenterPip({ store, assets, slide }: { store: Store; assets?: Assets | null; slide: number }) {
+  const ref = useRef<HTMLCanvasElement>(null);
+  const live = store.presentation, u = live && store.users.get(live.presenter);
+  useEffect(() => {
+    const canvas = ref.current;
+    if (!canvas || !assets || !u) return;
+    const f = assets.atlas.character, ctx = canvas.getContext('2d')!;
+    canvas.width = f.frameW; canvas.height = f.frameH;
+    ctx.clearRect(0, 0, f.frameW, f.frameH);
+    ctx.drawImage(assets.sheet(u.look), 0, 0, f.frameW, f.frameH, 0, 0, f.frameW, f.frameH); // facing us, standing
+  }, [assets, u?.look]);
+  if (!u || !assets) return null;
+  return <canvas ref={ref} key={slide} className="watch-pip" aria-hidden />;
 }
