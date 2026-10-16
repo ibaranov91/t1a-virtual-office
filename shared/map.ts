@@ -67,8 +67,11 @@ export interface MapObject {
   sit?: boolean; // a sofa: blocks walking, but every tile is a seat facing `dir`, reached from the tile in front
 }
 /** A rug, drawn over the floor (9-slice). Never blocks. */
-export interface Rug { id: string; color: string; x: number; y: number; w: number; h: number }
+export interface Rug { id: string; color: string; pattern?: string; x: number; y: number; w: number; h: number } // pattern: one of RUG_PATTERNS, diamond when missing
 export const RUG_COLORS = ['green', 'blue', 'orange', 'red', 'teal', 'burgundy'] as const;
+export const RUG_PATTERNS = ['diamond', 'stripes', 'checks', 'dots', 'zigzag', 'plaid', 'plain'] as const;
+/** The atlas frame of one rug tile (`part` is n, se, c…); diamond keeps the original frame names. */
+export const rugFrame = (r: Pick<Rug, 'color' | 'pattern'>, part: string) => !r.pattern || r.pattern === 'diamond' ? `rug_${r.color}_${part}` : `rug_${r.color}_${r.pattern}_${part}`;
 /** What office admins can rearrange: the furniture and the rugs. Walls, floors and rooms stay as generated. */
 export interface Layout { objects: MapObject[]; rugs: Rug[] }
 /** A kind of object an admin can add: everything but its id and position. */
@@ -412,9 +415,10 @@ export function applyEdit(m: TileMap, edit: LayoutEdit, newId: () => string): La
       const r = edit.op === 'rug' ? rugs.find(r => r.id === edit.id) : { id: newId(), color: 'green', x: edit.x, y: edit.y, w: 3, h: 2 };
       if (!r) return 'it\'s gone';
       if (edit.color !== undefined) r.color = edit.color;
+      if (edit.pattern !== undefined) r.pattern = edit.pattern;
       if (edit.w !== undefined) r.w = edit.w;
       if (edit.h !== undefined) r.h = edit.h;
-      if (!(RUG_COLORS as readonly string[]).includes(r.color)) return 'no such rug';
+      if (!(RUG_COLORS as readonly string[]).includes(r.color) || (r.pattern !== undefined && !(RUG_PATTERNS as readonly string[]).includes(r.pattern))) return 'no such rug';
       if (!int(r.x) || !int(r.y) || !int(r.w) || !int(r.h) || r.w < RUG_MIN || r.h < RUG_MIN || r.w > RUG_MAX || r.h > RUG_MAX) return 'bad rug size';
       if (edit.op === 'rug_add') rugs.push(r);
       break;

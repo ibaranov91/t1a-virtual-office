@@ -33,6 +33,9 @@ export interface Flying { fromId: string; toId: string; emoji: string; at: numbe
 /** Item id -> what it looks like, from whatever the map's objects hand out. */
 export const ITEMS = new Map(MAP.objects.flatMap(o => (o.use?.kind === 'take' ? o.use.items : [])).map(i => [i.id, i]));
 
+/** An admin's portal trip: a portal opens at `from`, they step in, one opens at `to`, they step out (timeline in engine.ts). `at` is performance.now(). */
+export const PORTAL_MS = 2200; // the whole trip, see engine.ts
+export interface PortalFx { userId: string; from: Tile; to: Tile; at: number }
 export interface DungeonFx { kind: 'fall' | 'land' | 'climb'; user: ClientUser; tile: Tile; at: number }
 
 export interface Pose { x: number; y: number; dir: Dir; walking: boolean; tile: Tile }
@@ -92,6 +95,8 @@ export class Store {
   version = 0;    // bumps on any change, including scene-only ones (the engine reads the store every frame)
   uiVersion = 0;  // bumps only when React chrome has something new to show
   admin = false;      // may rearrange the office (and is a GM: may put effects on anyone)
+  sysadmin = false;   // may also walk into the Admin room
+  portalFx: PortalFx[] = [];
   items: string[] = []; // my inventory (what the bouncer sold me)
   layoutVersion = 0;  // bumps whenever the furniture changes; the engine redraws the floor
   added: string | null = null; // the thing I just added, to select it
@@ -254,6 +259,7 @@ export class Store {
   /** Put an effect on someone (yourself, or anyone if you're a GM), or take it off. */
   gmItems = new Map<string, string[]>(); // GM only: pockets of the people I looked at
   requestGmItems(targetId: string) { this.send({ t: 'gm_items', targetId }); }
+  teleport(targetId: string) { this.send({ t: 'teleport', targetId }); }
   giftHat(targetId: string, style: string) { this.send({ t: 'gift_hat', targetId, style }); }
   setEffect(targetId: string, kind: string, on: boolean, style?: string) { this.send({ t: 'effect', targetId, kind, on, style }); }
   setPresence(presence: 'online' | 'away' | 'in_call') { this.send({ t: 'presence', presence }); }
@@ -564,13 +570,18 @@ export class Store {
         if (this.google === null && msg.google) this.toast({ kind: 'info', text: `Google connected as ${msg.google}`, hint: 'Calls you start now get their own Meet room', expires: 6000 });
         if (!this.calendarAccess && msg.calendar && this.google) this.toast({ kind: 'info', text: 'Google Calendar connected', expires: 4000 });
         const calendarNow = !!msg.calendar && !this.calendarAccess;
-        this.meetLink = msg.meetLink; this.email = msg.email ?? null; this.google = msg.google; this.calendarAccess = !!msg.calendar; this.admin = !!msg.admin; this.items = msg.items ?? [];
+        this.meetLink = msg.meetLink; this.email = msg.email ?? null; this.google = msg.google; this.calendarAccess = !!msg.calendar; this.admin = !!msg.admin; this.sysadmin = !!msg.sysadmin; this.items = msg.items ?? [];
         if (msg.google !== null) this.googleAuthUrl = null;
         if (this.calendarAccess) this.calendarAuthUrl = null;
         if (calendarNow && this.calendarOpen) this.loadCalendar(); // just granted from the open panel
         break;
       }
       case 'gm_items': this.gmItems.set(msg.targetId, msg.items); break;
+      case 'teleport': {
+        const at = performance.now();
+        this.portalFx = [...this.portalFx.filter(f => at - f.at < PORTAL_MS && f.userId !== msg.userId), { userId: msg.userId, from: msg.from, to: msg.to, at }];
+        break;
+      }
       case 'agenda': {
         this.agenda = msg.items;
         const keys = new Set(msg.items.map(a => a.key)); // cancelled or declined: drop its heads-up
