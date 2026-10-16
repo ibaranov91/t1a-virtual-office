@@ -525,5 +525,7 @@ export function migrateBeach(saved: Layout, base: Layout, m: TileMap): Layout {
 export function resetBeach(saved: Layout, base: Layout, m: TileMap): Layout {
   const wing = m.rooms.filter(r => r.id === 'beach' || r.id === 'mountains');
   const inWing = (o: MapObject) => wing.some(r => inRect(r.rect, o.x, o.y));
-  return uniqueIds({ objects: [...saved.objects.filter(o => !inWing(o)), ...structuredClone(base.objects.filter(inWing))], rugs: saved.rugs }, base);
+  // everything saved south of the building goes, including furniture an older, taller wing put on rows that are sea now
+  const top = Math.min(...wing.map(r => r.rect.y)), south = (o: MapObject) => !o.wall && o.y >= top;
+  return uniqueIds({ objects: [...saved.objects.filter(o => !south(o)), ...structuredClone(base.objects.filter(inWing))], rugs: saved.rugs }, base);
 }

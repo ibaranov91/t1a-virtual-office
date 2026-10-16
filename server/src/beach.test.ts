@@ -149,12 +149,12 @@ test('lie furniture has one reachable seat per object', () => {
     assert.equal(seats, 1);
   }
 });
-test('version 2 migrates wing furniture once; version 4 preserves removed and moved props', t => {
+test('version 2 migrates wing furniture once; version 5 preserves removed and moved props', t => {
   const { w } = people(t), old = w.dump(); old.version = 2;
   old.layout = { objects: old.layout?.objects ?? w.layout().objects.filter(o => !inWing(w.map, o.x, o.y)), rugs: w.map.rugs };
   const migrated = new World(structuredClone(map)); migrated.load(old);
   assert.equal(migrated.map.objects.filter(o => o.type === 'lounger').length, 4);
-  const next = migrated.dump(); assert.equal(next.version, 4);
+  const next = migrated.dump(); assert.equal(next.version, 5);
   next.layout!.objects = next.layout!.objects.filter(o => o.type !== 'hammock');
   const restored = new World(structuredClone(map)); restored.load(next);
   assert.equal(restored.map.objects.filter(o => o.type === 'lounger').length, 4);
@@ -202,7 +202,7 @@ test('bar pauses three seconds, takes a current bar item and goes straight to th
   assert.ok(map.vacation!.pierEnds.some(t => t.x === u.move?.to.x && t.y === u.move?.to.y));
 });
 
-test('version 3 resets six old loungers once; version 4 preserves the saved wing', t => {
+test('version 3 resets six old loungers once; version 5 preserves the saved wing', t => {
   const { w, u } = people(t);
   const saved = w.dump(); saved.version = 3;
   saved.layout = structuredClone(w.layout());
@@ -215,9 +215,36 @@ test('version 3 resets six old loungers once; version 4 preserves the saved wing
   const reset = new World(structuredClone(map)); reset.load(saved);
   assert.equal(reset.map.objects.filter(o => o.type === 'lounger').length, 4);
   assert.deepEqual(reset.users.get(u.id)!.tile, map.spawn);
-  assert.equal(reset.dump().version, 4);
-  saved.version = 4; saved.users.find(p => p.id === u.id)!.tile = map.spawn;
+  assert.equal(reset.dump().version, 5);
+  saved.version = 5; saved.users.find(p => p.id === u.id)!.tile = map.spawn;
   const preserved = new World(structuredClone(map)); preserved.load(saved);
   assert.equal(preserved.map.objects.filter(o => o.type === 'lounger').length, 6);
   assert.deepEqual(preserved.layout(), saved.layout);
+});
+
+test('version 4 resets mountain props once and version 5 preserves subsequent edits', t => {
+  const { w } = people(t), saved = w.dump(); saved.version = 4;
+  saved.layout = structuredClone(w.layout());
+  saved.layout.objects = saved.layout.objects.filter(o => o.type !== 'pine');
+  saved.layout.objects.find(o => o.type === 'summit_flag')!.x = 18;
+  const reset = new World(structuredClone(map)); reset.load(saved);
+  assert.deepEqual(reset.map.objects.filter(o => o.type === 'pine').map(o => [o.x, o.y]), [[2, 37], [1, 39], [23, 36]]);
+  assert.equal(reset.map.objects.find(o => o.type === 'summit_flag')!.x, 12);
+  const next = reset.dump(); assert.equal(next.version, 5);
+  next.layout!.objects = next.layout!.objects.filter(o => o.type !== 'pine');
+  const restored = new World(structuredClone(map)); restored.load(next);
+  assert.equal(restored.map.objects.some(o => o.type === 'pine'), false);
+});
+
+test('version 4 reset removes the old row-43 pines without losing office layout edits', t => {
+  const { w } = people(t), saved = w.dump(); saved.version = 4;
+  saved.layout = structuredClone(w.layout());
+  const removed = saved.layout.objects.find(o => o.type === 'plant')!;
+  saved.layout.objects = saved.layout.objects.filter(o => o.id !== removed.id && o.type !== 'pine');
+  for (const x of [4, 10, 16, 20])
+    saved.layout.objects.push({ id: `old-pine-${x}`, type: 'pine', x, y: 43, w: 1, h: 1 });
+  const restored = new World(structuredClone(map)); restored.load(saved);
+  assert.equal(restored.map.objects.some(o => o.id === removed.id), false, 'reset must preserve the removed office plant');
+  assert.equal(restored.map.objects.some(o => o.id.startsWith('old-pine-')), false);
+  assert.deepEqual(restored.map.objects.filter(o => o.type === 'pine').map(o => [o.x, o.y]), [[2, 37], [1, 39], [23, 36]]);
 });

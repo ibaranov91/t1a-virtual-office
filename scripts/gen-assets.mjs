@@ -4,7 +4,7 @@
 // Run: node scripts/gen-assets.mjs
 import { writeFileSync } from 'node:fs';
 import { deflateSync } from 'node:zlib';
-import { mountainFloor, mountainLevel } from './mountain-terrain.mjs';
+import { mountainFloor, mountainPixel } from './mountain-terrain.mjs';
 
 // ---------- tiny RGBA canvas ----------
 const hex = (h) => {
@@ -2068,60 +2068,14 @@ for (const [game, accent] of [['tobu', '#cf82ae'], ['lobster', '#bd524a']]) {
     t.vline(10, 3, 10, '#d4e2d9'); t.px(9, 2, '#d4e2d9'); t.rect(9, 12, 2, 2, '#c86756'); t.px(10, 14, '#eee8cc'); t.rect(2, 12, 2, 3, '#725b45');
   });
 
-  // Top-down terraces: the horizontal surfaces are actual walkable map tiles.
-  // Cliff faces occupy the separating rows, with stair tiles cut into them.
-  const tops = ['#93a673', '#acb18b', '#c0bea5'];
-  const faces = ['#88775d', '#968569', '#a5967c'];
-  for (let y = 34; y <= 43; y++) for (let x = 1; x <= 24; x++) {
-    const surface = mountainFloor(x, y), level = mountainLevel(y) - 1;
-    if (surface === 'snow') continue;
-    make(surface === 'valley' ? `grass_mtn_${x}_${y}` : surface ? `trail_mtn_${x}_${y}` : `mtn_${x}_${y}`, 16, 16, t => {
-      const above = mountainFloor(x, y - 1), below = mountainFloor(x, y + 1);
-      const left = mountainFloor(x - 1, y), right = mountainFloor(x + 1, y);
-      const front = !surface && above;
-      for (let j = 0; j < 16; j++) for (let i = 0; i < 16; i++) {
-        const px = x * 16 + i, py = y * 16 + j, h = grain(px, py, 131);
-        let color = tops[level];
-        if (surface === 'valley') {
-          color = '#768d5c';
-          if (h % 17 === 0) color = '#8da76a';
-          if (h % 37 === 0) color = '#637b4f';
-        } else if (surface === 'stairs') {
-          // Six shallow treads, recessed between two stone cheeks.
-          color = j % 3 === 0 ? '#d3d1b1' : j % 3 === 1 ? '#a6ab8b' : '#626f60';
-          if (i < 2 || i > 13) color = i < 2 ? '#c0c4a5' : '#596757';
-        } else if (surface) {
-          if (h % 47 === 0) color = '#c7c8aa';
-          if (h % 71 === 0) color = '#7c886e';
-          // Short, horizontal mineral seams keep the top distinct from the face.
-          if ((py + Math.floor(px / 21) * 3) % 19 === 0 && px % 21 < 5) color = '#929c7f';
-          if (!below && j > 13) color = j === 14 ? '#d0cfad' : '#6e7b62';
-          if ((!left && i === 0) || (!right && i === 15)) color = '#d0cfad';
-          if (level === 0 && h % 37 === 0) color = '#a6b37a';
-        } else {
-          // Continuous strata and vertical fissures form solid, climbable terrain.
-          const seam = (py + Math.floor(px / 29) * 3) % 13;
-          color = faces[level];
-          if (seam === 0 && px % 29 < 18) color = '#b1a084';
-          if (seam === 1 && px % 29 < 17) color = '#74664f';
-          const crack = (px + Math.floor(py / 4)) % 31;
-          if (crack < 2 && py % 19 < 11) color = '#6c604c';
-          if (crack === 2 && py % 19 < 10) color = '#b4a58b';
-          if (front) {
-            const lip = 1 + grain(Math.floor(px / 3), y, 23) % 3;
-            if (j < lip) color = j === 0 ? '#d0cfad' : '#a1ac7d';
-            if (j > 12) color = j === 15 ? '#514c3c' : '#6e624b';
-          }
-          // The uphill side of a shelf is darkened where it meets the rock.
-          if (below && j > 13) color = '#4f604b';
-          if (level === 0 && j > 10 && h % 13 === 0) color = '#849d60';
-        }
-        t.px(i, j, color);
-      }
-      // A few embedded stones, never large pictorial mountain silhouettes.
-      if (surface === 'terrace' && grain(x, y, 97) % 5 === 0) {
-        t.hline(5, 8, 4, '#7d8b6e'); t.hline(6, 7, 3, '#d0cfb1');
-      }
+  // All frames sample one world-space picture, including the diagonal edge tiles.
+  for (let y = 34; y <= 39; y++) for (let x = 1; x <= 24; x++) {
+    const surface = mountainFloor(x, y);
+    const name = surface === 'snow' ? `snow_${x === 12 ? 0 : 1}` :
+      surface === 'meadow' ? `grass_mtn_${x}_${y}` : surface ? `trail_mtn_${x}_${y}` : `mtn_${x}_${y}`;
+    make(name, 16, 16, t => {
+      for (let j = 0; j < 16; j++) for (let i = 0; i < 16; i++)
+        t.px(i, j, mountainPixel(x * 16 + i, y * 16 + j));
     }, false);
   }
 }

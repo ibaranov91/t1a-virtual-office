@@ -59,7 +59,7 @@ const knockCall = (c?: Call) => !!c && !c.room;
 interface Instance { id: string; end: number; members: Set<string>; talk: Set<string>; out: Set<string>; meet?: string; meetBusy?: boolean } // talk: on the room's voice (private rooms: everyone, calendar meetings: who opted in); out: left it on purpose; meet: the room's shared Meet link
 
 // data/state.json format; bump it with a migration in load that checks data.version
-export const STATE_VERSION = 4;
+export const STATE_VERSION = 5;
 const WALK_HOME_AFTER_MS = 5 * 60_000; // back within this: return to where you were, else your home desk
 
 const { skin: SKINS, hair: HAIRS, shirt: SHIRTS, pants: PANTS } = LOOK_COLORS;
@@ -2286,6 +2286,7 @@ export class World {
       let migrated = migrateBookClub(migrateLibrary(migrateEastWing({ objects, rugs }, this.baseLayout), this.baseLayout, this.map), this.baseLayout, this.map);
       if (version < 3) migrated = migrateBeach(migrated, this.baseLayout, this.map);
       if (version < 4) migrated = resetBeach(migrated, this.baseLayout, this.map);
+      if (version < 5) migrated = resetBeach(migrated, this.baseLayout, this.map);
       const merged = this.withNewFixtures(migrated);
       // ids saved by an older build can clash with this one's (a plant and the safe were both o57): each gets its own,
       // and the next save keeps it
