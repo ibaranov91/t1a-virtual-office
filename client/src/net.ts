@@ -1,3 +1,4 @@
+import { rulesForMode, type RoomMode, type RoomModes } from '../../shared/roomModes';
 import { onMap } from '../../shared/beach';
 import { TABLE_GAMES, type TableView, type TableGameId } from '../../shared/table/types';
 import { playTable } from './sounds';
@@ -20,6 +21,7 @@ import type { Soundscape } from './soundscape';
 import { bestOffset, clockSample, CLOCK_SAMPLES, type ClockSample } from './clockSync';
 
 export const MAP = mapJson as unknown as TileMap;
+const baseRoomRules = Object.fromEntries(MAP.rooms.map(r => [r.id, { ...r.rules }]));
 
 export interface ClientUser extends PublicUser {
   path: Tile[] | null;
@@ -456,6 +458,11 @@ export class Store {
   openRoom(on: boolean) { this.roomOpen = on; this.emit(); }
   createRoom(invite: string[], title?: string) { this.send({ t: 'room_create', title: title?.trim() || undefined, invite }); this.roomOpen = false; this.emit(); }
   inviteToRoom(userIds: string[]) { this.send({ t: 'room_invite', userIds }); this.roomOpen = false; this.emit(); }
+  setRoomMode(roomId: string, mode: RoomMode) { this.send({ t: 'room_mode', roomId, mode }); }
+  private applyRoomModes(modes: RoomModes = {}) {
+    for (const room of MAP.rooms) room.rules = rulesForMode(baseRoomRules[room.id], modes[room.id]);
+    this.layoutVersion++; // room doors, their sounds and OPEN VOICE wall signs follow the rules too
+  }
   roomVoice(on: boolean) { this.send({ t: 'room_voice', on }); }
   useRoomMeet() { this.send({ t: 'room_meet' }); }
   /** Is my voice on this meeting room's call? */
@@ -639,7 +646,9 @@ export class Store {
       case 'call_moved':
         this.toast({ kind: 'call_moved', roomId: msg.roomId, text: `${this.name(msg.userId).split(' ')[0]} went into ${MAP.rooms.find(r => r.id === msg.roomId)?.name ?? msg.roomId}`, expires: 15000 });
         break;
+      case 'room_modes': this.applyRoomModes(msg.modes); break;
       case 'state': {
+        this.applyRoomModes(msg.roomModes);
         // until the clock pings answer: a message can't arrive before it was sent, so each reading is a lower bound, and the
         // big snapshot takes longer on a slow link than the hello just before it, so keep the tighter one
         if (!this.clockSync.synced) this.offset = Math.max(this.offset, msg.serverTime - Date.now());

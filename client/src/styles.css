@@ -1315,3 +1315,12 @@ button:focus-visible, summary:focus-visible, input[type="range"]:focus-visible {
 @keyframes hover-card-in { from { opacity: 0; transform: scale(.96); } to { opacity: 1; transform: scale(1); } }
 @media (prefers-reduced-motion: reduce) { .hover-card { animation: none; } }
 @media (max-width: 560px), (max-height: 500px), (hover: none) { .hover-card-anchor { display: none; } }
+
+.sb-room-modes { display: grid; gap: 6px; border-top: 1px solid var(--line); padding-top: 12px; }
+.sb-room-modes > b { font-size: var(--fs-sm); font-weight: var(--fw-medium); color: var(--muted); margin-bottom: 2px; }
+.sb-room-modes [role=menuitemradio] { text-align: left; background: transparent; color: var(--text); }
+.sb-room-modes [role=menuitemradio]:hover { background: var(--panel2); }
+.sb-room-modes [aria-checked=true] { background: var(--panel2); }
+.sb-room-modes [role=menuitemradio] span { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.sb-room-modes [aria-checked=true] span { color: var(--accent); }
+.sb-room-modes small { display: block; color: var(--muted); font-size: var(--fs-sm); font-weight: var(--fw-regular); margin-top: 3px; }

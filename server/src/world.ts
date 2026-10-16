@@ -1,3 +1,4 @@
+import { isRoomMode, roomMode, rulesForMode, type RoomModes } from '../../shared/roomModes';
 import { BannerStore, BannerError, validateBanner } from './banners';
 import type { Banner } from '../../shared/protocol';
 import { randomUUID } from 'node:crypto';
@@ -171,6 +172,8 @@ export class World {
   private petDays = new Map<string, { day: number; kinds: Set<string> }>(); // who has petted what today (memory only)
   private batTries = new Map<string, number>();                             // last try at the bat, per person
   build?: string; // sent in hello so open pages reload after a deploy
+  private roomModes: RoomModes = {};
+  private baseRoomRules: Record<string, Room['rules']>;
   private baseLayout: Layout;     // as generated, for Reset
   private layoutEdited = false;   // saved only once someone has changed it
   private editSeq = 0;
@@ -211,6 +214,7 @@ export class World {
     this.retro = new Retro({ ...retroFiles, now: () => Date.now(), send: (id, msg) => this.sendOwner(id, msg),
       broadcast: msg => this.broadcast(msg), user: id => this.users.get(id),
       cabinets: map.objects.flatMap(o => o.use?.kind === 'retro' ? [{ id: o.id, game: o.use.game }] : []) });
+    this.baseRoomRules = Object.fromEntries(map.rooms.map(r => [r.id, { ...r.rules }]));
     this.baseLayout = structuredClone({ objects: map.objects, rugs: map.rugs });
     for (const o of map.objects) if (o.use?.kind === 'toggle') this.objectOn.set(o.id, o.on ?? true);
     this.syncJukeboxes();
@@ -249,7 +253,7 @@ export class World {
   }
   snapshot(): ServerMsg {
     const objects = Object.fromEntries([...this.objectOn.keys()].map(id => [id, this.objectState(id)]));
-    return { t: 'state', serverTime: Date.now(), users: [...this.users.values()].map(this.toPublic), objects,
+    return { t: 'state', roomModes: { ...this.roomModes }, serverTime: Date.now(), users: [...this.users.values()].map(this.toPublic), objects,
       toilets: this.toilets.snapshot(this.map.objects.filter(o => o.use?.kind === 'toilet').map(o => o.id)),
       instruments: Object.fromEntries(this.map.objects.filter(o => o.use?.kind === 'instrument').map(o => [o.id, this.seats.get(o.id)?.user ?? null])),
       jukebox: Object.fromEntries([...this.jukeboxes].map(([id, j]) => [id, j.state])) };
@@ -1631,6 +1635,7 @@ export class World {
     this.callTimers.set(u.id, setTimeout(() => this.leaveCall(u), ms));
   }
   private hallEligible(u: User, room: Room, now: number) {
+    if (room.rules.access === 'admins' && !this.isSysadmin(u)) return false;
     if (u.bot || u.afk || u.instance || u.presence === 'offline' || goingOut(u) || !this.sockets.get(u.id)?.size) return false; // a meeting's own room is off the floor
     if (u.callId && !this.calls.get(u.callId)?.room) return false;
     for (const k of this.knocks.values()) if (k.fromId === u.id && (k.state === 'walking' || k.state === 'pending')) { // knocking on someone in this hall: don't join its voice and cancel it
@@ -2134,6 +2139,7 @@ export class World {
       }
       case 'room_create': this.roomCreate(u, msg.title, msg.invite); break;
       case 'room_invite': this.roomInvite(u, msg.userIds); break;
+      case 'room_mode': this.setRoomMode(u, String(msg.roomId), msg.mode); break;
       case 'room_voice': this.roomVoice(u, !!msg.on); break;
       case 'room_meet': this.roomMeet(u); break;
       case 'meeting_go': this.enterMeeting(u, String(msg.key)); break;
@@ -2240,10 +2246,34 @@ export class World {
     }
   }
 
+  /** An admin changes the real room rules, then reconciles voice for everyone already on the floor. */
+  private setRoomMode(by: User, roomId: string, mode: unknown) {
+    if (!this.isAdmin(by)) return this.sendTo(by.id, { t: 'notice', text: 'Only admins can change room modes' });
+    const room = this.map.rooms.find(r => r.id === roomId);
+    if (!room || !isRoomMode(mode)) return this.sendTo(by.id, { t: 'notice', text: 'Unknown room or room mode' });
+    if (roomMode(room) === mode) return;
+    this.roomModes[room.id] = mode;
+    room.rules = rulesForMode(this.baseRoomRules[room.id], mode);
+    this.broadcast({ t: 'room_modes', modes: { ...this.roomModes }, by: by.id });
+    if (mode === 'quiet' || mode === 'later') for (const k of this.knocks.values()) {
+      if (k.state !== 'walking' && k.state !== 'pending') continue;
+      const from = this.users.get(k.fromId), to = this.users.get(k.toId);
+      if (!to || to.instance || this.roomOf(to)?.id !== room.id) continue;
+      if (mode === 'later' && from) this.keepLater(k, from, to, this.laterWhy(to) ?? 'busy', `${room.name}: knocks wait for later`);
+      else this.closeKnock(k, 'blocked', `${room.name}: no knocking`);
+    }
+    // Clear waiting first: leaving a full hall must not re-admit its queue after voice is disabled.
+    if (mode !== 'voice') for (const [id, waitingRoom] of this.waiting) {
+      const u = this.users.get(id); if (waitingRoom === room.id && u && !u.instance) this.setWaiting(u, null);
+    }
+    this.voiceTick();
+  }
+
   // ---------- persistence ----------
   dump() {
     return {
       version: STATE_VERSION,
+      roomModes: { ...this.roomModes },
       users: [...this.users.values()].map(u => {
         return { id: u.id, name: u.name, nameSet: u.nameSet, email: u.email, meetLink: u.meetLink, google: u.google, vacation: u.vacation, homeDesk: u.homeDesk, look: u.look, banner: u.banner, lookSet: u.lookSet, tile: underground(u) ? this.dungeonExit(false) : u.tile, dir: u.dir, status: u.status, presence: u.presence, bot: u.bot, plant: u.plant, bloomed: u.bloomed, achievements: u.achievements, effects: u.effects.filter(e => e.until === undefined), items: u.items, danced: u.danced,
           resume: (!u.bot && u.presence !== 'offline' && !goingOut(u) && !u.instance && !this.toilets.inside(u.id)) || undefined }; // meetings and stalls don't survive a restart
@@ -2261,6 +2291,12 @@ export class World {
   load(data: ReturnType<World['dump']>) {
     // files from before versioning have none (0); new migrations should key on this, not on the content
     const version = data.version ?? 0;
+    this.roomModes = {};
+    for (const room of this.map.rooms) {
+      const mode = data.roomModes?.[room.id];
+      if (isRoomMode(mode)) this.roomModes[room.id] = mode;
+      room.rules = rulesForMode(this.baseRoomRules[room.id], this.roomModes[room.id]);
+    }
     if (version > STATE_VERSION) console.warn(`state.json is version ${version}, newer than this build (${STATE_VERSION}); unknown fields are dropped on the next save`);
     // saved in the radio days: the radio goes (withNewFixtures then brings in the jukebox)
     // ... and the Meeting room's whiteboard: the screen is its one board now (withNewFixtures then reshapes the screen into its spot)

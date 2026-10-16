@@ -103,7 +103,8 @@ npm run typecheck    # run before every commit or deploy
   volume, Mute for me), a room row opens `RoomMenu` (walk there + the room's panels from `roomThings`). Your status, mic and
   call state live in its bottom strip (`SelfPanel`). It collapses to a rail; under 900 px wide it starts as the rail and
   opens over the floor; on `COMPACT` it is a bottom sheet from the dock. Grouping and second-line logic are pure and
-  tested in `client/src/sidebar.test.ts`. `speaking` is scene-only, so rings come from `useSpeaking` polling.
+  tested in `client/src/sidebar.test.ts`. Admins can also change any physical room's mode in `RoomMenu` (Voice / Knock / Quiet / Busy).
+  `shared/roomModes.ts` defines the presets; the server persists overrides and broadcasts them to all clients. `speaking` is scene-only, so rings come from `useSpeaking` polling.
 - **Profile banners:** public `User.banner` (color, pixel pattern or image), persisted in `state.json`; absent/null uses
   the shirt color. `banner` intents allow validated colors/patterns/reset, at most once per 2 s; images only via
   session-authenticated `POST /api/banner` (`x-deck-session`), at most once per 10 s, 1 MB maximum, PNG/JPEG/WEBP magic
