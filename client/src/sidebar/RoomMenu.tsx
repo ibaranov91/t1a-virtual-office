@@ -26,7 +26,7 @@ export function RoomMenu({ store, engine, at, compact, onClose, onAction, onTv }
         const label = use.kind === 'jukebox' ? `${use.label.replace(/^./, c => c.toUpperCase())}: now playing` : use.kind === 'youtube' ? `TV: ${use.label}`
           : use.kind === 'records' ? 'Arcade records' : use.kind === 'meetings' ? 'Meetings on now'
           : use.kind === 'library' ? 'Library shelf' : use.kind === 'clock' ? 'Our time zones'
-          : use.kind === 'achievements' ? 'Achievements board' : use.kind === 'calendar' ? 'Your calendar' : `Open the ${use.label}`;
+          : use.kind === 'achievements' ? 'Achievements board' : use.kind === 'calendar' ? 'Your calendar' : use.kind === 'tickets' ? 'Bug terminal: report a bug' : `Open the ${use.label}`;
         const run = () => {
           switch (use.kind) {
             case 'jukebox': return store.openJukebox(o.id);
@@ -38,6 +38,7 @@ export function RoomMenu({ store, engine, at, compact, onClose, onAction, onTv }
             case 'achievements': return store.openAchievements();
             case 'calendar': return store.openCalendar();
             case 'link': return store.openLink(use);
+            case 'tickets': return store.use(o.id); // walks over; the screen opens on arrival
           }
         };
         return <button key={o.id} data-action role="menuitem" onClick={() => act(run)}>{label}</button>;

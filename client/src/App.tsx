@@ -31,6 +31,7 @@ import { LiveChip, PresentPanel, SlideOverlay } from './Presentation';
 import { RoomPopup } from './RoomPopup';
 import { LibraryPanel, ReadingOverlay } from './Library';
 import { Wellness } from './WellnessPanel';
+import { TerminalPanel } from './Terminal';
 import { ACHIEVEMENTS, goingOut, LOOK_COLORS, underground, dayNumber, JUKEBOX_PER_PERSON, JUKEBOX_QUEUE_MAX, MAX_CHAT_LEN, ROOM_VOICE_MAX, meetAs, normalizeMeetLink, plantDead, REACTIONS, TOILET_CAPACITY, TOILET_SHELF_ITEM, TOILET_SHELF_MAX, TOILET_USE_MS, toiletFull, type JukeboxState, type Plant } from '../../shared/protocol';
 import { jukeboxPosition, TRACK, tracksFor } from '../../shared/music';
 import { ALL_HATS, DANCE_ROOM, EFFECTS, HAT_NAMES, REFRESHMENT_HINTS, effectOf, hatOf } from '../../shared/effects';
@@ -213,6 +214,7 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
       if (use?.kind === 'vacations') { setPick(null); return store.openVacations(); }
       if (use?.kind === 'meetings') { setPick(null); return store.openMeetings(); }
       if (use?.kind === 'achievements') { setPick(null); return store.openAchievements(); }
+      if (use?.kind === 'tickets' && p) { setPick(null); return store.use(p.id); } // walks to the terminal; the server opens its screen on arrival
       if (use?.kind === 'presentation' && p) { setPick(null); return store.use(p.id); } // walks to the board; the server opens the panel on arrival
       if (use?.kind === 'room_start' && p) { setPick(null); return store.use(p.id); } // walks to the sign; the server sends room_open on arrival
       if (use?.kind === 'link') { setPick(null); return store.openLink(use); } // a panel, like the calendar: its link is a real tap
@@ -272,6 +274,7 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
         {store.vacationsOpen && <VacationPanel store={store} engine={engineRef.current} />}
         {store.meetingsOpen && <MeetingsPanel store={store} />}
         {store.libraryOpen && <LibraryPanel store={store} />}
+        {store.terminalOpen && <TerminalPanel store={store} />}
         {me?.reading && <ReadingOverlay key={me.reading} store={store} articleId={me.reading} />}
         {tv && <LofiTV store={store} id={tv} onClose={() => setTv(null)} />}
         {store.jukeboxOpen && <JukeboxPanel key={store.jukeboxOpen} store={store} id={store.jukeboxOpen} />}
@@ -310,7 +313,7 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
         {roomMenu && <RoomMenu key={roomMenu.id} store={store} engine={engine} at={roomMenu} compact={isCompact} onTv={setTv}
           onClose={() => setRoomMenu(null)} onAction={() => { setRoomMenu(null); setShowRooms(false); sidebarRef.current?.close(); }} />}
         {store.seat && <InstrumentPanel key={store.seat} store={store} id={store.seat}
-          dialogOpen={!!(store.wellnessOpen || store.table || showAppearance || showMeet || store.calendarOpen || store.laterOpen || store.meetingsOpen || store.vacationsOpen || store.clockOpen || store.jukeboxOpen || store.libraryOpen || !!me?.reading || store.achievementsOpen || store.presentOpen || store.roomOpen || store.chatWith || personMenu || roomMenu || profileOpener || pick)} />}
+          dialogOpen={!!(store.wellnessOpen || store.table || showAppearance || showMeet || store.calendarOpen || store.laterOpen || store.meetingsOpen || store.vacationsOpen || store.clockOpen || store.jukeboxOpen || store.libraryOpen || store.terminalOpen || !!me?.reading || store.achievementsOpen || store.presentOpen || store.roomOpen || store.chatWith || personMenu || roomMenu || profileOpener || pick)} />}
         <Dock store={store} voice={voice} engine={engine} roomsOpen={showRooms} onRooms={() => setShowRooms(s => !s)} />
         {me && <Wellness key={me.id} store={store} userId={me.id} />}
       </div>

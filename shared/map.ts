@@ -41,6 +41,7 @@ export type ObjectUse = { kind: 'wellness'; activity: 'water' | 'stretch' | 'pom
   | { kind: 'link'; label: string; url: string } // opens a page in a new tab (the safe: the vault)
   | { kind: 'dealer'; label: string; items: string[] } // hands out items into your inventory (the bouncer, the hat stand)
   | { kind: 'bell'; label: string } // the Lobby reception bell: ring it from beside the desk
+  | { kind: 'tickets'; label: string } // the Lobby bug terminal: file bugs, read replies (admins: the queue)
   | { kind: 'vacations' }
   | { kind: 'toilet'; label: string }; // a stall: occupied for a while, fills up with use (see Toilets on the server)
 export type UseKind = ObjectUse['kind'];
@@ -64,6 +65,7 @@ export const USE_KINDS = {
   vacations: {}, calendar: {}, jukebox: {}, youtube: {}, dance: {}, records: {}, meetings: {}, achievements: {}, clock: {}, link: {},
   presentation: { use: true, reach: true }, // walk to the board first; the panel opens on arrival
   room_start: { use: true, reach: true }, // the Meeting room's wall sign: walk over, then the server offers a private room
+  tickets: { use: true, reach: true }, // the bug terminal: walk over, then the server opens its screen
 } as const satisfies Record<UseKind, { wheel?: true; use?: true; reach?: true }>;
 type KindsWith<F extends string> = { [K in UseKind]: (typeof USE_KINDS)[K] extends Record<F, true> ? K : never }[UseKind];
 /** True when this use's kind has that flag in USE_KINDS; narrows the use to those kinds. */
@@ -409,10 +411,10 @@ export function layoutProblem(m: TileMap, checkDungeonReach = true): string | nu
 
 /** What to call an object type in the UI: "big table", not table_big. */
 export const objectName = (type: string) => ({ palm: 'palm', pine: 'pine', lounger: 'lounger', umbrella: 'umbrella', hammock: 'hammock', beach_bar: 'beach bar', vacation_sign: 'sign', summit_flag: 'flag', sandcastle: 'sandcastle', shells: 'shells', beach_ball: 'beach ball', retro_tobu: 'Tobu Tobu Girl', retro_lobster: 'Shock Lobster', table_long: 'long table', table_big: 'big table', table_round: 'round table', plant_shelf: 'plant shelf',
-  wellness_cooler: 'water cooler', stretch_mat: 'stretching mat', pomodoro_timer: 'Pomodoro timer', painting_small: 'small painting', coffee_machine: 'coffee machine', meetings_board: 'meetings board', noticeboard: 'notice board', table_picnic: 'picnic table', food_cart: 'food cart', exit_door: 'exit door', server_rack: 'server rack', dj_booth: 'DJ booth', neon_sign: 'neon sign', bookshelf_tall: 'tall bookshelf' } as Record<string, string>)[type] ?? type.replace(/_/g, ' ');
+  wellness_cooler: 'water cooler', stretch_mat: 'stretching mat', pomodoro_timer: 'Pomodoro timer', painting_small: 'small painting', coffee_machine: 'coffee machine', meetings_board: 'meetings board', noticeboard: 'notice board', table_picnic: 'picnic table', food_cart: 'food cart', exit_door: 'exit door', server_rack: 'server rack', dj_booth: 'DJ booth', neon_sign: 'neon sign', bookshelf_tall: 'tall bookshelf', terminal: 'bug terminal' } as Record<string, string>)[type] ?? type.replace(/_/g, ' ');
 
 /** Types that are one of a kind (the way out, the coffee machine…): they can be moved but not removed. */
-export const KEEP_TYPES = new Set(['wellness_cooler', 'stretch_mat', 'pomodoro_timer', 'vacation_sign', 'lofi_tv', 'exit_door', 'coffee_machine', 'fridge', 'jukebox', 'arcade', 'game_table', 'retro_tobu', 'retro_lobster', 'records', 'meetings_board', 'noticeboard', 'clock_nyc', 'clock_berlin', 'clock_moscow', 'safe', 'keyboard', 'drum_kit', 'bass_amp', 'screen', 'room_start', 'toilet', 'bouncer', 'hat_rack', 'bell', 'food_cart', 'dj_booth']);;
+export const KEEP_TYPES = new Set(['wellness_cooler', 'stretch_mat', 'pomodoro_timer', 'vacation_sign', 'lofi_tv', 'exit_door', 'coffee_machine', 'fridge', 'jukebox', 'arcade', 'game_table', 'retro_tobu', 'retro_lobster', 'records', 'meetings_board', 'noticeboard', 'clock_nyc', 'clock_berlin', 'clock_moscow', 'safe', 'keyboard', 'drum_kit', 'bass_amp', 'screen', 'room_start', 'toilet', 'bouncer', 'hat_rack', 'bell', 'food_cart', 'dj_booth', 'terminal']);;
 /** Types that stay exactly where they are. */
 export const FIXED_TYPES = new Set(['exit_door']);
 export const RUG_MIN = 2, RUG_MAX = 24;

@@ -60,6 +60,20 @@ export const LIBRARY_TITLE_MAX = 120;
 export const LIBRARY_URL_MAX = 500;
 export const LIBRARY_MAX_ARTICLES = 200;
 export const LIBRARY_WEEK_MS = 7 * 86_400_000;
+// ---------- bug terminal ----------
+export type TicketStatus = 'open' | 'fixed' | 'closed';
+export const TICKET_TITLE_MAX = 80, TICKET_TEXT_MAX = 2000, TICKET_MSGS_MAX = 50, TICKET_OPEN_MAX = 5;
+/** One line of a ticket's thread; `system` lines record status changes ("Marked fixed by Kim"). */
+export interface TicketMsg { by: string; admin: boolean; text: string; at: number; system?: boolean }
+/** Filled in by the reporter's page; the server adds where they stood. */
+export interface TicketContext { ua: string; app: 'web' | 'mac'; build: string; viewport: string; room?: string; tile?: Tile }
+export interface Ticket {
+  id: number; by: string; title: string; status: TicketStatus; at: number; updated: number;
+  context: TicketContext; msgs: TicketMsg[]; // msgs[0] is the report itself
+  seen: Record<string, number>;              // userId → when they last read it
+}
+/** How a ticket is shown and said out loud: #0042. */
+export const ticketNo = (id: number) => `#${String(id).padStart(4, '0')}`;
 export interface Article { id: string; url: string; title: string; topic: LibraryTopic; by: string; at: number }
 /** One finished (or ongoing) read, kept for the log. */
 export interface LibraryRead { userId: string; articleId: string; at: number; done: boolean }
@@ -130,6 +144,7 @@ export const ACHIEVEMENTS: Achievement[] = [
   { id: 'editor', icon: '📰', title: 'Editor', how: `Publish an article that ${EDITOR_READERS} different people read.`, goal: EDITOR_READERS },
   { id: 'bellringer', icon: '🛎️', title: 'Ding!', how: 'Ring the reception bell in the Lobby.' },
   { id: 'tidy', icon: '🧽', title: 'Tidy soul', how: 'Clear a cup off a table while the cleaner is in the room to see it.', secret: 'The cleaner notices who tidies up after themselves.' },
+  { id: 'bughunter', icon: '🐛', title: 'Bug hunter', how: 'Report a bug at the Lobby terminal that gets marked fixed.' },
   { id: 'event', icon: '🎉', title: 'Party person', how: 'Be in the office during an office event.', soon: true },
 ];
 
@@ -361,6 +376,8 @@ export type ServerMsg =
   | { t: 'later_nudge'; text: string; userId?: string } // their busy spell is over and knocks came in meanwhile (userId: the one knocker, for Knock back)
   | { t: 'room_open' } // you clicked the Meeting room's 'start private room' button: open the popup
   | { t: 'present_open'; objectId: string } // you walked up to the board: show the upload/present panel
+  | { t: 'terminal_open'; objectId: string } // you walked up to the bug terminal: show its screen
+  | { t: 'tickets'; list: Ticket[] } // only to you: your own tickets, or every ticket for an office admin; on connect and on every change
   | { t: 'voice_wait'; roomId: string | null }
   | { t: 'voice_owner'; owner: boolean }
   | { t: 'look'; userId: string; look: Look; lookSet: boolean; name?: string }
@@ -415,6 +432,10 @@ export type ClientMsg =
   | { t: 'dungeon_leave' }
   | { t: 'article_add'; url: string; title: string; topic: string }
   | { t: 'article_remove'; id: string }  // the author, or an office admin
+  | { t: 'ticket_new'; title: string; text: string; context: TicketContext } // standing at the bug terminal
+  | { t: 'ticket_reply'; id: number; text: string }    // the author or an office admin
+  | { t: 'ticket_status'; id: number; status: TicketStatus } // admins: anything; the author: close their own
+  | { t: 'ticket_seen'; id: number }
   | { t: 'read_start'; articleId: string }
   | { t: 'read_done' }
   | { t: 'meeting_leave' }           // back to the office (still in the meeting: busy, knocks go to Later)
