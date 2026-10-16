@@ -5,7 +5,7 @@ import { writeFileSync } from 'node:fs';
 import { mountainFloor } from './mountain-terrain.mjs';
 import { applyLayout, besideObject, findPath, isWalkable, layoutProblem, roomAt } from '../shared/map.ts';
 
-const W = 85, BUILDING_H = 34, OFFICE_H = 48; // x 75-83: the Book Club, east of the Library (solid wall above it); x 65-73: the Admin room over Berghain, added beside the Music room and the Arcade
+const W = 85, BUILDING_H = 34, OFFICE_H = 44; // x 75-83: the Book Club, east of the Library (solid wall above it); x 65-73: the Admin room over Berghain, added beside the Music room and the Arcade
 const dungeonRect = { x: 17, y: OFFICE_H + 2, w: 31, h: 19 };
 const H = dungeonRect.y + dungeonRect.h;
 const SOUTH = 23; // the old outer wall: now the building's back wall, the Orangery and the Garden lie beyond it
@@ -98,10 +98,10 @@ const rooms = [
     floor: 'wood_dark', rug: 'orange',
     rules: { voice: 'open', knock: 'allow', label: 'book club · open voice · walk in to talk' },
     meeting: { provider: 'meet', url: 'https://meet.google.com/new' } },
-  { id: 'mountains', name: 'Mountains', type: 'vacation', rect: { x: 1, y: 34, w: 24, h: 13 }, capacity: 30,
+  { id: 'mountains', name: 'Mountains', type: 'vacation', rect: { x: 1, y: 34, w: 24, h: 9 }, capacity: 30,
     floor: 'sand', rug: 'orange', rules: { knock: 'allow', label: 'mountains · knock to talk' },
     meeting: { provider: 'meet', url: 'https://meet.google.com/new' } },
-  { id: 'beach', name: 'Beach', type: 'vacation', rect: { x: 25, y: 34, w: 59, h: 13 }, capacity: 30,
+  { id: 'beach', name: 'Beach', type: 'vacation', rect: { x: 25, y: 34, w: 59, h: 9 }, capacity: 30,
     floor: 'sand', rug: 'orange', rules: { knock: 'allow', label: 'beach · knock to talk' },
     meeting: { provider: 'meet', url: 'https://meet.google.com/new' } },
 ];
@@ -177,22 +177,21 @@ for (const y of CLUB_DOOR) floor[y][CLUB_X] = tid('door_floor');
 
 // ---------- vacation: terrain south of the unchanged building ----------
 for (let y = BUILDING_H; y < OFFICE_H; y++) for (let x = 0; x < W; x++) {
-  floor[y][x] = tid(`${y >= 46 ? 'water_deep' : y >= 45 ? 'water_shallow' : y === 44 ? 'sand_wet' : 'sand'}_${hash(x, y) % 3}`);
-  if (y >= 47 || x === 0 || x === W - 1) setWall(x, y, y >= 45 ? 'sea' : 'cliff');
-  else if (x <= 24 && y <= 43) setWall(x, y, y === 43 || x === 24 ? 'cliff' : 'rock');
+  floor[y][x] = tid(`${y >= 42 ? 'water_deep' : y >= 41 ? 'water_shallow' : y === 40 ? 'sand_wet' : 'sand'}_${hash(x, y) % 3}`);
+  if (y >= 43 || x === 0 || x === W - 1) setWall(x, y, y >= 41 ? 'sea' : 'cliff');
 }
 const carve = (x, y, family) => { walls[y][x] = 0; floor[y][x] = tid(`${family}_${hash(x, y) % 2}`); };
-// Three walkable shelves; the cliff rows can only be crossed at their stairs.
-for (let y = 34; y <= 43; y++) for (let x = 1; x <= 24; x++) {
+// A single blocked massif, cut only by the switchback trail.
+for (let y = 34; y <= 39; y++) for (let x = 1; x <= 24; x++) {
   const surface = mountainFloor(x, y);
   if (surface === 'snow') carve(x, y, 'snow');
-  else if (surface) { walls[y][x] = 0; floor[y][x] = tid(`${surface === 'valley' ? 'grass' : 'trail'}_mtn_${x}_${y}`); }
+  else if (surface) { walls[y][x] = 0; floor[y][x] = tid(`${surface === 'meadow' ? 'grass' : 'trail'}_mtn_${x}_${y}`); }
   else setWall(x, y, `mtn_${x}_${y}`);
 }
-for (let y = 43; y <= 46; y++) for (const x of [62, 63]) floor[y][x] = tid('pier');
-const vacation = { gate: { x: 50, y: 34 }, trailFoot: { x: 24, y: 41 }, summit: { x: 17, y: 34 },
-  pierEnds: [{ x: 62, y: 46 }, { x: 63, y: 46 }],
-  swim: [28, 33, 38, 43, 48, 53, 58, 68, 73, 78].map(x => ({ x, y: 46 })) };
+for (let y = 39; y <= 42; y++) for (const x of [62, 63]) floor[y][x] = tid('pier');
+const vacation = { gate: { x: 50, y: 34 }, trailFoot: { x: 22, y: 38 }, summit: { x: 13, y: 34 },
+  pierEnds: [{ x: 62, y: 42 }, { x: 63, y: 42 }],
+  swim: [28, 33, 38, 43, 48, 53, 58, 68, 73, 78].map(x => ({ x, y: 42 })) };
 
 // ---- rugs (drawn 9-slice over the floor; admins can move them) ----
 const rugs = [];
@@ -403,8 +402,8 @@ stand('admin', [[70, 9, 'left']]);
 stand('berghain', [[69, 16, 'down'], [71, 17, 'left'], [66, 19, 'right']]);
 stand('library', [[68, 25, 'up'], [71, 25, 'up']]);
 stand('garden', [[42, 29, 'down'], [43, 29, 'down'], [33, 29, 'left'], [56, 28, 'down'], [20, 28, 'down']]);
-stand('mountains', [[2, 44, 'down'], [12, 44, 'down'], [24, 41, 'left'], [16, 34, 'down'], [8, 37, 'up']]);
-stand('beach', [[28, 42, 'down'], [42, 42, 'down'], [52, 38, 'down'], [70, 42, 'down'], [80, 44, 'down']]);
+stand('mountains', [[2, 38, 'down'], [24, 39, 'down'], [22, 38, 'left'], [13, 34, 'down']]);
+stand('beach', [[28, 38, 'down'], [42, 38, 'down'], [52, 38, 'down'], [70, 38, 'down'], [80, 39, 'down']]);
 
 // ---- a separate, deterministic maze under the garden (never furniture) ----
 const random = (() => { let seed = 16; return () => {
@@ -566,20 +565,20 @@ if (gateX === undefined) throw new Error('no free garden pair for the vacation g
 for (const x of [gateX, gateX + 1]) { walls[33][x] = 0; floor[33][x] = tid('door_floor'); }
 vacation.gate.x = gateX;
 for (const [x, y] of [[29, 35], [35, 35], [57, 35], [80, 35]]) obj('palm', x, y);
-for (const x of [4, 10, 16, 20]) obj('pine', x, 43);
+for (const [x, y] of [[2, 37], [1, 39], [23, 36]]) obj('pine', x, y);
 for (const x of [30, 46, 62, 78]) {
-  obj('lounger', x, 40, 2, 1, { lie: true, dir: 'down' });
-  obj('umbrella', x, 39);
+  obj('lounger', x, 37, 2, 1, { lie: true, dir: 'down' });
+  obj('umbrella', x, 36);
 }
 obj('hammock', 31, 35, 3, 1, { lie: true, dir: 'down' });
 obj('beach_bar', 65, 35, 3, 1, { use: { kind: 'take', items: [
   { id: 'cocktail', label: 'Cocktail', icon: '🍹' }, { id: 'coconut', label: 'Coconut', icon: '🥥' }, { id: 'icecream', label: 'Ice cream', icon: '🍦' },
 ] } });
 obj('vacation_sign', gateX + 2, 34, 1, 1, { use: { kind: 'vacations' } });
-obj('summit_flag', 18, 34);
-obj('sandcastle', 40, 43);
-obj('shells', 59, 44);
-obj('beach_ball', 75, 42);
+obj('summit_flag', 12, 34);
+obj('sandcastle', 40, 39);
+obj('shells', 59, 40);
+obj('beach_ball', 75, 38);
 for (const { id: _i, x: _x, y: _y, ...t } of objects.slice(firstVacation)) catalog[t.type] ??= t;
 
 

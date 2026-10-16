@@ -40,11 +40,11 @@ can see at a glance who is away and when they're back.
 - the Library and Book Club walls (lines ~149, ~153).
 
 Add a constant `BUILDING_H = 34` and use it for all of these, so the building's bottom edge stays on row 33.
-Then `OFFICE_H = 48` (rows 34–47 are the 14-row wing, row 47 the bottom edge). `dungeonRect.y = OFFICE_H + 2` moves the
+Then `OFFICE_H = 44` (rows 34–43 are the 10-row wing, row 43 the bottom edge). `dungeonRect.y = OFFICE_H + 2` moves the
 dungeon down untouched. `MAP.office` (camera, overview, edit mode) grows with `OFFICE_H`. The wing is generated in
 its own block after the building, with its own walls, floors and edges.
 
-The beach and sea are smaller and calmer after Andrii's feedback. Mountains at x 1–24, rows 34–43 stay unchanged.
+The beach and sea are smaller and calmer after Andrii's feedback. Mountains occupy x 1–24, rows 34–39.
 
 **Way in.** A 2-tile gate in the hedge, row 33, at x 50–51. Both tiles are `door_floor`; check that Garden row 32
 is free there and pick the nearest free pair if not. The Orangery (x 0–15) and the Library/Book Club (x 64–84)
@@ -54,12 +54,12 @@ keep their walls on row 33. There is no other entrance.
 
 | id | name | type | rect | knock | label |
 | --- | --- | --- | --- | --- | --- |
-| `mountains` | Mountains | `vacation` | x 1–24, y 34–46 | allow | `mountains · knock to talk` |
-| `beach` | Beach | `vacation` | x 25–83, y 34–46 | allow | `beach · knock to talk` |
+| `mountains` | Mountains | `vacation` | x 1–24, y 34–42 | allow | `mountains · knock to talk` |
+| `beach` | Beach | `vacation` | x 25–83, y 34–42 | allow | `beach · knock to talk` |
 
 - There is no wall between the two rooms.
 - Capacity is 30 each, and there is no open voice.
-- The existing room rects still end at row 48; playable terrain ends at row 46 and row 47 is blocking sea.
+- Both room rectangles have height 9; playable terrain ends at row 42 and row 43 is blocking sea.
 - Each room gets 4–6 `stand(…)` spots: on the sand, at the trail foot, on the summit. Bots and `startBots` pick
   `room.spots` and must never see an empty list.
 
@@ -67,14 +67,22 @@ keep their walls on row 33. There is no other entrance.
 
 | terrain | layer | where |
 | --- | --- | --- |
-| `sand_0..2`, `sand_wet_0..2` | floor | beach sand rows 34–43; wet sand on row 44 |
-| `water_shallow_0..2` | floor (walkable) | row 45, along the whole wing |
-| `water_deep_0..2` | floor (walkable) | row 46 |
-| `sea` | walls (blocks) | row 47 (the bottom edge) and the wing's outer corners: open sea |
-| `rock`, `cliff` | walls (blocks) | the mountain massif |
-| `trail_0..1` | floor | a switchback from the foot of the mountains (next to the beach) up to the summit, the only way up |
-| `snow_0..1` | floor | the summit plateau (≈3×2) |
-| `pier` | floor | x 62–63, rows 43–46; fishing ends (62,46) and (63,46) |
+| `sand_0..2`, `sand_wet_0..2` | floor | beach sand rows 34–39; wet sand on row 40 |
+| `water_shallow_0..2` | floor (walkable) | row 41, along the whole wing |
+| `water_deep_0..2` | floor (walkable) | row 42 |
+| `sea` | walls (blocks) | row 43 (the bottom edge) and the wing's outer corners: open sea |
+| `mtn_<x>_<y>` | walls (blocks) | the mountain massif and distant backdrop |
+| `trail_mtn_<x>_<y>` | floor | a switchback from the foot of the mountains (next to the beach) up to the summit, the only way up |
+| `snow_0..1` | floor | the summit tiles (12,34) and (13,34) |
+| `pier` | floor | x 62–63, rows 39–42; fishing ends (62,42) and (63,42) |
+
+**Mountains: one mountain with a switchback trail.** One triangular massif blocks spans x 12–13,
+10–15, 8–17, 6–19, 4–21 and 3–22 on rows 34–39. The only walkable tiles inside it are
+x 9–21 on row 38, (9,37), x 9–13 on row 36, (13,35), and the two snow tiles above.
+The foot is (22,38), the summit (13,34); the flag occupies (12,34). Outside the massif,
+rows 34–35 are blocking pale distant peaks, and rows 36–39 are an alpine meadow joined to the beach.
+Four stand spots are on the meadow at (2,38)/(24,39), the foot and the summit. All mountain art samples
+one world-pixel shape, with diagonal edges, a snow cap, two lit rock faces and a dusty switchback.
 
 The wing's west and east edges are cliff or sea, not office walls.
 
@@ -91,22 +99,22 @@ vacation?: {
   trailFoot: Tile;     // bottom of the trail
   summit: Tile;        // on the snow, beside the flag
   pierEnds: Tile[];    // 2 fishing spots at the end of the pier (they face down)
-  swim: Tile[];        // x 28,33,38,43,48,53,58,68,73,78 on row 46
+  swim: Tile[];        // x 28,33,38,43,48,53,58,68,73,78 on row 42
 }
 ```
 
 **Props.** Normal `obj(…)` calls **after the last existing `obj(…)` in the file** (currently the Book Club
 block), so existing ids stay put. Admins can move them.
 
-- Palms ×4 and pines ×4. Pines stand on the slopes, on walkable tiles off the trail.
+- Palms ×4 and pines ×3. Pines stand on meadow at (2,37), (1,39) and (23,36), off the trail.
 - `lounger` ×4, each 2×1, `lie: true`, `dir: 'down'`, with an `umbrella` (1×1 decor) just above it.
 - Palms: (29,35), (35,35) around the hammock, plus (57,35), (80,35).
-- Loungers: x 30,46,62,78 at y 40; umbrellas at the same x, y 39.
-- A `hammock`, 3×1, `lie: true`, `dir: 'down'`, between two palms.
-- `beach_bar`, 3×1, `use: { kind: 'take', items: cocktail 🍹, coconut 🥥, icecream 🍦 }`.
+- Loungers: x 30,46,62,78 at y 37; umbrellas at the same x, y 36.
+- A `hammock`, 3×1, `lie: true`, `dir: 'down'`, at (31,35) between two palms.
+- `beach_bar`, 3×1 at (65,35), `use: { kind: 'take', items: cocktail 🍹, coconut 🥥, icecream 🍦 }`.
 - `vacation_sign`, 1×1 next to the gate, `use: { kind: 'vacations' }` (§5). It goes into `KEEP_TYPES`.
 - `summit_flag`, decor on the summit; it blocks its own tile.
-- Decor: a sandcastle, shells, a beach ball.
+- Decor: sandcastle (40,39), shells (59,40), beach ball (75,38).
 
 **New `lie` seats** (`shared/map.ts`). `sit` objects make every footprint tile a seat (`mapIndex`) and push
 spots for the top row (`applyLayout`). A sofa works because its row faces the room. For a lounger or hammock that
@@ -355,14 +363,16 @@ check. Audit every `presence === 'offline'` / `!== 'offline'` in `client/src` wi
   `pierEnds` tile, or every `swim` tile. Use a reachability flood from the gate, like the one from spawn. The
   client ghost runs the same check.
 - **Migrating saved layouts** (prod has one):
-  - `STATE_VERSION` is 4 (version 3 added the wing; version 2 added the Music TV).
+  - `STATE_VERSION` is 5 (version 4 shrank the beach; version 3 added the wing; version 2 added the Music TV).
   - In `load`, when `data.version < 3`, `migrateBeach(saved, base, map)` (`shared/map.ts`) appends the base
     layout's objects that lie in the wing and keeps `uniqueIds`; a saved layout that already has furniture in the
     wing is left as it is. It runs **once**, next to
     `migrateBookClub`/`migrateLibrary`, before `withNewFixtures`.
   - After the `< 3` step, when `version < 4`, `resetBeach(saved, base, map)` performs a one-time
     reset: drop saved objects inside the beach/mountains rects, append the base wing objects, and keep ids unique.
-    Office objects and rugs remain; version-4 wing edits are preserved.
+    Office objects and rugs remain.
+  - After the `< 4` step, when `version < 5`, run `resetBeach` again for the 10-row wing and single mountain
+    flag/pine positions. Version-5 wing edits are preserved on later loads.
   - Saved coordinates are absolute and the building doesn't move, so nothing else changes.
   - Saved user tiles are always office tiles (the dump moves underground people to the dungeon exit), and `load`'s existing walkability/seat check moves any invalid tile to spawn after the wing shrinks.
 - **Names and catalog.** `objectName` gets the new types (Palm, Pine, Lounger, Umbrella, Hammock, Beach bar, Sign,
@@ -425,7 +435,7 @@ check. Audit every `presence === 'offline'` / `!== 'offline'` in `client/src` wi
 
 | file | change |
 | --- | --- |
-| `scripts/gen-map.mjs` | `BUILDING_H`, `OFFICE_H` 52, hedge gate, rooms and stand spots, terrain, `vacation` block, props at the end |
+| `scripts/gen-map.mjs` | `BUILDING_H` 34, `OFFICE_H` 44, hedge gate, rooms and stand spots, terrain, `vacation` block, props at the end |
 | `scripts/gen-assets.mjs`, `scripts/map-atlas.mjs` | the art block; the atlas glyphs |
 | `shared/map.ts` | `TileMap.vacation`, `lie` seats, `'vacations'` use kind, `objectName`, `layoutProblem` reach, `migrateBeach` |
 | `shared/beach.ts`, `shared/vacation.ts` | `terrainAt`, `onMap`; the interval and `back` rules |
