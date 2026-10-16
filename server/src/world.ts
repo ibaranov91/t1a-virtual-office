@@ -77,9 +77,9 @@ const USE_MS = { take: 1200, toggle: 150, toilet: 300, dealer: 350, bell: 100, p
 const ARRIVAL_SLACK_MS = 50; // timers can fire a millisecond before the walk is over
 
 /** Office admins rearrange the furniture: NetBird emails, or (only for name logins, so dev) plain names. */
-const ADMINS = (process.env.DECK_ADMINS ?? 'ivan.baranov@t1a.com,varvara.tikhonova@t1a.com,andrii.butko@t1a.com').split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+const ADMINS = (process.env.DECK_ADMINS ?? '').split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
 /** Sysadmins are the admins who also get into the Admin room (and its servers). */
-const SYSADMINS = (process.env.DECK_SYSADMINS ?? 'ivan.baranov@t1a.com').split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+const SYSADMINS = (process.env.DECK_SYSADMINS ?? '').split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
 const listed = (list: string[], u: User) => !u.bot && list.some(a => (a.includes('@') ? a === u.email : !u.email && a === u.name.toLowerCase()));
 
 /** Dev bots answer DMs and reactions so there's something to talk to when testing alone. */
