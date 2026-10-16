@@ -155,15 +155,21 @@ test('everyone inside a stall shares its own voice; the line and the next stall 
   assert.equal(b.u.callId, null, 'time\'s up: out of the stall and off its voice');
 });
 
-test('going into a stall leaves a knock call', t => {
+test('going into a stall keeps a knock call; hanging up there joins the stall voice and tells the others', t => {
   const { w, add, tick } = setup(t);
   const a = add('A', { x: 66, y: 15 }), b = add('B', { x: 67, y: 15 }), c = add('C', { x: 66, y: 18 });
   w.connectCall(a.u, b.u); w.connectCall(a.u, c.u); tick(300);
   const knock = a.u.callId!;
   assert.ok(knock && b.u.callId === knock && c.u.callId === knock);
   walkIn(w, a, toilets[0].id, tick); tick(300);
+  assert.deepEqual(w.toilets.state(toilets[0].id).in, [a.u.id]);
+  assert.equal(a.u.callId, knock, 'still on the direct talk');
+  assert.equal(b.u.callId, knock);
+  b.messages.length = 0; c.messages.length = 0;
+  w.handle(a.u, { t: 'end_call' }, a.socket);
+  for (const p of [b, c]) assert.deepEqual(p.messages.filter(m => m.t === 'call_moved'), [{ t: 'call_moved', userId: a.u.id, roomId: 'berghain' }]);
+  tick(300);
   assert.equal(a.u.callId, stallVoiceId(toilets[0].id));
-  assert.equal(b.u.callId, knock, 'the others keep talking');
 });
 
 test('knocks on someone in a stall go to Later', t => {

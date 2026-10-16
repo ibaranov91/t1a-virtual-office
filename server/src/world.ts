@@ -1479,8 +1479,24 @@ export class World {
   private hallEligible(u: User, room: Room, now: number) {
     if (u.bot || u.afk || u.instance || u.presence === 'offline' || goingOut(u) || !this.sockets.get(u.id)?.size) return false; // a meeting's own room is off the floor
     if (u.callId && !this.calls.get(u.callId)?.room) return false;
+    for (const k of this.knocks.values()) if (k.fromId === u.id && (k.state === 'walking' || k.state === 'pending')) { // knocking on someone in this hall: don't join its voice and cancel it
+      const to = this.users.get(k.toId), d = to && this.position(to, now).dest;
+      if (d && roomAt(this.map, d.x, d.y)?.id === room.id) return false;
+    }
     const t = this.position(u, now).tile;
     return roomAt(this.map, t.x, t.y)?.id === room.id || doorwayTiles(this.map, room).some(g => g.some(p => p.x === t.x && p.y === t.y));
+  }
+  /** The hall (or stall's room) someone stands in, by position only: where hanging up a direct talk would put them on voice. */
+  private hallIdAt(u: User, now = Date.now()): string | undefined {
+    const stall = this.toilets.inside(u.id);
+    if (stall) { const o = this.map.objects.find(o => o.id === stall); return o && roomAt(this.map, o.x, o.y - 1)?.id; }
+    const t = this.position(u, now).tile;
+    return voiceRooms(this.map).find(r => roomAt(this.map, t.x, t.y)?.id === r.id || doorwayTiles(this.map, r).some(g => g.some(p => p.x === t.x && p.y === t.y)))?.id;
+  }
+  private endKnockCall(u: User, call: Call) {
+    const roomId = this.hallIdAt(u);
+    if (roomId) for (const id of call.members) if (id !== u.id) this.sendTo(id, { t: 'call_moved', userId: u.id, roomId });
+    this.leaveCall(u);
   }
   private maintainRoom(call: Call, now = Date.now()) {
     if (call.stall) { if (!call.members.size) this.calls.delete(call.id); return; } // never more inside than voice holds: no line
@@ -1523,13 +1539,8 @@ export class World {
       }
       if (call?.instance) this.leaveCall(u, now);
       const stall = this.toilets.inside(u.id);
+      if (call && knockCall(call)) { this.setWaiting(u, null); continue; } // a direct talk stays put in halls and stalls; hanging up hands them to the hall's voice
       if (stall) { this.setWaiting(u, null); this.joinStall(u, stall); continue; }
-      if (call && knockCall(call)) {
-        this.setWaiting(u, null);
-        if (!inside) continue;
-        for (const id of call.members) if (id !== u.id) this.sendTo(id, { t: 'call_moved', userId: u.id, roomId: inside.id });
-        this.leaveCall(u, now);
-      }
       const room = rooms.find(r => this.hallEligible(u, r, now));
       if (!room) {
         this.setWaiting(u, null);
@@ -1717,7 +1728,7 @@ export class World {
     if (underground(to)) return `${to.name} is somewhere underground 🕳`;
     if (underground(from)) return "You're underground — find the way out first";
     const dest = this.position(to).dest, target = roomAt(this.map, dest.x, dest.y);
-    if (target?.rules.voice === 'open') return `${to.name} is in ${target.name} — just walk in`;
+    if (target?.rules.voice === 'open' && !knockCall(to.callId ? this.calls.get(to.callId) : undefined)) return `${to.name} is in ${target.name} — just walk in`;
     const hall = to.callId ? this.calls.get(to.callId)?.room : undefined;
     if (hall) return `${to.name} is in ${hall.name} — just walk in`;
     if (to.instance) return `${to.name} is in a meeting`;
@@ -1979,7 +1990,7 @@ export class World {
         break;
       }
       case 'leave_room': if (u.instance) { if (this.calls.get(u.callId ?? '')?.instance || this.waiting.has(u.id)) this.roomVoice(u, false); break; } if ((u.callId && this.calls.get(u.callId)?.room) || this.waiting.has(u.id)) this.leaveRoom(u); break; // a stale AFK/Leave mustn't walk anyone else home
-      case 'end_call': if (u.instance && this.calls.get(u.callId ?? '')?.instance) this.roomVoice(u, false); else if (u.callId && this.calls.get(u.callId)?.room) this.leaveRoom(u); else this.leaveCall(u); break;
+      case 'end_call': if (u.instance && this.calls.get(u.callId ?? '')?.instance) this.roomVoice(u, false); else if (u.callId && this.calls.get(u.callId)?.room) this.leaveRoom(u); else { const c = u.callId ? this.calls.get(u.callId) : undefined; if (c && knockCall(c)) this.endKnockCall(u, c); else this.leaveCall(u); } break;
       case 'deafen': if (u.callId) { u.deafened = !!msg.on; this.broadcast({ t: 'deafen', userId: u.id, on: u.deafened }); } break;
       case 'hand': if (u.callId && this.calls.get(u.callId)?.room) { u.hand = !!msg.up; this.broadcast({ t: 'hand', userId: u.id, up: u.hand }); } break;
       case 'to_meet': {
