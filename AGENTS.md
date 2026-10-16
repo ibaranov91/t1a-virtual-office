@@ -95,10 +95,16 @@ npm run typecheck    # run before every commit or deploy
   Range (`server/src/static.ts`), which media seeking needs. `npm run gen:music -- --force`
   re-encodes everything, and new content hashes add ~35 MB to git history each time, so use it only when the
   pipeline itself changes.
-- **Arcade** (Deck Park): clicking one of the three cabinets walks you over and opens its 1–4-player session;
-  later arrivals watch from the balcony, and the records board shows best runs by level and team size. The server
-  sequences inputs; clients predict locally and roll back with the shared `Runner`. `npm test` includes the deterministic
-  simulation and delayed-transport netcode harness; `scripts/park-replay.mjs <level> <team> [--every 30]` replays solutions.
+- **Arcade**: three cabinets and a game table. A cabinet session starts in the **hub** (PARTY / CO-OP pads, crew sign,
+  EXIT door). PARTY runs a **Break Set**: 3 rounds (vote among cards → title → round → scores), final ×2, bonus star,
+  awards, weekly boards ("Arcade boards"); CO-OP plays a Deck Park level. Every game is a deterministic `GameDef` in
+  `shared/arcade/games/` (`registry.ts` lists them and their eligibility); the server sequences inputs, clients predict
+  and roll back with `shared/arcade/runner.ts`, and screens between rounds are epochs without inputs. Later arrivals watch
+  from the balcony (cheers, predictions, crowd favourite). The **game table** (`server/src/table.ts`, rules in
+  `shared/table/`) is turn-based and server-authoritative: chess (`chess.js`), Russian draughts, dominoes, Last Card;
+  each player only ever receives their own hand. `npm test` covers the sims, the delayed-transport orchestration
+  harness and the table rules; `scripts/park-replay.mjs` replays Deck Park solutions. Spec:
+  `docs/superpowers/specs/2026-10-16-arcade-party-pack-design.md`.
 - **Edit mode** (pencil in the top bar, admins only: `DECK_ADMINS`, comma-separated emails, no default: set it in `/etc/the-deck.env` (and each instance's env file); `npm run dev` and `npm test` set their own
   (dev adds the name `dev`), and names only count for logins without an email). Admins drag furniture and rugs, add from the
   catalog (one of each generated type), recolor/resize rugs, Reset. Walls, floors and rooms stay as generated; the
