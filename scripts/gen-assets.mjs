@@ -1793,6 +1793,29 @@ for (const axis of ['h', 'v']) { // a room door only admins open: the closed doo
   make('record_wall', 16, 16, t => { t.rect(2, 2, 12, 12, '#2e3640'); t.ellipse(8, 8, 5, 5, '#1a1e24'); t.ellipse(8, 8, 2, 2, '#b4534a'); t.px(8, 8, '#f4f0e6'); t.hline(5, 6, 2, '#56606c'); t.hline(9, 10, 2, '#56606c'); });
 }
 
+// ---------- Lofi Girl TV: a big wall screen, with a YouTube badge and pixel lettering ----------
+{
+  const t = new Img(64, 32);
+  t.rect(1, 1, 62, 29, '#17171e'); t.hline(3, 1, 58, '#5a5362');
+  t.rect(4, 4, 56, 22, '#263344'); t.rect(5, 5, 54, 20, '#38465a');
+  // a warm study room behind the station title: city window, desk and a lamp
+  t.rect(6, 6, 15, 15, '#687e94'); t.vline(13, 6, 15, '#293344'); t.hline(6, 13, 15, '#293344');
+  for (const [x, y, h] of [[7, 16, 5], [10, 12, 9], [15, 15, 6], [18, 10, 11]]) t.rect(x, y, 2, h, '#3a485f');
+  t.rect(5, 22, 54, 3, '#a96c48'); t.rect(18, 17, 7, 5, '#d2a16b'); t.hline(16, 16, 11, '#eac48c');
+  t.rect(7, 7, 12, 8, '#e53843');
+  for (let y = 0; y < 5; y++) t.hline(11, 9 + y, 4 - Math.abs(2 - y), '#fff3dd');
+  const font = {
+    L: ['100','100','100','100','111'], O: ['111','101','101','101','111'], F: ['111','100','110','100','100'],
+    I: ['111','010','010','010','111'], G: ['111','100','101','101','111'], R: ['110','101','110','101','101'],
+    V: ['101','101','101','101','010'], E: ['111','100','110','100','111'], ' ': ['000','000','000','000','000'],
+  };
+  const text = (str, x, y, color) => [...str].forEach((ch, k) => font[ch].forEach((row, j) => [...row].forEach((v, i) => { if (v === '1') t.px(x + k * 4 + i, y + j, color); })));
+  text('LOFI GIRL', 24, 7, '#fff0cd');
+  t.rect(35, 16, 22, 7, '#a82c39'); t.rect(37, 18, 2, 2, '#fff3dd'); text('LIVE', 41, 17, '#fff3dd');
+  t.rect(27, 30, 10, 1, '#55505c'); t.px(58, 28, '#a7d88c');
+  frames.lofi_tv = t.outline();
+}
+
 // ---------- pack world atlas (shelf packer) ----------
 const names = Object.keys(frames).sort((a, b) => frames[b].h - frames[a].h || frames[b].w - frames[a].w);
 const AW = 256; let x = 0, y = 0, rowH = 0; const rects = {};
