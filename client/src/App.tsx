@@ -665,7 +665,7 @@ function NowPlayingChip({ store, compact = false }: { store: Store; compact?: bo
   const label = `${title} · ${time}`;
   return <div className={compact ? "now-row jukebox-chip" : "now-playing chip jukebox-chip"} onClick={() => store.openJukebox(o.id)}>
     <button className="ghost jukebox-chip-title" title={label} onClick={e => { e.stopPropagation(); store.openJukebox(o.id); }}>
-      {compact ? <><span className="now-title">♪ {track.title}</span><span className="now-sub">{track.artist} · {time}</span></> : label}</button>
+      {compact ? <><span className="now-lead">♪</span><span className="now-title">{track.title}</span><span className="now-time">· {time}</span></> : label}</button>
     <div className="jukebox-controls" onClick={e => e.stopPropagation()}>
       <JukeboxControls store={store} id={o.id} state={state} disabled={!store.connected} />
     </div>
