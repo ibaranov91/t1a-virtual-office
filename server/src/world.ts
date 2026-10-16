@@ -1,3 +1,5 @@
+import { BannerStore, BannerError, validateBanner } from './banners';
+import type { Banner } from '../../shared/protocol';
 import { randomUUID } from 'node:crypto';
 import {
   adminOnly, applyEdit, inRect, stallDoor, stallLine, stallVoiceId, tableVoiceId, applyLayout, besideObject, playSpots, dirBetween, doorwayTiles, KEEP_TYPES, migrateBeach, resetBeach, migrateEastWing, layoutProblem, objectName, voiceRooms, findPath, isWalkable, pathDuration, pathTo, roomAt, routes, sampleMove, seatAt, uniqueIds, withLayout, WALK_MS_PER_TILE,
@@ -172,6 +174,39 @@ export class World {
   private baseLayout: Layout;     // as generated, for Reset
   private layoutEdited = false;   // saved only once someone has changed it
   private editSeq = 0;
+  banners?: BannerStore;
+  private bannerChanges = new Map<string, number>();
+  private bannerUploads = new Map<string, number>();
+  beginBannerUpload(userId: string) {
+    const now = Date.now();
+    if (now - (this.bannerUploads.get(userId) ?? -Infinity) < 10_000) throw new BannerError(429, 'Wait 10 seconds between uploads.');
+    this.bannerUploads.set(userId, now);
+  }
+  uploadBanner(u: User, bytes: Buffer) {
+    if (!this.banners) throw new BannerError(500, 'Banner storage unavailable.');
+    this.checkBannerRate(u.id);
+    const banner = this.banners.save(u.id, bytes, u.banner);
+    this.publishBanner(u, banner);
+    return banner;
+  }
+  private checkBannerRate(userId: string) {
+    if (Date.now() - (this.bannerChanges.get(userId) ?? -Infinity) < 2000) throw new BannerError(429, 'Wait 2 seconds between banner changes.');
+  }
+  private publishBanner(u: User, banner: Banner | null) {
+    u.banner = banner;
+    this.bannerChanges.set(u.id, Date.now());
+    this.broadcast({ t: 'banner', userId: u.id, banner });
+  }
+  setBanner(u: User, value: unknown) {
+    if (!validateBanner(value)) return;
+    try { this.checkBannerRate(u.id); } catch { return; }
+    this.banners?.remove(u.id, u.banner);
+    // Copy only validated public fields; never broadcast arbitrary client properties.
+    const banner = value === null ? null : value.kind === 'color' ? { kind: 'color' as const, color: value.color }
+      : { kind: 'pattern' as const, pattern: value.pattern, color: value.color };
+    this.publishBanner(u, banner);
+  }
+
   constructor(public map: TileMap, retroFiles: Pick<ConstructorParameters<typeof Retro>[0], 'roms' | 'wasm'> = { roms: {}, wasm: new Uint8Array() }) {
     this.retro = new Retro({ ...retroFiles, now: () => Date.now(), send: (id, msg) => this.sendOwner(id, msg),
       broadcast: msg => this.broadcast(msg), user: id => this.users.get(id),
@@ -2052,6 +2087,7 @@ export class World {
         this.broadcast({ t: 'tz', userId: u.id, tz: tz ?? null });
         break;
       }
+      case 'banner': this.setBanner(u, msg.banner); break;
       case 'look': {
         if (!msg.look || typeof msg.look !== 'object') break;
         const color = (v: unknown, fallback: string) => typeof v === 'string' && /^#[0-9a-f]{6}$/i.test(v) ? v : fallback;
@@ -2209,7 +2245,7 @@ export class World {
     return {
       version: STATE_VERSION,
       users: [...this.users.values()].map(u => {
-        return { id: u.id, name: u.name, nameSet: u.nameSet, email: u.email, meetLink: u.meetLink, google: u.google, vacation: u.vacation, homeDesk: u.homeDesk, look: u.look, lookSet: u.lookSet, tile: underground(u) ? this.dungeonExit(false) : u.tile, dir: u.dir, status: u.status, presence: u.presence, bot: u.bot, plant: u.plant, bloomed: u.bloomed, achievements: u.achievements, effects: u.effects.filter(e => e.until === undefined), items: u.items, danced: u.danced,
+        return { id: u.id, name: u.name, nameSet: u.nameSet, email: u.email, meetLink: u.meetLink, google: u.google, vacation: u.vacation, homeDesk: u.homeDesk, look: u.look, banner: u.banner, lookSet: u.lookSet, tile: underground(u) ? this.dungeonExit(false) : u.tile, dir: u.dir, status: u.status, presence: u.presence, bot: u.bot, plant: u.plant, bloomed: u.bloomed, achievements: u.achievements, effects: u.effects.filter(e => e.until === undefined), items: u.items, danced: u.danced,
           resume: (!u.bot && u.presence !== 'offline' && !goingOut(u) && !u.instance && !this.toilets.inside(u.id)) || undefined }; // meetings and stalls don't survive a restart
       }),
       objects: Object.fromEntries(this.objectOn),

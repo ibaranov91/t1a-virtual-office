@@ -1,11 +1,13 @@
+import type { Banner } from '../../../shared/protocol';
+import { BannerEditor } from './BannerEditor';
 import { useLayoutEffect, useRef, useState } from 'react';
 import type { Assets } from '../assets';
 import type { Engine } from '../engine';
 import type { Store } from '../net';
-import { Icon } from '../Icon';
+import { Icon, IconButton } from '../Icon';
 import { Avatar } from './Avatar';
 import { overlayOpen, useSurface } from './hooks';
-import { place, PRESENCE_COLOR } from './model';
+import { bannerStyle, place, PRESENCE_COLOR } from './model';
 import { PRESENCES, StatusEditor } from './SelfPanel';
 
 export function ProfilePopout({ store, assets, engine, compact, opener, thirsty, onClose, onAppearance, onPockets, onAchievements, onLogout }: {
@@ -13,6 +15,9 @@ export function ProfilePopout({ store, assets, engine, compact, opener, thirsty,
   onClose: () => void; onAppearance: () => void; onPockets: () => void; onAchievements: () => void; onLogout: () => void;
 }) {
   const [editing, setEditing] = useState(false), [presenceOpen, setPresenceOpen] = useState(false);
+  const [bannerEditing, setBannerEditing] = useState(false), [bannerPreview, setBannerPreview] = useState<Banner | null>(null);
+  const bannerStrip = useRef<HTMLDivElement>(null);
+  const closeBanner = () => { setBannerEditing(false); bannerStrip.current?.querySelector<HTMLButtonElement>('button')?.focus(); };
   const bubble = useRef<HTMLButtonElement>(null), presenceButton = useRef<HTMLButtonElement>(null);
   const surface = useSurface(store, { x: 0, y: 0 }, compact, onClose);
   useLayoutEffect(() => {
@@ -34,19 +39,23 @@ export function ProfilePopout({ store, assets, engine, compact, opener, thirsty,
   return <div {...surface} className={`sb-profile sb-surface${compact ? ' sb-surface-sheet' : ''}`} role="dialog" aria-label="Your profile"
     onKeyDown={e => {
       if (overlayOpen(store)) return;
-      if (e.key === 'Escape' && presenceOpen && !editing) { e.preventDefault(); e.stopPropagation(); setPresenceOpen(false); presenceButton.current?.focus(); }
+      if (e.key === 'Escape' && bannerEditing) { e.preventDefault(); e.stopPropagation(); closeBanner(); }
+      else if (e.key === 'Escape' && presenceOpen && !editing) { e.preventDefault(); e.stopPropagation(); setPresenceOpen(false); presenceButton.current?.focus(); }
       else surface.onKeyDown(e);
     }}>
     {compact && <header><button data-action className="ghost" onClick={onClose}><Icon name="arrow-left" /> Back</button></header>}
-    <div className="sb-profile-banner" style={{ background: me.look.shirt }} />
+    <div ref={bannerStrip} className="sb-profile-banner" style={{ background: bannerStyle(bannerEditing ? bannerPreview : me.banner, me.look) }}>
+      <IconButton data-action className="ghost sb-banner-edit" label="Edit banner" icon="edit" disabled={overlayOpen(store)}
+        onClick={() => { setEditing(false); setPresenceOpen(false); setBannerPreview(me.banner ?? null); setBannerEditing(true); }} />
+    </div>
     <div className="sb-surface-body sb-profile-body">
       <div className="sb-profile-identity">
         <Avatar assets={assets} user={me} size={80} />
         <button ref={bubble} data-action className={`ghost sb-profile-status${me.status ? '' : ' empty'}`} disabled={overlayOpen(store)}
-          onClick={() => { setPresenceOpen(false); setEditing(true); }}><Icon name="message" />{me.status || '+ Set a status'}</button>
+          onClick={() => { setBannerEditing(false); setPresenceOpen(false); setEditing(true); }}><Icon name="message" />{me.status || '+ Set a status'}</button>
       </div>
       <div className="sb-profile-name"><strong>{me.name}</strong><small>{place(store, me)}{me.tz && ` · ${new Intl.DateTimeFormat([], { timeZone: me.tz, hour: '2-digit', minute: '2-digit' }).format(new Date(store.now()))} your time`}</small></div>
-      {editing ? <StatusEditor store={store} onClose={restore => { setEditing(false); if (restore) bubble.current?.focus(); }} /> : <>
+      {bannerEditing ? <BannerEditor store={store} initial={me.banner} look={me.look} onPreview={setBannerPreview} onClose={closeBanner} /> : editing ? <StatusEditor store={store} onClose={restore => { setEditing(false); if (restore) bubble.current?.focus(); }} /> : <>
         {inVoice && <section className="sb-profile-card sb-profile-voice"><strong>In voice</strong><p>{room?.name ?? `Call with ${store.names(store.callPeers(me))}`}</p>
           <button className="ghost" disabled={!engine || overlayOpen(store)} onClick={() => act(() => engine?.recenter())}>Show me on the map</button></section>}
         <div className="sb-profile-card">
