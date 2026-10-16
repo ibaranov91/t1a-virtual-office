@@ -192,8 +192,8 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
       <div className="office-chrome" ref={chromeRef}>
       <TopBar store={store} voice={voice} roomName={myRoom?.name} onToggleRooms={() => setShowRooms(s => !s)} onLogout={onLogout}
         onToggleMeet={() => setShowMeet(s => !s)} onToggleAppearance={() => setShowAppearance(s => me?.lookSet ? !s : true)}
-        editing={editing} onToggleEdit={() => setEditing(e => !e)} gmOpen={gmOpen} onToggleGm={() => setGmOpen(o => !o)}
-        pocketsOpen={pocketsOpen} onTogglePockets={() => setPocketsOpen(o => !o)} />
+        editing={editing} onToggleEdit={() => setEditing(e => !e)} gmOpen={gmOpen} onToggleGm={() => { setGmOpen(o => !o); setPocketsOpen(false); }}
+        pocketsOpen={pocketsOpen} onTogglePockets={() => { setPocketsOpen(o => !o); setGmOpen(false); }} />
       <div className={`stage${editing && store.admin && !down && engine ? ' editing' : ''}`}>
         <div className="canvas-wrap"><canvas ref={canvasRef} /></div>
         {engine && <ZoomCluster engine={engine} />}
@@ -763,6 +763,11 @@ function PocketsPanel({ store, me, assets, onClose }: { store: Store; me: Client
   const rest = new Map<string, number>();
   for (const i of store.items) if (!hatOf(i)) rest.set(i, (rest.get(i) ?? 0) + 1);
   const names: Record<string, [string, string]> = { drugs: ['💊', 'Drugs'] };
+  useEffect(() => {
+    const key = (e: KeyboardEvent) => { if (!store.gameOpen && e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', key);
+    return () => window.removeEventListener('keydown', key);
+  }, []);
   return (
     <div className="edit-panel gm-panel">
       <div className="rooms-head"><span>🎒 Pockets</span><button className="ghost" onClick={onClose} aria-label="Close">×</button></div>

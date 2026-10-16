@@ -92,7 +92,7 @@ canvas { display: block; image-rendering: pixelated; touch-action: none; }
 .loading { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); pointer-events: none; }
 .loading.small { inset: auto 0 12px; }
 
-.rooms { position: absolute; top: 8px; right: 8px; bottom: 8px; width: 250px; max-width: calc(100% - 16px); overflow: auto;
+.rooms { position: absolute; top: 8px; right: 8px; bottom: 54px; width: 250px; /* bottom: clear of the zoom buttons */ max-width: calc(100% - 16px); overflow: auto;
   background: rgba(42,31,36,.94); border: 2px solid var(--line); border-radius: 10px; padding: 8px 10px; }
 .rooms-head { display: flex; justify-content: space-between; align-items: center; font-weight: 800; color: var(--accent); }
 .rooms h3 { margin: 10px 0 4px; font-size: 13px; }
@@ -156,7 +156,7 @@ canvas { display: block; image-rendering: pixelated; touch-action: none; }
   .stage .rooms { left: 0; right: 0; bottom: 0; top: auto; width: auto; max-width: none; z-index: 8; border-radius: 14px 14px 0 0; border-width: 2px 0 0;
     padding: 10px max(12px, env(safe-area-inset-right)) calc(10px + env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
     box-shadow: 0 -8px 30px rgba(0,0,0,.5); animation: sheet .2s steps(3) both; }
-  .stage .rooms { max-height: 62%; }
+  .stage .rooms { max-height: 62%; background: rgb(42,31,36); } /* opaque: the dock underneath would show through */
   /* chat and my voice panel sit just above the dock */
   .stage .self-stack { left: max(8px, env(safe-area-inset-left)); right: max(8px, env(safe-area-inset-right)); width: auto; bottom: calc(72px + env(safe-area-inset-bottom)); max-height: calc(100% - 84px); }
   .rooms-head button.ghost { min-width: 44px; min-height: 40px; font-size: 18px; }

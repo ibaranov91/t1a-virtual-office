@@ -4,6 +4,7 @@ import { sampleMove, WALK_MS_PER_TILE, type Dir, type Rect } from '../../shared/
 import { isPlate, LUNCH_MS, plateFood } from '../../shared/lunch';
 import { cupTableAt, type Creature } from '../../shared/protocol';
 import type { Frame } from './assets';
+import { itemTop } from './tableTops';
 import { MAP, type Store } from './net';
 
 const TS = MAP.tileSize;
@@ -114,12 +115,13 @@ export class CreatureLayer {
     for (const cup of this.store.cups) {
       const table = cupTableAt(MAP.objects, cup.tile);
       const base = table ? (table.y + table.h) * TS - 0.25 : (cup.tile.y + 1) * TS;
-      const lift = table ? Math.max(0, (this.f(table.type)?.h ?? 0) - table.h * TS) : 0; // the table top sits above its tiles
+      const fh = table && this.f(table.type)?.h;
+      const y = table && fh ? itemTop(table, cup.tile.y, fh, TS) : cup.tile.y * TS + 6;
       if (isPlate(cup.item)) { // the food while lunch lasts, then the crumbs
-        out.push({ base, draw: () => this.blit(this.store.now() < cup.at + LUNCH_MS ? `plate_${plateFood(cup.item)}` : 'plate_empty', cup.tile.x * TS + 4, cup.tile.y * TS + 6 - lift) });
+        out.push({ base, draw: () => this.blit(this.store.now() < cup.at + LUNCH_MS ? `plate_${plateFood(cup.item)}` : 'plate_empty', cup.tile.x * TS + 4, y) });
         continue;
       }
-      out.push({ base, draw: () => this.blit(`cup_${cup.item === 'tea' ? 'tea' : 'coffee'}`, cup.tile.x * TS + 5, cup.tile.y * TS + 6 - lift) });
+      out.push({ base, draw: () => this.blit(`cup_${cup.item === 'tea' ? 'tea' : 'coffee'}`, cup.tile.x * TS + 5, y) });
     }
     for (const c of this.store.creatures.values()) {
       if (c.kind === 'bat') continue; // flies over everything: drawn on top
