@@ -315,6 +315,7 @@ wss.on('connection', (ws, req) => {
   const userId = sessions.get(session);
   const user = userId ? world.users.get(userId) : undefined;
   if (!user) { ws.close(4001, 'unauthorized'); return; }
+  if (user.email && !user.nameSet && user.name !== nameFromEmail(user.email)) user.name = nameFromEmail(user.email); // sessions outlive sign-in: bring old "Ivan Baranov" names to the current rule
   const { socket, close } = world.connect(user.id, msg => { if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(msg)); });
   ws.on('message', raw => {
     try {
