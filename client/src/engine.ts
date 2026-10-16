@@ -657,6 +657,11 @@ export class Engine {
     if (!me?.holding || !FOOD_ITEMS.includes(me.holding) || me.instance || this.areaDown || !picnicSeat(MAP, t)) return null;
     return MAP.objects.find(o => o.type === 'chair' && o.x === t.x && o.y === t.y) ?? null;
   }
+  /** What a click at this point can use: inside a meeting's room only the wall screen (it has a show per room). */
+  private pickable(wx: number, wy: number, inside: string | null): MapObject | null {
+    const o = this.objectAt(wx, wy);
+    return o && (!inside || o.use?.kind === 'presentation') ? o : null;
+  }
   private objectAt(wx: number, wy: number): MapObject | null {
     let best: MapObject | null = null;
     for (const o of this.interactive) {
@@ -778,7 +783,7 @@ export class Engine {
     this.hoverUser = this.userAt(w.x, w.y);
     const inside = this.myInstance();
     this.hoverCup = this.hoverUser || inside || this.areaDown ? null : this.critters.cupAt(w.x, w.y);
-    this.hoverObject = this.hoverUser || this.hoverCup || inside ? null : this.objectAt(w.x, w.y);
+    this.hoverObject = this.hoverUser || this.hoverCup ? null : this.pickable(w.x, w.y, inside);
     this.hoverPlant = this.hoverUser || this.hoverObject || inside ? null
       : this.plants.find(p => w.x >= p.x - 5 && w.x < p.x + 5 && w.y >= p.y - 18 && w.y < p.y) ?? null;
     const tx = Math.floor(w.x / TS), ty = Math.floor(w.y / TS);
@@ -831,7 +836,7 @@ export class Engine {
     if (critter?.id) { this.onPick?.(null); this.manualCam = false; return this.store.pet(critter.id); }
     const cupHit = inside || this.areaDown ? null : this.critters.cupAt(w.x, w.y);
     if (cupHit) { this.onPick?.(null); this.manualCam = false; return this.store.takeCup(cupHit.id); }
-    const obj = inside ? null : this.objectAt(w.x, w.y);
+    const obj = this.pickable(w.x, w.y, inside);
     if (obj?.sit) { this.onPick?.(null); this.manualCam = false; return this.store.moveTo(this.freeSeat(obj, Math.floor(w.x / TS))); }
     if (obj?.sound && obj.use?.kind !== 'jukebox') return this.onPick?.(null);
     if (obj) return this.onPick?.({ kind: 'object', id: obj.id });
@@ -1068,7 +1073,8 @@ export class Engine {
     }
     ctx.globalAlpha = 1;
 
-    if (!me?.instance) { this.drawBoardBadges(ctx, ms); this.drawLiveScreen(ctx, ms); }
+    if (!me?.instance) this.drawBoardBadges(ctx, ms);
+    this.drawLiveScreen(ctx, ms); // the store only holds the show of my own scope
 
     // a meeting's own room: the rest of the office fades away
     if (me?.instance && !this.areaDown && !this.falling()) {
