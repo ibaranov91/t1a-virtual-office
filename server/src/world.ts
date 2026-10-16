@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import {
-  adminOnly, applyEdit, stallDoor, stallLine, applyLayout, besideObject, playSpots, dirBetween, doorwayTiles, KEEP_TYPES, migrateBeach, migrateEastWing, layoutProblem, objectName, voiceRooms, findPath, isWalkable, pathDuration, pathTo, roomAt, routes, sampleMove, seatAt, uniqueIds, withLayout, WALK_MS_PER_TILE,
+  adminOnly, applyEdit, stallDoor, stallLine, stallVoiceId, applyLayout, besideObject, playSpots, dirBetween, doorwayTiles, KEEP_TYPES, migrateBeach, migrateEastWing, layoutProblem, objectName, voiceRooms, findPath, isWalkable, pathDuration, pathTo, roomAt, routes, sampleMove, seatAt, uniqueIds, withLayout, WALK_MS_PER_TILE,
   type MapObject, type Dir, type Layout, type Room, type Spot, type TileMap, type Tile,
 } from '../../shared/map';
 import {
@@ -14,6 +14,7 @@ import { phrase } from '../../shared/phrases';
 import { ADMIN_HAT, ALL_HATS, BAT_HAT, DANCE_ROOM, EFFECTS, HAT_NAMES, MAX_EFFECTS, RAVER_MS, hatItem, hatOf, walkMs } from '../../shared/effects';
 import { tracksFor } from '../../shared/music';
 import { Arcade } from './arcade';
+import { Table } from './table';
 import { Jukebox } from './jukebox';
 import { Library } from './library';
 import { migrateBookClub, migrateLibrary, readingSeats } from '../../shared/library';
@@ -50,7 +51,7 @@ export interface User extends PublicUser {
   afk?: boolean;
 }
 
-interface Call { id: string; members: Set<string>; link?: string; fallback: boolean; room?: Room; instance?: string } // room: open-voice hall; instance: set when the hall is a meeting room's own (id `room:<instance>`, room = the Meeting room)
+interface Call { id: string; members: Set<string>; link?: string; fallback: boolean; room?: Room; instance?: string; stall?: string } // room: open-voice hall; instance: set when the hall is a meeting room's own (id `room:<instance>`, room = the Meeting room); stall: a toilet stall's own (id `room:stall:<object>`, room = the stall's room)
 const knockCall = (c?: Call) => !!c && !c.room;
 interface Instance { id: string; end: number; members: Set<string>; talk: Set<string>; out: Set<string>; meet?: string; meetBusy?: boolean } // talk: on the room's voice (private rooms: everyone, calendar meetings: who opted in); out: left it on purpose; meet: the room's shared Meet link
 
@@ -111,6 +112,7 @@ export class World {
   private pendingSeat = new Map<string, { objectId: string; socket: string; spot: Spot; timer: NodeJS.Timeout }>();
   private noteBuckets = new Map<string, { tokens: number; at: number }>();
   private seatChanges = new Map<string, number[]>();
+  private lofiListeners = new Map<string, Set<string>>();
   private jukeboxes = new Map<string, Jukebox>();
   library = new Library();
   private readPlans = new Map<string, { articleId: string; seat: Tile; seq: number }>(); // on the way to a reading desk
@@ -148,6 +150,10 @@ export class World {
 
   arcade = new Arcade({ now: () => Date.now(), send: (id, msg) => this.sendOwner(id, msg),
     broadcast: msg => this.broadcast(msg), user: id => this.users.get(id) });
+
+  table = new Table({ now: () => Date.now(), send: (id, msg) => this.sendOwner(id, msg),
+    broadcast: msg => this.broadcast(msg), user: id => this.users.get(id),
+    leaveCabinet: u => this.arcade.leave(this.users.get(u.id)!), commit: (id, game, winner) => this.arcade.commitTable(id, game, winner) });
 
   creatures = new Creatures({ map: () => this.map, broadcast: msg => this.broadcast(msg),
     people: () => [...this.users.values()].filter(u => onMap(u) && !u.instance).map(u => this.position(u).dest),
@@ -235,7 +241,7 @@ export class World {
     send({ t: 'creatures', creatures: this.creatures.all() });
     send({ t: 'cups', cups: this.creatures.cups });
     send({ t: 'arcade', cabinets: this.arcade.summary() });
-    send({ t: 'arcade_records', records: structuredClone(this.arcade.records) });
+    send({ t: 'arcade_boards', boards: this.arcade.boards() });
     for (const person of this.users.values()) send({ t: 'game_status', userId: person.id, game: person.game });
     if (!u.bot) this.meetings.sendAgenda(u, true);
     send({ t: 'voice_wait', roomId: this.waiting.get(userId) ?? null });
@@ -249,6 +255,7 @@ export class World {
     return { socket, close: () => {
       this.listeners.delete(listener);
       const set = this.sockets.get(userId)!; if (!set.delete(socket)) return;
+      this.setLofiListening(u, socket, false);
       if (this.pendingSeat.get(userId)?.socket === socket) this.cancelSeatWalk(userId);
       for (const [id, seat] of this.seats) if (seat.socket === socket) this.endSeat(id);
       if (this.owners.get(userId) === socket) this.setOwner(userId, [...set.keys()].at(-1));
@@ -260,9 +267,10 @@ export class World {
     if (old === socket) return;
     if (u) this.arcade.reset(u);
     if (old && u?.game) this.sockets.get(userId)?.get(old)?.({ t: 'game_session', session: null, reason: 'elsewhere' });
+    if (old && u?.table) this.sockets.get(userId)?.get(old)?.({ t: 'table', view: null });
     if (socket) this.owners.set(userId, socket); else this.owners.delete(userId);
     for (const [id, send] of this.sockets.get(userId) ?? []) send({ t: 'voice_owner', owner: id === socket });
-    if (socket && u) this.arcade.resend(u);
+    if (socket && u) { this.arcade.resend(u); if (u.table) this.table.resend(u); }
   }
 
   // ---------- arriving & leaving ----------
@@ -316,7 +324,7 @@ export class World {
       const at = this.walk(u, exit, 'up');
       this.doorTimer(u, () => {
         this.setDoor(u, null);
-        this.arcade.leave(u);
+        this.arcade.leave(u); this.table.leave(u);
         u.offlineAt = Date.now();
         this.setPresence(u, 'offline');
       }, at === null && vacationExit ? 0 : Math.max(0, (at ?? Date.now()) - Date.now()) + DOOR_PAUSE_MS);
@@ -426,7 +434,7 @@ export class World {
     const startedAt = Math.round(now + pos.remainingMs);
     face ??= seatAt(this.map, to.x, to.y)?.dir; // sit facing the desk/table
     if (u.effects.some(e => e.kind === 'dance') && (roomAt(this.map, to.x, to.y)?.id !== DANCE_ROOM || seatAt(this.map, to.x, to.y))) this.removeEffect(u, 'dance', now);
-    this.arcade.leave(u);
+    this.arcade.leave(u); this.table.leave(u);
     u.prev = u.move && u.path && now < u.move.startedAt + pathDuration(u.path, u.move.ms) ? { path: u.path, startedAt: u.move.startedAt, ...(u.move.ms ? { ms: u.move.ms } : {}) } : undefined;
     const per = msPerTile ?? walkMs(u.effects), ms = per === WALK_MS_PER_TILE ? undefined : per; // the usual pace stays implicit
     u.move = { from, to, startedAt, face, ...(ms ? { ms } : {}) }; u.path = path; u.tile = to;
@@ -620,7 +628,7 @@ export class World {
   use(u: User, objectId: string, itemId?: string) {
     this.cancelSeatWalk(u.id);
     const o = this.map.objects.find(o => o.id === objectId);
-    if (!o || !routes(o.use, 'use') || goingOut(u) || (u.instance && (underground(u) || o.use.kind !== 'presentation')) || u.presence === 'offline' || ((o.use.kind === 'arcade' || o.use.kind === 'presentation' || o.use.kind === 'room_start') && u.bot)) return;
+    if (!o || !routes(o.use, 'use') || goingOut(u) || (u.instance && (underground(u) || o.use.kind !== 'presentation')) || u.presence === 'offline' || ((o.use.kind === 'arcade' || o.use.kind === 'table' || o.use.kind === 'presentation' || o.use.kind === 'room_start') && u.bot)) return;
     const item = o.use.kind === 'take' ? o.use.items.find(i => i.id === itemId) ?? o.use.items[0] : null;
     if (o.use.kind === 'toilet') return this.useToilet(u, o);
     this.setFollowing(u, null);
@@ -630,11 +638,11 @@ export class World {
     for (const s of besideObject(this.map, o)) {
       const mine = s.x === here.x && s.y === here.y;
       if (!mine && occ.has(`${s.x},${s.y}`)) continue;
-      const len = mine ? 0 : (o.use.kind === 'arcade' ? pathTo(this.map, here, s) : findPath(this.map, here, s)).length;
+      const len = mine ? 0 : ((o.use.kind === 'arcade' || o.use.kind === 'table') ? pathTo(this.map, here, s) : findPath(this.map, here, s)).length;
       if (!mine && !len) continue;
       if (!best || len < best.len) best = { spot: s, len };
     }
-    if (!best && o.use.kind === 'arcade') {
+    if (!best && (o.use.kind === 'arcade' || o.use.kind === 'table')) {
       const room = roomAt(this.map, o.x, o.y), candidates: Spot[] = [];
       if (room) for (let y = room.rect.y; y < room.rect.y + room.rect.h; y++) for (let x = room.rect.x; x < room.rect.x + room.rect.w; x++) {
         if (isWalkable(this.map, x, y)) candidates.push({ x, y, dir: dirBetween({ x, y }, { x: o.x, y: o.y + o.h }) });
@@ -656,6 +664,7 @@ export class World {
       if (d.x !== spot.x || d.y !== spot.y || u.presence === 'offline' || goingOut(u) || (u.instance && o.use!.kind !== 'presentation')) return; // wandered off on the way
       const current = this.map.objects.find(it => it.id === objectId);
       if (!current?.use || current.use.kind !== o.use!.kind) return;
+      if (current.use.kind === 'table') { if (!u.bot && this.sockets.get(u.id)?.size) this.table.join(u, current.id); return; }
       if (current.use.kind === 'arcade') { if (!u.bot && this.sockets.get(u.id)?.size) this.arcade.join(u, current.id); return; }
       if (current.use.kind === 'bell') this.ringBell(u, current);
       else if (current.use.kind === 'presentation') { if (!u.bot) this.sendTo(u.id, { t: 'present_open', objectId: current.id }); }
@@ -670,7 +679,7 @@ export class World {
         this.setHolding(u, item.id, o.id);
         if (o.type === 'coffee_machine') this.addEffect(u, 'speed'); // a fresh cup: quick on your feet for a while
       }
-    }, Math.max(0, at - Date.now()) + (o.use.kind === 'arcade' ? 0 : USE_MS[o.use.kind])));
+    }, Math.max(0, at - Date.now()) + (o.use.kind === 'arcade' || o.use.kind === 'table' ? 0 : USE_MS[o.use.kind])));
   }
   // ---------- the Library ----------
   private walkingTo = -1; // seq of the read plan whose own walk is under way (not a reason to stop reading)
@@ -1058,7 +1067,7 @@ export class World {
     for (const k of this.knocks.values()) if ((k.fromId === u.id || k.toId === u.id) && (k.state === 'walking' || k.state === 'pending')) this.closeKnock(k, 'later', 'Knock cancelled', k.fromId === u.id);
     this.stopReading(u); this.leaveCall(u); this.setFollowing(u, null);
     for (const [id, seat] of this.seats) if (seat.user === u.id) this.endSeat(id);
-    this.toilets.leave(u.id, Date.now()); this.arcade.leave(u);
+    this.toilets.leave(u.id, Date.now()); this.arcade.leave(u); this.table.leave(u);
     if (u.effects.some(e => e.kind === 'dance') && roomAt(this.map, to.x, to.y)?.id !== DANCE_ROOM) this.removeEffect(u, 'dance');
     this.place(u, to);
     u.dir = dirBetween(to, there); this.broadcast({ t: 'instance', userId: u.id, instance: u.instance, tile: u.tile, dir: u.dir });
@@ -1363,7 +1372,7 @@ export class World {
     }
     const spot = seats[0] ?? floor[Math.floor(Math.random() * floor.length)];
     if (!spot) return;
-    this.arcade.leave(u);
+    this.arcade.leave(u); this.table.leave(u);
     inst.members.add(u.id);
     u.instance = inst.id;
     this.place(u, spot);
@@ -1518,6 +1527,7 @@ export class World {
     return roomAt(this.map, t.x, t.y)?.id === room.id || doorwayTiles(this.map, room).some(g => g.some(p => p.x === t.x && p.y === t.y));
   }
   private maintainRoom(call: Call, now = Date.now()) {
+    if (call.stall) { if (!call.members.size) this.calls.delete(call.id); return; } // never more inside than voice holds: no line
     for (const [id, roomId] of this.waiting) {
       if (roomId !== (call.instance ?? call.room!.id)) continue;
       const u = this.users.get(id);
@@ -1528,9 +1538,23 @@ export class World {
     }
     if (!call.members.size) this.calls.delete(call.id);
   }
+  private canListenToLofi(u: User, now = Date.now()) {
+    const tile = this.position(u, now).tile;
+    return !u.bot && !u.instance && !goingOut(u) && u.presence !== 'offline' && !u.deafened && roomAt(this.map, tile.x, tile.y)?.id === 'music';
+  }
+  private setLofiListening(u: User, socket: string, on: boolean) {
+    const pages = this.lofiListeners.get(u.id) ?? new Set<string>();
+    if (on && this.canListenToLofi(u)) pages.add(socket); else pages.delete(socket);
+    if (pages.size) this.lofiListeners.set(u.id, pages); else this.lofiListeners.delete(u.id);
+    const next = pages.size ? 'lofi' : null;
+    if ((u.listening ?? null) !== next) { u.listening = next; this.broadcast({ t: 'listening', userId: u.id, on: !!next }); }
+  }
   voiceTick(now = Date.now()) {
     const rooms = voiceRooms(this.map);
     for (const u of this.users.values()) {
+      if (u.listening && !this.canListenToLofi(u, now)) {
+        this.lofiListeners.delete(u.id); u.listening = null; this.broadcast({ t: 'listening', userId: u.id, on: false });
+      }
       if (u.bot || u.afk || u.presence === 'offline' || goingOut(u) || !this.sockets.get(u.id)?.size) { this.setWaiting(u, null); if (u.instance) { const c = this.calls.get(u.callId ?? ''); if (c?.instance) this.leaveCall(u, now); } continue; }
       const t = this.position(u, now).tile;
       const inside = rooms.find(r => t.x >= r.rect.x && t.x < r.rect.x + r.rect.w && t.y >= r.rect.y && t.y < r.rect.y + r.rect.h);
@@ -1542,7 +1566,9 @@ export class World {
         continue;
       }
       if (call?.instance) this.leaveCall(u, now);
-      else if (call && knockCall(call)) {
+      const stall = this.toilets.inside(u.id);
+      if (stall) { this.setWaiting(u, null); this.joinStall(u, stall); continue; }
+      if (call && knockCall(call)) {
         this.setWaiting(u, null);
         if (!inside) continue;
         for (const id of call.members) if (id !== u.id) this.sendTo(id, { t: 'call_moved', userId: u.id, roomId: inside.id });
@@ -1564,6 +1590,16 @@ export class World {
       if (!hall) hall = { id, members: new Set(), fallback: false, room };
       this.calls.set(id, hall); this.joinCall(u, hall);
     }
+  }
+  /** Behind a stall's door: everyone inside talks, one call per stall. Going in leaves any other call. */
+  private joinStall(u: User, stall: string) {
+    const id = stallVoiceId(stall);
+    if (u.callId === id) return;
+    const o = this.map.objects.find(o => o.id === stall), room = o && roomAt(this.map, o.x, o.y - 1);
+    if (!room) return;
+    let hall = this.calls.get(id);
+    if (!hall) this.calls.set(id, hall = { id, members: new Set(), fallback: false, room: { ...room, name: 'the stall' }, stall });
+    this.joinCall(u, hall);
   }
   callFull(u: User) { const c = u.callId ? this.calls.get(u.callId) : undefined; return knockCall(c) && c!.members.size >= MAX_CALL_SIZE; }
   leaveCall(u: User, now = Date.now()) {
@@ -1881,12 +1917,17 @@ export class World {
       if (Number.isFinite(msg.id)) this.sockets.get(u.id)?.get(socket)?.({ t: 'pong', id: msg.id, serverTime: Date.now() });
       return;
     }
-    if (typeof msg.t === 'string' && msg.t.startsWith('game_')) {
+    if (typeof msg.t === 'string' && msg.t.startsWith('table_')) {
+      if (this.owners.get(u.id) === socket) this.table.handle(u, msg);
+      return;
+    }
+    if (typeof msg.t === 'string' && (msg.t.startsWith('game_') || msg.t === 'crew_name')) {
       if (this.owners.get(u.id) === socket) this.arcade.handle(u, msg);
       return;
     }
     if (['rtc', 'speaking', 'mute', 'deafen', 'hand'].includes(msg.t) && this.owners.get(u.id) !== socket) return;
     switch (msg.t) {
+      case 'listening': this.setLofiListening(u, socket, msg.on === true); break;
       case 'instrument': this.instrument(u, msg, socket); break;
       case 'note': this.note(u, msg, socket); break;
       case 'move': {
@@ -2130,7 +2171,7 @@ export class World {
       const tile = this.inDungeon(d.tile) ? this.dungeonExit(false) : isWalkable(this.map, d.tile.x, d.tile.y) || seatAt(this.map, d.tile.x, d.tile.y) ? d.tile : { ...this.map.spawn };
       const legacy = lookFor(d.name);
       const look = { ...legacy, ...d.look, eyes: d.look?.eyes ?? legacy.eyes, shoes: d.look?.shoes ?? legacy.shoes, top: d.look?.top ?? 0, bottom: d.look?.bottom ?? 0, glasses: d.look?.glasses ?? 0, hat: d.look?.hat ?? 0, beard: d.look?.beard ?? 0, mustache: d.look?.mustache ?? 0, glassesColor: d.look?.glassesColor ?? legacy.glassesColor, hatColor: d.look?.hatColor ?? legacy.hatColor };
-      this.users.set(d.id, { ...d, vacation: d.vacation && d.vacation.until > now ? d.vacation : null, look, lookSet: d.lookSet ?? false, homeDesk: d.homeDesk ?? null, plant: d.plant ?? null, bloomed: d.bloomed ?? [], achievements: d.achievements ?? {}, items: Array.isArray(d.items) ? d.items.filter((i: unknown): i is string => typeof i === 'string') : [], effects: (d.effects ?? []).filter(e => Object.prototype.hasOwnProperty.call(EFFECTS, e.kind) && e.until === undefined), tile, move: null, path: null, emote: null, door: null, callId: null, deafened: false, hand: false, muted: false, following: null, holding: null, meeting: null, reading: null, instance: null, game: null, presence: d.bot ? d.presence : 'offline' });
+      this.users.set(d.id, { ...d, vacation: d.vacation && d.vacation.until > now ? d.vacation : null, look, lookSet: d.lookSet ?? false, homeDesk: d.homeDesk ?? null, plant: d.plant ?? null, bloomed: d.bloomed ?? [], achievements: d.achievements ?? {}, items: Array.isArray(d.items) ? d.items.filter((i: unknown): i is string => typeof i === 'string') : [], effects: (d.effects ?? []).filter(e => Object.prototype.hasOwnProperty.call(EFFECTS, e.kind) && e.until === undefined), tile, move: null, path: null, emote: null, door: null, callId: null, deafened: false, hand: false, muted: false, following: null, holding: null, meeting: null, reading: null, listening: null, instance: null, game: null, table: null, presence: d.bot ? d.presence : 'offline' });
       // back within WALK_HOME_AFTER_MS of the restart (a reconnect takes seconds): their spot, not their desk
       const u = this.users.get(d.id)!;
       if (d.resume && !d.bot && tile === d.tile) { u.lastSpot = { ...tile }; u.offlineAt = now; u.resume = true; } else u.resume = undefined;

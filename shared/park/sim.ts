@@ -1,13 +1,13 @@
-import type { GameEvent } from './types';
+import type { BaseState, GameEvent, Stats } from '../arcade/types';
+import { hash } from '../arcade/hash';
 export { PARK_FPS, PARK_INPUT_DELAY, PARK_SERVER_LAG, PARK_SPECTATOR_DELAY, PARK_MAX_PLAYERS } from './types';
 export type { GameEvent } from './types';
 
-export const SUB = 16, TILE = 16 * SUB, PLAYER_W = 10 * SUB, PLAYER_H = 20 * SUB, VIEW_W = 320 * SUB;
-export const RUN_MAX = 32, ACCEL_GROUND = 4, ACCEL_AIR = 3, FRICTION = 6, JUMP_V = 92;
-export const GRAVITY_HELD = 6, GRAVITY = 10, MAX_FALL = 88, BOX_MAX_FALL = 64;
-export const COYOTE = 6, JUMP_BUFFER = 6, CORNER = 4 * SUB, RESPAWN = 45, EXIT_HOLD = 30;
-export interface Point { x: number; y: number }
-export interface Rect extends Point { w: number; h: number }
+import { SUB, TILE, PLAYER_W, PLAYER_H, VIEW_W, RUN_MAX, ACCEL_GROUND, ACCEL_AIR, FRICTION, JUMP_V,
+  GRAVITY_HELD, GRAVITY, MAX_FALL, COYOTE, JUMP_BUFFER, CORNER, overlaps, type Point, type Rect } from '../arcade/arena';
+export { SUB, TILE, PLAYER_W, PLAYER_H, VIEW_W, RUN_MAX, ACCEL_GROUND, ACCEL_AIR, FRICTION, JUMP_V,
+  GRAVITY_HELD, GRAVITY, MAX_FALL, COYOTE, JUMP_BUFFER, CORNER, overlaps, type Point, type Rect } from '../arcade/arena';
+export const BOX_MAX_FALL = 64, RESPAWN = 45, EXIT_HOLD = 30;
 export interface Need { need: number | 'all' }
 export interface LevelMeta {
   id: number; name: string; rows: string[];
@@ -15,7 +15,7 @@ export interface LevelMeta {
   buttons?: Partial<Record<'1' | '2' | '3' | '4', Need & { latch?: boolean; latchSolo?: boolean }>>;
   lifts?: (Need & { dy: number; speed: number })[];
   movers?: { dx: number; dy: number; period: number }[];
-  lobby?: { start: Rect; exit: Rect; selectors: (Rect & { delta: number })[] }; // tile coordinates
+  lobby?: { start: Rect; exit: Rect; selectors: (Rect & { delta: number; kind?: 'crew' | 'mode' })[] }; // tile coordinates
 }
 export interface LevelDef extends LevelMeta {
   width: number; spawn: Point; key: Point; door: Rect;
@@ -33,17 +33,17 @@ export interface Player {
 }
 export type FxKind = 'jump' | 'coin' | 'key' | 'door' | 'button' | 'stomp' | 'death' | 'respawn' | 'clear' | 'select';
 export interface ParkFx { frame: number; kind: FxKind; slot: number }
-export interface ParkState {
+export interface ParkState extends BaseState {
   frame: number; players: Player[];
   key: Point & { homeX: number; homeY: number; carrier: number }; doorOpen: boolean;
   buttons: { pressed: boolean; latched: boolean }[]; gates: { open: boolean }[];
   boxes: (Point & { vy: number })[]; lifts: { offset: number }[]; movers: { phase: number; offset: Point }[];
   sBlocks: boolean[]; tBlocks: boolean[]; coinsTaken: boolean[]; enemies: (Point & { dir: number; alive: boolean })[];
   checkpoint: Point; camX: number; coins: number; cleared: boolean; clearedAt: number;
+  stats: Stats[]; keyDoor: number[]; crewBumps: number; teamMode: boolean;
   selected: number; startHold: number; startReady: boolean; fx: ParkFx[];
 }
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(n, hi));
-export const overlaps = (a: Rect, b: Rect) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
 const tileRect = (x: number, y: number, w = 1, h = 1): Rect => ({ x: x * TILE, y: y * TILE, w: w * TILE, h: h * TILE });
 const playerRect = (p: Point): Rect => ({ ...p, w: PLAYER_W, h: PLAYER_H });
 export function parseLevel(meta: LevelMeta): LevelDef {
@@ -90,7 +90,7 @@ const freshPlayer = (l: LevelDef, slot: number): Player => ({ present: false, x:
   vx: 0, vy: 0, bits: 0, prevBits: 0, grounded: false, coyote: 0, buffer: 0, jumpHeld: false, facing: 1,
   dead: false, respawnIn: 0, entered: false, exitHold: 0 });
 export function parkInit(l: LevelDef, selected = 1): ParkState {
-  return { frame: 0, players: Array.from({ length: 4 }, (_, slot) => freshPlayer(l, slot)),
+  return { frame: 0, outcome: null, stats: Array.from({ length: 4 }, () => ({})), keyDoor: [0, 0, 0, 0], crewBumps: 0, teamMode: false, players: Array.from({ length: 4 }, (_, slot) => freshPlayer(l, slot)),
     key: { ...l.key, homeX: l.key.x, homeY: l.key.y, carrier: -1 }, doorOpen: false,
     buttons: l.buttonDefs.map(() => ({ pressed: false, latched: false })), gates: l.gateDefs.map(() => ({ open: false })),
     boxes: l.boxDefs.map(r => ({ x: r.x, y: r.y, vy: 0 })), lifts: l.liftDefs.map(() => ({ offset: 0 })),
@@ -137,9 +137,9 @@ export function parkStep(s: ParkState, l: LevelDef, events: GameEvent[]): void {
     if (kind === 1) s.players[slot] = { ...freshPlayer(l, slot), present: true };
     if (kind === 2) { p.present = false; p.bits = 0; if (s.key.carrier === slot) homeKey(s); }
     if (kind === 3) { p.bits = 0; p.prevBits = 0; p.buffer = 0; p.jumpHeld = false; }
-    if (kind === 0 && p.present && !p.entered) p.bits = bits & 7;
+    if (kind === 0 && p.present && !p.entered) p.bits = bits & 63;
   }
-  if (s.cleared || s.startReady) { s.frame++; return; }
+  if (s.outcome || s.cleared || s.startReady) { s.frame++; return; }
   const count = s.players.filter(p => p.present).length;
   const living = s.players.filter(alive);
   if (living.length) {
@@ -220,12 +220,12 @@ export function parkStep(s: ParkState, l: LevelDef, events: GameEvent[]): void {
     const p = s.players[b.index];
     const grounded = blocked(b, b.x, b.y + 1, riders(b), 1);
     p.grounded = grounded; p.coyote = grounded ? COYOTE : Math.max(0, p.coyote - 1);
-    p.buffer = (p.bits & 4) && !(p.prevBits & 4) ? JUMP_BUFFER : Math.max(0, p.buffer - 1);
+    p.buffer = (p.bits & 20) && !(p.prevBits & 20) ? JUMP_BUFFER : Math.max(0, p.buffer - 1);
     const dir = (p.bits & 3) === 1 ? -1 : (p.bits & 3) === 2 ? 1 : 0;
     if (dir) { p.vx = clamp(p.vx + dir * (grounded ? ACCEL_GROUND : ACCEL_AIR), -RUN_MAX, RUN_MAX); p.facing = dir; }
     else if (grounded) p.vx -= clamp(p.vx, -FRICTION, FRICTION);
     if (p.buffer && p.coyote) { p.vy = -JUMP_V; p.buffer = 0; p.coyote = 0; p.grounded = false; effect(s, 'jump', b.index); }
-    p.jumpHeld = Boolean(p.bits & 4);
+    p.jumpHeld = Boolean(p.bits & 20);
     p.vy = Math.min(p.vy + (p.jumpHeld && p.vy < 0 ? GRAVITY_HELD : GRAVITY), MAX_FALL);
     if (moveAxis(b, p.vx, 'x') !== p.vx) p.vx = 0;
     let moved = moveAxis(b, p.vy, 'y');
@@ -237,7 +237,9 @@ export function parkStep(s: ParkState, l: LevelDef, events: GameEvent[]): void {
       }
       if (moved !== p.vy && l.lobby) for (const r of l.lobby.selectors) {
         if (overlaps({ ...b, y: b.y - SUB }, tileRect(r.x, r.y, r.w, r.h))) {
-          s.selected = ((s.selected - 1 + r.delta + 8) % 8) + 1; effect(s, 'select', b.index);
+          if (r.kind === 'crew') s.crewBumps++;
+          else if (r.kind === 'mode') { if (count === 4) s.teamMode = !s.teamMode; }
+          else s.selected = ((s.selected - 1 + r.delta + 8) % 8) + 1; effect(s, 'select', b.index);
         }
       }
     }
@@ -252,7 +254,7 @@ export function parkStep(s: ParkState, l: LevelDef, events: GameEvent[]): void {
     const p = s.players[slot]; if (!alive(p)) return;
     p.dead = true; p.respawnIn = RESPAWN; p.vx = 0; p.vy = 0;
     if (s.key.carrier === slot) homeKey(s);
-    effect(s, 'death', slot);
+    s.stats[slot].deaths = (s.stats[slot].deaths ?? 0) + 1; effect(s, 'death', slot);
   };
   const safe = (r: Rect, ignore: number) => !tiles(s, l).some(t => overlaps(r, t)) &&
     !bodies(s, l).some(b => !(b.kind === 'player' && b.index === ignore) && overlaps(r, b)) &&
@@ -282,17 +284,17 @@ export function parkStep(s: ParkState, l: LevelDef, events: GameEvent[]): void {
     }
     if (p.entered) continue;
     const r = playerRect(p);
-    l.coinDefs.forEach((c, i) => { if (!s.coinsTaken[i] && overlaps(r, c)) { s.coinsTaken[i] = true; s.coins++; effect(s, 'coin', slot); } });
+    l.coinDefs.forEach((c, i) => { if (!s.coinsTaken[i] && overlaps(r, c)) { s.coinsTaken[i] = true; s.coins++; s.stats[slot].coins = (s.stats[slot].coins ?? 0) + 1; effect(s, 'coin', slot); } });
     if (!l.lobby && !s.doorOpen && s.key.carrier < 0 && overlaps(r, { ...s.key, w: TILE, h: TILE })) { s.key.carrier = slot; effect(s, 'key', slot); }
     l.flags.forEach(f => { if (overlaps(r, { ...f, w: TILE, h: PLAYER_H })) s.checkpoint = { ...f }; });
     if (!l.lobby && overlaps(r, l.door)) {
-      if (s.key.carrier === slot) { s.doorOpen = true; s.key.carrier = -2; effect(s, 'door', slot); }
+      if (s.key.carrier === slot) { s.keyDoor[slot] = 1; s.doorOpen = true; s.key.carrier = -2; effect(s, 'door', slot); }
       if (s.doorOpen) { p.entered = true; p.bits = 0; p.vx = 0; p.vy = 0; }
     }
     if (p.entered) continue;
     if (p.y >= 12 * TILE || l.spikes.some(t => overlaps(r, t))) { die(slot); continue; }
     for (const e of s.enemies) if (e.alive && overlaps(r, { ...e, w: TILE, h: TILE })) {
-      if (p.vy > 0 && p.y + PLAYER_H <= e.y + Math.trunc(Math.trunc(TILE / 2))) { e.alive = false; p.vy = -Math.trunc(JUMP_V * 3 / 5); effect(s, 'stomp', slot); }
+      if (p.vy > 0 && p.y + PLAYER_H <= e.y + Math.trunc(Math.trunc(TILE / 2))) { e.alive = false; p.vy = -Math.trunc(JUMP_V * 3 / 5); s.stats[slot].stomps = (s.stats[slot].stomps ?? 0) + 1; effect(s, 'stomp', slot); }
       else die(slot);
     }
   }
@@ -338,23 +340,8 @@ export function parkStep(s: ParkState, l: LevelDef, events: GameEvent[]): void {
   } else if (count > 0 && s.players.filter(p => p.present).every(p => p.entered)) {
     s.cleared = true; s.clearedAt = s.frame; effect(s, 'clear', -1);
   }
+  for (const [slot, p] of s.players.entries()) if (alive(p) && !p.grounded) s.stats[slot].airFrames = (s.stats[slot].airFrames ?? 0) + 1;
   s.frame++;
 }
 
-export function hashState(s: ParkState): number {
-  let h = 2166136261;
-  const n = (v: number | boolean) => { let k = Number(v) | 0; for (let i = 0; i < 4; i++) { h = Math.imul(h ^ (k & 255), 16777619) >>> 0; k >>>= 8; } };
-  n(s.frame);
-  for (const p of s.players) for (const k of ['present', 'x', 'y', 'vx', 'vy', 'bits', 'prevBits', 'grounded', 'coyote', 'buffer', 'jumpHeld', 'facing', 'dead', 'respawnIn', 'entered', 'exitHold'] as const) n(p[k]);
-  for (const k of ['x', 'y', 'homeX', 'homeY', 'carrier'] as const) n(s.key[k]); n(s.doorOpen);
-  n(s.buttons.length); for (const b of s.buttons) { n(b.pressed); n(b.latched); }
-  n(s.gates.length); for (const g of s.gates) n(g.open);
-  n(s.boxes.length); for (const b of s.boxes) { n(b.x); n(b.y); n(b.vy); }
-  n(s.lifts.length); for (const l of s.lifts) n(l.offset);
-  n(s.movers.length); for (const m of s.movers) { n(m.phase); n(m.offset.x); n(m.offset.y); }
-  for (const a of [s.sBlocks, s.tBlocks, s.coinsTaken]) { n(a.length); for (const b of a) n(b); }
-  n(s.enemies.length); for (const e of s.enemies) { n(e.x); n(e.y); n(e.dir); n(e.alive); }
-  n(s.checkpoint.x); n(s.checkpoint.y); n(s.camX); n(s.coins); n(s.cleared); n(s.clearedAt);
-  n(s.selected); n(s.startHold); n(s.startReady);
-  return h;
-}
+export const hashState = hash;

@@ -1,4 +1,4 @@
-const KEYS: Record<string, number> = { ArrowLeft: 1, KeyA: 1, ArrowRight: 2, KeyD: 2, ArrowUp: 4, KeyW: 4, KeyZ: 4, Space: 4 };
+const KEYS: Record<string, number> = { ArrowLeft: 1, KeyA: 1, ArrowRight: 2, KeyD: 2, ArrowUp: 4, KeyW: 4, ArrowDown: 8, KeyS: 8, Space: 16, KeyZ: 16, KeyJ: 16, KeyX: 32, KeyK: 32, ShiftLeft: 32, ShiftRight: 32 };
 const textField = (target: EventTarget | null) => target instanceof Element && !!target.closest('input, textarea, select, [contenteditable]');
 
 export class ParkInput {
@@ -55,7 +55,10 @@ export class ParkInput {
       if (!pad || pad.mapping !== 'standard') continue;
       if (pad.buttons[14]?.pressed || pad.axes[0] < -.35) bits |= 1;
       if (pad.buttons[15]?.pressed || pad.axes[0] > .35) bits |= 2;
-      if (pad.buttons[0]?.pressed || pad.buttons[1]?.pressed) bits |= 4;
+      if (pad.buttons[12]?.pressed || pad.axes[1] < -.35) bits |= 4;
+      if (pad.buttons[13]?.pressed || pad.axes[1] > .35) bits |= 8;
+      if (pad.buttons[0]?.pressed) bits |= 16;
+      if (pad.buttons[1]?.pressed || pad.buttons[2]?.pressed) bits |= 32;
     }
     return bits;
   }

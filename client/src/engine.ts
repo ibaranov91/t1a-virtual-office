@@ -744,7 +744,7 @@ export class Engine {
     this.zoomTo(this.gesture.px * e.scale, this.devicePoint(e));
   };
   private onKey = (e: KeyboardEvent) => {
-    if (this.store.seat || this.store.gameOpen) return;
+    if (this.store.seat || this.store.gameOpen || this.store.table) return;
     const t = e.target;
     if (this.falling()) return;
     if (e.metaKey || e.ctrlKey || e.altKey || (t instanceof Element && t.closest('input, textarea, select, [contenteditable]'))) return;
@@ -1043,7 +1043,7 @@ export class Engine {
       while (di < ds.length && ds[di].base <= f.base) drawD(ds[di++]);
       const ff = this.f(f.o.type);
       if (!this.onScreen(f.x - 2, f.y - 2, ff.w + 4, ff.h + 4)) continue;
-      this.blit(ctx, f.o.type === 'arcade' && this.store.cabinets.some(c => c.cabinet === f.o.id) ? `arcade_on_${1 + Math.floor(ms / 320) % 2}` : f.o.use?.kind === 'toilet' ? this.toiletFrame(f.o.id)
+      this.blit(ctx, f.o.type === 'game_table' && [...this.store.users.values()].some(u => u.table?.objectId === f.o.id && u.table.running) ? 'game_table_on' : f.o.type === 'arcade' && this.store.cabinets.some(c => c.cabinet === f.o.id) ? `arcade_on_${1 + Math.floor(ms / 320) % 2}` : f.o.use?.kind === 'toilet' ? this.toiletFrame(f.o.id)
         : f.o.type === 'bell' ? this.bellFrame(f.o.id, ms) : f.o.type === 'hat_rack' ? this.hatRackFrame(f.o, ms) : f.o.type === 'reading_table' && this.flickers(f.o, ms) ? 'reading_table_1'
         : f.o.type === 'server_rack' && Math.floor(ms / 500 + f.o.x * 3 + f.o.y) % 2 ? 'server_rack_1' : f.off && !this.isOn(f.o) ? `${f.o.type}_off` : f.o.type, f.x, f.y);
       if (f.o.use?.kind === 'toilet') this.drawStall(ctx, f.o, f.x, f.y);
@@ -1126,7 +1126,7 @@ export class Engine {
       const player = this.store.instruments[o.id];
       const instrumentTip = o.use?.kind === 'instrument' ? `${INSTRUMENTS[o.use.instrument].name} · ${this.store.seat === o.id ? "you're playing · Esc to stand up" : player === this.store.me ? "you're playing in another tab" : player ? `${this.store.name(player).split(' ')[0]} is playing` : 'click to play'}` : '';
       const awayCount = o.use?.kind === 'vacations' ? [...this.store.users.values()].filter(u => u.vacation).length : 0;
-      const what = instrumentTip || (o.use?.kind === 'arcade' ? this.store.gameDescription(o.id) : o.use?.kind === 'records' ? 'Deck Park · team records' : o.use?.kind === 'jukebox' ? !jukebox ? 'Jukebox · Reconnecting…' : jukebox.pausedAt !== null ? 'Jukebox · paused' : `Jukebox · ♪ ${track?.title ?? jukebox.track} — ${track?.artist ?? ''}` : o.use?.kind === 'toggle' ? `${o.use.label[0].toUpperCase()}${o.use.label.slice(1)} · ${this.isOn(o) ? 'on' : 'off'}`
+      const what = instrumentTip || (o.use?.kind === 'table' ? this.store.tableDescription(o.id) : o.use?.kind === 'arcade' ? this.store.gameDescription(o.id) : o.use?.kind === 'records' ? 'Arcade boards · weekly scores and records' : o.use?.kind === 'jukebox' ? !jukebox ? 'Jukebox · Reconnecting…' : jukebox.pausedAt !== null ? 'Jukebox · paused' : `Jukebox · ♪ ${track?.title ?? jukebox.track} — ${track?.artist ?? ''}` : o.use?.kind === 'toggle' ? `${o.use.label[0].toUpperCase()}${o.use.label.slice(1)} · ${this.isOn(o) ? 'on' : 'off'}`
         : o.use?.kind === 'vacations' ? `On vacation · ${awayCount ? `${awayCount} away now` : "everyone's at work"}`
         : o.use?.kind === 'calendar' ? 'Calendar · your week' : o.use?.kind === 'achievements' ? 'Notice board · your plant and achievements' : o.use?.kind === 'link' ? `Vault 13 · click to open the ${o.use.label}` : o.use?.kind === 'meetings' ? `Meetings · ${this.store.meetingRooms.length || 'none'} on now`
         : o.use?.kind === 'youtube' ? `${o.use.label} · click to watch`
@@ -1350,6 +1350,7 @@ export class Engine {
     if (u.door === 'leaving') return null;
     if (u.emote === 'knock') return 'bubble_bang';
     // in the Arcade's open voice everyone is in the room call: show the joystick/eyes unless they're talking
+    if (u.table && !u.speaking && (!u.callId || u.callId.startsWith('room:'))) return u.table.role === 'watcher' || u.table.running && !u.table.players.includes(u.id) ? 'bubble_watch' : 'bubble_game';
     if (u.game && !u.speaking && (!u.callId || u.callId.startsWith('room:'))) return u.game.role === 'player' ? 'bubble_game' : 'bubble_watch';
     if (u.callId) return u.deafened ? u.muted ? 'bubble_mute_deaf' : 'bubble_deaf' : 'bubble_talk';
     if (!underground(u) && (u.instance || u.meeting)) return 'bubble_meeting'; // a real calendar meeting, not just standing in the Meeting room; beats a manual "In a call"
@@ -1401,6 +1402,16 @@ export class Engine {
       ctx.restore();
     }
 
+    if (u.listening === 'lofi') {
+      const w = 51, bx = x + 8 - Math.floor(w / 2), by = baseY - 55;
+      ctx.fillStyle = '#513b36'; ctx.fillRect(bx - 1, by - 1, w + 2, 17);
+      ctx.fillStyle = '#281f26'; ctx.fillRect(bx, by, w, 15);
+      drawText(ctx, 'LISTENING TO', bx + 4, by + 2, '#d9bfa4');
+      ctx.fillStyle = '#e33a47'; ctx.fillRect(bx + 3, by + 8, 8, 5);
+      ctx.fillStyle = '#fff4e0'; ctx.fillRect(bx + 6, by + 9, 1, 3); ctx.fillRect(bx + 7, by + 10, 1, 1);
+      drawText(ctx, 'LOFI GIRL', bx + 13, by + 8, '#fff4e0');
+    }
+
     // emote bubble with a 2-frame pop
     const kind = this.bubbleFor(u, p);
     const st = this.bubbleState.get(u.id);
@@ -1420,7 +1431,7 @@ export class Engine {
   }
 
   /** Fake turn-taking for two people on a call, from server time so every viewer sees the same conversation. */
-  private isSpeaking(u: ClientUser) {
+  isSpeaking(u: ClientUser) {
     if (!u.callId || u.muted || u.deafened) return false;
     if (!u.bot) return !!u.speaking; // real people: their actual mic activity (voice calls)
     const members = [u, ...this.store.callPeers(u)].map(m => m.id).sort();
@@ -1717,6 +1728,7 @@ export class Engine {
       : underground(u) ? 'somewhere underground' : u.instance ? 'in the meeting' : u.meeting ? `in a meeting until ${this.store.clock(u.meeting)}`
       : u.eating ? `eating ${ITEMS.get(u.eating.item)?.label.toLowerCase() ?? 'lunch'}${u.eating.open ? ' · open to talk' : ''}` : u.callId ? `talking with ${this.store.names(this.store.callPeers(u))}` : u.presence === 'in_call' ? 'in a call' : u.presence === 'away' ? 'away' : room?.rules.occupantLabel ?? 'around';
     const lines = [`${u.name}${u.id === this.store.me ? ' (you)' : ''} · ${presence}`];
+    if (u.table) lines.push(this.store.tableDescription(u.table.objectId, u.id));
     if (u.game) lines.push(this.store.gameDescription(u.game.cabinet, u.id));
     if (u.status) lines.push(`“${u.status}”`);
     if (u.tz && u.id !== this.store.me) lines.push(localTime(u.tz));

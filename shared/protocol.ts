@@ -1,10 +1,9 @@
-import type { GameRole, ParkIncoming, ParkOutgoing } from './park/types';
-export { PARK_FPS, PARK_INPUT_DELAY, PARK_SERVER_LAG, PARK_SPECTATOR_DELAY, PARK_MAX_PLAYERS } from './park/types';
-export type { GameRole, GameEvent, GameMember, GameClear, PublicSession } from './park/types';
-
-export interface ParkRecord { frames: number; coins: number; names: string[]; at: number }
-export type ParkRecords = Record<number, Partial<Record<1 | 2 | 3 | 4, ParkRecord>>>;
-export interface CabinetSummary { cabinet: string; phase: 'lobby' | 'level' | 'clear'; level: number; players: string[]; spectators: number }
+import type { TableView, TableGameId, TableStatus } from './table/types';
+export type { TableView, TableGameId } from './table/types';
+import type { GameRole, ArcadeIncoming, ArcadeOutgoing, ArcadeBoards } from './arcade/types';
+export { PARK_FPS, PARK_INPUT_DELAY, PARK_SERVER_LAG, PARK_SPECTATOR_DELAY, PARK_MAX_PLAYERS } from './arcade/types';
+export type { GameRole, GameEvent, GameMember, GameClear, PublicSession, ParkRecord, ParkRecords, CabinetSummary, ArcadeBoards } from './arcade/types';
+import type { CabinetSummary } from './arcade/types';
 
 import type { Dir, Layout, Move, Tile } from './map';
 import type { Eating } from './lunch';
@@ -142,10 +141,12 @@ export interface PublicUser {
   homeDesk: Tile | null;
   callId: string | null;
   game: { cabinet: string; role: GameRole } | null;
+  table?: TableStatus | null;
   deafened: boolean; hand: boolean;
   muted: boolean;        // mic muted in that call
   following: string | null; // walks along with this person
   holding: string | null;   // a UseItem id (coffee, snack…) in hand for a while
+  listening?: 'lofi' | null; // an audible Lofi TV in one of this person's open pages; never persisted
   reading: string | null;   // library article id they're reading at a reading desk; knocks go to Later
   eating?: Eating;          // having lunch at a picnic table (see shared/lunch.ts)
   vacation?: { until: number; back?: string } | null; // on vacation now, per their calendar
@@ -263,12 +264,15 @@ export interface DecksReply { decks: DeckInfo[]; used: number; limit: number }
 
 // server -> client
 export type ServerMsg =
-  | ParkIncoming
+  | { t: 'listening'; userId: string; on: boolean }
+  | { t: 'table'; view: TableView | null } // private: owner socket only
+  | { t: 'table_status'; userId: string; table: TableStatus | null }
+  | ArcadeIncoming
   | CreatureServerMsg
   | { t: 'game_status'; userId: string; game: PublicUser['game'] }
   | { t: 'game_cheer'; userId: string; kind: number }
   | { t: 'arcade'; cabinets: CabinetSummary[] }
-  | { t: 'arcade_records'; records: ParkRecords }
+  | { t: 'arcade_boards'; boards: ArcadeBoards }
   | { t: 'instrument'; id: string; player: string | null }
   | { t: 'seat'; id: string | null }
   | { t: 'note'; id: string; by: string; note: number; on: boolean; vel: number; preset: number; at: number }
@@ -336,7 +340,17 @@ export type ServerMsg =
 
 // client -> server
 export type ClientMsg =
-  | ParkOutgoing
+  | { t: 'listening'; on: boolean }
+  | { t: 'table_pick'; game: TableGameId; invite?: string[]; rematch?: boolean } // host invitations, or a rematch proposal
+  | { t: 'table_start' } // invited sitter: Join; host: Start
+  | { t: 'table_move'; matchId: string; revision: number; move: unknown }
+  | { t: 'table_resign'; matchId: string }
+  | { t: 'table_draw'; matchId: string; offer: boolean } // offer, accept opponent's offer, or decline (false)
+  | { t: 'table_leave' }
+  | { t: 'crew_name'; name: string }
+  | { t: 'game_predict'; epoch: number; userId: string }
+  | { t: 'game_favourite'; epoch: number; userId: string }
+  | ArcadeOutgoing
   | { t: 'lunch'; tile: Tile; open: boolean } // eat the food you're holding in this picnic chair; open: knocks from the table are welcome
   | { t: 'lunch_open'; open: boolean }       // change that while eating
   | { t: 'cup_put'; tile: Tile } // put the coffee or tea you're holding down on this table tile

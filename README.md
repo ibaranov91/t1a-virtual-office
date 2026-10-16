@@ -61,3 +61,16 @@ already used by another instance is refused.
   `sso`: NetBird sign-in ("Continue as …"); the proxy entry must use NetBird SSO so it passes `X-NetBird-User`.
   `pin`: for public proxy entries protected by a NetBird PIN. Pick any name, no password; the PIN is the only gate.
 - **Logs:** `ssh Hetzner2-vOffice journalctl -u deck-<name> -f`.
+
+### Lofi Girl TV
+
+The Music room TV discovers the active **lofi hip hop radio · relax/study** broadcast from the public
+Lofi Girl channel page (`server/src/lofi.ts`); no YouTube API key is required. Lookups are shared and
+cached for five minutes. Open players check our `/api/lofi` endpoint every 30 seconds and replace a
+finished broadcast when a new one appears. No active radio yields Offline; a failed lookup yields
+Unavailable and retries after a minute. A previously found stream can remain playable for up to
+30 minutes during a lookup outage, with no LIVE badge. The resolver depends on YouTube's page format.
+
+A **Listening to Lofi Girl** tag appears above a character only during audible playback, including
+changes made with YouTube's own mute/volume controls. This status is shared across clients, tracked
+per browser connection, and cleared on room exit or disconnect; it is never saved to disk.

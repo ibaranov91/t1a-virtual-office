@@ -1,11 +1,15 @@
 import { onMap } from '../../shared/beach';
+import { TABLE_GAMES, type TableView, type TableGameId } from '../../shared/table/types';
+import { playTable } from './sounds';
 // WebSocket client + the client-side mirror of server state.
 import mapJson from '../../shared/tilemap.json';
-import { applyLayout, besideObject, doorwayTiles, isWalkable, objectById, pathTo, roomAt, sampleMove, type Dir, type Tile, type TileMap } from '../../shared/map';
+import { applyLayout, besideObject, doorwayTiles, isWalkable, objectById, pathTo, roomAt, sampleMove, stallDoor, stallOfCall, type Dir, type Room, type Tile, type TileMap } from '../../shared/map';
 import { FOOD_ITEMS } from '../../shared/lunch';
 import { ACHIEVEMENTS, underground, DUNGEON_INSTANCE, MEETING_ROOM_ID, PLANT_STAGES, plantName, ROOM_VOICE_MAX, type JukeboxState, type JukeboxAction, type AgendaItem, type LayoutEdit, type CalEvent, type MeetingRoomInfo, type ChatMsg, type LiveDeck, presentScope, type ObjectState, type ToiletState, type ClientMsg, type LaterItem, type PublicUser, type Reaction, type RtcSignal, type ServerMsg, type Creature, type Cup, CUP_ITEMS, type LibraryState } from '../../shared/protocol';
+import { gameDef } from '../../shared/arcade/registry';
+import { emptyWeek } from '../../shared/arcade/weeks';
 import { ParkLoop } from './park/loop';
-import type { CabinetSummary, ParkRecords } from '../../shared/protocol';
+import type { CabinetSummary, ParkRecords, ArcadeBoards } from '../../shared/protocol';
 import { playPark, playHand, playKnock, playPop, playDungeon, playPet } from './sounds';
 import type { Soundscape } from './soundscape';
 import { bestOffset, clockSample, CLOCK_SAMPLES, type ClockSample } from './clockSync';
@@ -85,7 +89,9 @@ export class Store {
   gameOpen = false;
   cabinets: CabinetSummary[] = [];
   arcadeRecords: ParkRecords = {};
+  arcadeBoards: ArcadeBoards = { records: {}, week: emptyWeek(''), hall: [] };
   recordsOpen = false;
+  table: TableView | null = null;
   gameCheers = new Map<string, { kind: 0 | 1 | 2; at: number }>();
   chats = new Map<string, ChatMsg[]>(); // by the other person's id
   unread = new Map<string, number>();
@@ -166,6 +172,20 @@ export class Store {
     this.send({ t: 'note', objectId: this.seat, note, on, vel, preset, at });
   }
   // ---------- actions ----------
+  tablePick(game: TableGameId, invite?: string[], rematch = false) { this.send({ t: 'table_pick', game, invite, rematch }); }
+  tableStart() { this.send({ t: 'table_start' }); }
+  tableMove(move: unknown) { const v = this.table; if (v?.match) this.send({ t: 'table_move', matchId: v.match.id, revision: v.revision, move }); }
+  tableDraw(offer: boolean) { const m = this.table?.match; if (m) this.send({ t: 'table_draw', matchId: m.id, offer }); }
+  tableResign() { const m = this.table?.match; if (m) this.send({ t: 'table_resign', matchId: m.id }); }
+  tableLeave() { this.send({ t: 'table_leave' }); }
+  tableDescription(objectId: string, userId?: string) {
+    const status = userId ? this.users.get(userId)?.table : [...this.users.values()].find(u => u.table?.objectId === objectId && u.table.running)?.table;
+    if (!status) return 'Game table · Chess, Checkers, Dominoes, Last Card';
+    const game = status.game ? TABLE_GAMES[status.game] : 'pick a game';
+    if (status.role === 'watcher' || userId && status.running && !status.players.includes(userId)) return `Watching ${game} at the game table`;
+    const peers = status.players.filter(id => id !== userId).map(id => this.name(id));
+    return `At the game table · ${game}${peers.length ? ` with ${peers.join(', ')}` : ''}`;
+  }
   openRecords(open = true) { this.recordsOpen = open; this.emit(); }
   gamePlay() { const s = this.park?.runner.session; if (s) this.send({ t: 'game_play', epoch: s.epoch }); }
   gameLeave() {
@@ -175,15 +195,20 @@ export class Store {
   gameMenu(op: 'lobby' | 'restart') {
     const s = this.park?.runner.session; if (s) this.send({ t: 'game_menu', epoch: s.epoch, op });
   }
+  crewName(name: string) { this.send({ t: 'crew_name', name }); }
+  gamePredict(userId: string) { const s = this.park?.runner.session; if (s) this.send({ t: 'game_predict', epoch: s.epoch, userId }); }
+  gameFavourite(userId: string) { const s = this.park?.runner.session; if (s) this.send({ t: 'game_favourite', epoch: s.epoch, userId }); }
   gameCheer(kind: 0 | 1 | 2) { if (this.gameOpen && this.connected) this.send({ t: 'game_cheer', kind }); }
   gameDescription(cabinet: string, userId?: string) {
     const s = this.cabinets.find(s => s.cabinet === cabinet);
-    if (userId && this.users.get(userId)?.game?.role === 'spectator') return 'Watching Deck Park';
-    if (!s) return 'Deck Park · click to play';
-    if (s.phase === 'lobby') return 'In the Deck Park lobby';
+    if (!s) return 'Arcade · click to play';
+    const game = s.game === 'hub' ? 'Arcade hub' : gameDef(s.game).name;
+    if (userId && this.users.get(userId)?.game?.role === 'spectator') return `Watching ${game}`;
+    if (s.phase === 'lobby') return 'In the Arcade hub';
     const peers = s.players.filter(id => id !== userId).map(id => this.users.get(id)).filter((u): u is ClientUser => !!u);
-    return `Playing Deck Park · level ${s.level}${peers.length ? ` with ${this.names(peers)}` : ''}`;
+    return `Playing ${game}${s.round ? ` · round ${s.round}/3` : ` · level ${s.level}`}${peers.length ? ` with ${this.names(peers)}` : ''}`;
   }
+
   moveTo(to: Tile) { this.send({ t: 'move', to }); }
   joinRoom(roomId: string) {
     const me = this.users.get(this.me), room = MAP.rooms.find(r => r.id === roomId);
@@ -304,6 +329,7 @@ export class Store {
   openVacations() { this.vacationsOpen = true; this.emit(); }
   closeVacations() { this.vacationsOpen = false; this.emit(); }
   openMeetings() { this.meetingsOpen = true; this.emit(); }
+  setLofiListening(on: boolean) { this.send({ t: 'listening', on }); }
   openJukebox(id: string) { this.jukeboxOpen = id; this.emit(); }
   closeJukebox() { this.jukeboxOpen = null; this.emit(); }
   jukeboxAction(id: string, action: JukeboxAction) {
@@ -426,8 +452,13 @@ export class Store {
   }
   openLink(use: { label: string; url: string }) { this.linkOpen = use; this.emit(); }
   closeLink() { this.linkOpen = null; this.emit(); }
-  roomCallOf(u?: ClientUser) {
+  roomCallOf(u?: ClientUser): Room | undefined {
     if (!u?.callId?.startsWith('room:')) return undefined;
+    const stall = stallOfCall(u.callId);
+    if (stall) { // a stall's own voice: its room, named for the stall
+      const o = objectById(MAP, stall), r = o && roomAt(MAP, stallDoor(o).x, stallDoor(o).y);
+      return r && { ...r, name: 'the stall' };
+    }
     return MAP.rooms.find(r => r.id === u.callId!.slice(5)) ?? (u.instance && u.callId === `room:${u.instance}` ? MAP.rooms.find(r => r.id === MEETING_ROOM_ID) : undefined); // a meeting room's own voice
   }
   sameRoomCall(u: ClientUser) {
@@ -539,8 +570,17 @@ export class Store {
           if (this.gameOpen) playPark('cheer');
         }
         return;
+      case 'table': {
+        const old = this.table; this.table = msg.view;
+        if (msg.view) {
+          this.offset = msg.view.serverNow - Date.now();
+          if (old?.match && old.match.id === msg.view.match?.id && old.revision !== msg.view.revision && old.match.state.ply !== msg.view.match.state.ply) playTable(!!msg.view.match.state.result);
+        }
+        break;
+      }
+      case 'table_status': { const u = this.users.get(msg.userId); if (u) u.table = msg.table; break; }
       case 'arcade': this.cabinets = msg.cabinets; break;
-      case 'arcade_records': this.arcadeRecords = msg.records; break;
+      case 'arcade_boards': this.arcadeBoards = msg.boards; this.arcadeRecords = msg.boards.records; break;
       case 'call_moved':
         this.toast({ kind: 'call_moved', roomId: msg.roomId, text: `${this.name(msg.userId).split(' ')[0]} went into ${MAP.rooms.find(r => r.id === msg.roomId)?.name ?? msg.roomId}`, expires: 15000 });
         break;
@@ -596,6 +636,7 @@ export class Store {
       case 'instrument': this.setInstruments({ ...this.instruments, [msg.id]: msg.player }); break;
       case 'seat': this.seat = msg.id; break;
       case 'note': this.soundscape?.receiveNote(msg.id, msg.by, msg.note, msg.on, msg.vel, msg.preset, msg.at); return;
+      case 'listening': { const u = this.users.get(msg.userId); if (u) u.listening = msg.on ? 'lofi' : null; break; }
       case 'jukebox': if (this.jukeboxReady) this.jukebox = { ...this.jukebox, [msg.id]: msg.state }; break;
       case 'object': this.objects = { ...this.objects, [msg.id]: { on: msg.on } }; break;
       case 'room_open': this.roomOpen = true; break;
