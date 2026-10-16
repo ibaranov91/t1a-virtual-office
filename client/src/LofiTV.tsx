@@ -42,10 +42,10 @@ export function LofiTV({ store, id, onClose }: { store: Store; id: string; onClo
       if (disposed || !host.current) return;
       const target = document.createElement('div'); host.current.append(target);
       const p = new YT.Player(target, {
-        videoId, playerVars: { autoplay: 1, playsinline: 1, origin: location.origin },
+        videoId, playerVars: { autoplay: document.hidden ? 0 : 1, playsinline: 1, origin: location.origin },
         events: {
-          onReady: () => { if (disposed) return; p.setVolume(level()); setReady(true); },
-          onStateChange: e => { if (!disposed) { if (e.data === 1) { setPlaying(true); setBlocked(false); setError(false); } else if ([0, 2, -1, 5].includes(e.data)) setPlaying(false); } },
+          onReady: () => { if (disposed) return; p.setVolume(level()); if (document.hidden) p.pauseVideo(); setReady(true); },
+          onStateChange: e => { if (!disposed) { if (e.data === 1 && document.hidden) { p.pauseVideo(); setPlaying(false); return; } if (e.data === 1) { setPlaying(true); setBlocked(false); setError(false); } else if ([0, 2, -1, 5].includes(e.data)) setPlaying(false); } },
           onError: () => { if (!disposed) { setError(true); setPlaying(false); } },
           onAutoplayBlocked: () => { if (!disposed) setBlocked(true); },
         },
