@@ -260,9 +260,10 @@ canvas { display: block; image-rendering: pixelated; touch-action: none; }
   .now-row > button:not(.jukebox-chip-title), .now-row .jukebox-controls button { width: 40px; min-width: 40px; height: 40px; min-height: 40px; padding: 0; }
   .now-row > button:not(.icon-button):not(.jukebox-chip-title), .now-row a { width: auto; padding: 0 6px; font-size: var(--fs-sm); }
   .now-row .jukebox-controls button { background: transparent; color: var(--text); box-shadow: none; } /* quiet, like the dock's own buttons */
-  .now-row .jukebox-chip-title { display: flex; min-width: 0; }
-  .now-row .now-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; } /* the title gives way, the time stays */
-  .now-row .now-time { flex: none; color: var(--muted); }
+  .now-row.jukebox-chip { height: 52px; } /* two lines, like Spotify's mini-player: title, then artist · time */
+  .now-row .jukebox-chip-title { display: grid; align-content: center; gap: 1px; min-width: 0; height: 48px; min-height: 48px; }
+  .now-row .now-title, .now-row .now-sub { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .now-row .now-sub { font-size: var(--fs-sm); color: var(--muted); }
   .now-row .dot { overflow: visible; }
   .now-row.room-voice.ptt .dot { background: var(--accent); }
   .now-row.room-voice.off .dot { background: var(--wood); }
