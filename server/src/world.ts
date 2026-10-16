@@ -65,6 +65,8 @@ export const lookFor = (name: string): Look => {
 };
 
 type Send = (msg: ServerMsg) => void;
+/** Gets a broadcast already serialized, so it's stringified once however many clients are connected. */
+type Wire = (json: string) => void;
 
 const LEAVE_GRACE_MS = 5000; // a dropped tab or quick re-login shouldn't send anyone home
 const DOOR_PAUSE_MS = 400;   // a beat at the door before vanishing
@@ -88,7 +90,7 @@ export class World {
   private sockets = new Map<string, Map<string, Send>>();
   private owners = new Map<string, string>();
   private waiting = new Map<string, string>();
-  private listeners = new Set<Send>();
+  private listeners = new Set<{ send: Send; wire?: Wire }>();
   private doorTimers = new Map<string, NodeJS.Timeout>();
   private callTimers = new Map<string, NodeJS.Timeout>(); // per member: when they hang up
   private holdTimers = new Map<string, NodeJS.Timeout>(); // per person: when the coffee's finished
@@ -136,7 +138,10 @@ export class World {
   }
 
   // ---------- transport ----------
-  broadcast(msg: ServerMsg) { for (const l of this.listeners) l(msg); }
+  broadcast(msg: ServerMsg) {
+    let json: string | undefined;
+    for (const l of this.listeners) { if (l.wire) l.wire(json ??= JSON.stringify(msg)); else l.send(msg); }
+  }
   /** Private settings for the user themselves. */
   me(u: User): ServerMsg { return { t: 'me', meetLink: u.meetLink ?? '', email: u.email, google: googleEnabled ? u.google?.email ?? null : undefined, calendar: !!u.google?.scopes.includes(CALENDAR_SCOPE), admin: this.isAdmin(u) || undefined, items: u.items.length ? u.items : undefined }; }
   isAdmin(u: User) { return listed(ADMINS, u); }
@@ -171,13 +176,15 @@ export class World {
     return pub;
   };
 
-  connect(userId: string, send: Send) {
+  /** `wire`, when given, receives broadcasts as one shared JSON string instead of `send` getting the object. */
+  connect(userId: string, send: Send, wire?: Wire) {
     const u = this.users.get(userId);
     if (!u) throw new Error('unknown user');
     if (!this.sockets.has(userId)) this.sockets.set(userId, new Map());
     const socket = randomUUID();
     this.sockets.get(userId)!.set(socket, send);
-    this.listeners.add(send);
+    const listener = { send, wire };
+    this.listeners.add(listener);
     send({ t: 'hello', you: userId, serverTime: Date.now(), build: this.build });
     this.stayAfterAll(u);
     this.grantHats(u);
@@ -203,7 +210,7 @@ export class World {
     if (call) send({ t: 'call', userId: u.id, callId: call.id, link: call.link });
     this.setOwner(userId, socket);
     return { socket, close: () => {
-      this.listeners.delete(send);
+      this.listeners.delete(listener);
       const set = this.sockets.get(userId)!; if (!set.delete(socket)) return;
       if (this.pendingSeat.get(userId)?.socket === socket) this.cancelSeatWalk(userId);
       for (const [id, seat] of this.seats) if (seat.socket === socket) this.endSeat(id);
@@ -300,7 +307,7 @@ export class World {
       following: null, holding: null, meeting: null, reading: null, instance: null, game: null, plant: null, bloomed: [], achievements: {}, effects: [], items: [],
     };
     this.users.set(u.id, u);
-    this.broadcast(this.snapshot());
+    this.broadcast({ t: 'user', user: this.toPublic(u) });
     return u;
   }
   findByEmail(email: string) { return [...this.users.values()].find(u => u.email === email.toLowerCase()); }

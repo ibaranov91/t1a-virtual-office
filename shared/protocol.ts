@@ -249,6 +249,7 @@ export type ServerMsg =
   | { t: 'effects'; userId: string; effects: Effect[] }
   | { t: 'status'; userId: string; status: string }
   | { t: 'tz'; userId: string; tz: string | null }
+  | { t: 'user'; user: PublicUser } // someone new joined the roster
   | { t: 'presence'; userId: string; presence: Presence }
   | { t: 'emote'; userId: string; emote: Emote }
   | { t: 'door'; userId: string; door: Door }
