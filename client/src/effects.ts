@@ -3,7 +3,7 @@
 // back: drawn before the body (auras, capes); front: after it (hats, particles, critters).
 import type { Effect, Look } from '../../shared/protocol';
 import type { Pose } from './net';
-import { SPECIAL_HATS, danceBeat } from '../../shared/effects';
+import { SPECIAL_HATS, danceBeat, dancePhase } from '../../shared/effects';
 
 export interface FxCtx {
   ctx: CanvasRenderingContext2D;
@@ -33,14 +33,48 @@ function rising(c: FxCtx, frame: (i: number) => string, n: number, period: numbe
   ctx.globalAlpha = 1;
 }
 
+type Arm = 'up' | 'out' | 'wave' | 'down';
+const DANCE_MOVES: { l: Arm; r: Arm; dx: number; lean: number; crouch?: boolean }[] = [
+  { l: 'up', r: 'up', dx: 0, lean: 0 },
+  { l: 'up', r: 'down', dx: 1, lean: 0.1 },
+  { l: 'out', r: 'out', dx: 0, lean: 0, crouch: true },
+  { l: 'down', r: 'up', dx: -1, lean: -0.1 },
+  { l: 'wave', r: 'wave', dx: 0, lean: 0 },
+  { l: 'out', r: 'up', dx: 1, lean: 0.08 },
+  { l: 'down', r: 'down', dx: 0, lean: 0, crouch: true },
+  { l: 'up', r: 'out', dx: -1, lean: -0.08 },
+];
+const GLOW = ['#ff5ec8', '#5ef0ff', '#f8e070', '#9aff7a'];
+/** One raised arm (side -1 left, 1 right), 2 px thick from the shoulder, ending in a glowing hand. */
+function danceArm(c: FxCtx, side: -1 | 1, arm: Arm, beat: number, flash: boolean) {
+  if (arm === 'down') return;
+  const { ctx } = c, sx = side < 0 ? c.x + 1 : c.x + 13, sy = c.top + 14;
+  const wave = arm === 'wave' ? (beat % 2 ? 1 : -1) : 0;
+  const len = arm === 'out' ? 4 : 7;
+  ctx.fillStyle = '#f0c8a0';
+  for (let k = 0; k < len; k++) {
+    const x = arm === 'out' ? sx + side * k : sx + side * (k > 4 ? 1 : 0) + (k > 2 ? wave : 0), y = arm === 'out' ? sy - Math.floor(k * 0.6) : sy - k;
+    ctx.fillRect(x, y, 2, 1);
+  }
+  const hx = arm === 'out' ? sx + side * (len - 1) : sx + side + wave, hy = arm === 'out' ? sy - Math.floor((len - 1) * 0.6) : sy - len;
+  ctx.fillStyle = GLOW[(beat + (side < 0 ? 0 : 1)) % GLOW.length];
+  ctx.fillRect(hx - 1, hy - 3, 2, 3);
+  if (flash) { ctx.fillStyle = '#fff'; ctx.fillRect(hx - 1, hy - 3, 2, 1); }
+}
+
 export const EFFECT_DRAW: Record<string, FxDraw> = {
-  dance: { // two frames on the 120 BPM beat: sway one way with the left arm up, then the other with the right
-    sway: (ms, _seed, p) => p.walking ? { dx: 0, rot: 0 } : { dx: danceBeat(Date.now()) % 2 ? 1 : -1, rot: danceBeat(Date.now()) % 2 ? 0.07 : -0.07 },
+  dance: { // an 8-beat routine on the 120 BPM beat: arms, leans, hops and crouches, with glow sticks and sparkles
+    sway(_ms, _seed, p) {
+      if (p.walking) return { dx: 0, rot: 0 };
+      const now = Date.now(), m = DANCE_MOVES[danceBeat(now) % DANCE_MOVES.length];
+      const hop = m.crouch ? 1 : -Math.round(Math.sin(dancePhase(now) * Math.PI) * 1.4); // up on the off-beat, back down on it
+      return { dx: m.dx, rot: m.lean, dy: hop };
+    },
+    back(c) { if (!c.p.walking && c.has('sparkle_2')) rising(c, () => 'sparkle_2', 3, 1300, 9, 16); },
     front(c) {
       if (c.p.walking) return;
-      const left = danceBeat(Date.now()) % 2 === 0, ax = left ? c.x + 1 : c.x + 13;
-      c.ctx.fillStyle = '#f0c8a0'; c.ctx.fillRect(ax, c.top + 6, 2, 5); // the raised arm
-      c.ctx.fillStyle = left ? '#ff5ec8' : '#5ef0ff'; c.ctx.fillRect(ax, c.top + 4, 2, 2); // glow stick
+      const now = Date.now(), beat = danceBeat(now), m = DANCE_MOVES[beat % DANCE_MOVES.length], flash = dancePhase(now) < 0.25;
+      danceArm(c, -1, m.l, beat, flash); danceArm(c, 1, m.r, beat + 1, flash);
     },
   },
   speed: { // a quick blur of yellow streaks trailing behind

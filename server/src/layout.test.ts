@@ -97,15 +97,15 @@ test('rugs: add, recolour, resize, never overlapping; layout persists and Reset 
 });
 test('a layout saved in the radio days gets the jukebox; moving it keeps what is playing', t => {
   const { map, w, add } = setup(t);
-  const jukebox = map.objects.find(o => o.use?.kind === 'jukebox')!;
+  const jukebox = map.objects.find(o => o.use?.kind === 'jukebox' && !o.use.genres)!;
   const radio = { id: 'old-radio', type: 'radio', x: 58, y: 4, w: 1, h: 1, sound: { clip: 'radio', gain: .8 } };
   const saved = { ...w.dump(), layout: { objects: [...map.objects.filter(o => o !== jukebox), radio], rugs: map.rugs } };
   const map2 = structuredClone(base), w2 = new World(map2);
   w2.load(saved);
   assert.equal(map2.objects.some(o => o.type === 'radio'), false);
-  assert.deepEqual(map2.objects.filter(o => o.use?.kind === 'jukebox').map(o => [o.id, o.x, o.y]), [[jukebox.id, jukebox.x, jukebox.y]]);
+  assert.deepEqual(map2.objects.filter(o => o.use?.kind === 'jukebox' && !o.use.genres).map(o => [o.id, o.x, o.y]), [[jukebox.id, jukebox.x, jukebox.y]]);
   const state = (w2.snapshot() as Extract<ServerMsg, { t: 'state' }>).jukebox!;
-  assert.deepEqual(Object.keys(state), [jukebox.id]);
+  assert.deepEqual(Object.keys(state).sort(), [jukebox.id, map2.objects.find(o => o.type === 'dj_booth')!.id].sort());
 
   const admin = add('Ivan', { x: 4, y: 17 }, 'ivan.baranov@t1a.com');
   const before = (w.snapshot() as Extract<ServerMsg, { t: 'state' }>).jukebox![jukebox.id];
@@ -118,7 +118,7 @@ test('a layout saved in the radio days gets the jukebox; moving it keeps what is
 });
 
 test('a saved radio layout with a blocked jukebox spot finds another spot in Music', t => {
-  const { map, w } = setup(t), jukebox = map.objects.find(o => o.use?.kind === 'jukebox')!;
+  const { map, w } = setup(t), jukebox = map.objects.find(o => o.use?.kind === 'jukebox' && !o.use.genres)!;
   const radio = { id: 'old-radio', type: 'radio', x: 58, y: 4, w: 1, h: 1, sound: { clip: 'radio', gain: .8 } };
   const blocker = { id: 'blocker', type: 'plant', x: jukebox.x, y: jukebox.y, w: 1, h: 1 };
   const saved = { ...w.dump(), layout: { objects: [...map.objects.filter(o => o !== jukebox), radio, blocker], rugs: map.rugs } };

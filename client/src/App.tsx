@@ -12,7 +12,7 @@ import { inNativeApp, syncNative } from './native';
 import { LiveChip, PresentPanel, SlideOverlay, WatchPrompt } from './Presentation';
 import { LibraryPanel, ReadingOverlay } from './Library';
 import { ACHIEVEMENTS, underground, dayNumber, JUKEBOX_PER_PERSON, JUKEBOX_QUEUE_MAX, MAX_CHAT_LEN, MEET_LINK_RE, meetAs, normalizeMeetLink, kindName, PLANT_DIES_DAYS, PLANT_KINDS, PLANT_REVEAL, PLANT_STAGES, plantDead, plantName, REACTIONS, TOILET_CAPACITY, TOILET_SHELF_ITEM, TOILET_SHELF_MAX, TOILET_USE_MS, toiletFull, type JukeboxState, type Plant } from '../../shared/protocol';
-import { GENRES, jukeboxPosition, TRACK, TRACKS } from '../../shared/music';
+import { jukeboxPosition, TRACK, tracksFor } from '../../shared/music';
 import { ALL_HATS, DANCE_ROOM, EFFECTS, HAT_NAMES, effectOf, hatItem, hatOf } from '../../shared/effects';
 import { FIXED_TYPES, KEEP_TYPES, objectName, RUG_COLORS, RUG_MAX, RUG_MIN, routes, seatAt } from '../../shared/map';
 import { LUNCH_MS, picnicSeat } from '../../shared/lunch';
@@ -646,6 +646,7 @@ function JukeboxPanel({ store, id }: { store: Store; id: string }) {
   const state = store.jukebox[id], track = state && TRACK.get(state.track), room = store.jukeboxRoom(id);
   const known = store.connected && !!state, inside = store.inJukeboxRoom(id), disabled = !known || !inside;
   const position = state ? musicPosition(store, state) : 0;
+  const box = MAP.objects.find(o => o.id === id)?.use, library = tracksFor(box?.kind === 'jukebox' ? box.genres : undefined), genres = [...new Set(library.map(t => t.genre))];
   const mine = state?.queue.filter(e => e.by === store.me).length ?? 0;
   const last = state?.last && store.now() - state.last.at < 10_000 ? state.last : null;
   const close = () => store.closeJukebox();
@@ -659,7 +660,7 @@ function JukeboxPanel({ store, id }: { store: Store; id: string }) {
   };
   return <div className="modal-backdrop" {...backdropClose(close)}>
     <div ref={panel} tabIndex={-1} role="dialog" aria-modal="true" aria-label="Jukebox" onKeyDown={onKey} className="meet-panel guided calendar-panel jukebox-panel">
-      <div className="rooms-head"><span>🎵 Jukebox</span><button className="ghost" aria-label="Close jukebox" onClick={close}>×</button></div>
+      <div className="rooms-head"><span>🎵 {box?.kind === 'jukebox' ? box.label.replace(/^./, c => c.toUpperCase()) : 'Jukebox'}</span><button className="ghost" aria-label="Close jukebox" onClick={close}>×</button></div>
       {!known && <p role="status">Reconnecting…</p>}
       {!inside && <div className="jukebox-walk"><span>Walk into {room?.name ?? 'the room'} to pick music</span><button disabled={!known} onClick={() => store.walkToJukebox(id)}>Walk over</button></div>}
       <section>
@@ -685,9 +686,9 @@ function JukeboxPanel({ store, id }: { store: Store; id: string }) {
       </section>
       <section>
         <h3>Library</h3>
-        {GENRES.map(genre => <div className="jukebox-genre" key={genre}>
+        {genres.map(genre => <div className="jukebox-genre" key={genre}>
           <h4>{genre}</h4><ul className="jukebox-tracks">
-            {TRACKS.filter(t => t.genre === genre).map(t => {
+            {library.filter(t => t.genre === genre).map(t => {
               const reason = state?.track === t.id ? 'Playing now' : state?.queue.some(e => e.track === t.id) ? 'Already queued'
                 : mine >= JUKEBOX_PER_PERSON ? `You have ${JUKEBOX_PER_PERSON} tracks queued` : (state?.queue.length ?? 0) >= JUKEBOX_QUEUE_MAX ? 'The queue is full' : undefined;
               return <li key={t.id}>

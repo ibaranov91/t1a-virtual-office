@@ -33,6 +33,7 @@ export const DANCE_ROOM = 'berghain';
 export const DANCE_BPM = 120; // everyone sways to the same Date.now()-based beat
 /** The beat number at this time: Date.now()-based so everyone in the club moves together. */
 export const danceBeat = (ms: number) => Math.floor((ms * DANCE_BPM) / 60_000);
+export const dancePhase = (ms: number) => ((ms * DANCE_BPM) / 60_000) % 1; // 0 on the beat, rising to 1 before the next
 export const RAVER_MS = 30 * 60_000; // total dancing for the `raver` achievement
 
 export const SPEED_FACTOR = 1.6;  // coffee: tiles per second × this

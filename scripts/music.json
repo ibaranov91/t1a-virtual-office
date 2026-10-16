@@ -52,5 +52,14 @@
     "url": "https://files.freemusicarchive.org/storage-freemusicarchive-org/music/ccCommunity/TRG_Banks/The_Rainbows_End/TRG_Banks_-_03_-_Walking_on_water.mp3" },
   { "id": "endless-seascape", "title": "Endless Seascape", "artist": "John Bartmann", "genre": "Ambient", "license": "CC0 1.0",
     "page": "https://freemusicarchive.org/music/John_Bartmann/underwater-wonders/endless-seascape/",
-    "url": "https://files.freemusicarchive.org/storage-freemusicarchive-org/tracks/KnBfOg0q4qdrlovrdZ6joJRF8nM5SvqvuC2dMin8.mp3" }
+    "url": "https://files.freemusicarchive.org/storage-freemusicarchive-org/tracks/KnBfOg0q4qdrlovrdZ6joJRF8nM5SvqvuC2dMin8.mp3" },
+  { "id": "old-guys-sound-of-youth", "title": "Sound like old guys playing the sound of youth", "artist": "Dancefloor is Lava", "genre": "Techno", "license": "CC0 1.0",
+    "page": "https://freemusicarchive.org/music/Dancefloor_is_Lava/La_Boum_2020/Dancefloor_is_Lava_-_La_Boum_2020_-_07_Sound_like_old_guys_playing_the_sound_of_youth/",
+    "url": "https://files.freemusicarchive.org/storage-freemusicarchive-org/music/no_curator/Dancefloor_is_Lava/La_Boum_2020/Dancefloor_is_Lava_-_07_-_Sound_like_old_guys_playing_the_sound_of_youth.mp3" },
+  { "id": "drown-in-noise", "title": "Drown in noise", "artist": "Dancefloor is Lava", "genre": "Techno", "license": "CC0 1.0",
+    "page": "https://freemusicarchive.org/music/Dancefloor_is_Lava/La_Boum_2020/Dancefloor_is_Lava_-_La_Boum_2020_-_04_Drown_in_noise/",
+    "url": "https://files.freemusicarchive.org/storage-freemusicarchive-org/music/no_curator/Dancefloor_is_Lava/La_Boum_2020/Dancefloor_is_Lava_-_04_-_Drown_in_noise.mp3" },
+  { "id": "why-oh-you-are-love", "title": "Why Oh You Are L O V E", "artist": "Dancefloor is Lava", "genre": "Techno", "license": "CC0 1.0",
+    "page": "https://freemusicarchive.org/music/Dancefloor_is_Lava/La_Boum_2020/Dancefloor_is_Lava_-_La_Boum_2020_-_01_Why_Oh_You_Are_L_O_V_E/",
+    "url": "https://files.freemusicarchive.org/storage-freemusicarchive-org/music/no_curator/Dancefloor_is_Lava/La_Boum_2020/Dancefloor_is_Lava_-_01_-_Why_Oh_You_Are_L_O_V_E.mp3" }
 ]
