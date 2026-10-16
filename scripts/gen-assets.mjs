@@ -487,10 +487,10 @@ for (const n of [1, 2]) {
   frames.meetings_board = t.outline();
 }
 {
-  const t = new Img(32, 32); // wall screen: a dark bezel on a bracket, a blue idle picture; the client lights it when live
-  t.rect(2, 4, 28, 18, '#2a2630'); t.rect(4, 6, 24, 14, '#24406a');
-  t.rect(4, 6, 24, 3, '#2e5488'); t.hline(6, 12, 9, '#4a78b0'); t.hline(6, 15, 14, '#3a6498'); t.hline(6, 17, 6, '#3a6498');
-  t.px(26, 20, '#7cc87c'); t.rect(14, 22, 4, 3, '#4a4652'); t.rect(10, 25, 12, 1, '#4a4652');
+  const t = new Img(80, 32); // wall board: a dark bezel on a bracket, a blue idle picture; the client lights it when live
+  t.rect(2, 4, 76, 18, '#2a2630'); t.rect(4, 6, 72, 14, '#24406a');
+  t.rect(4, 6, 72, 3, '#2e5488'); t.hline(8, 12, 22, '#4a78b0'); t.hline(8, 15, 36, '#3a6498'); t.hline(8, 17, 14, '#3a6498');
+  t.px(72, 20, '#7cc87c'); t.rect(36, 22, 8, 3, '#4a4652'); t.rect(30, 25, 20, 1, '#4a4652');
   frames.screen = t.outline();
 }
 {

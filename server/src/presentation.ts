@@ -40,7 +40,8 @@ export class Presenter {
   private awayTimer: NodeJS.Timeout | undefined;
   private wrong = new Map<string, number[]>();
 
-  constructor(private dir: string, private map: TileMap, private broadcast: (msg: ServerMsg) => void) {
+  constructor(private dir: string, private map: TileMap, private broadcast: (msg: ServerMsg) => void,
+    private beside: (userId: string, objectId: string, settled?: boolean) => boolean = () => true) {
     if (!existsSync(dir)) return;
     for (const id of readdirSync(dir)) {
       try { if (DECK_ID_RE.test(id)) this.decks.set(id, JSON.parse(readFileSync(join(dir, id, 'deck.json'), 'utf8'))); }
@@ -66,8 +67,9 @@ export class Presenter {
 
   /** files: base64 PNG/JPG images (one per slide, in order) or a single PDF. */
   async upload(userId: string, body: { pin?: unknown; title?: unknown; objectId?: unknown; files?: unknown }) {
-    this.checkPin(userId, body.pin);
     const at = this.screen(body.objectId);
+    this.mustBeAt(userId, at.objectId);
+    this.checkPin(userId, body.pin);
     if (!Array.isArray(body.files) || !body.files.length) throw new PresentError(400, 'Pick some slides.');
     let slides: Buffer[] = body.files.map(f => Buffer.from(String(f ?? ''), 'base64'));
     if (slides.length === 1 && kindOf(slides[0]) === 'pdf') slides = await pdfPages(slides[0]);
@@ -87,15 +89,27 @@ export class Presenter {
 
   /** Show a deck uploaded earlier. */
   present(userId: string, body: { pin?: unknown; deck?: unknown; objectId?: unknown }) {
+    const at = this.screen(body.objectId);
+    this.mustBeAt(userId, at.objectId);
     this.checkPin(userId, body.pin);
     const deck = this.decks.get(String(body.deck));
     if (!deck) throw new PresentError(404, 'That deck is gone.');
-    this.start(userId, deck, this.screen(body.objectId));
+    this.start(userId, deck, at);
     return deck;
+  }
+
+  private mustBeAt(userId: string, objectId: string) {
+    if (!this.beside(userId, objectId)) throw new PresentError(403, 'Walk up to the board first.');
+  }
+  /** The presenter walked off from the board: the slides come down (a closed tab has its own minute, see `gone`). */
+  tick() {
+    const l = this.live;
+    if (l && !l.away && !this.beside(l.presenter, l.objectId, false)) this.stop(l.presenter);
   }
 
   /** Whoever has the PIN may take the screen over. */
   private start(presenter: string, deck: DeckInfo, at: { objectId: string; room: string }) {
+    this.mustBeAt(presenter, at.objectId);
     clearTimeout(this.awayTimer);
     this.live = { deck, slide: 0, presenter, ...at };
     this.announce();

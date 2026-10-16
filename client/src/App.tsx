@@ -161,7 +161,7 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
       if (use?.kind === 'clock') { setPick(null); return store.openClock(); }
       if (use?.kind === 'meetings') { setPick(null); return store.openMeetings(); }
       if (use?.kind === 'achievements') { setPick(null); return store.openAchievements(); }
-      if (use?.kind === 'presentation' && p) { setPick(null); return store.openPresent(p.id); }
+      if (use?.kind === 'presentation' && p) { setPick(null); return store.use(p.id); } // walks to the board; the server opens the panel on arrival
       if (use?.kind === 'link') { setPick(null); return store.openLink(use); } // a panel, like the calendar: its link is a real tap
       setPick(cur => (p && cur?.kind === p.kind && cur.id === p.id ? null : p)); // same target again: close
     };
@@ -199,7 +199,7 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
         {engine && <ZoomCluster engine={engine} />}
         {!assets && <div className="loading">Unlocking the door…</div>}
         {!store.connected && assets && <div className="loading small">Reconnecting…</div>}
-        {store.presentation && store.inPresentationRoom() && !store.slidesHidden && <SlideOverlay store={store} />}
+        {store.presentation && store.inPresentationRoom() && !store.slidesHidden && <SlideOverlay store={store} assets={assets} />}
         {showRooms && <RoomList store={store} onPerson={openPerson} onClose={() => setShowRooms(false)}
           onPick={id => { engineRef.current?.walkToUser(id); if (compact()) setShowRooms(false); }}
           onRoom={id => { engineRef.current?.walkToRoom(id); if (compact()) setShowRooms(false); }} />}
@@ -790,7 +790,10 @@ function GmPanel({ store, picked, assets, onClose }: { store: Store; picked: str
   const [target, setTarget] = useState(picked ?? store.me);
   useEffect(() => { if (picked) setTarget(picked); }, [picked]);
   const u = store.users.get(target) ?? store.users.get(store.me);
+  const uid = u?.id;
+  useEffect(() => { if (uid) store.requestGmItems(uid); }, [store, uid]);
   if (!u) return null;
+  const pockets = store.gmItems.get(u.id);
   const people = [...store.users.values()].filter(p => p.presence !== 'offline').sort((a, b) => a.name.localeCompare(b.name));
   const now = store.now();
   const left = (until?: number) => until === undefined ? '' : ` ${Math.max(0, Math.ceil((until - now) / 1000))}s`;
@@ -816,6 +819,8 @@ function GmPanel({ store, picked, assets, onClose }: { store: Store; picked: str
           return <button key={h} className={on ? 'on' : ''} onClick={() => on ? store.setEffect(u.id, 'hat', false) : store.giftHat(u.id, h)}><HatSprite assets={assets} style={h} /><span>{HAT_NAMES[h]}</span></button>;
         })}
       </div>
+      <h3>Pockets</h3>
+      <p className="hint">{!pockets ? '…' : pockets.length === 0 ? 'empty' : pockets.map(i => { const h = hatOf(i); return h ? `${HAT_NAMES[h] ?? h} (hat)` : ITEMS.get(i)?.label ?? i; }).join(', ')}</p>
       {u.effects.length > 0 && <button className="ghost reset" onClick={() => u.effects.forEach(e => store.setEffect(u.id, e.kind, false))}>Clear everything on {u.name.split(' ')[0]}</button>}
     </div>
   );

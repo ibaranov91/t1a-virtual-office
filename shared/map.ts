@@ -51,7 +51,8 @@ export const USE_KINDS = {
   arcade: { use: true, reach: true },
   instrument: { reach: true },
   library: { reach: true },
-  calendar: {}, jukebox: {}, dance: {}, records: {}, meetings: {}, achievements: {}, clock: {}, presentation: {}, link: {},
+  calendar: {}, jukebox: {}, dance: {}, records: {}, meetings: {}, achievements: {}, clock: {}, link: {},
+  presentation: { use: true, reach: true }, // walk to the board first; the panel opens on arrival
 } as const satisfies Record<UseKind, { wheel?: true; use?: true; reach?: true }>;
 type KindsWith<F extends string> = { [K in UseKind]: (typeof USE_KINDS)[K] extends Record<F, true> ? K : never }[UseKind];
 /** True when this use's kind has that flag in USE_KINDS; narrows the use to those kinds. */

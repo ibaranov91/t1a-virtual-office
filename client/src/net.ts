@@ -251,6 +251,8 @@ export class Store {
   setStatus(status: string) { this.send({ t: 'status', status }); }
   setLook(look: PublicUser['look']) { this.send({ t: 'look', look }); }
   /** Put an effect on someone (yourself, or anyone if you're a GM), or take it off. */
+  gmItems = new Map<string, string[]>(); // GM only: pockets of the people I looked at
+  requestGmItems(targetId: string) { this.send({ t: 'gm_items', targetId }); }
   giftHat(targetId: string, style: string) { this.send({ t: 'gift_hat', targetId, style }); }
   setEffect(targetId: string, kind: string, on: boolean, style?: string) { this.send({ t: 'effect', targetId, kind, on, style }); }
   setPresence(presence: 'online' | 'away' | 'in_call') { this.send({ t: 'presence', presence }); }
@@ -521,6 +523,7 @@ export class Store {
       case 'note': this.soundscape?.receiveNote(msg.id, msg.by, msg.note, msg.on, msg.vel, msg.preset, msg.at); return;
       case 'jukebox': if (this.jukeboxReady) this.jukebox = { ...this.jukebox, [msg.id]: msg.state }; break;
       case 'object': this.objects = { ...this.objects, [msg.id]: { on: msg.on } }; break;
+      case 'present_open': this.presentOpen = msg.objectId; break;
       case 'bell': {
         const me = this.users.get(this.me), by = this.users.get(msg.userId);
         if (me?.instance || by?.instance) break;
@@ -566,6 +569,7 @@ export class Store {
         if (calendarNow && this.calendarOpen) this.loadCalendar(); // just granted from the open panel
         break;
       }
+      case 'gm_items': this.gmItems.set(msg.targetId, msg.items); break;
       case 'agenda': {
         this.agenda = msg.items;
         const keys = new Set(msg.items.map(a => a.key)); // cancelled or declined: drop its heads-up
