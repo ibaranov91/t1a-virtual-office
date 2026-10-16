@@ -490,6 +490,7 @@ export class Store {
   kioskSeen = (() => { try { return localStorage.getItem('deck.kioskSeen') === '1'; } catch { return false; } })(); // used the booking kiosk once: its hint stops
   openRoom(on: boolean) { this.roomOpen = on; this.emit(); }
   createRoom(invite: string[], title?: string) { this.send({ t: 'room_create', title: title?.trim() || undefined, invite }); this.roomOpen = false; this.emit(); }
+  endRoom(key: string) { this.send({ t: 'room_end', key }); }
   inviteToRoom(userIds: string[]) { this.send({ t: 'room_invite', userIds }); this.roomOpen = false; this.emit(); }
   setRoomMode(roomId: string, mode: RoomMode) { this.send({ t: 'room_mode', roomId, mode }); }
   private applyRoomModes(modes: RoomModes = {}) {

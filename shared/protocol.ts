@@ -229,7 +229,7 @@ export type Reaction = typeof REACTIONS[number];
 export interface CalEvent { id: string; title: string; start: string; end: string; allDay: boolean; link: string; meet?: string; declined?: boolean }
 
 /** A calendar meeting with other people, now or within the hour. Sent only to its attendees (the title is theirs). */
-export interface AgendaItem { key: string; instance: string; title: string; start: number; end: number; link?: string; left?: boolean; adhoc?: boolean; from?: string } // adhoc: a private room someone started (from: host's name); left: I left it for good (not busy, no heads-up)
+export interface AgendaItem { key: string; instance: string; title: string; start: number; end: number; link?: string; left?: boolean; adhoc?: boolean; from?: string; host?: boolean } // adhoc: a private room someone started (from: host's name; host: it's mine, so I can end it); left: I left it for good (not busy, no heads-up)
 /** A meeting room in use, for everyone: who's in it and until when, no title. */
 export interface MeetingRoomInfo { id: string; until: number; members: string[]; voice: string[] } // voice: who is on the room's voice call (at most ROOM_VOICE_MAX; the rest wait in line or use Meet)
 /** Meeting rooms are copies of this room on the map. */
@@ -444,6 +444,7 @@ export type ClientMsg =
   | { t: 'meeting_leave' }           // back to the office (still in the meeting: busy, knocks go to Later)
   | { t: 'room_create'; title?: string; invite: string[] } // start a private room in a copy of the Meeting room; invite = user ids
   | { t: 'room_invite'; userIds: string[] } // add people to the private room I'm in
+  | { t: 'room_end'; key: string } // end a private room I started (or, for office admins, anyone's): everyone back to the office
   | { t: 'room_mode'; roomId: string; mode: RoomMode } // admins: change a room's voice and knock rules
   | { t: 'room_voice'; on: boolean } // join / leave the voice call of the meeting room I'm in (ad-hoc rooms join on entry, calendar meetings are opt-in)
   | { t: 'room_meet' } // 'Use Meet' in an ad-hoc room: make (or re-send) its Meet link for everyone in it

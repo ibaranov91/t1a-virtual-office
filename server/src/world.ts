@@ -59,7 +59,7 @@ export interface User extends PublicUser {
 
 interface Call { id: string; members: Set<string>; link?: string; fallback: boolean; room?: Room; instance?: string; small?: string } // room: open-voice hall; instance: set when the hall is a meeting room's own (id `room:<instance>`, room = the Meeting room); small: a toilet stall's or a picnic table's own (id `room:stall:<object>` / `room:table:<object>`, room = the room it stands in)
 const knockCall = (c?: Call) => !!c && !c.room;
-interface Instance { id: string; end: number; members: Set<string>; talk: Set<string>; out: Set<string>; meet?: string; meetBusy?: boolean } // talk: on the room's voice (private rooms: everyone, calendar meetings: who opted in); out: left it on purpose; meet: the room's shared Meet link
+interface Instance { id: string; end: number; members: Set<string>; talk: Set<string>; out: Set<string>; meet?: string; meetBusy?: boolean; note?: string } // talk: on the room's voice (private rooms: everyone, calendar meetings: who opted in); out: left it on purpose; meet: the room's shared Meet link
 
 // data/state.json format; bump it with a migration in load that checks data.version
 export const STATE_VERSION = 5;
@@ -1704,6 +1704,16 @@ export class World {
     }
     if (announce) this.broadcast({ t: 'meetings', rooms: this.meetingRooms() });
   }
+  /** Is anyone (online, human) in this meeting room right now? */
+  inInstance(id: string) { return [...this.instances.get(id)?.members ?? []].some(m => { const u = this.users.get(m); return !!u && !u.bot && u.presence !== 'offline'; }); }
+  /** End a meeting room early; endMeetings walks everyone out with `note`. */
+  closeInstance(id: string, now: number, note: string) { const inst = this.instances.get(id); if (inst) { inst.end = Math.min(inst.end, now); inst.note = note; } }
+  /** The host (or an office admin) ends their private room for everyone. */
+  roomEnd(u: User, key: unknown) {
+    const m = typeof key === 'string' ? this.meetings.events.get(key) : undefined;
+    if (!m?.adhoc || u.bot || (m.adhoc.host !== u.id && !this.isAdmin(u))) return;
+    this.meetings.end(m, `${u.name.split(' ')[0]} ended ${m.title}: back to the office`);
+  }
   /** Meetings that are over send everyone still inside back to the office. */
   endMeetings(now = Date.now()) {
     let changed = false;
@@ -1712,7 +1722,7 @@ export class World {
       for (const id of [...inst.members]) {
         const u = this.users.get(id); if (!u) continue;
         this.leaveMeeting(u, false);
-        this.sendTo(id, { t: 'notice', text: 'Meeting\'s over: back to the office' });
+        this.sendTo(id, { t: 'notice', text: inst.note ?? 'Meeting\'s over: back to the office' });
       }
       this.instances.delete(inst.id); this.present?.endScope(inst.id); changed = true;
     }
@@ -2252,6 +2262,7 @@ export class World {
       }
       case 'room_create': this.roomCreate(u, msg.title, msg.invite); break;
       case 'room_invite': this.roomInvite(u, msg.userIds); break;
+      case 'room_end': this.roomEnd(u, msg.key); break;
       case 'room_mode': this.setRoomMode(u, String(msg.roomId), msg.mode); break;
       case 'room_voice': this.roomVoice(u, !!msg.on); break;
       case 'room_meet': this.roomMeet(u); break;

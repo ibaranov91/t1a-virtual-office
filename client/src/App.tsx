@@ -606,6 +606,7 @@ function MeetingChip({ store, voice }: { store: Store; voice: Voice | null }) {
       <span>📅 <b>{a.title}</b> <small>· in the meeting until {store.clock(a.end)} · knocks go to Later</small></span>
       <button onClick={() => store.goToMeeting(a.key)}>Rejoin</button>
       <button className="end" title="You're no longer busy: knocks come through again" onClick={() => store.leaveMeetingForGood(a.key)}><Icon name="logout" /> Leave meeting</button>
+      {a.adhoc && a.host && <button className="end" title="Close your room for everyone" onClick={() => store.endRoom(a.key)}>End room</button>}
     </div>;
   }
   const m = store.myMeeting, room = store.meetingRooms.find(r => r.id === me.instance);
@@ -615,6 +616,8 @@ function MeetingChip({ store, voice }: { store: Store; voice: Voice | null }) {
   return <div className="desk-chip call-chip meeting-chip">
     <span>{m?.adhoc ? '🔒' : '📅'} <b>{m?.title ?? 'Meeting'}</b> <small>{m?.adhoc && m.from ? `· ${m.from.split(' ')[0]}'s room` : ''} · until {store.clock(room?.until ?? m?.end ?? 0)}{others.length ? ` · with ${store.names(others)}` : ' · waiting for the others'}</small></span>
     {m?.adhoc && <button onClick={() => store.openRoom(true)}>Invite</button>}
+    {m?.adhoc && m.host && <button className="end" title="Close the room and send everyone back to the office"
+      onClick={() => (!others.length || confirm(`End ${m.title} for everyone? ${store.names(others)} will go back to the office.`)) && store.endRoom(m.key)}>End room</button>}
     {talking ? <>
       <span className={`dot ${voiceState(voice) === 'live' ? 'live' : ''}`} title={`Voice in this room · ${voiceState(voice)}`} />
       <VoiceToggle kind="mic" voice={voice} disabled={!store.connected || !store.voiceOwner} />
@@ -907,11 +910,13 @@ function MeetingsPanel({ store }: { store: Store }) {
             return <li key={r.id}>
               <span><b>{a?.title ?? 'A meeting'}</b> <small className="muted">until {store.clock(r.until)}</small><br /><small>{store.names(people)}</small></span>
               {a && me?.instance !== r.id && <button onClick={() => store.goToMeeting(a.key)}>Go</button>}
+              {a?.adhoc && a.host && <button className="ghost" title="Close your room for everyone" onClick={() => store.endRoom(a.key)}>End</button>}
             </li>;
           })}
           {goable.map(a => <li key={a.key}>
             <span><b>{a.title}</b> <small className="muted">{store.clock(a.start)}–{store.clock(a.end)}</small><br /><small>nobody's in yet</small></span>
             <button onClick={() => store.goToMeeting(a.key)}>Go</button>
+            {a.adhoc && a.host && <button className="ghost" title="Close your room" onClick={() => store.endRoom(a.key)}>End</button>}
           </li>)}
         </ul>
       </div>
