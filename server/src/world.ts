@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import {
-  adminOnly, applyEdit, stallDoor, stallLine, stallVoiceId, applyLayout, besideObject, playSpots, dirBetween, doorwayTiles, KEEP_TYPES, migrateBeach, migrateEastWing, layoutProblem, objectName, voiceRooms, findPath, isWalkable, pathDuration, pathTo, roomAt, routes, sampleMove, seatAt, uniqueIds, withLayout, WALK_MS_PER_TILE,
+  adminOnly, applyEdit, stallDoor, stallLine, stallVoiceId, tableVoiceId, applyLayout, besideObject, playSpots, dirBetween, doorwayTiles, KEEP_TYPES, migrateBeach, migrateEastWing, layoutProblem, objectName, voiceRooms, findPath, isWalkable, pathDuration, pathTo, roomAt, routes, sampleMove, seatAt, uniqueIds, withLayout, WALK_MS_PER_TILE,
   type MapObject, type Dir, type Layout, type Room, type Spot, type TileMap, type Tile,
 } from '../../shared/map';
 import {
@@ -52,7 +52,7 @@ export interface User extends PublicUser {
   afk?: boolean;
 }
 
-interface Call { id: string; members: Set<string>; link?: string; fallback: boolean; room?: Room; instance?: string; stall?: string } // room: open-voice hall; instance: set when the hall is a meeting room's own (id `room:<instance>`, room = the Meeting room); stall: a toilet stall's own (id `room:stall:<object>`, room = the stall's room)
+interface Call { id: string; members: Set<string>; link?: string; fallback: boolean; room?: Room; instance?: string; small?: string } // room: open-voice hall; instance: set when the hall is a meeting room's own (id `room:<instance>`, room = the Meeting room); small: a toilet stall's or a picnic table's own (id `room:stall:<object>` / `room:table:<object>`, room = the room it stands in)
 const knockCall = (c?: Call) => !!c && !c.room;
 interface Instance { id: string; end: number; members: Set<string>; talk: Set<string>; out: Set<string>; meet?: string; meetBusy?: boolean } // talk: on the room's voice (private rooms: everyone, calendar meetings: who opted in); out: left it on purpose; meet: the room's shared Meet link
 
@@ -1552,6 +1552,8 @@ export class World {
   private hallIdAt(u: User, now = Date.now()): string | undefined {
     const stall = this.toilets.inside(u.id);
     if (stall) { const o = this.map.objects.find(o => o.id === stall); return o && roomAt(this.map, o.x, o.y - 1)?.id; }
+    const table = this.chatTable(u);
+    if (table) { const o = this.map.objects.find(o => o.id === table); return o && roomAt(this.map, o.x, o.y)?.id; }
     const t = this.position(u, now).tile;
     return voiceRooms(this.map).find(r => roomAt(this.map, t.x, t.y)?.id === r.id || doorwayTiles(this.map, r).some(g => g.some(p => p.x === t.x && p.y === t.y)))?.id;
   }
@@ -1561,7 +1563,7 @@ export class World {
     this.leaveCall(u);
   }
   private maintainRoom(call: Call, now = Date.now()) {
-    if (call.stall) { if (!call.members.size) this.calls.delete(call.id); return; } // never more inside than voice holds: no line
+    if (call.small) { if (!call.members.size) this.calls.delete(call.id); return; } // never more there than voice holds: no line
     for (const [id, roomId] of this.waiting) {
       if (roomId !== (call.instance ?? call.room!.id)) continue;
       const u = this.users.get(id);
@@ -1602,7 +1604,9 @@ export class World {
       if (call?.instance) this.leaveCall(u, now);
       const stall = this.toilets.inside(u.id);
       if (call && knockCall(call)) { this.setWaiting(u, null); continue; } // a direct talk stays put in halls and stalls; hanging up hands them to the hall's voice
-      if (stall) { this.setWaiting(u, null); this.joinStall(u, stall); continue; }
+      if (stall) { this.setWaiting(u, null); this.joinSmall(u, stallVoiceId(stall), stall, 'the stall', 0, -1); continue; }
+      const table = this.chatTable(u);
+      if (table) { this.setWaiting(u, null); this.joinSmall(u, tableVoiceId(table), table, 'the lunch table', 0, 0); continue; }
       const room = rooms.find(r => this.hallEligible(u, r, now));
       if (!room) {
         this.setWaiting(u, null);
@@ -1620,16 +1624,18 @@ export class World {
       this.calls.set(id, hall); this.joinCall(u, hall);
     }
   }
-  /** Behind a stall's door: everyone inside talks, one call per stall. Going in leaves any other call. */
-  private joinStall(u: User, stall: string) {
-    const id = stallVoiceId(stall);
+  /** A small voice room on an object: behind a stall's door, or eating & chatting at a picnic table. Everyone there
+   *  talks, one call per object; joining leaves any other room voice. (dx, dy): the tile whose room it belongs to. */
+  private joinSmall(u: User, id: string, objectId: string, name: string, dx: number, dy: number) {
     if (u.callId === id) return;
-    const o = this.map.objects.find(o => o.id === stall), room = o && roomAt(this.map, o.x, o.y - 1);
+    const o = this.map.objects.find(o => o.id === objectId), room = o && roomAt(this.map, o.x + dx, o.y + dy);
     if (!room) return;
     let hall = this.calls.get(id);
-    if (!hall) this.calls.set(id, hall = { id, members: new Set(), fallback: false, room: { ...room, name: 'the stall' }, stall });
+    if (!hall) this.calls.set(id, hall = { id, members: new Set(), fallback: false, room: { ...room, name }, small: objectId });
     this.joinCall(u, hall);
   }
+  /** The picnic table someone eats at with "Eat & chat" on, sitting down. */
+  private chatTable(u: User) { return u.eating?.open && this.eatingNow(u) ? this.tableOf(u) : null; }
   callFull(u: User) { const c = u.callId ? this.calls.get(u.callId) : undefined; return knockCall(c) && c!.members.size >= MAX_CALL_SIZE; }
   leaveCall(u: User, now = Date.now()) {
     const call = u.callId ? this.calls.get(u.callId) : undefined;
@@ -1798,7 +1804,8 @@ export class World {
     if (underground(from)) return "You're underground — find the way out first";
     const dest = this.position(to).dest, target = roomAt(this.map, dest.x, dest.y);
     if (target?.rules.voice === 'open' && !knockCall(to.callId ? this.calls.get(to.callId) : undefined)) return `${to.name} is in ${target.name} — just walk in`;
-    const hall = to.callId ? this.calls.get(to.callId)?.room : undefined;
+    const call = to.callId ? this.calls.get(to.callId) : undefined, hall = call?.room;
+    if (call?.small && call.id === tableVoiceId(call.small)) return `${to.name} is chatting at lunch — sit at their table and pick Eat & chat`;
     if (hall) return `${to.name} is in ${hall.name} — just walk in`;
     if (to.instance) return `${to.name} is in a meeting`;
     if (from.instance) return 'You\'re in a meeting — leave it to knock';
@@ -1843,14 +1850,11 @@ export class World {
     // face the person
     const a = this.position(from).tile, b = this.position(to).tile;
     from.dir = b.x > a.x ? 'right' : b.x < a.x ? 'left' : b.y > a.y ? 'down' : 'up';
-    const table = this.tableOf(from);
-    const openTable = table && table === this.tableOf(to) && this.eatingNow(to) && to.eating!.open; // sharing a table with someone open to talk
-    const why = openTable ? null : this.laterWhy(to);
+    const why = this.laterWhy(to);
     if (why) return this.keepLater(k, from, to, why, `${to.name} is ${why} — ${why === 'on vacation' ? 'sent to Later' : 'left a knock'}`); // got busy during the walk
     k.state = 'pending';
     this.setEmote(to, 'knock');
     this.broadcast({ t: 'knock', knockId: k.id, fromId: from.id, toId: to.id });
-    if (openTable) return this.reply(to, k.id, 'accept');
     k.timer = setTimeout(() => this.closeKnock(k, 'later', `${to.name} didn't answer — sent to Later`), 30_000);
     if (to.bot) setTimeout(() => this.reply(to, k.id, Math.random() < 0.65 ? 'accept' : 'later'), 1500 + Math.random() * 2500);
   }

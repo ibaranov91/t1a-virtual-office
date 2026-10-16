@@ -1,5 +1,5 @@
 import type { ClientUser } from '../net';
-import { roomAt, type Room, type TileMap, type MapObject, type ObjectUse } from '../../../shared/map';
+import { roomAt, stallOfCall, tableOfCall, type Room, type TileMap, type MapObject, type ObjectUse } from '../../../shared/map';
 import { OFFICE_SCOPE, underground, type JukeboxState, type LiveDeck } from '../../../shared/protocol';
 import { INSTRUMENTS } from '../../../shared/instruments';
 import mapJson from '../../../shared/tilemap.json';
@@ -43,6 +43,8 @@ export function activityLine(view: View, u: ClientUser) {
   const line = u.door ? { arriving: 'just arrived', thinking: 'packing up…', leaving: 'heading out' }[u.door]
     : u.meeting ? `📅 in a meeting until ${view.clock(u.meeting)}`
     : u.callId && !view.roomCallOf(u) ? `📞 with ${view.names(view.callPeers(u))}`
+    : tableOfCall(u.callId) ? `🍽 at the lunch table${view.callPeers(u).length ? ` with ${view.names(view.callPeers(u))}` : ' · open to talk'}` // a table's or stall's own voice: say who's in it
+    : stallOfCall(u.callId) ? `🚽 in a stall${view.callPeers(u).length ? ` with ${view.names(view.callPeers(u))}` : ''}`
     : u.game ? u.game.role === 'player' ? '🕹 playing Deck Park' : '👀 watching Deck Park'
     : u.reading ? '📖 reading'
     : u.eating ? `🍽 having lunch${u.eating.open ? ' · open to talk' : ''}`

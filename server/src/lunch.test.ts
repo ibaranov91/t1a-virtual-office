@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { CUP_LINGER_MS, CLEAN_MS, Creatures } from './creatures';
 import { World, type User } from './world';
 import { picnicSeat, LUNCH_MS, MAX_PLATES, isPlate } from '../../shared/lunch';
-import type { TileMap, Tile } from '../../shared/map';
+import { tableVoiceId, type TileMap, type Tile } from '../../shared/map';
 import { MAX_CUPS, type ServerMsg } from '../../shared/protocol';
 
 const map: TileMap = JSON.parse(readFileSync(new URL('../../shared/tilemap.json', import.meta.url), 'utf8'));
@@ -78,21 +78,45 @@ test('standing up and walking away ends lunch; open can be toggled while eating'
   assert.ok(a.msgs.some(m => m.t === 'eating' && m.eating === null));
 });
 
-test('knocks: a table mate is let in at once while you are open; closed means Later (at lunch)', (t: TestContext) => {
-  const { w, people: [a, b] } = setup(t);
-  eat(t, w, a, mine[0], true);
-  eat(t, w, b, mine[1], false, 'pizza');
-  w.knock(b.u, a.u);
-  t.mock.timers.tick(100);
-  assert.ok(a.u.callId && a.u.callId === b.u.callId, 'both in a call');
-  w.leaveCall(a.u);
-  // close the door: the same knock now goes to Later
-  w.handle(a.u, { t: 'lunch_open', open: false }, a.socket);
-  w.knock(b.u, a.u);
-  t.mock.timers.tick(2000);
-  const later = a.msgs.find(m => m.t === 'knock_reply' && m.reply === 'later' && m.reason?.includes('at lunch'));
-  assert.ok(later, 'sent to Later: at lunch');
+test('eat & chat: everyone chatting at a table shares its voice; quiet eaters and other tables don\'t', (t: TestContext) => {
+  const { w, people: [a, b, c, d] } = setup(t, 4);
+  const other = chairs.find(ch => picnicSeat(map, ch)!.table.id !== table.id)!;
+  const voice = tableVoiceId(table.id);
+  eat(t, w, a, mine[0], true); eat(t, w, b, mine[1], true, 'pizza'); eat(t, w, c, mine[2], false, 'salad'); eat(t, w, d, other, true);
+  w.voiceTick();
+  assert.equal(a.u.callId, voice); assert.equal(b.u.callId, voice);
+  assert.equal(c.u.callId, null, 'eating quietly: not on the table\'s voice');
+  assert.equal(d.u.callId, tableVoiceId(picnicSeat(map, other)!.table.id), 'another table is another call');
+  assert.equal(a.u.presence, 'online', 'a room, not a knock call');
+  // going quiet leaves it, chatting again joins
+  w.handle(a.u, { t: 'lunch_open', open: false }, a.socket); w.voiceTick();
+  assert.equal(a.u.callId, null); assert.equal(b.u.callId, voice);
+  w.handle(a.u, { t: 'lunch_open', open: true }, a.socket); w.voiceTick();
+  assert.equal(a.u.callId, voice);
+  // no more automatic knock accepting: chatting eaters are on a room voice, quiet ones send knocks to Later
+  w.knock(c.u, a.u); t.mock.timers.tick(100);
+  assert.ok(c.msgs.some(m => m.t === 'knock_reply' && m.reason?.includes('chatting at lunch')), 'told to sit and chat');
+  assert.notEqual(c.u.callId, voice);
+  w.knock(b.u, c.u); t.mock.timers.tick(2000);
+  assert.equal(c.u.callId, null);
+  // lunch over or walking off: off the table's voice
+  w.handle(b.u, { t: 'move', to: { x: 33, y: 29 } }, b.socket); w.voiceTick();
+  assert.equal(b.u.callId, null);
+  t.mock.timers.tick(LUNCH_MS); w.lunchTick(); w.voiceTick();
   assert.equal(a.u.callId, null);
+});
+
+test('eat & chat on a direct talk keeps the talk; hanging up joins the table\'s voice', (t: TestContext) => {
+  const { w, people: [a, b, c] } = setup(t, 3);
+  eat(t, w, b, mine[1], true, 'pizza'); w.voiceTick();
+  w.connectCall(a.u, c.u);
+  const talk = a.u.callId!;
+  eat(t, w, a, mine[0], true); w.voiceTick();
+  assert.equal(a.u.callId, talk, 'still on the direct talk');
+  w.handle(a.u, { t: 'end_call' }, a.socket); w.voiceTick();
+  assert.equal(a.u.callId, tableVoiceId(table.id));
+  assert.equal(b.u.callId, tableVoiceId(table.id));
+  assert.ok(c.msgs.some(m => m.t === 'call_moved' && m.userId === a.u.id && m.roomId === 'terrace'));
 });
 
 test('plates are counted apart from cups and the cleaner clears them once lunch is over', () => {
