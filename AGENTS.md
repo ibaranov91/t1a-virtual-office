@@ -323,7 +323,7 @@ Several people and agents merge and deploy at the same time. Prod must always ru
 ## Conventions
 - UI follows docs/UI.md; `client/src/styles.test.ts` enforces the type scale.
 - TypeScript strict, both sides, with `noUnusedLocals` and `noUnusedParameters` (prefix a parameter you must keep with
-  `_`). CI (`.github/workflows/ci.yml`) runs `npm run typecheck`, `npm test` and `npm run build -w client` on every PR.
+  `_`). CI (`.github/workflows/ci.yml`) runs the same three checks, but only by hand: run them locally before a merge.
 - `npm test` runs every `*.test.ts` under `server/src`, `client/src` and `shared`, so a new test can sit next to its code.
 - Match the surrounding style: compact, comments only where the *why* isn't obvious.
 - Protocol changes go in `shared/protocol.ts` first. The server validates everything a client sends.
