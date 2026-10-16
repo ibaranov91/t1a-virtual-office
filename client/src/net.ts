@@ -221,6 +221,7 @@ export class Store {
   sniffLine(objectId: string) { this.send({ t: 'toilet_sniff', objectId }); }
   drop() { this.send({ t: 'drop' }); }
   putCup(tile: Tile) { this.send({ t: 'cup_put', tile }); }
+  takeCup(cupId: string) { this.send({ t: 'cup_take', cupId }); }
   pet(creatureId: string) { this.send({ t: 'pet', creatureId }); }
   devBat() { this.send({ t: 'dev_bat' }); }
   lunch(tile: Tile, open: boolean) { this.send({ t: 'lunch', tile, open }); }

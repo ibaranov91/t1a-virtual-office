@@ -1262,3 +1262,59 @@ test('the DJ booth plays only techno and the Music room jukebox never does', t =
   assert.equal(TRACK.get(state[booth.id].track)?.genre, 'Techno');
   assert.notEqual(TRACK.get(state[jukebox.id].track)?.genre, 'Techno');
 });
+
+test('ringing the bell the first time earns the bellringer achievement, once', t => {
+  const { w, person } = people(t), bell = w.map.objects.find(o => o.use?.kind === 'bell')!;
+  const a = person('A', undefined, { x: bell.x, y: bell.y + 1 });
+  w.handle(a.u, { t: 'ring', objectId: bell.id }, a.socket);
+  const earned = a.u.achievements.bellringer;
+  assert.ok(earned);
+  assert.ok(a.messages.some(m => m.t === 'plant' && m.userId === a.u.id && m.achievements.bellringer === earned), 'everyone hears about it');
+  t.mock.timers.tick(1100);
+  w.handle(a.u, { t: 'ring', objectId: bell.id }, a.socket);
+  assert.equal(a.u.achievements.bellringer, earned, 'earned once, when first rung');
+});
+
+test('clicking a cup walks you over and clears it; the cleaner praises you (and you earn tidy) only from the same room', t => {
+  const { w, person, tick } = people(t);
+  const counter = { x: 30, y: 3 }, lobby = w.map.rooms.find(r => r.id === 'lobby')!;
+  const a = person('A', undefined, { x: 32, y: 8 });
+  const cupOn = (tile: Tile, item = 'coffee') => { const c = w.creatures.addCup(tile, item, Date.now()); assert.ok(typeof c === 'object'); return c; };
+  const lady = w.creatures.add('cleaner', 'Valentina', lobby.stand[0]);
+
+  const first = cupOn(counter);
+  w.handle(a.u, { t: 'cup_take', cupId: first.id }, a.socket);
+  assert.equal(w.creatures.cups.length, 1, 'still there until you get to it');
+  tick(10_000);
+  assert.equal(w.creatures.cups.length, 0, 'cleared away');
+  assert.equal(a.u.holding, null, 'not picked up: tidied away');
+  assert.ok(Math.max(Math.abs(a.u.tile.x - counter.x), Math.abs(a.u.tile.y - counter.y)) <= 1, 'walked over to it');
+  assert.equal(lady.say, undefined, 'the cleaner was in the Lobby: nobody saw');
+  assert.equal(a.u.achievements.tidy, undefined);
+
+  w.creatures.list.get('cleaner')!.tile = w.map.rooms.find(r => r.id === 'coffee')!.stand[0];
+  const second = cupOn({ x: 28, y: 3 });
+  w.handle(a.u, { t: 'cup_take', cupId: second.id }, a.socket);
+  tick(10_000);
+  assert.equal(w.creatures.cups.length, 0);
+  assert.ok(lady.say, 'she says something nice');
+  assert.ok(a.u.achievements.tidy);
+  assert.ok(a.messages.some(m => m.t === 'creature' && m.creature.kind === 'cleaner' && m.creature.say === lady.say), 'everyone sees her bubble');
+
+  const plate = cupOn({ x: 29, y: 3 }, 'plate:pizza');
+  w.handle(a.u, { t: 'cup_take', cupId: plate.id }, a.socket);
+  w.handle(a.u, { t: 'cup_take', cupId: 'nope' }, a.socket);
+  tick(10_000);
+  assert.deepEqual(w.creatures.cups.map(c => c.id), [plate.id], 'plates stay: someone may still be eating');
+});
+
+test('a cup the cleaner takes first is simply gone when you arrive', t => {
+  const { w, person, tick } = people(t), a = person('A', undefined, { x: 32, y: 8 });
+  const cup = w.creatures.addCup({ x: 30, y: 3 }, 'tea', Date.now());
+  assert.ok(typeof cup === 'object');
+  w.handle(a.u, { t: 'cup_take', cupId: cup.id }, a.socket);
+  w.creatures.removeCup(cup.id);
+  tick(10_000);
+  assert.equal(a.u.achievements.tidy, undefined);
+  assert.equal(w.creatures.cups.length, 0);
+});

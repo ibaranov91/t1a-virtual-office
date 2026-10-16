@@ -662,6 +662,28 @@ export class World {
     if (!u.holding || !CUP_ITEMS.includes(u.holding) || u.instance || goingOut(u) || u.presence === 'offline') return;
     const problem = this.creatures.cupProblem(tile);
     if (problem) { this.sendTo(u.id, { t: 'notice', text: problem }); return; }
+    const item = u.holding;
+    this.atTable(u, tile, () => {
+      if (u.holding !== item) return; // changed their mind
+      const cup = this.creatures.addCup(tile, item, Date.now());
+      if (typeof cup === 'string') this.sendTo(u.id, { t: 'notice', text: cup });
+      else this.setHolding(u, null);
+    });
+  }
+  /** Walk over to a cup someone left and clear it away. The cleaner, if she's in the room, is delighted. Plates stay:
+   *  someone may still be eating. */
+  takeCup(u: User, cupId: string) {
+    const cup = this.creatures.cups.find(c => c.id === cupId);
+    if (!cup || !CUP_ITEMS.includes(cup.item) || u.bot || u.instance || goingOut(u) || u.presence === 'offline') return;
+    this.atTable(u, cup.tile, () => {
+      if (!this.creatures.cups.some(c => c.id === cupId)) return; // the cleaner (or someone) got there first
+      const now = Date.now();
+      this.creatures.removeCup(cupId);
+      if (this.creatures.praise(this.roomOf(u)?.id, now) && !u.achievements.tidy) { this.award(u, 'tidy', now); this.plantChanged(u); }
+    });
+  }
+  /** Walk to the nearest free spot beside a table tile, face it, then (if still there) do `then`. */
+  private atTable(u: User, tile: Tile, then: () => void) {
     const here = this.position(u).next, occ = this.occupied();
     const spots = this.creatures.beside(tile).filter(s => (s.x === here.x && s.y === here.y) || !occ.has(`${s.x},${s.y}`))
       .map(s => ({ s, len: s.x === here.x && s.y === here.y ? 0 : findPath(this.map, here, s).length })).filter(p => p.s.x === here.x && p.s.y === here.y || p.len);
@@ -671,14 +693,11 @@ export class World {
     this.setFollowing(u, null);
     clearTimeout(this.errands.get(u.id));
     const at = this.walk(u, spot, dirBetween(spot, tile)) ?? Date.now();
-    const item = u.holding;
     this.errands.set(u.id, setTimeout(() => {
       this.errands.delete(u.id);
       const d = this.position(u).dest;
-      if (d.x !== spot.x || d.y !== spot.y || u.holding !== item || u.instance) return; // changed their mind
-      const cup = this.creatures.addCup(tile, item, Date.now());
-      if (typeof cup === 'string') this.sendTo(u.id, { t: 'notice', text: cup });
-      else this.setHolding(u, null);
+      if (d.x !== spot.x || d.y !== spot.y || u.instance) return; // wandered off on the way
+      then();
     }, Math.max(0, at - Date.now()) + 300));
   }
   // ---------- petting the cat and dog, catching the bat ----------
@@ -828,6 +847,7 @@ export class World {
     if (u.bot || now - (this.lastRing.get(u.id) ?? 0) < 1000) return;
     this.lastRing.set(u.id, now);
     this.broadcast({ t: 'bell', userId: u.id, objectId: o.id });
+    if (!u.achievements.bellringer) { this.award(u, 'bellringer', now); this.plantChanged(u); }
   }
   private objectState(id: string) { return { on: this.objectOn.get(id) ?? true }; }
   private setObject(id: string, on: boolean, by: User) {
@@ -1725,6 +1745,7 @@ export class World {
       case 'lunch': if (msg.tile) this.lunch(u, { x: msg.tile.x | 0, y: msg.tile.y | 0 }, !!msg.open); break;
       case 'lunch_open': this.lunchOpen(u, !!msg.open); break;
       case 'cup_put': if (msg.tile) this.putCup(u, { x: msg.tile.x | 0, y: msg.tile.y | 0 }); break;
+      case 'cup_take': this.takeCup(u, String(msg.cupId)); break;
       case 'give': { const to = this.users.get(String(msg.targetId)); if (to) this.give(u, to); break; }
       case 'present_slide': this.present?.slide(u.id, msg.slide); break;
       case 'present_stop': this.present?.stop(u.id); break;

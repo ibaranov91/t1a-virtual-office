@@ -2,7 +2,7 @@
 // y-sorted pass; this file only knows how to place and draw them.
 import { sampleMove, WALK_MS_PER_TILE, type Dir, type Rect } from '../../shared/map';
 import { isPlate, LUNCH_MS, plateFood } from '../../shared/lunch';
-import { cupTableAt, type Creature } from '../../shared/protocol';
+import { CUP_ITEMS, cupTableAt, type Creature, type Cup } from '../../shared/protocol';
 import type { Frame } from './assets';
 import { itemTop } from './tableTops';
 import { MAP, type Store } from './net';
@@ -109,19 +109,29 @@ export class CreatureLayer {
     return this.facing.get(c.id) ?? false;
   }
 
+  /** Top-left of a cup's (or plate's) sprite in world pixels: on its table's top. */
+  private cupSpot(cup: Cup) {
+    const table = cupTableAt(MAP.objects, cup.tile), fh = table && this.f(table.type)?.h;
+    return { x: cup.tile.x * TS + (isPlate(cup.item) ? 4 : 5), y: table && fh ? itemTop(table, cup.tile.y, fh, TS) : cup.tile.y * TS + 6 };
+  }
+  /** The cup drawn under this world point (with a pixel or two of slack), to click it away. Plates aren't: someone
+   *  may still be eating. */
+  cupAt(wx: number, wy: number) {
+    return this.store.cups.find(c => { const p = this.cupSpot(c); return CUP_ITEMS.includes(c.item) && wx >= p.x - 2 && wx < p.x + 8 && wy >= p.y - 3 && wy < p.y + 8; }) ?? null;
+  }
+
   /** Everything that stands on the floor, for the engine's y-sorted pass. */
   placed(t: number, ms: number): Placed[] {
     const out: Placed[] = [];
     for (const cup of this.store.cups) {
       const table = cupTableAt(MAP.objects, cup.tile);
       const base = table ? (table.y + table.h) * TS - 0.25 : (cup.tile.y + 1) * TS;
-      const fh = table && this.f(table.type)?.h;
-      const y = table && fh ? itemTop(table, cup.tile.y, fh, TS) : cup.tile.y * TS + 6;
+      const { x, y } = this.cupSpot(cup);
       if (isPlate(cup.item)) { // the food while lunch lasts, then the crumbs
-        out.push({ base, draw: () => this.blit(this.store.now() < cup.at + LUNCH_MS ? `plate_${plateFood(cup.item)}` : 'plate_empty', cup.tile.x * TS + 4, y) });
+        out.push({ base, draw: () => this.blit(this.store.now() < cup.at + LUNCH_MS ? `plate_${plateFood(cup.item)}` : 'plate_empty', x, y) });
         continue;
       }
-      out.push({ base, draw: () => this.blit(`cup_${cup.item === 'tea' ? 'tea' : 'coffee'}`, cup.tile.x * TS + 5, y) });
+      out.push({ base, draw: () => this.blit(`cup_${cup.item === 'tea' ? 'tea' : 'coffee'}`, x, y) });
     }
     for (const c of this.store.creatures.values()) {
       if (c.kind === 'bat') continue; // flies over everything: drawn on top

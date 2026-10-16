@@ -122,6 +122,8 @@ export const ACHIEVEMENTS: Achievement[] = [
   { id: 'batcatcher', icon: '🦇', title: 'Bat catcher', how: 'Catch the October bat while it hangs about. Click it from right beneath: it usually lets itself be caught, but sometimes darts off.', secret: 'Something flutters in the rafters in October.' },
   { id: 'bookworm', icon: '📚', title: 'Bookworm', how: `Finish reading ${BOOKWORM_READS} articles from the library.`, goal: BOOKWORM_READS },
   { id: 'editor', icon: '📰', title: 'Editor', how: `Publish an article that ${EDITOR_READERS} different people read.`, goal: EDITOR_READERS },
+  { id: 'bellringer', icon: '🛎️', title: 'Ding!', how: 'Ring the reception bell in the Lobby.' },
+  { id: 'tidy', icon: '🧽', title: 'Tidy soul', how: 'Clear a cup off a table while the cleaner is in the room to see it.', secret: 'The cleaner notices who tidies up after themselves.' },
   { id: 'event', icon: '🎉', title: 'Party person', how: 'Be in the office during an office event.', soon: true },
 ];
 
@@ -298,6 +300,7 @@ export type ClientMsg =
   | { t: 'lunch'; tile: Tile; open: boolean } // eat the food you're holding in this picnic chair; open: knocks from the table are welcome
   | { t: 'lunch_open'; open: boolean }       // change that while eating
   | { t: 'cup_put'; tile: Tile } // put the coffee or tea you're holding down on this table tile
+  | { t: 'cup_take'; cupId: string } // walk over to a cup left on a table and clear it away
   | { t: 'pet'; creatureId: string } // pet the cat or dog, or try to catch the hanging bat (walks you over first)
   | { t: 'dev_bat' } // dev only (BAT=1): bring the bat out now
   | { t: 'game_play'; epoch: number }
