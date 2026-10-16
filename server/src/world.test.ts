@@ -1185,6 +1185,14 @@ test('a shared time zone reaches everyone, is validated, can be hidden, and is n
   assert.equal(a.u.tz, undefined);
   assert.deepEqual(b.messages.filter(m => m.t === 'tz').pop(), { t: 'tz', userId: a.u.id, tz: null });
 });
+test('a clock ping is answered at once with the server time, only to the socket that sent it', t => {
+  const { w, add } = setup(t), a = add('Ana');
+  const other: ServerMsg[] = [], second = w.connect(a.u.id, m => other.push(m));
+  a.messages.length = 0; other.length = 0;
+  w.handle(a.u, { t: 'ping', id: 7 }, a.socket);
+  assert.deepEqual(a.messages, [{ t: 'pong', id: 7, serverTime: Date.now() }]); assert.deepEqual(other, []);
+  w.handle(a.u, { t: 'ping', id: NaN }, second.socket); assert.deepEqual(other, []);
+});
 
 test('the reception bell rings for everyone, once a second, from beside it, and only for real bells', t => {
   const { w, person } = people(t), bell = w.map.objects.find(o => o.use?.kind === 'bell')!;
