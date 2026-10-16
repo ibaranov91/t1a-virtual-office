@@ -164,6 +164,11 @@ npm run typecheck    # run before every commit or deploy
   The shared Travel&Day-off calendar (`VACATION_TEAM_CALENDAR`, empty disables) also supplies time off by attendee/creator email or normalized name; Business Trip/travel does not count.
 - **Room behavior is data.** Knock rules, meeting links and home-desk rooms live in `tilemap.json`
   (from `gen-map.mjs`), not in code.
+- **Refreshments:** taking a cocktail applies `drunk` (three strength levels, up to three minutes); coconut removes
+  one level and one minute and gives `refreshed`; ice cream gives `chilled` and extinguishes `fire_aura`.
+  Rules and hints are in `shared/effects.ts`, server interactions in `World.refreshment`, visuals in `client/src/effects.ts`.
+  Biscuit walks to visible drunk humans and judges them on arrival, at most once every 30 seconds (`Creatures.judge`);
+  the jokes live in `PHRASES.cat.judge`. He respects petting and cancels the lecture if they sober up first.
 
 ## macOS app
 A menu bar app that hosts the normal web client in one WKWebView. Click the icon for a popover (with

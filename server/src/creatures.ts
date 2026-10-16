@@ -18,6 +18,7 @@ export const BAT_CHANCE = 0.7;             // per try
 export const BAT_COOLDOWN_MS = 1000;
 export const BAT_RESPAWN_MS = 10 * 60_000; // after a catch
 export const SAY_MS = 5000;                // a phrase stays up this long
+export const CAT_JUDGE_COOLDOWN_MS = 30_000;
 const TALKERS: Partial<Record<CreatureKind, Speaker>> = { cleaner: 'cleaner', cat: 'cat', dog: 'dog' }; // who has lines in shared/phrases.ts
 const SPEED: Record<CreatureKind, number> = { cat: 320, dog: 230, bat: 150, cleaner: 300 };
 
@@ -26,6 +27,7 @@ export interface CreatureHost {
   broadcast(msg: ServerMsg): void;
   people(): Tile[]; // where people (and bots) stand in the office right now
   personTile?(userId: string): Tile | null; // where this person is headed in the office, if they're about
+  drunkPeople?(now: number): { id: string; tile: Tile }[]; // visible humans with an active cocktail/GM effect
   fullStalls?(): { id: string; door: Tile }[]; // out-of-order toilet stalls with nobody inside, and the tile at their door
   cleanStall?(id: string): void;               // the cleaner has scrubbed it: back in order
 }
@@ -35,6 +37,7 @@ interface Live extends Creature {
   cleaning?: string;                          // the cleaner: the cup (or `stall:<id>`) she's on her way to (or wiping up)
   humUntil?: number; sayUntil?: number; nextSayAt?: number; // the cleaner's humming stretch; a phrase, when the next one comes
   follow?: { userId: string; until: number }; // a petted cat or dog trots after its person for a while
+  judging?: string; judgeAfter?: number; // the cat's next visitor to lecture, and a pause between lectures
 }
 
 const rand = (a: number, b: number) => a + Math.random() * (b - a);
@@ -122,6 +125,7 @@ export class Creatures {
     const bat = this.list.get('bat');
     if (bat && !this.batSeason(date)) this.remove('bat');
     for (const c of this.list.values()) {
+      if (c.kind === 'cat' && this.judge(c, now)) { this.voice(c, now); continue; }
       if (TALKERS[c.kind]) this.voice(c, now);
       if (now < c.until) continue;
       if (c.then) { // just arrived
@@ -136,6 +140,33 @@ export class Creatures {
     }
   }
   batSeason(d: Date) { return this.batAlways || inOctober(d); }
+
+  /** The cat wakes for a tipsy human, walks over, then delivers its verdict face to face. */
+  private judge(c: Live, now: number) {
+    if ((c.walk && now < c.until) || (c.pose === 'pet' && now < c.until) || (c.follow && now < c.follow.until)
+      || (c.sayUntil && now < c.sayUntil) || now < (c.judgeAfter ?? 0)) return false;
+    const people = this.host.drunkPeople?.(now) ?? [];
+    const distance = (t: Tile) => Math.abs(t.x - c.tile.x) + Math.abs(t.y - c.tile.y);
+    const targets = c.judging ? people.filter(p => p.id === c.judging) : people.sort((a, b) => distance(a.tile) - distance(b.tile));
+    if (!targets.length) { c.judging = undefined; return false; }
+    const taken = new Set(this.host.people().map(p => `${p.x},${p.y}`));
+    for (const target of targets) {
+      if (distance(target.tile) === 1) {
+        c.judging = undefined; c.judgeAfter = now + CAT_JUDGE_COOLDOWN_MS;
+        c.dir = dirBetween(c.tile, target.tile, c.dir);
+        this.settle(c, 'sit', SAY_MS + 1500, now);
+        this.sayNow(c, phrase('cat', 'judge'), now);
+        return true;
+      }
+      const paths = this.beside(target.tile).filter(p => !taken.has(`${p.x},${p.y}`))
+        .map(p => ({ spot: p, path: findPath(this.map, c.tile, p) })).filter(p => p.path.length)
+        .sort((a, b) => a.path.length - b.path.length);
+      const plan = paths[0];
+      if (plan) { c.judging = target.id; return this.go(c, plan.spot, now, undefined, plan.path); }
+    }
+    c.judging = undefined; c.judgeAfter = now + 5000; // an unreachable guest must not turn into a pathfinding loop
+    return false;
+  }
 
   // ---------- petting and catching ----------
   /** A pat for the cat or dog: hearts for a moment, then it follows that person about for a minute. */

@@ -11,7 +11,7 @@ import {
 import { FOOD_ITEMS, LUNCH_MS, PLATE_PREFIX, picnicSeat, type Eating } from '../../shared/lunch';
 import { INSTRUMENTS, validNote } from '../../shared/instruments';
 import { phrase } from '../../shared/phrases';
-import { ADMIN_HAT, ALL_HATS, BAT_HAT, BITE_MS, DANCE_ROOM, EFFECTS, HAT_NAMES, MAX_EFFECTS, RAVER_MS, hatItem, hatOf, walkMs } from '../../shared/effects';
+import { ADMIN_HAT, ALL_HATS, BAT_HAT, BITE_MS, DANCE_ROOM, DRUNK_MAX_LEVEL, DRUNK_MAX_MS, DRUNK_NAMES, EFFECTS, HAT_NAMES, MAX_EFFECTS, RAVER_MS, drunkLevel, effectOf, hatItem, hatOf, walkMs } from '../../shared/effects';
 import { tracksFor } from '../../shared/music';
 import { Arcade } from './arcade';
 import { Table } from './table';
@@ -161,6 +161,8 @@ export class World {
   creatures = new Creatures({ map: () => this.map, broadcast: msg => this.broadcast(msg),
     people: () => [...this.users.values()].filter(u => onMap(u) && !u.instance).map(u => this.position(u).dest),
     personTile: id => { const p = this.users.get(id); return p && onMap(p) && !p.instance ? this.position(p).dest : null; },
+    drunkPeople: now => [...this.users.values()].filter(u => !u.bot && u.presence !== 'offline' && !u.instance && !goingOut(u) && !this.toilets.inside(u.id)
+      && u.effects.some(e => e.kind === 'drunk' && (e.until === undefined || e.until > now))).map(u => ({ id: u.id, tile: this.position(u, now).tile })),
     fullStalls: () => this.toilets.fullEmpty(Date.now()).flatMap(id => { const o = this.map.objects.find(o => o.id === id); return o ? [{ id, door: stallDoor(o) }] : []; }),
     cleanStall: id => this.toilets.clean(id, Date.now()) });
   private petDays = new Map<string, { day: number; kinds: Set<string> }>(); // who has petted what today (memory only)
@@ -639,7 +641,8 @@ export class World {
     this.cancelSeatWalk(u.id);
     const o = this.map.objects.find(o => o.id === objectId);
     if (!o || !routes(o.use, 'use') || goingOut(u) || (u.instance && (underground(u) || o.use.kind !== 'presentation')) || u.presence === 'offline' || ((o.use.kind === 'arcade' || o.use.kind === 'table' || o.use.kind === 'retro' || o.use.kind === 'presentation' || o.use.kind === 'room_start') && u.bot)) return;
-    const item = o.use.kind === 'take' ? o.use.items.find(i => i.id === itemId) ?? o.use.items[0] : null;
+    const item = o.use.kind === 'take' ? (itemId === undefined ? o.use.items[0] : o.use.items.find(i => i.id === itemId)) : null;
+    if (o.use.kind === 'take' && !item) return;
     if (o.use.kind === 'toilet') return this.useToilet(u, o);
     this.setFollowing(u, null);
     clearTimeout(this.errands.get(u.id));
@@ -687,8 +690,10 @@ export class World {
         if (this.addItem(u, want)) this.sendTo(u.id, { t: 'notice', text: hat ? `${HAT_NAMES[hat] ?? hat} · in your pockets 🎒` : phrase('bouncer', 'deal') });
       }
       else if (item) {
+        if (current.use.kind !== 'take' || !current.use.items.some(i => i.id === item.id)) return;
         this.setHolding(u, item.id, o.id);
         if (o.type === 'coffee_machine') this.addEffect(u, 'speed'); // a fresh cup: quick on your feet for a while
+        this.refreshment(u, item.id);
       }
     }, Math.max(0, at - Date.now()) + (o.use.kind === 'arcade' || o.use.kind === 'table' || o.use.kind === 'retro' ? 0 : USE_MS[o.use.kind])));
   }
@@ -980,6 +985,28 @@ export class World {
   }
 
   // ---------- effects ----------
+  private refreshment(u: User, item: string, now = Date.now()) {
+    if (u.bot) return;
+    const drunk = effectOf(u.effects, 'drunk');
+    const active = drunk && (drunk.until === undefined || drunk.until > now) ? drunk : undefined;
+    if (item === 'cocktail') {
+      const level = Math.min(DRUNK_MAX_LEVEL, drunkLevel(active) + 1);
+      const remaining = active?.until === undefined ? 0 : Math.max(0, active.until - now);
+      this.addEffect(u, 'drunk', { ms: Math.min(DRUNK_MAX_MS, remaining + EFFECTS.drunk.ms!), data: { level } }, now);
+      this.sendTo(u.id, { t: 'notice', text: `🍹 ${DRUNK_NAMES[level - 1]} · round ${level}/${DRUNK_MAX_LEVEL}. Coconut takes the wobble down.` });
+    } else if (item === 'coconut') {
+      const level = drunkLevel(active), remaining = (active?.until ?? now + EFFECTS.drunk.ms!) - now - EFFECTS.drunk.ms!;
+      if (level > 1 && remaining > 0) this.addEffect(u, 'drunk', { ms: remaining, data: { level: level - 1 } }, now);
+      else this.removeEffect(u, 'drunk', now);
+      this.addEffect(u, 'refreshed', {}, now);
+      this.sendTo(u.id, { t: 'notice', text: level ? '🥥 A little clearer. One less round of wobble.' : '🥥 Fresh coconut. Beach mode: restored.' });
+    } else if (item === 'icecream') {
+      const burning = !!effectOf(u.effects, 'fire_aura');
+      this.removeEffect(u, 'fire_aura', now);
+      this.addEffect(u, 'chilled', {}, now);
+      this.sendTo(u.id, { t: 'notice', text: burning ? '🍦 Fire extinguished. Brain freeze activated.' : '🍦 Brain freeze! A tiny snow day on the beach.' });
+    }
+  }
   /** Put an effect on someone (replacing one of the same kind), for its rule's duration unless `ms` says otherwise. */
   addEffect(u: User, kind: string, opts: { ms?: number; data?: Record<string, unknown> } = {}, now = Date.now()) {
     const rule = EFFECTS[kind]; if (!rule) return;

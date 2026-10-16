@@ -25,7 +25,9 @@ export const EFFECTS: Record<string, EffectRule> = {
   vampire: { who: 'gm', label: 'Vampire', icon: '🧛', ms: 2 * 60_000 },
   fire_aura: { who: 'gm', label: 'Fire aura', icon: '🔥', ms: 2 * 60_000 },
   gum: { who: 'gm', label: 'Gum', icon: '🩲', ms: 60_000 },
-  drunk: { who: 'gm', label: 'Drunk', icon: '🥴', ms: 60_000 },
+  drunk: { who: 'server', label: 'Drunk', icon: '🥴', ms: 60_000 },
+  refreshed: { who: 'server', label: 'Refreshed', icon: '🥥', ms: 60_000 },
+  chilled: { who: 'server', label: 'Brain freeze', icon: '❄️', ms: 45_000 },
   unicorns: { who: 'gm', label: 'Unicorns', icon: '🦄', ms: 90_000 },
 };
 export const MAX_EFFECTS = 8;
@@ -39,12 +41,29 @@ export const RAVER_MS = 30 * 60_000; // total dancing for the `raver` achievemen
 
 export const SPEED_FACTOR = 1.6;  // coffee: tiles per second × this
 export const DRUNK_FACTOR = 0.8;  // a bit slower, a lot wobblier
+export const DRUNK_MAX_LEVEL = 3;
+export const DRUNK_MAX_MS = 3 * 60_000;
+export const DRUNK_NAMES = ['Tipsy', 'Drunk', 'Wasted'] as const;
+export const REFRESHMENT_HINTS: Record<string, string> = {
+  cocktail: 'Get tipsy for 1 min · more rounds make you wobblier (max 3) · coconut sobers you up',
+  coconut: 'Refresh yourself · removes one tipsy level and 1 min of wobble',
+  icecream: 'Brain freeze for 45 sec · snowflakes and a cure for a fire aura',
+};
+
+/** Old GM effects have no level; they keep their original strength. */
+export function drunkLevel(e: Effect | undefined): number {
+  if (!e) return 0;
+  const level = Number(e.data?.level ?? 1);
+  return Math.max(1, Math.min(DRUNK_MAX_LEVEL, Number.isFinite(level) ? Math.floor(level) : 1));
+}
+export const effectName = (e: Effect) => e.kind === 'drunk' ? DRUNK_NAMES[drunkLevel(e) - 1] : EFFECTS[e.kind]?.label ?? e.kind;
 
 export const effectOf = (effects: readonly Effect[] | undefined, kind: string) => effects?.find(e => e.kind === kind);
 /** Milliseconds per tile for someone with these effects. Part of every move, so every client times the walk the same way. */
 export const walkMs = (effects: readonly Effect[] | undefined) => {
   let f = 1;
   if (effectOf(effects, 'speed')) f *= SPEED_FACTOR;
-  if (effectOf(effects, 'drunk')) f *= DRUNK_FACTOR;
+  const drunk = drunkLevel(effectOf(effects, 'drunk'));
+  if (drunk) f *= DRUNK_FACTOR - (drunk - 1) * 0.1;
   return Math.round(WALK_MS_PER_TILE / f);
 };
