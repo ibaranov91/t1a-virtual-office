@@ -87,6 +87,13 @@ npm run typecheck    # run before every commit or deploy
   and is remembered per device (`deck.zoom`). The lowest level fits the whole floor: the overview, with room tags and a
   "You" pin; when it's small, a tap zooms in instead of walking. Pinch, ⌘/ctrl-scroll, `+ − 0`, `M`. Phones and short
   windows (`COMPACT` in App.tsx, same media query in styles.css) get a thumb dock and bottom sheets instead of top-bar buttons.
+- **Sidebar** (`client/src/sidebar/`, spec `docs/superpowers/specs/2026-10-16-sidebar-design.md`): Discord-style, docked left.
+  Rooms are channels grouped by their rules (`roomGroup` in `model.ts`: open voice / knock / quiet, so a new room lands in
+  the right group by itself), people sit under the room they stand in; a person row opens `PersonCard` (actions, voice
+  volume, Mute for me), a room row opens `RoomMenu` (walk there + the room's panels from `roomThings`). Your status, mic and
+  call state live in its bottom strip (`SelfPanel`). It collapses to a rail; under 900 px wide it starts as the rail and
+  opens over the floor; on `COMPACT` it is a bottom sheet from the dock. Grouping and second-line logic are pure and
+  tested in `client/src/sidebar.test.ts`. `speaking` is scene-only, so rings come from `useSpeaking` polling.
 - **Jukebox** (Music room, `server/src/jukebox.ts`): CC0 tracks only (license checked on the source page; add one
   with a line in `scripts/music.json` + `npm run gen:music`, which writes content-hashed files and `shared/music.json`).
   Playback is server state timed by the server clock; anyone standing in the room queues, pauses and skips (controls

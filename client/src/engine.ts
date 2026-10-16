@@ -1333,7 +1333,7 @@ export class Engine {
   }
 
   /** Fake turn-taking for two people on a call, from server time so every viewer sees the same conversation. */
-  private isSpeaking(u: ClientUser) {
+  isSpeaking(u: ClientUser) {
     if (!u.callId || u.muted || u.deafened) return false;
     if (!u.bot) return !!u.speaking; // real people: their actual mic activity (voice calls)
     const members = [u, ...this.store.callPeers(u)].map(m => m.id).sort();
