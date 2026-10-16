@@ -53,6 +53,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
   }
 
   func applicationDidFinishLaunching(_ note: Notification) {
+    NotificationCenter.default.addObserver(forName: NSWindow.didChangeOcclusionStateNotification, object: nil, queue: .main) { [weak self] n in
+      if (n.object as? NSWindow) === self?.web.window { self?.updateCovered() }
+    }
     NSApp.mainMenu = editMenu()
 
     let config = WKWebViewConfiguration()
@@ -168,6 +171,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
     else { web.removeFromSuperview() }
     if onDesk { desk.orderFront(nil) } else { desk.orderOut(nil) }
     pinButton?.state = pinned ? .on : .off
+    DispatchQueue.main.async { self.updateCovered() } // the web view's window may have just changed
+  }
+
+  /// Tell the page when whatever hosts the web view is fully hidden behind other windows, so it stops drawing
+  /// (a pinned desktop window is "visible" to WebKit all day). No window at all counts as covered too.
+  var covered = false
+  func updateCovered() {
+    let now = web.window.map { !$0.occlusionState.contains(.visible) } ?? true
+    guard now != covered else { return }
+    covered = now
+    js("window.__deckNative?.setCovered(\(now))")
   }
 
   func fill(_ parent: NSView, with child: NSView) {

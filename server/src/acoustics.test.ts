@@ -88,8 +88,8 @@ test('moving the jukebox moves its acoustic room and derived doors without addin
   const oldRoom = pose(music.rect.x + 1, music.rect.y + 1);
   assert.equal(soundModel(next, oldRoom, src).gain, 0);
   assert.deepEqual(next.objects.map(o => o.id), ids); assert.deepEqual(next.catalog, map.catalog);
-  assert.deepEqual([...new Set(roomDoors(next).map(d => d.room.id))].sort(), ['arcade', 'berghain', 'coffee', 'focus']);
-  assert.deepEqual([...new Set(roomDoors(map).map(d => d.room.id))].sort(), ['arcade', 'berghain', 'coffee', 'music']);
+  assert.deepEqual([...new Set(roomDoors(next).map(d => d.room.id))].sort(), ['arcade', 'berghain', 'bookclub', 'coffee', 'focus']);
+  assert.deepEqual([...new Set(roomDoors(map).map(d => d.room.id))].sort(), ['arcade', 'berghain', 'bookclub', 'coffee', 'music']);
   assert.equal(Object.keys(map.catalog).some(k => /^door_[hv]_/.test(k)), false);
 });
 test('the jukebox fills Music and nothing outside it, not even at the door; knock calls stay flat', () => {

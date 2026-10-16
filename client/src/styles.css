@@ -412,6 +412,8 @@ button:focus-visible, summary:focus-visible, input[type="range"]:focus-visible {
 .swatches { display: flex; gap: 6px; }
 .swatch { width: 26px; height: 22px; padding: 0; border: 2px solid transparent; }
 .swatch.on { border-color: var(--text); }
+.swatch.pattern { width: 36px; height: 36px; overflow: hidden; display: grid; place-items: center; background: none; }
+.swatch.pattern > * { max-width: 100%; max-height: 100%; }
 .rug-green { background: #7a9a55; } .rug-blue { background: #5577a8; } .rug-orange { background: #d08a4a; } .rug-red { background: #b4534a; } .rug-teal { background: #4f9a92; }
 .rug-size { display: flex; align-items: center; gap: 4px; font-size: 13px; }
 .rug-size span { flex: 1; font-variant-numeric: tabular-nums; }
