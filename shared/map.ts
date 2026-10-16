@@ -60,7 +60,7 @@ export const routes = <F extends 'wheel' | 'use' | 'reach'>(use: ObjectUse | und
   !!use && (USE_KINDS[use.kind] as Partial<Record<F, true>>)[flag] === true;
 export interface MapObject {
   id: string; type: string; x: number; y: number; w: number; h: number;
-  sound?: { clip?: string; gain: number };
+  sound?: { gain: number };
   wall?: boolean; walkable?: boolean; light?: boolean; steam?: boolean; dir?: Dir;
   use?: ObjectUse; on?: boolean; // on: starting state of a toggle
   onTop?: boolean; // sits on top of another object (the reception bell): allowed to share its tile

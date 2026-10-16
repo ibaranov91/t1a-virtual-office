@@ -1,6 +1,6 @@
 import { NoteClock, type InstrumentKind } from '../../shared/instruments';
 import { startVoice, type SynthVoice } from './synth';
-import { field, hallVoiceGain, reverbImpulse, soundModel } from '../../shared/acoustics';
+import { reverbImpulse, soundModel } from '../../shared/acoustics';
 import { roomAt, type MapObject, type Room, type Tile } from '../../shared/map';
 import { audio, categoryOutput, forgetMedia, playMedia, rms, subscribeAudio, unlockOnGesture } from './audio';
 import { jukeboxPosition, TRACK, trackUrl } from '../../shared/music';
@@ -10,8 +10,7 @@ import { prefs, subscribePrefs, volumeFor, type Category } from './prefs';
 import { playDoorOpen, playDoorClose, playBell } from './sounds';
 import { roomDoors, type RoomDoor } from './doors';
 
-type Level = { id: string; gain: number; pan: number; cutoff: number; send: number };
-type Clip = { buffer: AudioBuffer };
+type Level = { id: string; gain: number; pan: number; send: number };
 type Jukebox = {
   el: HTMLAudioElement; loadedUrl: string | null; playId: string | null; gen: number;
   heardAt: number; heard: boolean; checkAt: number; pending: boolean; blocked: boolean; error: boolean; errorAt: number;
@@ -22,31 +21,18 @@ type Jukebox = {
 type PlayingVoice = { by: string; note: number; voice: SynthVoice; at: number };
 type Instrument = { kind: InstrumentKind; voices: PlayingVoice[]; held: Map<string, { by: string; until: number }>; lastNoteAt: number; lastActivity: number; analyser?: AnalyserNode };
 interface Source {
-  kind: 'voice' | 'clip' | 'jukebox' | 'instrument'; jukebox?: Jukebox; instrument?: Instrument; duck?: number; modelGain?: number;
+  kind: 'voice' | 'jukebox' | 'instrument'; jukebox?: Jukebox; instrument?: Instrument; duck?: number; modelGain?: number;
   input: AudioNode; low: BiquadFilterNode; dry: GainNode; pan: StereoPannerNode; send: GainNode;
-  bus: ConvolverNode | null; category: 'voice' | 'music'; clipGain: number; tile?: Tile; clip?: Clip; loop?: AudioBufferSourceNode;
+  bus: ConvolverNode | null; category: 'voice' | 'music'; clipGain: number; tile?: Tile;
   level: Level;
 }
-const clips = new Map<string, Promise<Clip>>();
-function loadClip(name: string) {
-  if (!clips.has(name)) clips.set(name, (async () => {
-    const res = await fetch(`/assets/sounds/${name}.m4a`);
-    if (!res.ok) throw new Error(`Sound ${name}: ${res.status}`);
-    return { buffer: await audio().decodeAudioData(await res.arrayBuffer()) };
-  })());
-  return clips.get(name)!;
-}
-
 export class Soundscape {
   private clocks = new Map<string, NoteClock>();
   private sources = new Map<string, Source>();
   private buses = new Map<string, { input: ConvolverNode; gate: GainNode; room: Room }>();
-  private loading = new Set<string>();
   private previous = new Map<string, Tile>();
   private doors: RoomDoor[] = [];
   private layoutSeen = -1;
-  private fieldKey = '';
-  private distances: number[][] | null = null;
   private instance: string | null | undefined;
   doorSounds = { open: 0, close: 0 };
   private timer: number;
@@ -54,7 +40,6 @@ export class Soundscape {
   private unsubPrefs: () => void;
   private unsubStore: () => void;
   private updating = false;
-  private running = false;
   private offset: number;
   private dead = false;
   audible = false;
@@ -64,9 +49,6 @@ export class Soundscape {
     this.offset = store.offset;
     this.resetCrossings();
     this.unsub = subscribeAudio(() => {
-      const running = audio().state === 'running';
-      if (running && !this.running) this.restartLoops();
-      this.running = running;
       for (const s of this.sources.values()) if (s.kind === 'jukebox') {
         const j = s.jukebox!; j.checkAt = -Infinity;
         if (j.blocked && !j.el.paused) { j.blocked = false; j.playId = null; }
@@ -75,7 +57,6 @@ export class Soundscape {
     });
     this.unsubPrefs = subscribePrefs(() => { this.update(); store.changed(); });
     this.unsubStore = store.subscribe(() => this.update());
-    this.running = audio().state === 'running';
     this.timer = window.setInterval(() => this.update(), 100);
     this.update();
     if (import.meta.env?.DEV) Object.assign(window, { __soundscape: this });
@@ -144,7 +125,6 @@ export class Soundscape {
   }
   remove(id: string) {
     const s = this.sources.get(id); if (!s) return;
-    s.loop?.stop(); s.loop?.disconnect();
     if (s.instrument) { this.allOff(id.slice(4)); s.instrument.analyser?.disconnect(); }
     if (s.kind === 'jukebox') { this.stopJukebox(s.jukebox!, true); s.jukebox!.analyser?.disconnect(); }
     s.input.disconnect(); s.low.disconnect(); s.dry.disconnect(); s.pan.disconnect(); s.send.disconnect();
@@ -164,7 +144,7 @@ export class Soundscape {
     const category = tile ? 'music' : 'voice';
     input.connect(low); low.connect(dry).connect(pan).connect(categoryOutput(category)); low.connect(send);
     const s: Source = { kind, input, low, dry, pan, send, bus: null, category, clipGain, tile,
-      level: { id, gain: 0, pan: 0, cutoff: 20000, send: 0 } };
+      level: { id, gain: 0, pan: 0, send: 0 } };
     this.sources.set(id, s); return s;
   }
   private bus(category: Category, room: Room) {
@@ -179,14 +159,6 @@ export class Soundscape {
     }
     return this.buses.get(key)!.input;
   }
-  private startLoop(s: Source) {
-    s.loop?.stop(); s.loop?.disconnect();
-    const loop = audio().createBufferSource(); loop.buffer = s.clip!.buffer; loop.loop = true;
-    loop.connect(s.input);
-    const duration = loop.buffer.duration;
-    loop.start(0, ((this.store.now() / 1000) % duration + duration) % duration); s.loop = loop;
-  }
-  private restartLoops() { for (const s of this.sources.values()) if (s.kind === 'clip') this.startLoop(s); }
   private expected(id: string) {
     const desired = this.store.jukebox[id], track = desired && TRACK.get(desired.track);
     return desired && track ? jukeboxPosition(desired, track.duration, this.store.now()) / 1000 : 0;
@@ -274,21 +246,6 @@ export class Soundscape {
       if (import.meta.env.DEV) { i.analyser = c.createAnalyser(); i.analyser.fftSize = 2048; s.low.connect(i.analyser); }
       s.instrument = i;
     }
-    const wanted = new Map<string, { clip: string; gain: number; tile?: Tile }>();
-    for (const o of MAP.objects) if (o.sound?.clip) wanted.set(`obj:${o.id}`, { clip: o.sound.clip, gain: o.sound.gain, tile: { x: o.x, y: o.y } });
-    for (const [id, s] of this.sources) if (s.kind === 'clip' && !wanted.has(id)) this.remove(id);
-    for (const [id, e] of wanted) {
-      const existing = this.sources.get(id);
-      if (existing) { existing.tile = e.tile; existing.clipGain = e.gain; continue; }
-      if (this.loading.has(id)) continue;
-      this.loading.add(id);
-      void loadClip(e.clip).then(clip => {
-        this.loading.delete(id);
-        if (this.dead) return;
-        const s = this.add(id, 'clip', audio().createGain(), e.gain, e.tile); s.clip = clip;
-        this.startLoop(s); this.update();
-      }).catch(err => console.warn('soundscape clip', err));
-    }
   }
   private update() {
     if (this.dead || this.updating) return;
@@ -299,7 +256,6 @@ export class Soundscape {
       this.layoutSeen = this.store.layoutVersion; this.doors = roomDoors(MAP); this.resetCrossings();
     }
     if (this.offset !== this.store.offset) {
-      if (Math.abs(this.offset - this.store.offset) > 250) this.restartLoops();
       this.offset = this.store.offset;
       for (const s of this.sources.values()) if (s.kind === 'jukebox') s.jukebox!.checkAt = -Infinity;
     }
@@ -318,19 +274,15 @@ export class Soundscape {
       return;
     }
     const pose = this.store.pose(me), room = this.store.roomCallOf(me), c = audio();
-    // The distance field depends only on the listener's tile and the walkable layout: reuse it until either changes.
-    const fieldKey = `${pose.tile.x},${pose.tile.y},${this.store.layoutVersion}`;
-    if (this.fieldKey !== fieldKey) { this.fieldKey = fieldKey; this.distances = field(MAP, pose.tile); }
-    const distances = this.distances!;
     let audible = false;
     for (const [id, s] of this.sources) {
       const u = this.store.users.get(id), p = s.tile ? { ...s.tile, tile: s.tile } : u ? this.store.pose(u) : null;
       if (!p) continue;
       const hall = s.kind === 'voice' && room && u?.callId === me.callId ? room : undefined;
-      const model = soundModel(MAP, distances, pose, p, { room: hall, sourceMember: !!hall,
+      const model = soundModel(MAP, pose, p, { room: hall,
         knock: s.kind === 'voice' && !!me.callId && !room && u?.callId === me.callId });
       const visible = !me.instance && (!u || u.instance === me.instance);
-      const gain = visible ? hall ? hallVoiceGain(MAP, hall, pose, p) : model.gain : 0;
+      const gain = visible ? model.gain : 0;
       const send = gain ? model.send : 0;
       s.modelGain = gain;
       const sourceRoom = roomAt(MAP, p.tile.x, p.tile.y), bus = sourceRoom ? this.bus(s.category, sourceRoom) : null;
@@ -340,12 +292,11 @@ export class Soundscape {
       if (s.kind === 'jukebox' && duck !== (s.duck ?? 1)) s.jukebox!.duck.gain.setTargetAtTime(duck, c.currentTime, duck < 1 ? .1 : .5);
       s.duck = duck;
       const v = s.clipGain * (s.kind === 'voice' ? volumeFor(id) : 1), mix = prefs.mix[s.category];
-      s.level = { id, gain: gain * v * mix * duck, pan: model.pan, cutoff: model.cutoff, send: send * v * mix * duck };
+      s.level = { id, gain: gain * v * mix * duck, pan: model.pan, send: send * v * mix * duck };
       if (s.bus !== bus) { s.send.disconnect(); if (bus) s.send.connect(bus); s.bus = bus; }
       s.dry.gain.setTargetAtTime(gain * v, c.currentTime, gain ? .08 : .02);
       s.send.gain.setTargetAtTime(send * v, c.currentTime, send ? .08 : .02);
       s.pan.pan.setTargetAtTime(model.pan, c.currentTime, .08);
-      s.low.frequency.setTargetAtTime(model.cutoff, c.currentTime, .08);
       if (s.kind === 'jukebox') {
         const j = s.jukebox!, desired = this.store.jukebox[id.slice(4)], track = desired && TRACK.get(desired.track);
         j.heard = gain > 0 && !me.instance;
@@ -367,7 +318,7 @@ export class Soundscape {
   ringBell(o: MapObject) {
     const me = this.store.users.get(this.store.me); if (!me || me.instance || !this.store.connected) return;
     const pose = this.store.pose(me), tile = { x: o.x, y: o.y };
-    const model = soundModel(MAP, field(MAP, pose.tile), pose, { x: tile.x, y: tile.y, tile }, {});
+    const model = soundModel(MAP, pose, { x: tile.x, y: tile.y, tile }, {});
     const gain = Math.max(model.gain, .12);
     const g = audio().createGain(), p = audio().createStereoPanner();
     g.gain.value = gain; p.pan.value = model.gain ? model.pan : 0;
