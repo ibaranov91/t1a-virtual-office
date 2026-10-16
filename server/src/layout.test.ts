@@ -55,10 +55,10 @@ test('edits that break the floor are refused with a reason and change nothing', 
 
 test('a home desk follows its chair, and goes when the chair does', t => {
   const { map, w, add } = setup(t), a = add('Ivan', { x: 4, y: 17 }, 'ivan.baranov@t1a.com'), b = add('Kim', { x: 8, y: 17 });
-  const chair = map.objects.find(o => o.type === 'chair' && o.x === 2 && o.y === 5)!;
-  b.u.homeDesk = { x: 2, y: 5 };
-  w.edit(a.u, { op: 'move', id: chair.id, x: 3, y: 6 });
-  assert.deepEqual(b.u.homeDesk, { x: 3, y: 6 }); assert.ok(seatAt(map, 3, 6)?.homeDesk);
+  const chair = map.objects.find(o => o.type === 'chair' && o.x === 3 && o.y === 5)!;
+  b.u.homeDesk = { x: 3, y: 5 };
+  w.edit(a.u, { op: 'move', id: chair.id, x: 4, y: 6 });
+  assert.deepEqual(b.u.homeDesk, { x: 4, y: 6 }); assert.ok(seatAt(map, 4, 6)?.homeDesk);
   w.edit(a.u, { op: 'move', id: chair.id, x: 4, y: 18 }); // into the Lobby: no home desks there
   assert.equal(b.u.homeDesk, null);
   b.u.homeDesk = { x: 4, y: 18 }; // (as if) — removing a chair always frees its desk

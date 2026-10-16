@@ -4,7 +4,7 @@
 
 Grid 75×55 tiles of 16px. Office: 0,0 75×34 (camera, overview and edit mode stay inside it). Dungeon: 17,36 31×19, not connected to the office.
 Spawn 7,17, exit 12,13, garden hole 63,25, hatch 20,32.
-Coordinates are tile x,y (x right, y down). Object ids are positional (o1…o241): append new objects at the end of gen-map.mjs so saved layouts keep their ids.
+Coordinates are tile x,y (x right, y down). Object ids are positional (o1…o240): append new objects at the end of gen-map.mjs so saved layouts keep their ids.
 
 Look things up from the shell: `npm run where -- <roomId|objectType|useKind|objectId|x,y>`.
 
@@ -63,26 +63,26 @@ Each room is filled with its letter (table below) and labelled with its id. `#` 
   0 ###########################################################################
   1 ##################*****###########*########################################
   2 ##################*****####################################################
-  3 #X........XX*#X...........#.XXXX*XX.*.X#X...........*#X........X#XXXXX....#
+  3 #X.........XX#X...........#.XXXX*XX.*.X#X...........*#X........X#XXXXX....#
   4 #.XX.XX.XX...#...h.h.h....#..s.........#.XX.XX.XX.XX.#.**.**.*..#......XX.#
-  5 #.h..h..h....#...XXXXXXh..#......s.....#.h..h..h..h..#....**....#......h..#
+  5 #..h.h..h....#...XXXXXXh..#......s.....#.h..h..h..h..#....**....#......h..#
   6 #............+..hXXXXXX...+..hXh..hXh..#.............#..........#.........#
   7 #......s.....+....h.h.h...+..........s.#......s......#**.s......#XXXXX...X#
   8 #.XX.....XX..#..........s.#...ss.......#.XXXX...XXXX.#**....s...#.........#
-  9 #.h......h..*#.....s......#..hhh.......#.h.h....h.h..#..........#.....s...#
- 10 #............#*..........X#*..........X#............X#....s.....#.........#
+  9 #..h.....h...#.....s......#..hhh.......#.h.h....h.h..#..........#.....s...#
+ 10 #*..........*#*..........X#*..........X#............X#....s.....#.........#
  11 ######++###########++###########++############++##########++############++#
  12 ##**##++**########*++#*#*#*#*###++############++##########++##**########++#
  13 #X..........x.X#....................s.X#.XX.XX..XX.XX#*.*....*..#*.***....#
- 14 #*........X*X..#..XX...XX...XX...XX....#.h..h...h..h.#*.*....*..#.........#
- 15 #........**s...#.hXXh.hXXh.hXXh.hXXh...#.............#..........#.****....#
- 16 #..............#.......................#.............#.s.....s..#*****....#
- 17 #...s..@s......+.........s.............+..s..hhh....*+..........+.****.s..#
- 18 #..............+...............s.......+..........s..+..........+.........#
- 19 #..s..X........#..XX...XX...XX...XX....#.............#....s.....#.s.......#
+ 14 #.........X*X..#..XX...XX...XX...XX....#.h..h...h..h.#*.*....*..#.........#
+ 15 #..........s...#.hXXh.hXXh.hXXh.hXXh...#.............#..........#.****....#
+ 16 #....hhh.......#.......................#*............#.s.....s..#*****....#
+ 17 #...s..@s......+.........s.............+..s..hhh.....+..........+.****.s..#
+ 18 #**...X........+...............s.......+..........s..+..........+.........#
+ 19 #..s...........#..XX...XX...XX...XX....#.............#....s.....#.s.......#
  20 #.....s........#.hXXh.hXXh.hXXh.hXXh...#.XX.XX..XX.XX#.........X#.........#
- 21 #....hhh....XX.#.......................#.h..h...h..h.#.hhh..hhh,#...******#
- 22 #X.............#X.....................*#X......XX....#*........*#...******#
+ 21 #...........XX.#.......................#.h..h...h..h.#.hhh..hhh,#...******#
+ 22 #X*............#X.....................*#X............#*........*#...******#
  23 #########++################++###############++############++###############
  24 #########++################++###############++############++###############
  25 #X............X#...............................................0#.XXs**sXX#
@@ -156,17 +156,17 @@ Every object with a `use` (wall decor counts toward the room below it). Routing 
 | id | type | kind | routing | x,y | w×h | room | label / details |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | o6 | `noticeboard` | `achievements` | — | 2,12 | 2×1 | lobby | achievements (on a wall) |
-| o19 | `lamp` | `toggle` | wheel use reach | 12,3 | 1×1 | focus | lamp |
-| o21 | `lamp` | `toggle` | wheel use reach | 12,9 | 1×1 | focus | lamp |
+| o19 | `lamp` | `toggle` | wheel use reach | 1,10 | 1×1 | focus | lamp |
+| o21 | `lamp` | `toggle` | wheel use reach | 12,10 | 1×1 | focus | lamp |
 | o39 | `coffee_machine` | `take` | wheel use reach | 32,3 | 1×1 | coffee | coffee, tea |
 | o40 | `fridge` | `take` | wheel use reach | 36,3 | 1×1 | coffee | snack, juice, icecream |
 | o55 | `clock_nyc` | `clock` | — | 24,12 | 1×1 | cowork | NYC · America/New_York (on a wall) |
 | o56 | `clock_berlin` | `clock` | — | 26,12 | 1×1 | cowork | BERLIN · Europe/Berlin (on a wall) |
 | o57 | `clock_moscow` | `clock` | — | 28,12 | 1×1 | cowork | MOSCOW · Europe/Moscow (on a wall) |
 | o58 | `safe` | `link` | — | 8,12 | 2×1 | lobby | vault · https://vault13.t1a.cloud/ (on a wall) |
-| o61 | `hat_rack` | `dealer` | wheel use | 9,15 | 2×1 | lobby | hat stand · hat:top, hat:party, hat:wizard, hat:cowboy, hat:crown |
+| o61 | `hat_rack` | `dealer` | wheel use | 1,18 | 2×1 | lobby | hat stand · hat:top, hat:party, hat:wizard, hat:cowboy, hat:crown |
 | o88 | `lamp` | `toggle` | wheel use reach | 38,22 | 1×1 | cowork | lamp |
-| o90 | `lamp` | `toggle` | wheel use reach | 1,14 | 1×1 | lobby | lamp |
+| o90 | `lamp` | `toggle` | wheel use reach | 2,22 | 1×1 | lobby | lamp |
 | o91 | `lamp` | `toggle` | wheel use reach | 27,10 | 1×1 | coffee | lamp |
 | o92 | `lamp` | `toggle` | wheel use reach | 14,10 | 1×1 | meeting | lamp |
 | o93 | `jukebox` | `jukebox` | — | 54,7 | 2×2 | music | jukebox |
@@ -174,28 +174,28 @@ Every object with a `use` (wall decor counts toward the room below it). Routing 
 | o95 | `calendar` | `calendar` | — | 22,12 | 1×1 | cowork | calendar (on a wall) |
 | o96 | `meetings_board` | `meetings` | — | 18,12 | 1×1 | cowork | meetings (on a wall) |
 | o118 | `lamp` | `toggle` | wheel use reach | 52,3 | 1×1 | studio | lamp |
-| o138 | `lamp` | `toggle` | wheel use reach | 52,17 | 1×1 | desks | lamp |
-| o144 | `arcade` | `arcade` | use reach | 54,13 | 1×2 | arcade | Deck Park |
-| o145 | `arcade` | `arcade` | use reach | 56,13 | 1×2 | arcade | Deck Park |
-| o146 | `arcade` | `arcade` | use reach | 61,13 | 1×2 | arcade | Deck Park |
-| o147 | `records` | `records` | — | 62,12 | 2×1 | arcade | records (on a wall) |
-| o152 | `lamp` | `toggle` | wheel use reach | 54,22 | 1×1 | arcade | lamp |
-| o153 | `lamp` | `toggle` | wheel use reach | 63,22 | 1×1 | arcade | lamp |
-| o162 | `lamp` | `toggle` | wheel use reach | 1,32 | 1×1 | orangery | lamp |
-| o181 | `keyboard` | `instrument` | reach | 55,4 | 2×1 | music | keys · keys |
-| o182 | `drum_kit` | `instrument` | reach | 58,4 | 2×2 | music | drums · drums |
-| o183 | `bass_amp` | `instrument` | reach | 61,4 | 1×1 | music | bass · bass |
-| o184 | `screen` | `presentation` | use reach | 18,1 | 5×2 | meeting | screen (on a wall) |
-| o200 | `dj_booth` | `jukebox` | — | 67,13 | 3×1 | berghain | DJ booth |
-| o201 | `bouncer` | `dealer` | wheel use | 65,16 | 1×1 | berghain | bouncer · drugs |
-| o202 | `lamp` | `toggle` | wheel use reach | 65,13 | 1×1 | berghain | lamp |
-| o203 | `toilet` | `toilet` | wheel use | 68,21 | 2×2 | berghain | toilet |
-| o204 | `toilet` | `toilet` | wheel use | 70,21 | 2×2 | berghain | toilet |
-| o205 | `toilet` | `toilet` | wheel use | 72,21 | 2×2 | berghain | toilet |
-| o207 | `bookshelf_tall` | `library` | reach | 69,25 | 2×1 | library | library |
-| o209 | `dance_floor` | `dance` | — | 66,15 | 4×3 | berghain | dance floor |
-| o222 | `food_cart` | `take` | wheel use reach | 32,31 | 2×1 | terrace | sandwich, ramen, salad, pizza |
-| o223 | `bell` | `bell` | use | 11,14 | 1×1 | lobby | bell |
+| o138 | `lamp` | `toggle` | wheel use reach | 40,16 | 1×1 | desks | lamp |
+| o143 | `arcade` | `arcade` | use reach | 54,13 | 1×2 | arcade | Deck Park |
+| o144 | `arcade` | `arcade` | use reach | 56,13 | 1×2 | arcade | Deck Park |
+| o145 | `arcade` | `arcade` | use reach | 61,13 | 1×2 | arcade | Deck Park |
+| o146 | `records` | `records` | — | 62,12 | 2×1 | arcade | records (on a wall) |
+| o151 | `lamp` | `toggle` | wheel use reach | 54,22 | 1×1 | arcade | lamp |
+| o152 | `lamp` | `toggle` | wheel use reach | 63,22 | 1×1 | arcade | lamp |
+| o161 | `lamp` | `toggle` | wheel use reach | 1,32 | 1×1 | orangery | lamp |
+| o180 | `keyboard` | `instrument` | reach | 55,4 | 2×1 | music | keys · keys |
+| o181 | `drum_kit` | `instrument` | reach | 58,4 | 2×2 | music | drums · drums |
+| o182 | `bass_amp` | `instrument` | reach | 61,4 | 1×1 | music | bass · bass |
+| o183 | `screen` | `presentation` | use reach | 18,1 | 5×2 | meeting | screen (on a wall) |
+| o199 | `dj_booth` | `jukebox` | — | 67,13 | 3×1 | berghain | DJ booth |
+| o200 | `bouncer` | `dealer` | wheel use | 65,16 | 1×1 | berghain | bouncer · drugs |
+| o201 | `lamp` | `toggle` | wheel use reach | 65,13 | 1×1 | berghain | lamp |
+| o202 | `toilet` | `toilet` | wheel use | 68,21 | 2×2 | berghain | toilet |
+| o203 | `toilet` | `toilet` | wheel use | 70,21 | 2×2 | berghain | toilet |
+| o204 | `toilet` | `toilet` | wheel use | 72,21 | 2×2 | berghain | toilet |
+| o206 | `bookshelf_tall` | `library` | reach | 69,25 | 2×1 | library | library |
+| o208 | `dance_floor` | `dance` | — | 66,15 | 4×3 | berghain | dance floor |
+| o221 | `food_cart` | `take` | wheel use reach | 32,31 | 2×1 | terrace | sandwich, ramen, salad, pizza |
+| o222 | `bell` | `bell` | use | 11,14 | 1×1 | lobby | bell |
 
 Kinds with no object on the map yet: none.
 
@@ -209,7 +209,7 @@ Kinds with no object on the map yet: none.
 | `lobby` | noticeboard, painting_small, plant ×3, sofa, table_round, reception, safe, bookshelf, hat_rack, exit_door, lamp, bell |
 | `cowork` | clock_nyc, clock_berlin, clock_moscow, table_big ×8, chair ×16, plant ×2, lamp, calendar, meetings_board |
 | `studio` | window ×2, painting, desk ×8, chair ×8, plant ×2, lamp |
-| `desks` | painting_small, desk ×8, chair ×8, sofa, plant, lamp, bookshelf |
+| `desks` | painting_small, desk ×8, chair ×8, sofa, plant, lamp |
 | `music` | jukebox, window ×2, plant ×2, keyboard, drum_kit, bass_amp |
 | `arcade` | arcade ×3, records, plant, painting_small, sofa ×2, lamp ×2 |
 | `orangery` | plant_shelf ×6, plant ×2, lamp |
@@ -230,10 +230,10 @@ A 3×3 feature fits where both sides are ≥ 3. `layoutProblem` (shared/map.ts) 
 | `focus` | 1,6 6×2 · 4,8 5×2 · 9,5 3×3 |
 | `meeting` | 15,7 3×3 · 21,8 3×3 (rug) · 15,3 2×3 · 23,3 3×2 · 23,6 2×2 (rug) |
 | `coffee` | 32,7 5×3 (rug) · 37,4 2×3 · 27,4 2×2 · 30,4 2×2 · 34,4 2×2 · 28,7 2×2 (rug) · +1 smaller |
-| `lobby` | 7,18 7×3 (rug) · 3,14 5×3 · 1,16 2×6 · 13,14 2×3 · 4,18 2×3 (rug) · 11,16 2×2 (rug) · +1 smaller |
-| `cowork` | 17,16 8×3 · 26,16 12×2 · 17,21 10×2 · 29,21 8×2 · 36,14 3×2 · 25,18 3×2 (rug) · +3 smaller |
+| `lobby` | 9,16 5×5 (rug) · 1,14 9×2 · 4,18 2×5 (rug) · 7,18 2×5 (rug) · 13,14 2×2 |
+| `cowork` | 17,16 8×3 · 26,16 12×2 (rug) · 17,21 10×2 · 29,21 8×2 · 36,14 3×2 · 25,18 3×2 (rug) · +3 smaller |
 | `studio` | 40,6 6×2 · 47,6 6×2 (rug) · 45,8 3×2 |
-| `desks` | 40,15 12×2 · 41,18 4×2 · 48,17 2×3 (rug) · 46,19 2×3 · 42,21 2×2 · 49,21 2×2 |
+| `desks` | 42,15 11×2 · 41,18 4×2 · 46,19 2×4 · 48,17 2×3 (rug) · 42,21 2×2 · 49,21 2×2 |
 | `music` | 61,6 3×5 (rug) · 58,7 2×3 (rug) · 56,9 2×2 (rug) |
 | `arcade` | 57,15 4×4 · 55,17 2×4 · 61,17 2×4 (rug) · 62,15 2×2 · 59,19 2×2 |
 | `orangery` | 8,31 6×2 · 3,31 4×2 · 6,25 3×2 · 6,28 2×3 · 8,27 2×2 |

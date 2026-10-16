@@ -164,7 +164,7 @@ rug('green', 2, 6, 9, 2);
 rug('blue', 16, 4, 8, 5);
 rug('orange', 28, 5, 9, 3);
 rug('red', 3, 15, 9, 5);
-rug('teal', 17, 17, 20, 2);
+rug('teal', 18, 16, 19, 3);
 rug('green', 41, 6, 11, 2);
 rug('blue', 42, 16, 9, 3);
 rug('orange', 55, 6, 8, 4); // music room dance floor
@@ -191,12 +191,12 @@ obj('painting_small', 10, 12, 1, 1, { wall: true });
 // Focus: desks with monitors, chairs, a lamp, bookshelf
 for (const [dx, dy] of [[2, 4], [5, 4], [8, 4], [2, 8], [9, 8]]) {
   obj('desk', dx, dy, 2, 1);
-  obj('chair', dx, dy + 1, 1, 1, { walkable: true });
+  obj('chair', dx === 2 ? 3 : dx, dy + 1, 1, 1, { walkable: true });
 }
-obj('bookshelf', 10, 3, 2, 1);
-obj('lamp', 12, 3, 1, 1, LAMP);
+obj('bookshelf', 11, 3, 2, 1);
+obj('lamp', 1, 10, 1, 1, LAMP);
 obj('plant', 1, 3, 1, 1);
-obj('lamp', 12, 9, 1, 1, LAMP);
+obj('lamp', 12, 10, 1, 1, LAMP);
 
 // Meeting: long table, chairs around, plants
 obj('table_long', 17, 5, 6, 2);
@@ -221,8 +221,8 @@ obj('plant', 38, 10, 1, 1);
 // Lobby: plants, sofa, reception, coffee table
 obj('plant', 1, 13, 1, 1);
 obj('plant', 14, 13, 1, 1);
-obj('sofa', 5, 21, 3, 1, { sit: true, dir: 'down' });
-obj('table_round', 6, 19, 1, 1);
+obj('sofa', 5, 16, 3, 1, { sit: true, dir: 'down' });
+obj('table_round', 6, 18, 1, 1);
 obj('reception', 10, 14, 3, 1);
 // Co-working's world clocks: real time with moving hands; clicking one opens the list of our cities
 obj('clock_nyc', 24, 12, 1, 1, { wall: true, use: { kind: 'clock', label: 'NYC', city: 'New York', tz: 'America/New_York' } });
@@ -231,7 +231,7 @@ obj('clock_moscow', 28, 12, 1, 1, { wall: true, use: { kind: 'clock', label: 'MO
 obj('safe', 8, 12, 2, 1, { wall: true, use: { kind: 'link', label: 'vault', url: 'https://vault13.t1a.cloud/' } }); // Vault 13's door, set in the wall by reception
 obj('plant', 1, 22, 1, 1);
 obj('bookshelf', 12, 21, 2, 1);
-obj('hat_rack', 9, 15, 2, 1, { use: { kind: 'dealer', label: 'hat stand', items: ['hat:top', 'hat:party', 'hat:wizard', 'hat:cowboy', 'hat:crown'] } }); // hats go into your pockets
+obj('hat_rack', 1, 18, 2, 1, { use: { kind: 'dealer', label: 'hat stand', items: ['hat:top', 'hat:party', 'hat:wizard', 'hat:cowboy', 'hat:crown'] } }); // hats go into your pockets
 
 // Co-working: four-seat tables
 for (const tx of [18, 23, 28, 33]) for (const ty of [14, 19]) {
@@ -246,7 +246,7 @@ obj('lamp', 38, 22, 1, 1, LAMP);
 // Lobby exit door (last, so earlier object ids stay put)
 obj('exit_door', EXIT.x, 12, 1, 1, { wall: true });
 // more lamps to flick on and off (after the door, same reason)
-obj('lamp', 1, 14, 1, 1, LAMP);
+obj('lamp', 2, 22, 1, 1, LAMP);
 obj('lamp', 27, 10, 1, 1, LAMP);
 obj('lamp', 14, 10, 1, 1, LAMP);
 
@@ -279,8 +279,7 @@ for (const [dx, dy] of [[41, 13], [44, 13], [48, 13], [51, 13], [41, 20], [44, 2
 }
 obj('sofa', 45, 17, 3, 1, { sit: true, dir: 'down' });
 obj('plant', 40, 22, 1, 1);
-obj('lamp', 52, 17, 1, 1, LAMP);
-obj('bookshelf', 47, 22, 2, 1);
+obj('lamp', 40, 16, 1, 1, LAMP);
 // Music room (after the east wing, same reason): windows, tables with stools, sofas along the bottom
 for (const wx of [55, 60]) obj('window', wx, 1, 2, 2, { wall: true });
 obj('plant', 54, 3, 1, 1);
