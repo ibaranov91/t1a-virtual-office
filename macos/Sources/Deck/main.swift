@@ -124,6 +124,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
     renderIcon()
 
     card.onLater = { [weak self] id in self?.js("__deckNative.reply(\(json(id)), 'later')") }
+    card.onMeetingLater = { [weak self] key in self?.js("__deckNative.dismissMeeting?.(\(json(key)))") }
     updater.onChange = { [weak self] in self?.renderUpdate() }
     card.onOpen = { [weak self] in self?.showPopover() }
 
@@ -324,6 +325,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
       m.addItem(updater.busy ? NSMenuItem(title: "Updating…", action: nil, keyEquivalent: "") : item("Update to \(u.version) (restarts the app)", #selector(updateClicked)))
     }
     for k in state.knocks { m.addItem(withTitle: "🚪 \(k.text)", action: nil, keyEquivalent: "") }
+    for e in state.meetings { m.addItem(withTitle: e.text, action: nil, keyEquivalent: "") }
     for u in state.unread {
       let i = item("💬 \(u.name) (\(u.count))", #selector(openChatClicked(_:))); i.representedObject = u.id; m.addItem(i)
     }
@@ -332,7 +334,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
     m.addItem(item("Open in a separate window", #selector(openClicked)))
     m.addItem(item("Pin to desktop", #selector(togglePinned), on: pinned))
     if pinned { m.addItem(item(arranging ? "Done arranging" : "Arrange desktop window…", #selector(toggleArranging))) }
-    m.addItem(item("Knock card under the icon", #selector(togglePop), on: popOnKnock))
+    m.addItem(item("Knock and meeting card under the icon", #selector(togglePop), on: popOnKnock))
     m.addItem(.separator())
     let inst = NSMenuItem(title: "Instance", action: nil, keyEquivalent: ""), sub = NSMenu()
     for (n, u) in instances {
@@ -447,6 +449,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
                       mic: m["mic"] as? String ?? "off", speaker: m["speaker"] as? String ?? "off",
                       knocks: (m["knocks"] as? [[String: Any]] ?? []).compactMap { k in
                         (k["id"] as? String).map { ($0, k["text"] as? String ?? "Someone is knocking") } },
+                      meetings: (m["meetings"] as? [[String: Any]] ?? []).compactMap { e in
+                        (e["id"] as? String).map { ($0, e["text"] as? String ?? "A meeting is starting") } },
                       unread: (m["unread"] as? [[String: Any]] ?? []).compactMap { u in
                         (u["id"] as? String).map { ($0, u["name"] as? String ?? "Someone", u["count"] as? Int ?? 1) } })
     trackSocket(connected: state.connected)
@@ -464,14 +468,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
 
   /// New knock → card under the icon (or just a ringing icon when busy / the Deck is already in front).
   /// Answering happens in the page, so the call (and voice) starts from a click there.
+  /// A meeting's heads-up gets the same card even when busy: it's the nudge to wrap up a call or come back.
   func updateCard(_ old: DeckState) {
     let fresh = state.knocks.filter { k in !old.knocks.contains { $0.id == k.id } }
+    let freshMeeting = state.meetings.filter { e in !old.meetings.contains { $0.id == e.id } }.last
     let deckInFront = popover.isShown || (window.isVisible && NSApp.isActive)
     if let k = fresh.last {
       ring()
       if popOnKnock && !state.busy && !deckInFront, let b = status.button { return card.show(id: k.id, text: k.text, from: b) }
     }
+    if let e = freshMeeting {
+      ring()
+      if popOnKnock && !deckInFront && card.knockId == nil, let b = status.button { return card.showMeeting(key: e.id, text: e.text, from: b) }
+    }
     if let id = card.knockId, !state.knocks.contains(where: { $0.id == id }) { card.close() } // answered elsewhere, or expired
+    if let key = card.meetingKey, !state.meetings.contains(where: { $0.id == key }) { card.close() } // Go, Later in the page, or over
   }
 
   // MARK: web view plumbing

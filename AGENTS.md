@@ -224,7 +224,7 @@ A menu bar app that hosts the normal web client in one WKWebView. Click the icon
 desktop icons), arrange it, pick the instance. The web view moves between popover, window and desktop, so
 it's one page and one WebSocket. `client/src/native.ts` tells the app about knocks and calls and exposes
 `window.__deckNative.reply`; it does nothing in a normal browser. A knock shows a small native card under the
-icon (Open / Later). You accept inside The Deck on purpose, so voice starts from a click in the page. When
+icon (Open / Later), and so does a calendar meeting's heads-up (Later puts the in-page heads-up away). You accept inside The Deck on purpose, so voice starts from a click in the page. When
 you're away or already in a call a knock only flaps the icon orange.
 ```bash
 macos/build.sh                    # → macos/build/The Deck.app (Command Line Tools are enough, no Xcode)
