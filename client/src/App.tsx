@@ -74,12 +74,13 @@ export default function App() {
   return <Office key={session} session={session} onLogout={logout} onExpired={expired} />;
 }
 
-type Config = { netbird: boolean; tokenLogin: boolean; tokenRequired?: boolean };
+type Config = { netbird: boolean; tokenLogin: boolean; tokenRequired?: boolean; emailLogin?: boolean };
 
 function Login({ onLogin }: { onLogin: (s: string) => void }) {
   const [config, setConfig] = useState<Config | null>(null);
   const [nb, setNb] = useState<{ email: string; name: string } | null>(null);
   const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
   const [token, setToken] = useState(import.meta.env.DEV ? 'deck' : '');
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
@@ -119,7 +120,13 @@ function Login({ onLogin }: { onLogin: (s: string) => void }) {
         {config?.netbird && !nb && (
           <p className="muted">Sign-in uses NetBird. Open <b>voffice.t1a.io</b> while connected to NetBird.</p>
         )}
-        {config?.tokenLogin && (
+        {config?.emailLogin && (
+          <form onSubmit={e => { e.preventDefault(); post('/api/login', { email }); }} className="token-form">
+            <label>Your email<input autoFocus type="email" autoComplete="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="name@t1a.com" /></label>
+            <button disabled={!/\S+@\S+/.test(email) || busy}>Walk in</button>
+          </form>
+        )}
+        {config?.tokenLogin && !config.emailLogin && (
           <form onSubmit={e => { e.preventDefault(); post('/api/login', { name, token }); }} className="token-form">
             {config.netbird && <p className="or">or with the team token</p>}
             <label>Your name<input autoFocus={!nb} value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Ivan" /></label>
