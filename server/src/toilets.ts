@@ -1,3 +1,4 @@
+import { STALL_LINGER_MS } from './creatures';
 import { TOILET_CAPACITY, TOILET_DRAIN_MS, TOILET_FULL, TOILET_SHELF_MAX, TOILET_USE_MS, type ToiletState } from '../../shared/protocol';
 
 interface Stall { fill: number; in: string[]; until: Map<string, number>; queue: string[]; shelf: number; changed: number }
@@ -59,6 +60,14 @@ export class Toilets {
     if (!s || !s.in.includes(userId) || s.shelf <= 0) return false;
     s.shelf--; this.emit(id);
     return true;
+  }
+  /** Out-of-order stalls with nobody inside, and for how long they've been that way. */
+  fullEmpty(now: number) { return [...this.stalls].filter(([, s]) => s.fill >= TOILET_FULL && !s.in.length && now - s.changed >= STALL_LINGER_MS).map(([id]) => id); }
+  /** The cleaner has been: spotless and back in order. */
+  clean(id: string, now: number) {
+    const s = this.stalls.get(id);
+    if (!s || s.in.length) return;
+    s.fill = 0; s.shelf = 0; s.changed = now; this.emit(id);
   }
   /** Visits end on time, and an empty stall drains one level every TOILET_DRAIN_MS. */
   tick(now: number) {

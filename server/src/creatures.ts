@@ -8,6 +8,9 @@ import { cupTableAt, MAX_CUPS, type Creature, type CreatureKind, type CreaturePo
 export const CUP_LINGER_MS = 12_000;       // the cleaner leaves a fresh cup alone for a bit
 export const CUP_TTL_MS = 30 * 60_000;     // with no cleaner around (PETS=0), cups vanish on their own
 export const CLEAN_MS = 1800;              // pausing at the table
+export const STALL_CLEAN_MS = 5000;        // scrubbing an overflowed stall takes longer
+export const STALL_LINGER_MS = 20_000;     // a stall stays out of order this long before she turns up
+const STALL = 'stall:';
 export const PET_MS = 2000;                // the hearts
 export const PET_FOLLOW_MS = 60_000;       // then it tags along with the person
 export const BAT_CHANCE = 0.7;             // per try
@@ -24,11 +27,13 @@ export interface CreatureHost {
   broadcast(msg: ServerMsg): void;
   people(): Tile[]; // where people (and bots) stand in the office right now
   personTile?(userId: string): Tile | null; // where this person is headed in the office, if they're about
+  fullStalls?(): { id: string; door: Tile }[]; // out-of-order toilet stalls with nobody inside, and the tile at their door
+  cleanStall?(id: string): void;               // the cleaner has scrubbed it: back in order
 }
 interface Live extends Creature {
   until: number;                                   // busy (walking, sitting, napping…) until then
   then?: { pose: CreaturePose; ms: number }; // what to do on arrival
-  cleaning?: string;                          // the cleaner: the cup she's on her way to (or wiping up)
+  cleaning?: string;                          // the cleaner: the cup (or `stall:<id>`) she's on her way to (or wiping up)
   humUntil?: number; sayUntil?: number; nextSayAt?: number; // the cleaner's humming stretch, her phrase, when the next one comes
   follow?: { userId: string; until: number }; // a petted cat or dog trots after its person for a while
 }
@@ -121,7 +126,7 @@ export class Creatures {
       if (c.kind === 'cleaner') this.voice(c, now);
       if (now < c.until) continue;
       if (c.then) { // just arrived
-        const gone = c.cleaning && !this.cups.some(k => k.id === c.cleaning);
+        const gone = c.cleaning && !this.stillDirty(c.cleaning);
         if (!gone) { this.settle(c, c.then.pose, c.then.ms, now); continue; }
         c.then = undefined; c.walk = null; c.cleaning = undefined; // someone beat her to it
       }
@@ -196,7 +201,8 @@ export class Creatures {
   /** The cleaner: the nearest settled cup, a pause at the table, then the next; home when the tables are clear. */
   private cleaner(c: Live, now: number) {
     if (c.pose === 'clean') { // finished wiping: take the cup away
-      if (c.cleaning) this.removeCup(c.cleaning);
+      if (c.cleaning?.startsWith(STALL)) this.host.cleanStall?.(c.cleaning.slice(STALL.length));
+      else if (c.cleaning) this.removeCup(c.cleaning);
       c.cleaning = undefined;
       this.settle(c, 'idle', 0, now);
     }
@@ -204,6 +210,12 @@ export class Creatures {
     if (plan) {
       c.cleaning = plan.cup.id;
       this.go(c, plan.spot, now, { pose: 'clean', ms: CLEAN_MS }, plan.path);
+      return;
+    }
+    const stall = this.planStall(c.tile);
+    if (stall) {
+      c.cleaning = STALL + stall.id;
+      this.go(c, stall.spot, now, { pose: 'clean', ms: STALL_CLEAN_MS }, stall.path);
       return;
     }
     this.roam(c, now);
@@ -237,6 +249,18 @@ export class Creatures {
     c.say = pick(PRAISE); c.sayUntil = now + SAY_MS; c.nextSayAt = now + rand(120_000, 300_000);
     this.announce(c);
     return true;
+  }
+  private stillDirty(target: string) {
+    return target.startsWith(STALL) ? !!this.host.fullStalls?.().some(s => s.id === target.slice(STALL.length)) : this.cups.some(k => k.id === target);
+  }
+  /** An out-of-order stall (nobody inside) and where to stand at its door: the nearest by path. Cups come first. */
+  planStall(from: Tile) {
+    let best: { id: string; spot: Tile; path: Tile[] } | null = null;
+    for (const st of this.host.fullStalls?.() ?? []) {
+      const path = findPath(this.map, from, st.door);
+      if (path.length && (!best || path.length < best.path.length)) best = { id: st.id, spot: st.door, path };
+    }
+    return best;
   }
   /** Which cup next and where to stand for it: the nearest by path. */
   planClean(from: Tile, now: number) {
