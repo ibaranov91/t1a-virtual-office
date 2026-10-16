@@ -108,7 +108,7 @@ test('plates are counted apart from cups and the cleaner clears them once lunch 
   assert.ok(MAX_PLATES >= 6, 'room for every seat');
   // cleaner: leaves a plate alone while its owner might still be eating, then takes it
   c.cups = []; c.addCup(tables[0], 'plate:ramen', 0);
-  const lady = c.add('cleaner', 'Valentina', c.base()), may = new Date(2026, 4, 1);
+  const lady = c.add('cleaner', 'Cleaning lady', c.base()), may = new Date(2026, 4, 1);
   c.tick(CUP_LINGER_MS + 1, may); assert.equal(lady.cleaning, undefined, 'the plate is left alone (she may roam)');
   let now = LUNCH_MS + CUP_LINGER_MS;
   for (let i = 0; !lady.cleaning && i < 20; i++) { now = Math.max(now, lady.until); c.tick(now, may); }

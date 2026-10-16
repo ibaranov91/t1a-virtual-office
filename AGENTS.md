@@ -117,7 +117,9 @@ npm run typecheck    # run before every commit or deploy
   (`cup_put`; at most `MAX_CUPS`, saved in `state.json`); the cleaner paths to settled cups, wipes, takes them away. Cups
   also vanish after 30 min. Clicking someone's cup walks you over and clears it (`cup_take`, plates excluded); if the cleaner
   is in that room she praises you (`Creatures.praise`) and you earn `tidy`. The ghost of Mazurkevich is client-only (night hours, or 3 min an hour); in dev,
-  `__deck.engine.critters.summonGhost()` brings him out.
+  `__deck.engine.critters.summonGhost()` brings him out. Everything they (and the bouncer) say lives in `shared/phrases.ts`: the cleaner,
+  cat and dog get an idle line every few minutes and answer a pat or a tidied cup; the bouncer is a map object, so his idle
+  bubble is client-only and his hand-over line is the `notice`.
 - **Presentation mode** (`server/src/presentation.ts`, `client/src/Presentation.tsx`): the Meeting room's wall screen
   (`use.kind: 'presentation'`) takes PNG/JPG slides or one PDF (the browser renders PDF pages to images with pdf.js, `client/src/pdfSlides.ts`,
   before upload; the server's poppler `pdftoppm` path is only a fallback for old clients) behind a PIN (`DECK_PRESENT_PIN`, default `1234`), via `POST /api/present/upload` with the session in

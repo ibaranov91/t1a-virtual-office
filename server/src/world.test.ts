@@ -1280,7 +1280,7 @@ test('clicking a cup walks you over and clears it; the cleaner praises you (and 
   const counter = { x: 30, y: 3 }, lobby = w.map.rooms.find(r => r.id === 'lobby')!;
   const a = person('A', undefined, { x: 32, y: 8 });
   const cupOn = (tile: Tile, item = 'coffee') => { const c = w.creatures.addCup(tile, item, Date.now()); assert.ok(typeof c === 'object'); return c; };
-  const lady = w.creatures.add('cleaner', 'Valentina', lobby.stand[0]);
+  const lady = w.creatures.add('cleaner', 'Cleaning lady', lobby.stand[0]);
 
   const first = cupOn(counter);
   w.handle(a.u, { t: 'cup_take', cupId: first.id }, a.socket);
