@@ -1082,6 +1082,8 @@ export class Engine {
       ctx.fillText(icon, x + ih.dx, baseY + ih.dy + bob + (p.walking ? swing : 0));
       ctx.textAlign = 'start'; ctx.textBaseline = 'alphabetic';
     }
+    const live = this.store.presentation;
+    if (live?.presenter === u.id && !live.away && !p.walking && !seat) this.drawPointer(x, baseY + bob, ms, live);
     if (u.reading && seat && this.f('reading_book')) this.blit(ctx, 'reading_book', Math.round(x + 2), Math.round(baseY - 16 + bob)); // holding up the book
     if (u.eating && seat) { // fork down to the plate and up to the mouth; 💬 when they don't mind company
       const up = Math.floor(ms / 450) % 2, fx = seat.dir === 'left' ? x + 4 : seat.dir === 'right' ? x + 11 : x + 11;
@@ -1092,6 +1094,19 @@ export class Engine {
     if (seat?.dir === 'up' && seat.type === 'chair' && this.f('chair_up_back')) {
       this.blit(ctx, 'chair_up_back', seat.x * TS, seat.y * TS);
     }
+  }
+
+  /** The presenter taps the board with a pointer stick: a slow sway, and a jab whenever the slide changes. */
+  private pointerSlide = { deck: '', slide: -1, at: 0 };
+  private drawPointer(x: number, baseY: number, ms: number, live: NonNullable<Store['presentation']>) {
+    const ctx = this.ctx, ps = this.pointerSlide;
+    if (ps.deck !== live.deck.id || ps.slide !== live.slide) this.pointerSlide = { deck: live.deck.id, slide: live.slide, at: ps.deck === live.deck.id ? ms : -9999 };
+    const jab = Math.max(0, 1 - (ms - this.pointerSlide.at) / 450), sway = Math.sin(ms / 500) * 0.5;
+    const len = 9 + Math.round(jab * 3 * Math.sin(jab * 12)), x0 = x + 12, y0 = baseY - 10;
+    ctx.fillStyle = '#d8b878';
+    for (let i = 0; i < len; i++) ctx.fillRect(Math.round(x0 + i * 0.5), Math.round(y0 - i - sway * (i / len)), 1, 1);
+    ctx.fillStyle = jab > 0 || Math.floor(ms / 300) % 2 ? '#ff4fa8' : '#ffe14f'; // the tip
+    ctx.fillRect(Math.round(x0 + len * 0.5), Math.round(y0 - len - sway), 1, 1);
   }
 
   private drawDeskTag(owner: ClientUser, x: number, y: number) {
