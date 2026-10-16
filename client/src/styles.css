@@ -90,7 +90,7 @@ button.netbird { display: grid; gap: 2px; padding: 10px 12px; font-size: var(--f
 button.netbird small { font-weight: var(--fw-medium); font-size: var(--fs-sm); opacity: .75; }
 
 .office { height: 100%; display: flex; flex-direction: column; }
-.topbar { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 8px; background: var(--panel); border-bottom: 2px solid var(--line); position: relative; z-index: 9;
+.topbar { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 8px; background: var(--panel); border-bottom: 2px solid var(--line); position: relative; z-index: 9;
   padding: max(6px, env(safe-area-inset-top)) max(10px, env(safe-area-inset-right)) 6px max(10px, env(safe-area-inset-left)); }
 .top-left { grid-column: 1; display: flex; align-items: center; gap: 8px; min-width: 0; }
 .top-right { grid-column: 3; display: flex; align-items: center; gap: 6px; }
@@ -218,7 +218,7 @@ canvas { display: block; image-rendering: pixelated; touch-action: none; }
 @keyframes wiggle { 50% { transform: translateY(-2px); } }
 
 /* thumb dock: only on phones and small windows (see COMPACT in sidebar/hooks.ts) */
-.dock { display: none; }
+.dock-stack, .dock { display: none; }
 @media (min-width: 561px) and (max-width: 900px) and (min-height: 501px) {
   .brand { display: none; }
   .top-more { display: none; }
@@ -245,9 +245,28 @@ canvas { display: block; image-rendering: pixelated; touch-action: none; }
   .top-more, .top-more.open { display: contents; }
   .topbar .meet-btn { width: 44px; padding: 0; justify-content: center; }
 
-  .dock { display: flex; position: absolute; left: 50%; transform: translateX(-50%); bottom: calc(8px + env(safe-area-inset-bottom)); z-index: 6; gap: 4px; padding: 4px;
+  .dock-stack { display: block; position: absolute; left: 50%; transform: translateX(-50%); bottom: calc(8px + env(safe-area-inset-bottom));
+    width: max-content; max-width: calc(100% - 16px); z-index: 9; } /* above the People sheet, so voice settings open over it */
+  .dock { display: flex; gap: 2px; padding: 4px;
     background: rgba(42,31,36,.96); border: 2px solid var(--wood); border-radius: 14px; box-shadow: 0 6px 20px rgba(0,0,0,.45); }
-  .dock { gap: 2px; max-width: calc(100% - 16px); z-index: 9; } /* above the People sheet, so voice settings open over it */
+  .dock-stack:has(.now-row) { background: rgba(42,31,36,.96); border: 2px solid var(--wood); border-radius: 14px; box-shadow: 0 6px 20px rgba(0,0,0,.45); }
+  .dock-stack:has(.now-row) .dock { background: transparent; border: 0; border-top: 1px solid var(--line); border-radius: 0 0 12px 12px; box-shadow: none; }
+  .now-row { display: flex; align-items: center; gap: 6px; height: 44px; min-width: 0; padding: 0 6px 0 12px; font-size: var(--fs-md); white-space: nowrap; }
+  .now-row.knock-panel { flex-wrap: nowrap; }
+  .now-row:first-child { border-radius: 12px 12px 0 0; }
+  .now-row + .now-row { border-top: 1px solid var(--line); }
+  .now-row .now-text, .now-row .jukebox-chip-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .now-row button, .now-row a { flex: none; font-size: var(--fs-md); }
+  .now-row > button:not(.jukebox-chip-title), .now-row .jukebox-controls button { width: 40px; min-width: 40px; height: 40px; min-height: 40px; padding: 0; }
+  .now-row > button:not(.icon-button):not(.jukebox-chip-title), .now-row a { width: auto; padding: 0 6px; font-size: var(--fs-sm); }
+  .now-row .jukebox-controls button { background: transparent; color: var(--text); box-shadow: none; } /* quiet, like the dock's own buttons */
+  .now-row.jukebox-chip { height: 52px; } /* two lines, like Spotify's mini-player: title, then artist · time */
+  .now-row .jukebox-chip-title { display: grid; align-content: center; gap: 1px; min-width: 0; height: 48px; min-height: 48px; }
+  .now-row .now-title, .now-row .now-sub { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .now-row .now-sub { font-size: var(--fs-sm); color: var(--muted); }
+  .now-row .dot { overflow: visible; }
+  .now-row.room-voice.ptt .dot { background: var(--accent); }
+  .now-row.room-voice.off .dot { background: var(--wood); }
   .dock > button, .dock .voice-icons > button, .dock .voice-split > button { position: relative; width: 44px; min-width: 34px; flex: 1 1 0; height: 48px; padding: 0; display: grid; place-items: center; align-content: center; gap: 1px;
     background: transparent; color: var(--muted); box-shadow: none; border-radius: 10px; }
   .dock button.on { background: var(--panel2); color: var(--accent); }
@@ -283,7 +302,7 @@ canvas { display: block; image-rendering: pixelated; touch-action: none; }
   .toast button { min-height: 40px; }
   .chips { top: 6px; }
 }
-@media (max-width: 340px) { .dock { gap: 0; max-width: calc(100% - 8px); } }
+@media (max-width: 340px) { .dock-stack { max-width: calc(100% - 8px); } .dock { gap: 0; } }
 @media (max-height: 500px) { .stage .rooms { max-height: 85%; } .stage .self-stack { width: min(360px, calc(100% - 16px)); right: auto; } }
 @keyframes sheet { 0% { transform: translateY(30%); opacity: 0; } 100% { transform: none; opacity: 1; } }
 
@@ -429,11 +448,16 @@ button:focus-visible, summary:focus-visible, input[type="range"]:focus-visible {
 .meeting-list li > span { flex: 1; }
 .meeting-chip b { color: var(--accent); }
 
+.now-playing { grid-column: 2; grid-row: 1; justify-self: center; min-width: 0; max-width: 100%; overflow: hidden; }
+.now-playing button { height: 30px; min-height: 0; padding: 0 8px; background: transparent; color: var(--text); box-shadow: none; font-size: var(--fs-md); }
+.now-playing .jukebox-controls { gap: 2px; }
 .jukebox-chip { gap: 4px; padding-left: 6px; cursor: pointer; }
 .jukebox-chip .jukebox-chip-title { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); text-align: left; font-weight: var(--fw-regular); }
 .jukebox-chip > button:last-child { flex: none; white-space: nowrap; }
 .jukebox-controls { display: flex; gap: 6px; flex: none; margin-top: 6px; }
 .jukebox-chip .jukebox-controls { margin-top: 0; }
+.now-row.jukebox-chip { padding: 0 6px 0 12px; }
+.now-row.jukebox-chip .jukebox-chip-title { padding: 0; height: 40px; min-height: 40px; background: transparent; box-shadow: none; font-size: var(--fs-md); }
 .jukebox-panel { gap: 14px; }
 .jukebox-panel section { min-width: 0; }
 .jukebox-volume > span { flex: none; }
@@ -457,10 +481,7 @@ button:focus-visible, summary:focus-visible, input[type="range"]:focus-visible {
 .jukebox-genre h4 { margin: 0 0 3px; color: var(--muted); font-size: var(--fs-sm); }
 @media (max-width: 560px), (max-height: 500px) {
   .jukebox-panel.meet-panel.guided { top: auto; bottom: 0; left: 0; transform: none; width: 100%; max-height: calc(100% - 8px); border-radius: 14px 14px 0 0; border-width: 2px 0 0; padding-bottom: calc(12px + env(safe-area-inset-bottom)); }
-  .jukebox-panel button, .jukebox-chip button { min-height: 40px; min-width: 40px; }
-  .jukebox-chip { flex-wrap: wrap; white-space: normal; width: min(440px, 100%); }
-  .jukebox-chip .jukebox-chip-title { flex-basis: 100%; }
-  .jukebox-chip > button:last-child { margin-left: auto; }
+  .jukebox-panel button { min-height: 40px; min-width: 40px; }
 }
 .hanger-btn { width: 34px; padding: 0; }
 

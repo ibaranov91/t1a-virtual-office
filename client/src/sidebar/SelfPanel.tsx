@@ -208,37 +208,54 @@ function useUnreachable(store: Store, voice: Voice | null) {
 }
 
 /** Knock calls keep the shared Meet link. */
-export function CallChip({ store, voice }: { store: Store; voice: Voice | null }) {
+export function CallChip({ store, voice, compact = false }: { store: Store; voice: Voice | null; compact?: boolean }) {
   const me = store.users.get(store.me), unreachable = useUnreachable(store, voice);
   if (!me?.callId) return null;
   const state = voiceState(voice), peers = store.callPeers(me);
   const meet = store.callLink && MEET_LINK_RE.test(store.callLink) ? store.callLink : null;
-  return <div className="desk-chip call-chip knock-panel">
+  const text = `Talking with ${store.names(peers)} · ${state}`;
+  return <div className={compact ? "now-row call-chip knock-panel" : "desk-chip call-chip knock-panel"}>
     <span className={`dot ${state === 'live' ? 'live' : ''}`} />
-    <span>Talking with {store.names(peers)} <small>· {state}</small>{unreachable && <small className="cant-reach" title={REACH_TITLE}>{unreachable}</small>}</span>
-    <VoiceToggle kind="mic" voice={voice} disabled={!store.connected || !store.voiceOwner} /><VoiceToggle kind="headphones" voice={voice} disabled={!store.connected || !store.voiceOwner} savedDeafened={prefs.deafened} /><IconButton icon="disconnect" label="Leave call" className="end" onClick={() => store.endCall()} />
+    <span className={compact ? 'now-text' : undefined} title={unreachable ? `${text} · ${unreachable}` : text}>{text}{!compact && unreachable && <small className="cant-reach" title={REACH_TITLE}>{unreachable}</small>}</span>
+    {!compact && <><VoiceToggle kind="mic" voice={voice} disabled={!store.connected || !store.voiceOwner} /><VoiceToggle kind="headphones" voice={voice} disabled={!store.connected || !store.voiceOwner} savedDeafened={prefs.deafened} /></>}
     {voice?.onMeet && <button onClick={() => voice.setOnMeet(false)}>Use Deck voice</button>}
     {meet && <ExternalLink href={meetAs(meet, store.meetAccount)} onOpen={() => { voice?.setOnMeet(); store.moveToMeet(); }}>Move to Meet</ExternalLink>}
+    <IconButton icon="disconnect" label="Leave call" className="end" onClick={() => store.endCall()} />
   </div>;
 }
 
-/** In an open-voice room: say whether the room can hear you, with the shared voice controls. */
-export function RoomVoiceChip({ store, voice }: { store: Store; voice: Voice | null }) {
+/** The room voice surface is shown only by its owning tab, while physically in the room. */
+export function roomVoiceOf(store: Store, voice: Voice | null) {
   const me = store.users.get(store.me), room = store.roomCallOf(me);
-  if (!me || !room || !voice?.inRoomCall || !store.voiceOwner || me.instance || store.roomOf(me)?.id !== room.id) return null;
-  const others = store.callPeers(me).filter(u => !u.bot && u.presence !== 'offline' && !u.instance && store.roomOf(u)?.id === room.id);
+  return me && room && voice?.inRoomCall && store.voiceOwner && !me.instance && store.roomOf(me)?.id === room.id ? room : null;
+}
+
+/** Shared copy for the full voice chip and the compact dock row. */
+export function roomVoiceStatus(store: Store, voice: Pick<Voice, 'onMeet' | 'deafened' | 'micError' | 'muted' | 'mode' | 'spaceHeld'>,
+  room: NonNullable<ReturnType<Store['roomCallOf']>>, { short = false }: { short?: boolean } = {}) {
+  const me = store.users.get(store.me);
+  const others = me ? store.callPeers(me).filter(u => !u.bot && u.presence !== 'offline' && !u.instance && store.roomOf(u)?.id === room.id) : [];
   const who = others.length ? others.map(u => u.name.split(' ')[0]).join(', ') : 'nobody yet';
-  const [state, text] = voice.onMeet ? ['off', 'On Meet'] : voice.deafened ? ['off', `Deafened in ${room.name}`]
-    : voice.micError ? ['off', `Listen-only in ${room.name}`]
-    : voice.muted ? ['off', `Muted in ${room.name} · nobody hears you`]
-    : voice.mode === 'ptt' ? voice.spaceHeld ? ['live', `Talking in ${room.name}`] : ['ptt', `Push-to-talk in ${room.name} · hold Space`]
-    : ['live', `Live in ${room.name} · everyone here hears you`];
-  return <div className={`desk-chip call-chip room-voice ${state}`} role="status">
+  const [state, label, suffix] = voice.onMeet ? ['off', 'On Meet', ''] : voice.deafened ? ['off', `Deafened in ${room.name}`, '']
+    : voice.micError ? ['off', `Listen-only in ${room.name}`, '']
+    : voice.muted ? ['off', `Muted in ${room.name}`, ' · nobody hears you']
+    : voice.mode === 'ptt' ? voice.spaceHeld ? ['live', `Talking in ${room.name}`, ''] : ['ptt', `Push-to-talk in ${room.name}`, ' · hold Space']
+    : ['live', `Live in ${room.name}`, ' · everyone here hears you'];
+  const title = `${label}${suffix} · here: ${who}`;
+  return { state, text: short ? `${label} · ${who}` : title, title, who };
+}
+
+/** In an open-voice room: say whether the room can hear you. */
+export function RoomVoiceChip({ store, voice, compact = false }: { store: Store; voice: Voice | null; compact?: boolean }) {
+  const room = roomVoiceOf(store, voice);
+  if (!room || !voice) return null;
+  const { state, text, title } = roomVoiceStatus(store, voice, room, { short: compact });
+  return <div className={`${compact ? 'now-row' : 'desk-chip'} call-chip room-voice ${state}`} role="status">
     <span className={`dot ${state === 'live' ? 'live' : ''}`} />
-    <span>{text} <small>· here: {who}</small></span>
+    <span className={compact ? 'now-text' : undefined} title={title}>{text}</span>
     {voice.onMeet && <button onClick={() => voice.setOnMeet(false)}>Use Deck voice</button>}
-    <VoiceToggle kind="mic" voice={voice} disabled={!store.connected} />
-    <VoiceToggle kind="headphones" voice={voice} disabled={!store.connected} savedDeafened={prefs.deafened} />
+    {!compact && <><VoiceToggle kind="mic" voice={voice} disabled={!store.connected} />
+      <VoiceToggle kind="headphones" voice={voice} disabled={!store.connected} savedDeafened={prefs.deafened} /></>}
     <IconButton icon="disconnect" label={`Leave ${room.name}`} title={`Leave ${room.name}: stop talking and step out`} className="end" onClick={() => store.leaveRoom()} />
   </div>;
 }
@@ -246,7 +263,7 @@ export function RoomVoiceChip({ store, voice }: { store: Store; voice: Voice | n
 
 export function SelfPanel({ store, voice, assets, onProfile }: { store: Store; voice: Voice | null; assets: Assets | null; onProfile: (opener: HTMLButtonElement) => void }) {
   const me = store.users.get(store.me), room = store.roomCallOf(me), unreachable = useUnreachable(store, voice);
-  const roomVoice = !!me && !!room && !!voice?.inRoomCall && store.voiceOwner && !me.instance && store.roomOf(me)?.id === room.id;
+  const roomVoice = !!roomVoiceOf(store, voice);
   const waitRoom = store.voiceWait ? MAP.rooms.find(r => r.id === store.voiceWait) : undefined;
   const meet = store.callLink && MEET_LINK_RE.test(store.callLink) ? store.callLink : null;
   const state = voiceState(voice);

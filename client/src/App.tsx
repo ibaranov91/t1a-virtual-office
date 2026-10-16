@@ -294,10 +294,7 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
         <div className="chips">
           <MeetingChip store={store} voice={voice} />
           <LiveChip store={store} onGo={room => engineRef.current?.walkToRoom(room)} />
-          <NowPlayingChip store={store} />
           <DungeonChip store={store} />
-          {me?.callId && !me.instance && !store.roomCallOf(me) && store.voiceOwner && <CallChip store={store} voice={voice} />}
-          <RoomVoiceChip store={store} voice={voice} />
           <TalkConflictChip store={store} />
           <DeskChip store={store} />
         </div>
@@ -426,6 +423,7 @@ function TopBar({ store, assets, voice, roomName, onToggleMeet, onProfile, pocke
         <BrandLogo store={store} assets={assets} />
         {isCompact && me && <IdentityPill store={store} onProfile={onProfile} roomName={roomName} />}
       </div>
+      {!isCompact && <NowPlayingChip store={store} />}
       <div className="top-right">
         {isCompact && <VoiceIcons store={store} voice={voice} />}
         <UnreadButton store={store} />
@@ -652,24 +650,26 @@ const musicPosition = (store: Store, state: JukeboxState) => jukeboxPosition(sta
 function JukeboxControls({ store, id, state, disabled }: { store: Store; id: string; state: JukeboxState; disabled: boolean }) {
   const paused = state.pausedAt !== null;
   return <>
-    <button aria-label={paused ? 'Play' : 'Pause'} disabled={disabled}
-      onClick={() => store.jukeboxAction(id, { action: paused ? 'play' : 'pause', playId: state.playId })}><Icon name={paused ? "play" : "pause"} /></button>
-    <button aria-label="Skip" disabled={disabled} onClick={() => store.jukeboxAction(id, { action: 'skip', playId: state.playId })}><Icon name="skip" /></button>
+    <IconButton icon={paused ? 'play' : 'pause'} label={paused ? 'Play' : 'Pause'} disabled={disabled}
+      onClick={() => store.jukeboxAction(id, { action: paused ? 'play' : 'pause', playId: state.playId })} />
+    <IconButton icon="skip" label="Skip" disabled={disabled} onClick={() => store.jukeboxAction(id, { action: 'skip', playId: state.playId })} />
   </>;
 }
 
-function NowPlayingChip({ store }: { store: Store }) {
+function NowPlayingChip({ store, compact = false }: { store: Store; compact?: boolean }) {
   const o = MAP.objects.find(o => o.use?.kind === 'jukebox' && store.inJukeboxRoom(o.id));
   const state = o && store.jukebox[o.id], track = state && TRACK.get(state.track);
   if (!o || !state || !track) return null;
   const loading = store.soundscape?.jukeboxLoading(o.id) ?? false;
-  const label = `♪ ${track.title} — ${track.artist} · ${loading ? 'Loading…' : `${musicTime(musicPosition(store, state))} / ${musicTime(track.duration)}`}`;
-  return <div className="desk-chip jukebox-chip" onClick={() => store.openJukebox(o.id)}>
-    <button className="ghost jukebox-chip-title" title={label} onClick={e => { e.stopPropagation(); store.openJukebox(o.id); }}>{label}</button>
+  const title = `♪ ${track.title} — ${track.artist}`, time = loading ? 'Loading…' : `${musicTime(musicPosition(store, state))}${compact ? '' : ` / ${musicTime(track.duration)}`}`;
+  const label = `${title} · ${time}`;
+  return <div className={compact ? "now-row jukebox-chip" : "now-playing chip jukebox-chip"} onClick={() => store.openJukebox(o.id)}>
+    <button className="ghost jukebox-chip-title" title={label} onClick={e => { e.stopPropagation(); store.openJukebox(o.id); }}>
+      {compact ? <><span className="now-title">♪ {track.title}</span><span className="now-sub">{track.artist} · {time}</span></> : label}</button>
     <div className="jukebox-controls" onClick={e => e.stopPropagation()}>
       <JukeboxControls store={store} id={o.id} state={state} disabled={!store.connected} />
     </div>
-    <button className="ghost" onClick={e => { e.stopPropagation(); store.openJukebox(o.id); }}>Queue · {state.queue.length}</button>
+    {!compact && <button className="ghost" onClick={e => { e.stopPropagation(); store.openJukebox(o.id); }}>Queue · {state.queue.length}</button>}
   </div>;
 }
 
@@ -1072,22 +1072,36 @@ function CalendarPanel({ store }: { store: Store }) {
   );
 }
 
+/** Compact playback and voice rows share the dock's panel and stacking context. */
+function NowStrip({ store, voice }: { store: Store; voice: Voice | null }) {
+  const me = store.users.get(store.me);
+  return <div className="now-strip">
+    <NowPlayingChip store={store} compact />
+    {me?.callId && !me.instance && !store.roomCallOf(me) && store.voiceOwner && <CallChip store={store} voice={voice} compact />}
+    <RoomVoiceChip store={store} voice={voice} compact />
+  </div>;
+}
+
 /** Phones and small windows: the floor's controls within thumb reach. */
 function Dock({ store, voice, engine, roomsOpen, onRooms }: { store: Store; voice: Voice | null; engine: Engine | null; roomsOpen: boolean; onRooms: () => void }) {
+  const isCompact = useMedia(COMPACT);
   const z = engine?.zoom;
   const total = [...store.unread.values()].reduce((a, b) => a + b, 0);
   const chatWith = [...store.unread.keys()][0] ?? [...store.chats.keys()].at(-1);
   return (
-    <nav className="dock" aria-label="Floor">
-      <button className={roomsOpen ? 'on' : ''} aria-pressed={roomsOpen} onClick={onRooms}><Icon name="users" /><small>People</small></button>
-      <button className={z?.overview ? 'on' : ''} aria-pressed={!!z?.overview} onClick={() => engine?.toggleOverview()}>
-        <Icon name="map" /><small>{z?.overview ? 'Back' : 'Floor'}</small></button>
-      <button onClick={() => engine?.recenter()}><Icon name="locate" /><small>Me</small></button>
-      <button onClick={() => (chatWith ? store.openChat(chatWith) : !roomsOpen && onRooms())} title={chatWith ? undefined : 'Pick someone in People to message'}>
-        <Icon name="message" />{total > 0 && <b className="badge">{total}</b>}<small>Chat</small></button>
-      {store.later.length > 0 && <button onClick={() => store.openLater()} title="Knocks you missed"><Icon name="bell" /><b className="badge">{store.later.length}</b><small>Later</small></button>}
-      <VoiceIcons store={store} voice={voice} dock />
-    </nav>
+    <div className="dock-stack">
+      {isCompact && <NowStrip store={store} voice={voice} />}
+      <nav className="dock" aria-label="Floor">
+        <button className={roomsOpen ? 'on' : ''} aria-pressed={roomsOpen} onClick={onRooms}><Icon name="users" /><small>People</small></button>
+        <button className={z?.overview ? 'on' : ''} aria-pressed={!!z?.overview} onClick={() => engine?.toggleOverview()}>
+          <Icon name="map" /><small>{z?.overview ? 'Back' : 'Floor'}</small></button>
+        <button onClick={() => engine?.recenter()}><Icon name="locate" /><small>Me</small></button>
+        <button onClick={() => (chatWith ? store.openChat(chatWith) : !roomsOpen && onRooms())} title={chatWith ? undefined : 'Pick someone in People to message'}>
+          <Icon name="message" />{total > 0 && <b className="badge">{total}</b>}<small>Chat</small></button>
+        {store.later.length > 0 && <button onClick={() => store.openLater()} title="Knocks you missed"><Icon name="bell" /><b className="badge">{store.later.length}</b><small>Later</small></button>}
+        <VoiceIcons store={store} voice={voice} dock />
+      </nav>
+    </div>
   );
 }
 
