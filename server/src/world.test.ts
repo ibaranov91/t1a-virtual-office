@@ -297,7 +297,7 @@ test('relay is bidirectional within one call, owner-only, and rejects absent, bo
   const { w, add, join } = setup(t), a = add('A'), b = add('B'), c = add('C', { x: 7, y: 17 }); join(a.u); join(b.u);
   const signal = { kind: 'hello', inst: 'x' } as const;
   a.messages.length = 0; w.handle(b.u, { t: 'rtc', to: a.u.id, signal }, b.socket); assert.ok(a.messages.some(m => m.t === 'rtc'));
-  const newer: ServerMsg[] = [], tab = w.connect(b.u.id, m => newer.push(m)); b.messages.length = 0;
+  const newer: ServerMsg[] = [], tab = w.connect(b.u.id, m => newer.push(m)); w.handle(b.u, { t: 'voice_claim' }, tab.socket); b.messages.length = 0;
   w.handle(a.u, { t: 'rtc', to: b.u.id, signal }, a.socket); assert.equal(b.messages.filter(m => m.t === 'rtc').length, 0); assert.equal(newer.filter(m => m.t === 'rtc').length, 1);
   a.messages.length = 0; w.handle(b.u, { t: 'rtc', to: a.u.id, signal }, b.socket); assert.equal(a.messages.length, 0);
   for (const state of ['thinking', 'leaving', 'offline', 'bot']) {
@@ -321,7 +321,7 @@ test('malformed intents are dropped before anything changes: move, look and rtc'
 });
 test('ownership transfers on claim and close; non-owner controls are ignored; mute survives calls', t => {
   const { w, add, join, settle } = setup(t), a = add('A'), b = add('B', { x: 7, y: 17 }); join(a.u);
-  const tab = w.connect(a.u.id, () => {}); a.messages.length = 0;
+  const tab = w.connect(a.u.id, () => {}); w.handle(a.u, { t: 'voice_claim' }, tab.socket); a.messages.length = 0;
   for (const msg of [{ t: 'mute', muted: true }, { t: 'deafen', on: true }, { t: 'hand', up: true }, { t: 'speaking', on: true }] as const) w.handle(a.u, msg, a.socket);
   assert.equal(a.u.muted, false); assert.equal(a.u.deafened, false); assert.equal(a.u.hand, false); assert.equal(a.messages.length, 0);
   w.handle(a.u, { t: 'voice_claim' }, a.socket); w.handle(a.u, { t: 'deafen', on: true }, a.socket); assert.equal(a.u.deafened, true);

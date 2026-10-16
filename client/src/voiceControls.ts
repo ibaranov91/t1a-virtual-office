@@ -10,7 +10,7 @@ export function voiceControlState(kind: 'mic' | 'headphones', voice: VoiceState 
   const error = voice?.micError, off = !voice || voice.muted || deaf || !!error;
   return {
     off, state: error ? 'err' : off ? 'muted' : 'ready', action: deaf ? 'toggleDeafen' as const : 'toggleMute' as const,
-    label: deaf ? 'Undeafen' : error ? 'Microphone unavailable' : off ? 'Unmute microphone' : 'Mute microphone',
+    label: deaf ? 'Undeafen' : error ? 'Retry microphone' : off ? 'Unmute microphone' : 'Mute microphone',
     caption: 'Mic',
     title: error ?? (deaf ? 'Deafened · click to hear again' : off ? 'Microphone muted · click to unmute' : voice?.mode === 'ptt' ? 'Push-to-talk · hold Space to talk' : 'Microphone on · click to mute'),
   };

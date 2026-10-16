@@ -37,6 +37,8 @@ export const goingOut = (u: { door: Door }) => u.door === 'thinking' || u.door =
 
 export const ROOM_VOICE_MAX = 12;
 export const AFK_MS = 10 * 60_000;
+export const AFK_GRACE_MS = 2 * 60_000;
+export const CALL_SILENCE_MS = 2 * 60 * 60_000;
 /** A toilet stall in Berghain: up to TOILET_CAPACITY people inside (`in`), the rest line up outside (`queue`), and
  *  how many visits since it was last cleaned. At TOILET_FULL it overflows: nobody gets in until it drains (one level per
  *  TOILET_DRAIN_MS). `shelf`: lines racked on its little shelf (cleared when it empties). */
@@ -383,6 +385,7 @@ export type ServerMsg =
   | { t: 'tickets'; list: Ticket[] } // only to you: your own tickets, or every ticket for an office admin; on connect and on every change
   | { t: 'voice_wait'; roomId: string | null }
   | { t: 'voice_owner'; owner: boolean }
+  | { t: 'active' }
   | { t: 'look'; userId: string; look: Look; lookSet: boolean; name?: string }
   | { t: 'presentation'; live: LiveDeck | null } // to the scope's members only: what's on their screen (null: nothing). Re-sent when you change scope.
   | { t: 'frame'; scope: string; seq: number; data: string }; // screen share: one JPEG frame, base64, to the scope's members except the presenter
@@ -469,6 +472,8 @@ export type ClientMsg =
   | { t: 'deafen'; on: boolean }
   | { t: 'hand'; up: boolean }
   | { t: 'leave_room' }
+  | { t: 'afk' }
+  | { t: 'active' }
   | { t: 'voice_claim' }
   | { t: 'edit'; edit: LayoutEdit } // office admins only
   | { t: 'edit_reset' }              // office admins only: back to the generated layout

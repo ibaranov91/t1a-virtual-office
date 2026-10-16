@@ -245,3 +245,13 @@ export function playAchievement() {
     source.onended = () => { source.disconnect(); filter.disconnect(); gain.disconnect(); };
   } catch { /* audio unavailable: stay silent */ }
 }
+
+/** Two quiet notes confirm a change of microphone or hearing state. */
+export function playMuteBlip(muted: boolean) {
+  try {
+    const c = audio(), dest = categoryOutput('effects'), at = c.currentTime + .01;
+    (muted ? [660, 440] : [440, 660]).forEach((hz, i) =>
+      tone(c, dest, at + i * .09, { hz, level: .045, attack: .005, decay: .1 }));
+  } catch { /* audio unavailable */ }
+}
+export const playDeafenBlip = playMuteBlip;

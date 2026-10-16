@@ -426,14 +426,15 @@ async function route(req: IncomingMessage, res: import('node:http').ServerRespon
 // The biggest thing a client sends is one screen-share frame (base64); ws would otherwise accept 100 MiB per message.
 const wss = new WebSocketServer({ server, path: '/ws', maxPayload: Math.ceil(FRAME_MAX_BYTES * 4 / 3) + 64 * 1024 });
 wss.on('connection', (ws, req) => {
-  const session = new URL(req.url ?? '', 'http://x').searchParams.get('session') ?? '';
+  const params = new URL(req.url ?? '', 'http://x').searchParams;
+  const session = params.get('session') ?? '';
   const userId = sessions.get(session);
   const user = userId ? world.users.get(userId) : undefined;
   if (!user) { ws.close(4001, 'unauthorized'); return; }
   if (user.email && !user.nameSet && user.name !== nameFromEmail(user.email)) user.name = nameFromEmail(user.email); // sessions outlive sign-in: bring old "Ivan Baranov" names to the current rule
   const { socket, close } = world.connect(user.id,
     msg => { if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(msg)); },
-    json => { if (ws.readyState === ws.OPEN) ws.send(json); });
+    json => { if (ws.readyState === ws.OPEN) ws.send(json); }, params.get('tab') ?? undefined);
   ws.on('message', raw => {
     try {
       const msg: unknown = JSON.parse(String(raw));
