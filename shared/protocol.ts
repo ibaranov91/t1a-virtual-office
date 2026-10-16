@@ -417,6 +417,7 @@ export type ClientMsg =
   | { t: 'use'; objectId: string; item?: string } // walk over to an object and use it
   | { t: 'drop' }                    // finish what you're holding
   | { t: 'give'; targetId: string } // hand it to someone with empty hands
+  | { t: 'bite'; targetId: string } // a vampire walks up to someone and bites: they're a vampire too, for BITE_MS
   | { t: 'deafen'; on: boolean }
   | { t: 'hand'; up: boolean }
   | { t: 'leave_room' }

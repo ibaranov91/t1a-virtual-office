@@ -29,6 +29,7 @@ export const EFFECTS: Record<string, EffectRule> = {
   unicorns: { who: 'gm', label: 'Unicorns', icon: '🦄', ms: 90_000 },
 };
 export const MAX_EFFECTS = 8;
+export const BITE_MS = 2 * 60_000; // a vampire's bite turns you for this long (from now, whatever the biter has left)
 export const DANCE_ROOM = 'berghain';
 export const DANCE_BPM = 120; // everyone sways to the same Date.now()-based beat
 /** The beat number at this time: Date.now()-based so everyone in the club moves together. */

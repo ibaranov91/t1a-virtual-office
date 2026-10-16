@@ -1292,6 +1292,8 @@ function ActionWheel({ store, engine, pick, assets, onPerson, onClose }: { store
       if (me?.callId && me.callId === u.callId) items.push({ icon: <Icon name="volume" />, label: 'Volume', onClick: act(() => { if (at) onPerson({ id: u.id, x, y }); }) });
       if (!isMe && !away) { const why = store.roomReason(u); if (!why) items.push({ icon: <Icon name="lock" />, label: 'Private room', title: `Take ${u.name.split(' ')[0]} to a private room`, onClick: act(() => store.createRoom([u.id])) }); }
       if (store.admin && me && !me.instance && !u.instance && !away) items.push({ icon: <Icon name="portal" />, label: 'Teleport', title: `Step through a portal to ${u.name.split(' ')[0]}`, onClick: act(() => store.teleport(u.id)) });
+      if (!isMe && me && effectOf(me.effects, 'vampire')) { const turned = !!effectOf(u.effects, 'vampire');
+        items.push({ icon: '🧛', label: 'Bite', disabled: turned || away || !!dungeon, title: dungeon ?? (turned ? `${u.name.split(' ')[0]} is already a vampire` : `Bite ${u.name.split(' ')[0]}: a vampire for 2 minutes`), onClick: act(() => store.bite(u.id)) }); }
       const held = me?.holding ? ITEMS.get(me.holding) : undefined;
       if (held) items.push({ icon: held.icon, label: 'Give', disabled: !!u.holding || away || !!dungeon,
         title: dungeon ?? (u.holding ? `${u.name.split(' ')[0]}'s hands are full` : `Give ${u.name.split(' ')[0]} your ${held.label.toLowerCase()}`),
