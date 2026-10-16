@@ -1103,6 +1103,7 @@ export class Engine {
 
     if (!me?.instance) { this.drawBoardBadges(ctx, ms); this.drawKiosks(ctx, ms); }
     if (!me?.instance) this.drawTerminalBadge(ctx, ms);
+    if (!this.areaDown && !me?.instance) this.drawSoonPoster(ctx, ms);
     this.drawLiveScreen(ctx, ms); // the store only holds the show of my own scope
 
     // a meeting's own room: the rest of the office fades away
@@ -1718,6 +1719,38 @@ export class Engine {
       const x = o.x * TS + (o.w * TS - 16) / 2, y = (o.y + o.h) * TS - 28; // the sprite's own box (16×28, bottom-aligned)
       ctx.fillStyle = `rgba(170,255,210,${glow})`; ctx.fillRect(x + 3, y + 4, 10, 9);
     }
+  }
+
+  /** The solid block above the Book Club (x 74-84, rows 3-22) is a future room: a poster says so. */
+  private drawSoonPoster(ctx: CanvasRenderingContext2D, ms: number) {
+    const w = 104, h = 132, x = Math.round((74 + 85) / 2 * TS - w / 2), y = Math.round((3 + 23) / 2 * TS - h / 2);
+    if (!this.onScreen(x - 4, y - 4, w + 8, h + 8)) return;
+    ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.fillRect(x + 3, y + 4, w, h); // shadow
+    ctx.fillStyle = '#3a2329'; ctx.fillRect(x - 1, y - 1, w + 2, h + 2);
+    ctx.fillStyle = '#f4e6c8'; ctx.fillRect(x, y, w, h);
+    ctx.fillStyle = '#e6d2a8'; ctx.fillRect(x, y + h - 6, w, 6); ctx.fillRect(x + w - 6, y, 6, h); // worn edges
+    ctx.fillStyle = '#d94f4f'; ctx.fillRect(x + 4, y + 4, w - 8, 3); ctx.fillRect(x + 4, y + h - 10, w - 8, 3); // stripes
+    for (const [px, py] of [[x + 3, y - 2], [x + w - 7, y - 2]]) { ctx.fillStyle = 'rgba(255,240,170,0.75)'; ctx.fillRect(px, py, 4, 7); } // tape
+    // the season's mark: leaf, snowflake, blossom, sun, a new one every few seconds
+    const season = Math.floor(ms / 2500) % 4, cx = x + w / 2, cy = y + 32;
+    const art = [
+      ['..o..', '.ooo.', 'ooooo', '.ooo.', '..s..'], ['o.o.o', '.ooo.', 'ooooo', '.ooo.', 'o.o.o'],
+      ['.o.o.', 'ooooo', '.oco.', 'ooooo', '.o.o.'], ['o.o.o', '.ooo.', 'oocoo', '.ooo.', 'o.o.o'],
+    ][season];
+    const col = [['#d97a2b', '#7a4a2a'], ['#7fc6e8', '#7fc6e8'], ['#f29ac0', '#ffe14f'], ['#ffc83d', '#ff8a3d']][season];
+    const S = 5;
+    art.forEach((row, ry) => [...row].forEach((c, rx) => {
+      if (c === '.') return;
+      ctx.fillStyle = c === 'o' ? col[0] : col[1]; ctx.fillRect(cx - 12 + rx * S, cy - 12 + ry * S, S, S);
+    }));
+    const big = (text: string, ty: number, color: string) => {
+      ctx.save(); ctx.translate(Math.round(cx - textWidth(text)), ty); ctx.scale(2, 2); drawText(ctx, text, 0, 0, color); ctx.restore();
+    };
+    big('COMING', y + 56, '#3a2329'); big('SOON', y + 70, '#3a2329');
+    const small = '(SEASONAL)', blink = Math.floor(ms / 700) % 2 ? '#d94f4f' : '#8a3a3a';
+    drawText(ctx, small, Math.round(cx - textWidth(small) / 2), y + 92, blink);
+    const sub = 'STAY TUNED';
+    drawText(ctx, sub, Math.round(cx - textWidth(sub) / 2), y + 104, '#7a6a58');
   }
 
   /** Slides are up: the screen glows and flashes a LIVE tag, so people outside the room notice. */
