@@ -165,7 +165,7 @@ export class World {
       jukebox: Object.fromEntries([...this.jukeboxes].map(([id, j]) => [id, j.state])) };
   }
   private toPublic = (u: User): PublicUser => {
-    const { path: _p, email: _e, meetLink: _m, google: _g, offlineAt: _o, lastSpot: _l, presenceBeforeCall: _b, prev: _v, afk: _a, returnTo: _r, walkSeq: _s, dungeon: _d, lastKeySpot: _k, dungeonTimers: _t, ...pub } = u;
+    const { path: _p, email: _e, meetLink: _m, google: _g, offlineAt: _o, lastSpot: _l, presenceBeforeCall: _b, prev: _v, afk: _a, returnTo: _r, walkSeq: _s, dungeon: _d, lastKeySpot: _k, dungeonTimers: _t, items: _i, ...pub } = u;
     return pub;
   };
 
@@ -902,6 +902,12 @@ export class World {
     if (should && !has) { u.items = [...u.items, item]; if (!wearing) this.addEffect(u, 'hat', { data: { style: ADMIN_HAT } }); this.sendTo(u.id, this.me(u)); }
     if (!should && has) { u.items = u.items.filter(i => i !== item); if (wearing === ADMIN_HAT) this.removeEffect(u, 'hat'); this.sendTo(u.id, this.me(u)); }
   }
+  /** An admin looks into someone's pockets (never part of the public user). */
+  private gmItems(u: User, msg: Extract<ClientMsg, { t: 'gm_items' }>) {
+    const target = this.users.get(String(msg.targetId));
+    if (!this.isAdmin(u) || !target) return;
+    this.sendTo(u.id, { t: 'gm_items', targetId: target.id, items: target.items });
+  }
   /** An admin gifts a hat: it goes into the person's pockets (even offline) and straight onto their head. */
   private giftHat(u: User, msg: Extract<ClientMsg, { t: 'gift_hat' }>) {
     const target = this.users.get(String(msg.targetId)), style = String(msg.style ?? '');
@@ -909,6 +915,7 @@ export class World {
     const item = hatItem(style);
     if (!target.items.includes(item)) { target.items = [...target.items, item]; this.sendTo(target.id, this.me(target)); }
     this.addEffect(target, 'hat', { data: { style } });
+    this.sendTo(u.id, { t: 'gm_items', targetId: target.id, items: target.items });
     if (target.id !== u.id) this.sendTo(target.id, { t: 'notice', text: `🎁 ${u.name} gave you the ${(HAT_NAMES[style] ?? style).toLowerCase()}` });
   }
   /** A client asks for an effect on someone. Yourself: 'self' effects only; GMs (office admins): anything on anyone. */
@@ -1581,6 +1588,7 @@ export class World {
       }
       case 'status': this.setStatus(u, String(msg.status ?? '')); break;
       case 'effect': this.requestEffect(u, msg); break;
+      case 'gm_items': this.gmItems(u, msg); break;
       case 'gift_hat': this.giftHat(u, msg); break;
       case 'tz': {
         const tz = isTimeZone(msg.tz) ? msg.tz : undefined;

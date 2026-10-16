@@ -282,6 +282,7 @@ export type ServerMsg =
   | { t: 'chat_history'; withId: string; messages: ChatMsg[] }
   | { t: 'deafen'; userId: string; on: boolean }
   | { t: 'hand'; userId: string; up: boolean }
+  | { t: 'gm_items'; targetId: string; items: string[] } // to the asking admin only
   | { t: 'notice'; text: string }
   | { t: 'present_open'; objectId: string } // you walked up to the board: show the upload/present panel
   | { t: 'voice_wait'; roomId: string | null }
@@ -348,6 +349,7 @@ export type ClientMsg =
   | { t: 'toilet_sniff'; objectId: string }  // inside, a line on the shelf: take it (and see unicorns)
   | { t: 'look'; look: Look }
   // put an effect on someone (on: true) or take it off. Yourself: 'self' effects; office admins (GMs): anyone, any effect.
+  | { t: 'gm_items'; targetId: string } // office admins only: ask what someone carries in their pockets
   | { t: 'gift_hat'; targetId: string; style: string } // office admins only: put a hat in someone's pockets and on their head
   | { t: 'effect'; targetId: string; kind: string; on: boolean; style?: string }
   | { t: 'present_slide'; slide: number } // presenter only

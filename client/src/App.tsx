@@ -790,7 +790,10 @@ function GmPanel({ store, picked, assets, onClose }: { store: Store; picked: str
   const [target, setTarget] = useState(picked ?? store.me);
   useEffect(() => { if (picked) setTarget(picked); }, [picked]);
   const u = store.users.get(target) ?? store.users.get(store.me);
+  const uid = u?.id;
+  useEffect(() => { if (uid) store.requestGmItems(uid); }, [store, uid]);
   if (!u) return null;
+  const pockets = store.gmItems.get(u.id);
   const people = [...store.users.values()].filter(p => p.presence !== 'offline').sort((a, b) => a.name.localeCompare(b.name));
   const now = store.now();
   const left = (until?: number) => until === undefined ? '' : ` ${Math.max(0, Math.ceil((until - now) / 1000))}s`;
@@ -816,6 +819,8 @@ function GmPanel({ store, picked, assets, onClose }: { store: Store; picked: str
           return <button key={h} className={on ? 'on' : ''} onClick={() => on ? store.setEffect(u.id, 'hat', false) : store.giftHat(u.id, h)}><HatSprite assets={assets} style={h} /><span>{HAT_NAMES[h]}</span></button>;
         })}
       </div>
+      <h3>Pockets</h3>
+      <p className="hint">{!pockets ? '…' : pockets.length === 0 ? 'empty' : pockets.map(i => { const h = hatOf(i); return h ? `${HAT_NAMES[h] ?? h} (hat)` : ITEMS.get(i)?.label ?? i; }).join(', ')}</p>
       {u.effects.length > 0 && <button className="ghost reset" onClick={() => u.effects.forEach(e => store.setEffect(u.id, e.kind, false))}>Clear everything on {u.name.split(' ')[0]}</button>}
     </div>
   );
