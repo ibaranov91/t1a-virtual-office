@@ -5,7 +5,7 @@ import {
 } from '../../shared/map';
 import {
   NOTE_RATE, NOTE_BURST, ITEMS_MAX, TOILET_SHELF_ITEM, toiletFull, NOTE_HELD_MAX, SEAT_CHANGES_PER_10S, DUNGEON_INSTANCE, underground, MAX_CALL_SIZE, MEETING_ROOM_ID, MAX_CHAT_LEN, normalizeMeetLink, REACTIONS, ROOM_VOICE_MAX,
-  CUP_ITEMS, BOOK_ITEM, BOOKWORM_READS, EDITOR_READERS, dayNumber, isTimeZone, plantDead, BOTANIST_KINDS, PLANT_KINDS, PLANT_STAGES, type Plant,
+  CUP_ITEMS, BOOK_ITEM, BOOKWORM_READS, EDITOR_READERS, dayNumber, isTimeZone, plantDead, BOTANIST_KINDS, PLANT_KINDS, PLANT_STAGES, presentScope, type Plant,
   type ChatMsg, type ClientMsg, type Door, type Effect, type Knock, type LayoutEdit, type Look, type Presence, type PublicUser, type Reaction, type ServerMsg,
 } from '../../shared/protocol';
 import { FOOD_ITEMS, LUNCH_MS, PLATE_PREFIX, picnicSeat, type Eating } from '../../shared/lunch';
@@ -118,6 +118,19 @@ export class World {
   private toiletWalks = new Set<string>(); // walks the toilets start themselves (into the stall, along the line): not walking off
   botHooks?: BotHooks;
   present?: Presenter; // slides on the Meeting room screen (index.ts sets it up with the data folder)
+  /** Presentation scope: the office floor, a meeting instance, or null (offline, or underground: no screen there). */
+  presentScopeOf(userId: string): string | null {
+    const u = this.users.get(userId);
+    if (!u || u.presence === 'offline' || underground(u)) return null;
+    return presentScope(u.instance);
+  }
+  /** Everyone in a presentation scope (office floor or one meeting instance), except one person. */
+  toScope(scope: string, msg: ServerMsg, except?: string) {
+    for (const u of this.users.values()) {
+      if (u.id === except || u.presence === 'offline' || presentScope(u.instance) !== scope) continue;
+      this.sendTo(u.id, msg);
+    }
+  }
 
   arcade = new Arcade({ now: () => Date.now(), send: (id, msg) => this.sendOwner(id, msg),
     broadcast: msg => this.broadcast(msg), user: id => this.users.get(id) });
@@ -209,7 +222,7 @@ export class World {
     for (const person of this.users.values()) send({ t: 'game_status', userId: person.id, game: person.game });
     if (!u.bot) this.meetings.sendAgenda(u, true);
     send({ t: 'voice_wait', roomId: this.waiting.get(userId) ?? null });
-    send({ t: 'presentation', live: this.present?.live ?? null });
+    send({ t: 'presentation', live: this.present?.liveFor(u.id) ?? null });
     this.present?.back(u.id);
     const call = u.callId ? this.calls.get(u.callId) : undefined; // a reloaded page gets its call's Meet link back
     if (call) send({ t: 'call', userId: u.id, callId: call.id, link: call.link });

@@ -719,7 +719,7 @@ export class Store {
       case 'mute': { const u = this.users.get(msg.userId); if (u) { u.muted = msg.muted; if (msg.muted) u.speaking = false; } break; }
       case 'status': { const u = this.users.get(msg.userId); if (u) u.status = msg.status; break; }
       case 'presentation': {
-        if (msg.live?.deck.id !== this.presentation?.deck.id) this.slidesHidden = msg.live?.presenter !== this.me; // viewers are asked first (LiveChip)
+        if (msg.live?.deck?.id !== this.presentation?.deck?.id || msg.live?.presenter !== this.presentation?.presenter) this.slidesHidden = msg.live?.presenter !== this.me; // viewers are asked first (LiveChip)
         this.presentation = msg.live; break;
       }
       case 'tz': { const u = this.users.get(msg.userId); if (u) { if (msg.tz) u.tz = msg.tz; else delete u.tz; } break; }

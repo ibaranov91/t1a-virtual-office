@@ -2,7 +2,7 @@ import { test, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { World, type User } from './world';
-import { Presenter } from './presentation';
+import { DeckStore, Presenter } from './presentation';
 import { findPath, doorwayTiles, pathDuration, reindexMap, roomAt, sampleMove, seatAt, voiceRooms, WALK_MS_PER_TILE, type TileMap, type Tile } from '../../shared/map';
 import { TRACK, TRACKS } from '../../shared/music';
 import { ADMIN_HAT, EFFECTS, hatItem, SPEED_FACTOR, walkMs } from '../../shared/effects';
@@ -1214,17 +1214,17 @@ test('the reception bell rings for everyone, once a second, from beside it, and 
 
 test('presenting needs standing at the board, walking over opens the panel, and walking away ends it', t => {
   const { w, person } = people(t), board = w.map.objects.find(o => o.use?.kind === 'presentation')!;
-  w.present = new Presenter('/nonexistent-decks', w.map, msg => w.broadcast(msg), (id, obj, settled) => w.isBeside(id, obj, settled));
+  w.present = new Presenter(new DeckStore('/nonexistent-decks'), w.map, { scopeOf: id => w.presentScopeOf(id), beside: (id, obj, settled) => w.isBeside(id, obj, settled), toScope: (s, m, x) => w.toScope(s, m, x), name: id => w.users.get(id)?.name ?? '?' });
   const a = person('A', undefined, { x: 40, y: 12 });
-  assert.throws(() => w.present!.present(a.u.id, { pin: '1234', deck: 'x', objectId: board.id }), /Walk up/, 'too far away');
+  assert.throws(() => w.present!.present(a.u.id, { deck: 'x', objectId: board.id }), /Walk up/, 'too far away');
   w.handle(a.u, { t: 'use', objectId: board.id }, a.socket);
   assert.equal(a.messages.filter(m => m.t === 'present_open').length, 0, 'not there yet');
   t.mock.timers.tick(60_000);
   assert.deepEqual(a.messages.filter(m => m.t === 'present_open'), [{ t: 'present_open', objectId: board.id }], 'panel opens on arrival');
   assert.ok(w.isBeside(a.u.id, board.id));
-  const deck = { id: 'd', title: 'T', count: 1, ext: ['png'], by: a.u.id, at: 0 };
-  w.present.decks.set('d', deck);
-  w.present.present(a.u.id, { pin: '1234', deck: 'd', objectId: board.id });
+  const deck = { id: '0000bbbb-0000-0000-0000-000000000000', title: 'T', count: 1, ext: ['png'], by: a.u.id, at: 0, bytes: 1, key: 'k' };
+  w.present.store.decks.set(deck.id, deck);
+  w.present.present(a.u.id, { deck: deck.id, objectId: board.id });
   assert.ok(w.present.live);
   w.present.tick(); assert.ok(w.present.live, 'still at the board');
   const away = w.walk(a.u, { x: 20, y: 9 }); assert.notEqual(away, null, 'walk started');

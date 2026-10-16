@@ -71,7 +71,7 @@ export function PresentPanel({ store, id }: { store: Store; id: string }) {
       <div className="meet-panel guided present-panel" role="dialog" aria-label="Present slides">
         <div className="rooms-head"><span>📺 Screen</span><button type="button" className="ghost" onClick={close} aria-label="Close">×</button></div>
         {live && <div className="present-live">
-          <span>LIVE: <b>{live.deck.title}</b> · {mine ? 'you\'re presenting' : store.name(live.presenter)}</span>
+          <span>LIVE: <b>{live.deck?.title ?? 'Screen share'}</b> · {mine ? 'you\'re presenting' : store.name(live.presenter)}</span>
           {mine ? <button onClick={() => { store.presentStop(); close(); }}>Stop</button>
             : <button className="ghost" onClick={() => { store.hideSlides(false); close(); }}>Watch</button>}
         </div>}
@@ -98,7 +98,8 @@ export function PresentPanel({ store, id }: { store: Store; id: string }) {
 
 /** The slides as a page out of a 90s games magazine. The presenter turns pages with ← →. */
 export function SlideOverlay({ store }: { store: Store }) {
-  const live = store.presentation!, deck = live.deck, mine = live.presenter === store.me;
+  const live = store.presentation!, mine = live.presenter === store.me;
+  const deck = live.deck ?? { id: '', title: 'Screen share', count: 1, ext: ['jpg'], by: live.presenter, at: Date.now(), bytes: 0, key: '' }; // TODO(client session): a real frame viewer for screen share
   const n = live.slide + 1, total = deck.count;
   const [awaySince, setAwaySince] = useState<number | null>(null);
   useEffect(() => { setAwaySince(live.away ? Date.now() : null); }, [live.away]);
@@ -179,7 +180,7 @@ export function LiveChip({ store, onGo }: { store: Store; onGo: (room: string) =
       const live = store.presentation, me = store.users.get(store.me);
       if (!live || !me || me.bot || live.presenter === me.id) { asked.current = null; setAsk(false); return; }
       if (store.inPresentationRoom()) {
-        if (!store.pose(me).walking && asked.current !== live.deck.id) { asked.current = live.deck.id; if (store.slidesHidden) setAsk(true); }
+        if (!store.pose(me).walking && asked.current !== (live.deck?.id ?? live.presenter)) { asked.current = live.deck?.id ?? live.presenter; if (store.slidesHidden) setAsk(true); }
       } else {
         if (!store.slidesHidden) store.hideSlides(true);
         asked.current = null; setAsk(false);
@@ -197,7 +198,7 @@ export function LiveChip({ store, onGo }: { store: Store; onGo: (room: string) =
   const show = () => { setAsk(false); store.hideSlides(false); };
   if (ask && here) return (
     <div className="desk-chip live-chip watch-ask" role="dialog" aria-label="Watch the presentation?">
-      <span><b className="live-dot">● LIVE</b> {who} is presenting '{live.deck.title}'. Watch?</span>
+      <span><b className="live-dot">● LIVE</b> {who} is presenting '{live.deck?.title ?? 'their screen'}'. Watch?</span>
       <button onClick={show}>Watch</button>
       <button className="ghost" onClick={() => setAsk(false)}>Not now</button>
     </div>
@@ -205,7 +206,7 @@ export function LiveChip({ store, onGo }: { store: Store; onGo: (room: string) =
   const go = () => (here ? show() : onGo(live.room));
   return (
     <div className="desk-chip live-chip" onClick={go}>
-      <span><b className="live-dot">● LIVE</b> {live.deck.title} · {who}</span>
+      <span><b className="live-dot">● LIVE</b> {live.deck?.title ?? 'Screen share'} · {who}</span>
       <button onClick={e => { e.stopPropagation(); go(); }}>{here ? 'Show' : 'Go watch'}</button>
     </div>
   );
