@@ -96,8 +96,6 @@ export function PresentPanel({ store, id }: { store: Store; id: string }) {
   );
 }
 
-const SCORES = ['GRAPHICS', 'SOUND', 'GAMEPLAY', 'SLIDES'];
-
 /** The slides as a page out of a 90s games magazine. The presenter turns pages with ← →. */
 export function SlideOverlay({ store }: { store: Store }) {
   const live = store.presentation!, deck = live.deck, mine = live.presenter === store.me;
@@ -152,18 +150,6 @@ export function SlideOverlay({ store }: { store: Store }) {
             <img key={n} src={slideUrl(deck, live.slide)} alt={`Slide ${n} of ${total}`} draggable={false} />
             <figcaption>PAGE {n} · {deck.title}</figcaption>
           </figure>
-          <aside className="mag-side">
-            <div className="mag-score">
-              <div className="mag-score-head">REVIEW SCORE</div>
-              <div className="mag-score-big"><PixelText text={String(n)} scale={n > 9 ? 7 : 9} color="#ffe14f" shadow="#d0006f" /></div>
-              <div className="mag-score-of">SLIDE {n} OF {total}</div>
-              <div className="mag-meter"><i style={{ width: `${(n / total) * 100}%` }} /></div>
-            </div>
-            <ul className="mag-bars">
-              {SCORES.map((s, i) => <li key={s} style={{ ['--c' as string]: ['#00e5ff', '#ff2d95', '#7cff4f', '#ffe14f'][i] }}><span>{s}</span><b>{90 + ((n * 7 + i * 3) % 10)}%</b></li>)}
-            </ul>
-            <div className="mag-tip"><b>HOT TIP!</b> {mine ? 'Press ← → to flip pages.' : `${presenter} turns the pages. Esc hides them.`}</div>
-          </aside>
         </div>
         <footer className="mag-foot">
           {live.away && <span className="mag-away">{presenter} lost connection · ends in {left}s</span>}
