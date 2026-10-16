@@ -5,7 +5,7 @@ import AppKit
 import Network
 import WebKit
 
-/// "The Deck" for prod, "The Deck (iva)" for a test instance's app (see macos/build.sh).
+/// "The Deck": one app for every instance; the install command points it at the instance it came from.
 let appName = Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String ?? "The Deck"
 
 let instances: [(name: String, url: String)] = [
@@ -13,6 +13,7 @@ let instances: [(name: String, url: String)] = [
   ("andr", "https://voffice-andr.pub.t1a.cloud"),
   ("var", "https://voffice-var.pub.t1a.cloud"),
   ("iva", "https://voffice-iva.pub.t1a.cloud"),
+  ("demo", "https://voffice-demo.pub.t1a.cloud"),
   ("local dev", "http://localhost:5173"),
 ]
 
@@ -185,7 +186,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
 
   // MARK: hosting the one web view
 
-  func load() { if let u = URL(string: url) { web.load(URLRequest(url: u)) } }
+  func load() {
+    Person.isTestInstance = URL(string: url)?.host != URL(string: instances[0].url)?.host
+    renderIcon()
+    if let u = URL(string: url) { web.load(URLRequest(url: u)) }
+  }
 
   /// One web view, one place at a time: the separate window if open, else the popover if shown,
   /// else the desktop (if pinned), else nowhere (still loaded and connected, just not on screen).
