@@ -933,6 +933,24 @@ export class World {
     if (should && !has) { u.items = [...u.items, item]; if (!wearing) this.addEffect(u, 'hat', { data: { style: ADMIN_HAT } }); this.sendTo(u.id, this.me(u)); }
     if (!should && has) { u.items = u.items.filter(i => i !== item); if (wearing === ADMIN_HAT) this.removeEffect(u, 'hat'); this.sendTo(u.id, this.me(u)); }
   }
+  // ---------- renaming people (admins) ----------
+  /** An admin renames a person (someone took another's name). Names stay unique, and can't be a plain-name admin entry (that would make them an admin on name logins). */
+  private rename(u: User, msg: Extract<ClientMsg, { t: 'rename' }>) {
+    const target = this.users.get(String(msg.targetId)), say = (text: string) => this.sendTo(u.id, { t: 'notice', text });
+    if (!this.isAdmin(u) || !target || target.bot) return;
+    const name = String(msg.name ?? '').replace(/\s+/g, ' ').trim().slice(0, 24);
+    if (!name) return say('✏️ A name can\'t be empty');
+    if (name === target.name) return;
+    const clash = this.findByName(name);
+    if (clash && clash.id !== target.id) return say(`✏️ "${clash.name}" is taken`);
+    if ([...ADMINS, ...SYSADMINS].some(a => !a.includes('@') && a === name.toLowerCase())) return say('✏️ That name is reserved');
+    const was = target.name;
+    target.name = name;
+    this.broadcast(this.snapshot());
+    say(`✏️ ${was} is now ${name}`);
+    if (target.id !== u.id) this.sendTo(target.id, { t: 'notice', text: `✏️ ${u.name} renamed you to ${name}` });
+  }
+
   // ---------- teleport (admins) ----------
   /** An admin steps through a portal to stand beside anyone on the floor. The server jumps them at once; every client plays the portals (`teleport`). */
   private teleport(u: User, targetId: string) {
@@ -1653,6 +1671,7 @@ export class World {
       case 'effect': this.requestEffect(u, msg); break;
       case 'gm_items': this.gmItems(u, msg); break;
       case 'teleport': this.teleport(u, String(msg.targetId)); break;
+      case 'rename': this.rename(u, msg); break;
       case 'gift_hat': this.giftHat(u, msg); break;
       case 'tz': {
         const tz = isTimeZone(msg.tz) ? msg.tz : undefined;

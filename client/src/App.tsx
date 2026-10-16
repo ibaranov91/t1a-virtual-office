@@ -795,7 +795,9 @@ function PocketsPanel({ store, me, assets, onClose }: { store: Store; me: Client
 /** Office admins as game masters: buffs, debuffs and hats on themselves or the person they clicked. */
 function GmPanel({ store, picked, assets, onClose }: { store: Store; picked: string | null; assets: Assets | null; onClose: () => void }) {
   const [target, setTarget] = useState(picked ?? store.me);
+  const [renaming, setRenaming] = useState('');
   useEffect(() => { if (picked) setTarget(picked); }, [picked]);
+  useEffect(() => { setRenaming(''); }, [target]);
   const u = store.users.get(target) ?? store.users.get(store.me);
   const uid = u?.id;
   useEffect(() => { if (uid) store.requestGmItems(uid); }, [store, uid]);
@@ -812,6 +814,10 @@ function GmPanel({ store, picked, assets, onClose }: { store: Store; picked: str
       </select></label>
       <p className="hint">Click someone on the floor to aim at them.</p>
       {u.id !== store.me && <button className="ghost reset" onClick={() => store.teleport(u.id)}>🌀 Teleport to {u.name.split(' ')[0]}</button>}
+      {!u.bot && <form className="rug-size" onSubmit={e => { e.preventDefault(); const v = renaming.trim(); if (v && v !== u.name) { store.rename(u.id, v); setRenaming(''); } }}>
+        <input value={renaming} maxLength={24} onChange={e => setRenaming(e.target.value)} placeholder={`Rename ${u.name}`} aria-label={`New name for ${u.name}`} />
+        <button type="submit" disabled={!renaming.trim() || renaming.trim() === u.name}>✏️ Rename</button>
+      </form>}
       <div className="palette">
         {Object.entries(EFFECTS).filter(([k]) => k !== 'hat').map(([k, r]) => {
           const on = effectOf(u.effects, k);
@@ -1470,6 +1476,7 @@ function ActionWheel({ store, engine, pick, assets, onPerson, onClose }: { store
       if (isMe && (store.dancing || (store.roomOf(u)?.id === DANCE_ROOM && !u.instance))) items.push({ icon: '💃', label: store.dancing ? 'Stop dancing' : 'Dance', onClick: act(() => store.dance()) });
       if (me?.callId && me.callId === u.callId) items.push({ icon: '🔊', label: 'Volume', onClick: act(() => { if (at) onPerson({ id: u.id, x, y }); }) });
       if (store.admin && me && !me.instance && !u.instance && !away) items.push({ icon: '🌀', label: 'Teleport', title: `Step through a portal to ${u.name.split(' ')[0]}`, onClick: act(() => store.teleport(u.id)) });
+      if (store.admin && !u.bot) items.push({ icon: '✏️', label: 'Rename', title: `Give ${u.name.split(' ')[0]} another name`, onClick: act(() => { const v = window.prompt(`New name for ${u.name}`, u.name); if (v?.trim()) store.rename(u.id, v); }) });
       const held = me?.holding ? ITEMS.get(me.holding) : undefined;
       if (held) items.push({ icon: held.icon, label: 'Give', disabled: !!u.holding || away || !!dungeon,
         title: dungeon ?? (u.holding ? `${u.name.split(' ')[0]}'s hands are full` : `Give ${u.name.split(' ')[0]} your ${held.label.toLowerCase()}`),

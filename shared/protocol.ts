@@ -357,6 +357,7 @@ export type ClientMsg =
   // put an effect on someone (on: true) or take it off. Yourself: 'self' effects; office admins (GMs): anyone, any effect.
   | { t: 'gm_items'; targetId: string } // office admins only: ask what someone carries in their pockets
   | { t: 'teleport'; targetId: string } // office admins only: step through a portal to stand beside someone
+  | { t: 'rename'; targetId: string; name: string } // office admins only: give someone another name (if theirs was taken)
   | { t: 'gift_hat'; targetId: string; style: string } // office admins only: put a hat in someone's pockets and on their head
   | { t: 'effect'; targetId: string; kind: string; on: boolean; style?: string }
   | { t: 'present_slide'; slide: number } // presenter only

@@ -260,6 +260,7 @@ export class Store {
   gmItems = new Map<string, string[]>(); // GM only: pockets of the people I looked at
   requestGmItems(targetId: string) { this.send({ t: 'gm_items', targetId }); }
   teleport(targetId: string) { this.send({ t: 'teleport', targetId }); }
+  rename(targetId: string, name: string) { this.send({ t: 'rename', targetId, name }); }
   giftHat(targetId: string, style: string) { this.send({ t: 'gift_hat', targetId, style }); }
   setEffect(targetId: string, kind: string, on: boolean, style?: string) { this.send({ t: 'effect', targetId, kind, on, style }); }
   setPresence(presence: 'online' | 'away' | 'in_call') { this.send({ t: 'presence', presence }); }

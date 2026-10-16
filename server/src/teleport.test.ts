@@ -54,3 +54,19 @@ test('admins teleport next to anyone: both ends are announced, the admin is move
   w.handle(ivan.u, { t: 'teleport', targetId: inner.u.id }, ivan.socket);
   assert.ok(adminOnly(map, ivan.u.tile.x, ivan.u.tile.y));
 });
+
+test('admins rename people: names stay unique, reserved admin names are refused, everyone hears it, and non-admins cannot', t => {
+  const { w, add, notices } = setup(t);
+  const kim = add('Kim', { x: 20, y: 18 }), fake = add('Ivan B', { x: 22, y: 18 }), boss = add('Boss', { x: 5, y: 15 }, 'ivan.baranov@t1a.com');
+  w.handle(kim.u, { t: 'rename', targetId: fake.u.id, name: 'Thief' }, kim.socket);
+  assert.equal(fake.u.name, 'Ivan B', 'not an admin: nothing happens');
+  w.handle(boss.u, { t: 'rename', targetId: fake.u.id, name: '  Ivan   Impostor ' }, boss.socket);
+  assert.equal(fake.u.name, 'Ivan Impostor');
+  assert.ok(kim.messages.some(m => m.t === 'state' && m.users.some(p => p.id === fake.u.id && p.name === 'Ivan Impostor')), 'everyone gets the new name');
+  assert.ok(notices(fake.messages).some(n => n.includes('renamed you')));
+  w.handle(boss.u, { t: 'rename', targetId: fake.u.id, name: 'kim' }, boss.socket);
+  assert.equal(fake.u.name, 'Ivan Impostor');
+  assert.ok(notices(boss.messages).some(n => n.includes('taken')));
+  w.handle(boss.u, { t: 'rename', targetId: fake.u.id, name: '   ' }, boss.socket);
+  assert.equal(fake.u.name, 'Ivan Impostor');
+});
