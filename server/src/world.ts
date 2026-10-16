@@ -40,6 +40,7 @@ export interface User extends PublicUser {
   returnTo?: Tile;      // where they were in the office before stepping into a meeting's room
   offlineAt?: number;   // when they walked out the door (not persisted)
   lastSpot?: Tile;      // where they were before heading out (not persisted)
+  resume?: boolean;     // in the office when the server last stopped: back on that spot, no walk in from the door
   presenceBeforeCall?: Presence;
   prev?: { path: Tile[]; startedAt: number; ms?: number };
   afk?: boolean;
@@ -64,7 +65,7 @@ export const lookFor = (name: string): Look => {
   return {
     skin: SKINS[h % SKINS.length], hair: HAIRS[(h >>> 4) % HAIRS.length],
     shirt: SHIRTS[(h >>> 9) % SHIRTS.length], pants: PANTS[(h >>> 14) % PANTS.length], eyes: '#2b1d1f', shoes: '#4a3028',
-    style: (h >>> 20) % 3, top: 0, bottom: 0, glasses: 0, hat: 0, glassesColor: '#282832', hatColor: '#3e5a8a',
+    style: (h >>> 20) % 5, top: 0, bottom: 0, glasses: 0, hat: 0, beard: 0, mustache: 0, glassesColor: '#282832', hatColor: '#3e5a8a',
   };
 };
 
@@ -199,7 +200,7 @@ export class World {
       jukebox: Object.fromEntries([...this.jukeboxes].map(([id, j]) => [id, j.state])) };
   }
   private toPublic = (u: User): PublicUser => {
-    const { path: _p, email: _e, meetLink: _m, google: _g, offlineAt: _o, lastSpot: _l, presenceBeforeCall: _b, prev: _v, afk: _a, returnTo: _r, walkSeq: _s, dungeon: _d, lastKeySpot: _k, dungeonTimers: _t, items: _i, ...pub } = u;
+    const { path: _p, email: _e, meetLink: _m, google: _g, offlineAt: _o, lastSpot: _l, resume: _rs, presenceBeforeCall: _b, prev: _v, afk: _a, returnTo: _r, walkSeq: _s, dungeon: _d, lastKeySpot: _k, dungeonTimers: _t, items: _i, ...pub } = u;
     return pub;
   };
 
@@ -262,6 +263,9 @@ export class World {
   /** Back from offline: step in through the exit door, bag in hand, and walk to their spot. */
   private comeIn(u: User) {
     const to = this.arrivalSpot(u); // before going online, so their own old tile doesn't count as taken
+    const resume = u.resume && to.x === u.tile.x && to.y === u.tile.y;
+    u.resume = undefined;
+    if (resume) { u.move = null; u.path = null; this.setPresence(u, 'online'); return; } // a restart under them: still right there
     u.tile = { ...this.map.exit }; u.move = null; u.path = null; u.dir = 'down';
     this.setDoor(u, 'arriving');
     this.setPresence(u, 'online');
@@ -1871,8 +1875,9 @@ export class World {
           shirt: color(msg.look.shirt, u.look.shirt), pants: color(msg.look.pants, u.look.pants),
           eyes: color(msg.look.eyes, u.look.eyes), shoes: color(msg.look.shoes, u.look.shoes),
           glassesColor: color(msg.look.glassesColor, u.look.glassesColor), hatColor: color(msg.look.hatColor, u.look.hatColor),
-          style: int(msg.look.style, 2), top: int(msg.look.top, 2), bottom: int(msg.look.bottom, 2),
+          style: int(msg.look.style, 4), top: int(msg.look.top, 2), bottom: int(msg.look.bottom, 2),
           glasses: int(msg.look.glasses, 2), hat: int(msg.look.hat, 2),
+          beard: int(msg.look.beard, 1), mustache: int(msg.look.mustache, 1),
         };
         u.lookSet = true;
         const name = typeof msg.name === 'string' ? msg.name.replace(/\s+/g, ' ').trim().slice(0, 24) : '';
@@ -2016,7 +2021,8 @@ export class World {
     return {
       version: STATE_VERSION,
       users: [...this.users.values()].map(u => {
-        return { id: u.id, name: u.name, nameSet: u.nameSet, email: u.email, meetLink: u.meetLink, google: u.google, homeDesk: u.homeDesk, look: u.look, lookSet: u.lookSet, tile: underground(u) ? this.dungeonExit(false) : u.tile, dir: u.dir, status: u.status, presence: u.presence, bot: u.bot, plant: u.plant, bloomed: u.bloomed, achievements: u.achievements, effects: u.effects.filter(e => e.until === undefined), items: u.items, danced: u.danced };
+        return { id: u.id, name: u.name, nameSet: u.nameSet, email: u.email, meetLink: u.meetLink, google: u.google, homeDesk: u.homeDesk, look: u.look, lookSet: u.lookSet, tile: underground(u) ? this.dungeonExit(false) : u.tile, dir: u.dir, status: u.status, presence: u.presence, bot: u.bot, plant: u.plant, bloomed: u.bloomed, achievements: u.achievements, effects: u.effects.filter(e => e.until === undefined), items: u.items, danced: u.danced,
+          resume: (!u.bot && u.presence !== 'offline' && !goingOut(u) && !u.instance && !this.toilets.inside(u.id)) || undefined }; // meetings and stalls don't survive a restart
       }),
       objects: Object.fromEntries(this.objectOn),
       jukebox: Object.fromEntries([...this.jukeboxes].map(([id, j]) => [id, j.dump()])),
@@ -2063,15 +2069,18 @@ export class World {
           if (!findPath(this.map, this.map.spawn, this.map.dungeon[k]).length) console.warn(`saved layout blocks the ${k}; keeping layout`);
       }
     }
+    const now = Date.now();
     for (const d of data.users ?? []) {
       const tile = this.inDungeon(d.tile) ? this.dungeonExit(false) : isWalkable(this.map, d.tile.x, d.tile.y) || seatAt(this.map, d.tile.x, d.tile.y) ? d.tile : { ...this.map.spawn };
       const legacy = lookFor(d.name);
-      const look = { ...legacy, ...d.look, eyes: d.look?.eyes ?? legacy.eyes, shoes: d.look?.shoes ?? legacy.shoes, top: d.look?.top ?? 0, bottom: d.look?.bottom ?? 0, glasses: d.look?.glasses ?? 0, hat: d.look?.hat ?? 0, glassesColor: d.look?.glassesColor ?? legacy.glassesColor, hatColor: d.look?.hatColor ?? legacy.hatColor };
+      const look = { ...legacy, ...d.look, eyes: d.look?.eyes ?? legacy.eyes, shoes: d.look?.shoes ?? legacy.shoes, top: d.look?.top ?? 0, bottom: d.look?.bottom ?? 0, glasses: d.look?.glasses ?? 0, hat: d.look?.hat ?? 0, beard: d.look?.beard ?? 0, mustache: d.look?.mustache ?? 0, glassesColor: d.look?.glassesColor ?? legacy.glassesColor, hatColor: d.look?.hatColor ?? legacy.hatColor };
       this.users.set(d.id, { ...d, look, lookSet: d.lookSet ?? false, homeDesk: d.homeDesk ?? null, plant: d.plant ?? null, bloomed: d.bloomed ?? [], achievements: d.achievements ?? {}, items: Array.isArray(d.items) ? d.items.filter((i: unknown): i is string => typeof i === 'string') : [], effects: (d.effects ?? []).filter(e => Object.prototype.hasOwnProperty.call(EFFECTS, e.kind) && e.until === undefined), tile, move: null, path: null, emote: null, door: null, callId: null, deafened: false, hand: false, muted: false, following: null, holding: null, meeting: null, reading: null, instance: null, game: null, presence: d.bot ? d.presence : 'offline' });
+      // back within WALK_HOME_AFTER_MS of the restart (a reconnect takes seconds): their spot, not their desk
+      const u = this.users.get(d.id)!;
+      if (d.resume && !d.bot && tile === d.tile) { u.lastSpot = { ...tile }; u.offlineAt = now; u.resume = true; } else u.resume = undefined;
     }
     for (const [id, on] of Object.entries(data.objects ?? {})) if (this.objectOn.has(id)) this.objectOn.set(id, !!on);
     this.arcade.load(data.arcade);
-    const now = Date.now();
     for (const [id, saved] of Object.entries(data.jukebox ?? {})) {
       const o = this.map.objects.find(o => o.id === id);
       if (this.jukeboxes.has(id) && o?.use?.kind === 'jukebox') this.jukeboxes.set(id, Jukebox.load(tracksFor(o.use.genres), saved, now));

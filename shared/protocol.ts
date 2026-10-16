@@ -128,7 +128,7 @@ export const ACHIEVEMENTS: Achievement[] = [
   { id: 'event', icon: '🎉', title: 'Party person', how: 'Be in the office during an office event.', soon: true },
 ];
 
-export interface Look { skin: string; hair: string; shirt: string; pants: string; eyes: string; shoes: string; glassesColor: string; hatColor: string; style: number; top: number; bottom: number; glasses: number; hat: number }
+export interface Look { skin: string; hair: string; shirt: string; pants: string; eyes: string; shoes: string; glassesColor: string; hatColor: string; style: number; top: number; bottom: number; glasses: number; hat: number; beard: number; mustache: number }
 
 /** A buff, debuff or hat on a person (see shared/effects.ts). until: when it wears off (ms); absent = until removed. */
 export interface Effect { kind: string; until?: number; data?: Record<string, unknown> }

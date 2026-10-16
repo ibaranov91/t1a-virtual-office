@@ -228,7 +228,7 @@ export class Soundscape {
       const hall = s.kind === 'voice' && room && u?.callId === me.callId ? room : undefined;
       const model = soundModel(MAP, pose, p, { room: hall,
         knock: s.kind === 'voice' && !!me.callId && !room && u?.callId === me.callId });
-      const visible = !me.instance && (!u || u.instance === me.instance);
+      const visible = me.instance ? s.kind === 'voice' && !!u && u.instance === me.instance : !u || u.instance === me.instance; // in a meeting room you hear only its voices
       const gain = visible ? model.gain : 0;
       const send = gain ? model.send : 0;
       s.modelGain = gain;

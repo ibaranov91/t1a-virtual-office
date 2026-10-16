@@ -643,12 +643,12 @@ const K = {
   eyes: '#2b1d1f', shoes: '#4a3028',
 };
 const SHOE = K.shoes, EYE = K.eyes, BLUSH = '#ec9a8a';
-const STYLES = ['short', 'long', 'ponytail'];
+const STYLES = ['short', 'long', 'ponytail', 'bald', 'receding'];
 const TOPS = ['T-shirt', 'Button-up shirt', 'Sweater'];
 const BOTTOMS = ['Pants', 'Skirt', 'Shorts'];
 const DIRS = ['down', 'left', 'right', 'up'];
 const ACCESSORY_KEYS = { primary: '#ff00ff', highlight: '#00ffff' };
-const ACCESSORY_ITEMS = ['round_glasses', 'rectangular_glasses', 'cap', 'bowler'];
+const ACCESSORY_ITEMS = ['round_glasses', 'beard', 'mustache', 'sunglasses'];
 
 function drawChar(style, dir, f, top = 0, bottom = 0) {
   const t = new Img(16, 24);
@@ -678,27 +678,42 @@ function drawChar(style, dir, f, top = 0, bottom = 0) {
     // head
     const hy = 2 + bob;
     t.rect(3, hy + 2, 10, 9, K.skin); t.hline(4, hy + 1, 8, K.skin); t.hline(4, hy + 11, 8, K.skinShade);
-    if (dir === 'down') {
+    if (dir === 'down' && style === 'bald') {
+      // Keep the scalp clear while retaining the face.
+    } else if (dir === 'down' && style === 'receding') {
+      t.vline(2, hy + 2, 7, K.hair); t.vline(3, hy + 3, 6, K.hairShade);
+      t.vline(12, hy + 2, 7, K.hair); t.vline(13, hy + 3, 6, K.hairShade);
+    } else if (dir === 'down') {
       // hair cap + bangs + sides
       t.hline(4, hy - 1, 8, K.hair); t.rect(3, hy, 10, 3, K.hair); t.hline(2, hy + 1, 12, K.hairShade);
       t.rect(2, hy + 1, 12, 2, K.hair);
       t.rect(3, hy + 3, 3, 1, K.hair); t.rect(9, hy + 3, 4, 1, K.hair); t.px(6, hy + 3, K.hairShade);
       t.vline(2, hy + 3, 5, K.hairShade); t.vline(13, hy + 3, 5, K.hairShade);
       t.hline(3, hy + 4, 10, K.skinShade); t.rect(4, hy + 4, 8, 1, K.skin);
-      t.vline(5, hy + 6, 2, EYE); t.vline(10, hy + 6, 2, EYE);
-      t.px(4, hy + 8, BLUSH); t.px(11, hy + 8, BLUSH);
-      t.hline(7, hy + 9, 2, K.skinShade);
+    } else if (style === 'bald') {
+      // No hair is visible from behind either.
+    } else if (style === 'receding') {
+      t.vline(2, hy + 2, 8, K.hair); t.vline(3, hy + 4, 6, K.hairShade);
+      t.vline(12, hy + 2, 8, K.hair); t.vline(13, hy + 4, 6, K.hairShade);
+      t.rect(3, hy + 4, 10, 6, K.hair);
+      t.vline(3, hy + 5, 4, K.hairShade); t.vline(12, hy + 5, 4, K.hairShade);
+      t.hline(4, hy + 9, 8, K.hairShade);
     } else {
       t.hline(4, hy - 1, 8, K.hair); t.rect(2, hy, 12, 10, K.hair);
       t.vline(2, hy + 1, 9, K.hairShade); t.vline(13, hy + 1, 9, K.hairShade); t.hline(3, hy + 9, 10, K.hairShade);
       t.px(5, hy + 2, K.hairShade); t.px(9, hy + 4, K.hairShade);
+    }
+    if (dir === 'down') {
+      t.vline(5, hy + 6, 2, EYE); t.vline(10, hy + 6, 2, EYE);
+      t.px(4, hy + 8, BLUSH); t.px(11, hy + 8, BLUSH);
+      t.hline(7, hy + 9, 2, K.skinShade);
     }
     if (style === 'long') {
       if (dir === 'down') { t.rect(2, hy + 3, 2, 10, K.hair); t.rect(12, hy + 3, 2, 10, K.hair); t.vline(2, hy + 3, 10, K.hairShade); t.vline(13, hy + 3, 10, K.hairShade); }
       else { t.rect(3, hy + 9, 10, 5, K.hair); t.hline(3, hy + 13, 10, K.hairShade); }
     }
     if (style === 'ponytail' && dir === 'up') {
-      t.rect(6, hy + 8, 4, 6, K.hair); t.vline(9, hy + 9, 4, K.hairShade);
+      t.rect(6, hy + 8, 4, 3, K.hair); t.vline(9, hy + 9, 2, K.hairShade);
       t.hline(6, hy + 7, 4, '#b4534a');
     }
   } else { // left (right is mirrored)
@@ -718,23 +733,34 @@ function drawChar(style, dir, f, top = 0, bottom = 0) {
     const hy = 2 + bob;
     t.rect(3, hy + 2, 10, 9, K.skin); t.hline(4, hy + 1, 8, K.skin); t.hline(4, hy + 11, 8, K.skinShade);
     t.px(2, hy + 6, K.skin); // nose
-    t.hline(4, hy - 1, 8, K.hair); t.rect(3, hy, 10, 3, K.hair); t.rect(2, hy + 1, 3, 2, K.hair);
-    t.rect(8, hy + 2, 5, 7, K.hair); t.vline(13, hy + 1, 8, K.hairShade); t.hline(8, hy + 9, 5, K.hairShade);
+    if (style === 'receding') {
+      t.rect(11, hy + 3, 3, 6, K.hair); t.vline(13, hy + 3, 6, K.hairShade);
+      t.rect(10, hy + 8, 4, 2, K.hair);
+    } else if (style !== 'bald') {
+      t.hline(4, hy - 1, 8, K.hair); t.rect(3, hy, 10, 3, K.hair); t.rect(2, hy + 1, 3, 2, K.hair);
+      t.rect(8, hy + 2, 5, 7, K.hair); t.vline(13, hy + 1, 8, K.hairShade); t.hline(8, hy + 9, 5, K.hairShade);
+    }
     t.px(9, hy + 6, K.skin); t.px(9, hy + 7, K.skinShade); // ear
     t.vline(4, hy + 5, 2, EYE); t.px(5, hy + 8, BLUSH);
     if (style === 'long') { t.rect(9, hy + 9, 4, 6, K.hair); t.vline(12, hy + 9, 6, K.hairShade); }
     if (style === 'ponytail') {
-      t.rect(12, hy + 9, 3, 5, K.hair); t.vline(14, hy + 10, 4, K.hairShade);
+      t.rect(12, hy + 9, 3, 2, K.hair); t.vline(14, hy + 10, 1, K.hairShade);
       t.hline(12, hy + 8, 3, '#b4534a');
     }
   }
   if (top === 1 && dir === 'down') { // front-facing button-up; the neck stays like the T-shirt
     t.px(7, 14 + bob, '#e8dcc8');
     t.px(7, 16 + bob, '#e8dcc8');
-  } else if (top === 2) { // sweater band and cuffs
+  } else if (top === 2) { // sweater stripes, band and cuffs
+    const sx = dir === 'down' || dir === 'up' ? 4 : 5, sw = dir === 'down' || dir === 'up' ? 8 : 6;
+    t.hline(sx, 15 + bob, sw, K.shirtShade); t.hline(sx, 17 + bob, sw, K.shirtShade);
     t.hline(dir === 'down' || dir === 'up' ? 4 : 5, 18 + bob, dir === 'down' || dir === 'up' ? 8 : 6, K.shirtShade);
     t.px(dir === 'down' ? 3 : 6, 16 + bob, K.shirt);
     t.px(dir === 'down' ? 12 : 10, 16 + bob, K.shirt);
+    if (dir === 'left' || dir === 'right') {
+      const ax = sit ? 6 : stepA ? 9 : stepB ? 6 : 7;
+      t.rect(ax, 14 + bob, 2, 3, K.shirtShade); t.hline(ax, 17 + bob, 2, K.skin);
+    }
   }
   if (bottom === 1) { // skirt silhouette over the legs
     if (dir === 'down' || dir === 'up') {
@@ -754,6 +780,24 @@ const chars = new Img(CW * FPD, CH * DIRS.length * STYLES.length * TOPS.length *
 const accessories = new Img(CW, CH * ACCESSORY_ITEMS.length * DIRS.length);
 function drawAccessory(item, dir) {
   const a = new Img(CW, CH), primary = ACCESSORY_KEYS.primary, light = ACCESSORY_KEYS.highlight;
+  if (item === 'sunglasses') {
+    if (dir === 'down') {
+      a.hline(2, 6, 12, primary); a.rect(2, 7, 5, 2, primary); a.rect(9, 7, 5, 2, primary);
+      a.hline(7, 7, 2, primary); a.px(3, 9, primary); a.px(4, 9, primary); a.px(11, 9, primary); a.px(12, 9, primary);
+      a.px(3, 7, light); a.px(4, 7, light); a.px(4, 8, light); a.px(5, 8, light);
+      a.px(10, 7, light); a.px(11, 7, light); a.px(11, 8, light); a.px(12, 8, light);
+    } else if (dir === 'left' || dir === 'right') {
+      const x = dir === 'left' ? 2 : 7;
+      a.hline(x, 6, 7, primary); a.rect(x, 7, 6, 2, primary); a.hline(x + 1, 9, 4, primary);
+      a.px(x + 1, 7, light); a.px(x + 2, 7, light); a.px(x + 2, 8, light); a.px(x + 3, 8, light);
+    }
+    const lowered = new Img(CW, CH);
+    for (let y = 0; y < CH - 1; y++) for (let x = 0; x < CW; x++) {
+      const pixel = a.get(x, y);
+      if (pixel[3]) lowered.px(x, y + 1, [...pixel]);
+    }
+    return lowered;
+  }
   if (item.endsWith('glasses')) {
     const round = item === 'round_glasses';
     if (dir === 'down') {
@@ -770,6 +814,29 @@ function drawAccessory(item, dir) {
       a.hline(x, 7, 4, primary); a.vline(x, 8, 2, primary); a.vline(x + 3, 8, 2, primary); a.hline(x, 10, 4, primary);
       a.hline(x + 1, 8, 2, light); a.px(dir === 'left' ? 7 : 8, 8, primary);
       if (round) { a.px(x, 9, light); a.px(x + 3, 9, light); }
+    }
+    return a;
+  }
+  if (item === 'beard') {
+    if (dir === 'down') {
+      a.hline(5, 10, 6, OUT); a.hline(4, 11, 8, OUT); a.hline(4, 12, 8, OUT); a.hline(5, 13, 6, OUT);
+      a.hline(5, 10, 6, primary); a.hline(4, 11, 8, primary); a.hline(5, 12, 6, primary); a.hline(6, 13, 4, light);
+    } else if (dir === 'left' || dir === 'right') {
+      a.hline(4, 9, 5, OUT); a.rect(3, 10, 7, 4, OUT); a.hline(4, 14, 5, OUT);
+      a.hline(4, 9, 4, primary); a.rect(4, 10, 5, 3, primary); a.hline(5, 13, 3, light);
+      return dir === 'right' ? a.mirror() : a;
+    }
+    return a;
+  }
+  if (item === 'mustache') {
+    if (dir === 'down') {
+      a.hline(6, 10, 4, OUT); a.hline(5, 11, 6, OUT);
+      a.hline(6, 10, 4, primary); a.hline(6, 11, 4, light);
+      a.px(5, 11, primary); a.px(10, 11, primary);
+    } else if (dir === 'left' || dir === 'right') {
+      a.hline(2, 9, 4, OUT); a.hline(2, 10, 3, OUT);
+      a.hline(2, 9, 3, primary); a.hline(2, 10, 2, light);
+      return dir === 'right' ? a.mirror() : a;
     }
     return a;
   }
