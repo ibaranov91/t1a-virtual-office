@@ -12,7 +12,7 @@ import { inNativeApp, syncNative } from './native';
 import { LiveChip, PresentPanel, SlideOverlay } from './Presentation';
 import { RoomPopup } from './RoomPopup';
 import { LibraryPanel, ReadingOverlay } from './Library';
-import { ACHIEVEMENTS, underground, dayNumber, JUKEBOX_PER_PERSON, JUKEBOX_QUEUE_MAX, MAX_CHAT_LEN, MAX_CALL_SIZE, MEET_LINK_RE, meetAs, normalizeMeetLink, kindName, PLANT_DIES_DAYS, PLANT_KINDS, PLANT_REVEAL, PLANT_STAGES, plantDead, plantName, REACTIONS, TOILET_CAPACITY, TOILET_SHELF_ITEM, TOILET_SHELF_MAX, TOILET_USE_MS, toiletFull, type JukeboxState, type Plant } from '../../shared/protocol';
+import { ACHIEVEMENTS, underground, dayNumber, JUKEBOX_PER_PERSON, JUKEBOX_QUEUE_MAX, MAX_CHAT_LEN, ROOM_VOICE_MAX, MEET_LINK_RE, meetAs, normalizeMeetLink, kindName, PLANT_DIES_DAYS, PLANT_KINDS, PLANT_REVEAL, PLANT_STAGES, plantDead, plantName, REACTIONS, TOILET_CAPACITY, TOILET_SHELF_ITEM, TOILET_SHELF_MAX, TOILET_USE_MS, toiletFull, type JukeboxState, type Plant } from '../../shared/protocol';
 import { jukeboxPosition, TRACK, tracksFor } from '../../shared/music';
 import { ALL_HATS, DANCE_ROOM, EFFECTS, HAT_NAMES, effectOf, hatItem, hatOf } from '../../shared/effects';
 import { FIXED_TYPES, KEEP_TYPES, objectName, RUG_COLORS, RUG_MAX, RUG_MIN, RUG_PATTERNS, routes, rugFrame, seatAt } from '../../shared/map';
@@ -607,7 +607,7 @@ function MeetingChip({ store, voice }: { store: Store; voice: Voice | null }) {
   }
   const m = store.myMeeting, room = store.meetingRooms.find(r => r.id === me.instance);
   const others = (room?.members ?? []).filter(id => id !== me.id).map(id => store.users.get(id)).filter((u): u is ClientUser => !!u);
-  const talking = store.inRoomVoice && !!voice && store.voiceOwner, onCall = room?.voice.length ?? 0, full = onCall >= MAX_CALL_SIZE && !talking;
+  const talking = store.inRoomVoice && !!voice && store.voiceOwner, onCall = room?.voice.length ?? 0, waiting = store.voiceWait === me.instance, full = onCall >= ROOM_VOICE_MAX && !talking;
   const meet = m?.adhoc && store.roomMeetLink?.instance === me.instance ? store.roomMeetLink.link : null;
   return <div className="desk-chip call-chip meeting-chip">
     <span>{m?.adhoc ? '🔒' : '📅'} <b>{m?.title ?? 'Meeting'}</b> <small>{m?.adhoc && m.from ? `· ${m.from.split(' ')[0]}'s room` : ''} · until {store.clock(room?.until ?? m?.end ?? 0)}{others.length ? ` · with ${store.names(others)}` : ' · waiting for the others'}</small></span>
@@ -618,8 +618,10 @@ function MeetingChip({ store, voice }: { store: Store; voice: Voice | null }) {
         : voice!.micError ? <small>listen-only</small>
         : voice!.muted ? <button onClick={() => voice!.setMuted(false)}>🎙 Unmute</button>
         : <button className="ghost" onClick={() => voice!.setMuted(true)}>Mute</button>}
+      <button className={me.hand ? '' : 'ghost'} title={me.hand ? 'Lower your hand' : 'Raise your hand'} onClick={() => store.setHand(!me.hand)}>✋</button>
       <button className="ghost" title="Stop hearing and talking in this room (the room stays open)" onClick={() => store.roomVoice(false)}>Leave voice</button>
-    </> : <button disabled={full || !store.voiceOwner} title={full ? `Voice is full (${MAX_CALL_SIZE}): use Meet` : 'Talk with the others in this room'} onClick={() => store.roomVoice(true)}>🎙 Talk{onCall ? ` (${onCall}/${MAX_CALL_SIZE})` : ''}</button>}
+    </> : waiting ? <button className="ghost" title="Voice is full: you'll join when a place frees up" onClick={() => store.roomVoice(false)}>In line · cancel</button>
+      : <button disabled={!store.voiceOwner} title={full ? `Voice is full (${ROOM_VOICE_MAX}): you'll wait in line · or use Meet` : 'Talk with the others in this room'} onClick={() => store.roomVoice(true)}>🎙 Talk{onCall ? ` (${onCall}/${ROOM_VOICE_MAX})` : ''}</button>}
     {m?.adhoc && (meet ? <ExternalLink href={meetAs(meet, store.meetAccount)}>Join Meet</ExternalLink> : <button className="ghost" title="Make a Google Meet room for everyone in here" onClick={() => store.useRoomMeet()}>Use Meet</button>)}
     {m?.link && <ExternalLink href={meetAs(m.link, store.meetAccount)}>Join call</ExternalLink>}
     <button className="end" onClick={() => store.leaveMeeting()}>Leave</button>

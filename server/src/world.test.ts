@@ -1398,37 +1398,37 @@ test('private rooms: create, invite, enter, busy, leave/rejoin, expiry and valid
   w.handle(off.u, { t: 'room_create', invite: [] }, off.socket); assert.equal([...w.meetings.events.values()].filter(e => e.adhoc).length, 1);
 });
 
-test('room voice: private rooms join on entry, calendar meetings are opt-in, signaling stays inside, the cap is MAX_CALL_SIZE', t => {
-  const { w, add } = setup(t), host = add('Host'), out = add('Out'), people = Array.from({ length: MAX_CALL_SIZE + 1 }, (_, i) => add(`P${i}`));
+test('room voice: private rooms join on entry, calendar meetings are opt-in, signaling stays inside, the cap is ROOM_VOICE_MAX', t => {
+  const { w, add } = setup(t), host = add('Host'), out = add('Out'), people = Array.from({ length: ROOM_VOICE_MAX + 1 }, (_, i) => add(`P${i}`));
   w.meetings.poll = async () => {};
   const rtc = (x: { messages: ServerMsg[] }) => x.messages.filter(m => m.t === 'rtc').length;
   w.handle(host.u, { t: 'room_create', invite: people.map(p => p.u.id) }, host.socket);
-  const m = [...w.meetings.events.values()].find(e => e.adhoc)!, id = `inst:${m.instance}`;
+  const m = [...w.meetings.events.values()].find(e => e.adhoc)!, id = `room:${m.instance}`;
   assert.equal(host.u.callId, id, 'ad-hoc rooms start with voice on');
   assert.equal(host.u.presence, 'online', 'room voice is not a knock call');
   for (const p of people) w.handle(p.u, { t: 'meeting_go', key: m.key }, p.socket);
   const call = (w as unknown as { calls: Map<string, { members: Set<string> }> }).calls.get(id)!;
-  assert.equal(call.members.size, MAX_CALL_SIZE, 'host + 4 fill the call');
-  assert.equal(people[MAX_CALL_SIZE - 2].u.callId, id); assert.equal(people[MAX_CALL_SIZE - 1].u.callId, null);
-  assert.ok(people[MAX_CALL_SIZE - 1].messages.some(x => x.t === 'notice' && x.text.includes('use Meet')), 'the one past the cap is pointed to Meet');
-  assert.equal(w.meetingRooms().find(r => r.id === m.instance)!.voice.length, MAX_CALL_SIZE);
+  assert.equal(call.members.size, ROOM_VOICE_MAX, 'host + 4 fill the call');
+  assert.equal(people[ROOM_VOICE_MAX - 2].u.callId, id); assert.equal(people[ROOM_VOICE_MAX - 1].u.callId, null);
+  assert.ok(people[ROOM_VOICE_MAX - 1].messages.some(x => x.t === 'notice' && x.text.includes('use Meet')), 'the one past the cap is pointed to Meet');
+  assert.equal(w.meetingRooms().find(r => r.id === m.instance)!.voice.length, ROOM_VOICE_MAX);
   w.voiceTick(); assert.equal(host.u.callId, id, 'the voice sweep leaves meeting-room calls alone');
   // signaling: members only
   const [a, b] = people;
   w.handle(a.u, { t: 'rtc', to: b.u.id, signal: { kind: 'hello', inst: 'x' } }, a.socket); assert.equal(rtc(b), 1);
-  w.handle(a.u, { t: 'rtc', to: people[MAX_CALL_SIZE - 1].u.id, signal: { kind: 'hello', inst: 'x' } }, a.socket); assert.equal(rtc(people[MAX_CALL_SIZE - 1]), 0, 'in the room but not on the call');
+  w.handle(a.u, { t: 'rtc', to: people[ROOM_VOICE_MAX - 1].u.id, signal: { kind: 'hello', inst: 'x' } }, a.socket); assert.equal(rtc(people[ROOM_VOICE_MAX - 1]), 0, 'in the room but not on the call');
   w.handle(out.u, { t: 'rtc', to: a.u.id, signal: { kind: 'hello', inst: 'x' } }, out.socket); assert.equal(rtc(a), 0);
   w.handle(a.u, { t: 'rtc', to: out.u.id, signal: { kind: 'hello', inst: 'x' } }, a.socket); assert.equal(rtc(out), 0);
   // a free place: the sixth can try again; leaving voice keeps you in the room and out of the call on re-entry
   w.handle(b.u, { t: 'room_voice', on: false }, b.socket);
   assert.equal(b.u.callId, null); assert.equal(b.u.instance, m.instance);
-  w.handle(people[MAX_CALL_SIZE - 1].u, { t: 'room_voice', on: true }, people[MAX_CALL_SIZE - 1].socket); assert.equal(people[MAX_CALL_SIZE - 1].u.callId, id);
+  w.handle(people[ROOM_VOICE_MAX - 1].u, { t: 'room_voice', on: true }, people[ROOM_VOICE_MAX - 1].socket); assert.equal(people[ROOM_VOICE_MAX - 1].u.callId, id);
   w.handle(b.u, { t: 'meeting_leave' }, b.socket); w.handle(b.u, { t: 'meeting_go', key: m.key }, b.socket);
   assert.equal(b.u.callId, null, 'left the voice on purpose: coming back does not put them on air');
   w.handle(b.u, { t: 'room_voice', on: true }, b.socket); assert.equal(b.u.callId, null, 'full again');
   // leaving the room leaves the call; voice outside a room does nothing
   w.handle(a.u, { t: 'meeting_leave' }, a.socket); assert.equal(a.u.callId, null);
-  w.handle(out.u, { t: 'room_voice', on: true }, out.socket); assert.ok(!out.u.callId?.startsWith('inst:'));
+  w.handle(out.u, { t: 'room_voice', on: true }, out.socket); assert.ok(!out.u.callId?.startsWith('room:calinst'));
   // the last one out closes the call
   for (const p of [host, ...people]) w.handle(p.u, { t: 'meeting_leave' }, p.socket);
   assert.equal((w as unknown as { calls: Map<string, unknown> }).calls.has(id), false);
@@ -1439,7 +1439,7 @@ test('room voice: private rooms join on entry, calendar meetings are opt-in, sig
   w.handle(host.u, { t: 'meeting_go', key }, host.socket); w.handle(out.u, { t: 'meeting_go', key }, out.socket);
   assert.equal(host.u.instance, 'calinst'); assert.equal(host.u.callId, null); assert.equal(out.u.callId, null);
   w.handle(host.u, { t: 'room_voice', on: true }, host.socket); w.handle(out.u, { t: 'room_voice', on: true }, out.socket);
-  assert.equal(host.u.callId, 'inst:calinst'); assert.equal(out.u.callId, 'inst:calinst');
+  assert.equal(host.u.callId, 'room:calinst'); assert.equal(out.u.callId, 'room:calinst');
   w.handle(host.u, { t: 'room_meet' }, host.socket);
   assert.ok(!host.messages.some(x => x.t === 'room_meet' && x.link), 'calendar meetings keep the event link; no room Meet');
 });
@@ -1466,4 +1466,25 @@ test('room Meet: members only, personal link fallback, late joiners and reloads 
   w.handle(out.u, { t: 'room_meet' }, out.socket); assert.equal(meetMsgs(out).length, 0);
   w.handle(c.u, { t: 'meeting_leave' }, c.socket);
   assert.equal(meetMsgs(c).at(-1)?.link, null, 'leaving the room drops it');
+});
+
+test('room voice is a hall: the line fills as places free up, hands go up, leave_room only leaves the voice, two rooms never share a call', t => {
+  const { w, add } = setup(t), host = add('Host'), guests = Array.from({ length: ROOM_VOICE_MAX }, (_, i) => add(`G${i}`)), other = add('Other');
+  w.meetings.poll = async () => {};
+  w.handle(host.u, { t: 'room_create', invite: guests.map(g => g.u.id) }, host.socket);
+  const m = [...w.meetings.events.values()].find(e => e.adhoc)!, id = `room:${m.instance}`;
+  for (const g of guests) w.handle(g.u, { t: 'meeting_go', key: m.key }, g.socket);
+  const last = guests[ROOM_VOICE_MAX - 1];
+  assert.equal(last.u.callId, null); assert.ok(last.messages.some(x => x.t === 'voice_wait' && x.roomId === m.instance), 'in line');
+  w.handle(host.u, { t: 'hand', up: true }, host.socket); assert.equal(host.u.hand, true);
+  const spot = host.u.tile;
+  w.handle(host.u, { t: 'leave_room' }, host.socket);
+  assert.equal(host.u.callId, null); assert.equal(host.u.instance, m.instance, 'still in the meeting room'); assert.deepEqual(host.u.tile, spot); assert.equal(host.u.hand, false);
+  assert.equal(last.u.callId, id, 'the first in line gets the place'); assert.ok(last.messages.some(x => x.t === 'voice_wait' && x.roomId === null));
+  // a second private room has its own hall
+  w.handle(other.u, { t: 'room_create', invite: [] }, other.socket);
+  const m2 = [...w.meetings.events.values()].find(e => e.adhoc && e.key !== m.key)!;
+  assert.equal(other.u.callId, `room:${m2.instance}`); assert.notEqual(other.u.callId, last.u.callId);
+  w.handle(other.u, { t: 'rtc', to: last.u.id, signal: { kind: 'hello', inst: 'x' } }, other.socket);
+  assert.equal(last.messages.filter(x => x.t === 'rtc').length, 0);
 });
