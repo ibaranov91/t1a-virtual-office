@@ -177,7 +177,7 @@ export const cupTableAt = <O extends { type: string; x: number; y: number; w: nu
   objects.find(o => CUP_TABLES.includes(o.type) && t.x >= o.x && t.x < o.x + o.w && t.y >= o.y && t.y < o.y + o.h);
 export type CreatureServerMsg =
   | { t: 'creatures'; creatures: Creature[] } // everyone, on connect and when one appears or leaves
-  | { t: 'creature'; creature: Creature }     // one of them set off, sat down, fell asleep…
+  | { t: 'creature'; creature: Creature; by?: string }     // one of them set off, sat down, fell asleep…
   | { t: 'cups'; cups: Cup[] };
 
 /** Quick reactions you can toss at someone; they float up over their head for everyone to see. */
@@ -188,9 +188,9 @@ export type Reaction = typeof REACTIONS[number];
 export interface CalEvent { id: string; title: string; start: string; end: string; allDay: boolean; link: string; meet?: string; declined?: boolean }
 
 /** A calendar meeting with other people, now or within the hour. Sent only to its attendees (the title is theirs). */
-export interface AgendaItem { key: string; instance: string; title: string; start: number; end: number; link?: string; left?: boolean } // left: I left it for good (not busy, no heads-up)
+export interface AgendaItem { key: string; instance: string; title: string; start: number; end: number; link?: string; left?: boolean; adhoc?: boolean; from?: string } // adhoc: a private room someone started (from: host's name); left: I left it for good (not busy, no heads-up)
 /** A meeting room in use, for everyone: who's in it and until when, no title. */
-export interface MeetingRoomInfo { id: string; until: number; members: string[] }
+export interface MeetingRoomInfo { id: string; until: number; members: string[]; voice: string[] } // voice: who is on the room's voice call (at most MAX_CALL_SIZE; the rest get Meet)
 /** Meeting rooms are copies of this room on the map. */
 export const MEETING_ROOM_ID = 'meeting';
 
@@ -305,6 +305,7 @@ export type ServerMsg =
   | { t: 'rtc'; from: string; signal: RtcSignal }
   | { t: 'speaking'; userId: string; on: boolean }
   | { t: 'mute'; userId: string; muted: boolean }
+  | { t: 'room_meet'; instance: string; link: string | null } // the Meet room of the meeting room I'm in (only to its members; null: none yet / left)
   | { t: 'to_meet'; fromId: string } // someone in your call opened its Meet room; come along
   | { t: 'follow'; userId: string; targetId: string | null }
   | { t: 'eating'; userId: string; eating: Eating | null }
@@ -323,6 +324,7 @@ export type ServerMsg =
   | { t: 'notice'; text: string }
   | { t: 'later'; items: LaterItem[] }  // only to the person knocked on: their kept Later list, on connect and on every change
   | { t: 'later_nudge'; text: string; userId?: string } // their busy spell is over and knocks came in meanwhile (userId: the one knocker, for Knock back)
+  | { t: 'room_open' } // you clicked the Meeting room's 'start private room' button: open the popup
   | { t: 'present_open'; objectId: string } // you walked up to the board: show the upload/present panel
   | { t: 'voice_wait'; roomId: string | null }
   | { t: 'voice_owner'; owner: boolean }
@@ -366,6 +368,10 @@ export type ClientMsg =
   | { t: 'read_start'; articleId: string }
   | { t: 'read_done' }
   | { t: 'meeting_leave' }           // back to the office (still in the meeting: busy, knocks go to Later)
+  | { t: 'room_create'; title?: string; invite: string[] } // start a private room in a copy of the Meeting room; invite = user ids
+  | { t: 'room_invite'; userIds: string[] } // add people to the private room I'm in
+  | { t: 'room_voice'; on: boolean } // join / leave the voice call of the meeting room I'm in (ad-hoc rooms join on entry, calendar meetings are opt-in)
+  | { t: 'room_meet' } // 'Use Meet' in an ad-hoc room: make (or re-send) its Meet link for everyone in it
   | { t: 'meeting_out'; key: string } // leave the meeting for good: not busy any more, knocks come through again
   | { t: 'google_disconnect' }
   | { t: 'claim_desk' }   // the seat you're sitting on becomes your home desk
