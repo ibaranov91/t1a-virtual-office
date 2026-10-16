@@ -13,7 +13,7 @@ function setup(t: TestContext) {
   const u = w.addUser('Beach guest', false, { x: bar.x, y: bar.y + bar.h });
   u.presence = 'online';
   const messages: ServerMsg[] = [], { socket } = w.connect(u.id, m => messages.push(m));
-  const take = (item: string) => { w.use(u, bar.id, item); t.mock.timers.tick(1250); };
+  const take = (item: string) => { w.use(u, bar.id, item); t.mock.timers.tick(1250); w.handle(u, { t: 'drink' }, socket); t.mock.timers.tick(2500); }; // take it, then drink it
   const drunk = () => u.effects.find(e => e.kind === 'drunk');
   return { w, u, bar, messages, socket, take, drunk, tick: (ms: number) => t.mock.timers.tick(ms) };
 }
@@ -21,7 +21,7 @@ function setup(t: TestContext) {
 test('a cocktail gives an ordinary visitor a shared, temporary drunk effect and slower moves', t => {
   const { w, u, bar, messages, take, drunk, tick } = setup(t);
   take('cocktail');
-  assert.equal(u.holding, 'cocktail');
+  assert.equal(u.holding, 'empty:cocktail');
   assert.equal(drunk()?.data?.level, 1);
   assert.ok(messages.some(m => m.t === 'effects' && m.effects.some(e => e.kind === 'drunk')));
   w.walk(u, { x: bar.x + 3, y: bar.y + bar.h });

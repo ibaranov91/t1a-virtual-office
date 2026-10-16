@@ -23,8 +23,9 @@ import { LofiTV } from './LofiTV';
 import { Soundscape } from './soundscape';
 import { needsGesture, resume } from './audio';
 import { prefs, savePrefs } from './prefs';
-import { ITEMS, MAP, Store, type ClientUser } from './net';
+import { ITEMS, MAP, Store, heldItem, type ClientUser } from './net';
 import { slurBy } from './slur';
+import { DRINKS, isEmpty } from '../../shared/drinks';
 import { inNativeApp, syncNative } from './native';
 import { ExternalLink } from './links';
 import { fakeShare } from './share';
@@ -1218,9 +1219,11 @@ function ActionWheel({ store, engine, pick, assets, onPerson, onClose }: { store
       items = [{ icon: '💬', label: 'Message', onClick: act(() => store.openChat(u.id)) }];
     } else if (emoji) {
       items = REACTIONS.map(e => ({ icon: e, label: '', onClick: act(() => store.react(u.id, e)) }));
-      const held = isMe && me?.holding ? ITEMS.get(me.holding) : undefined;
+      const held = isMe ? heldItem(me?.holding) : undefined;
       if (isMe && me?.eating) items.push({ icon: <Icon name={me.eating.open ? "bell" : "message"} off={me.eating.open} />, label: me.eating.open ? 'Quiet' : 'Chat', title: me.eating.open ? 'Go quiet: leave the table\'s talk; knocks go to Later' : 'Chat: join the talk of everyone chatting at this table (you start muted)', onClick: act(() => store.lunchOpen(!me.eating!.open)) });
       if (!isMe) items.push({ icon: <Icon name="arrow-left" />, label: 'Back', onClick: () => setEmoji(false) });
+      else if (held && me?.holding && DRINKS[me.holding]) { if (!me.sipping) items.push({ icon: held.icon, label: 'Drink', title: `Drink your ${held.label.toLowerCase()}`, onClick: act(() => store.drink()) }); }
+      else if (held?.empty) items.push({ icon: <span style={{ opacity: 0.45 }}>{held.icon}</span>, label: 'Drop', title: `Drop your ${held.label.toLowerCase()} on the floor (or click a table to put it down)`, onClick: act(() => store.drop()) });
       else if (held) items.push({ icon: held.icon, label: 'Finish', title: `Finish your ${held.label.toLowerCase()}`, onClick: act(() => store.drop()) });
       if (isMe && me?.following) items.push({ icon: <Icon name="stop" />, label: 'Stop following', onClick: act(() => store.follow(null)) });
     } else {
@@ -1240,7 +1243,7 @@ function ActionWheel({ store, engine, pick, assets, onPerson, onClose }: { store
       if (store.admin && me && !me.instance && !u.instance && !away) items.push({ icon: <Icon name="portal" />, label: 'Teleport', title: `Step through a portal to ${u.name.split(' ')[0]}`, onClick: act(() => store.teleport(u.id)) });
       if (!isMe && me && effectOf(me.effects, 'vampire')) { const turned = !!effectOf(u.effects, 'vampire');
         items.push({ icon: '🧛', label: 'Bite', disabled: turned || away || !!dungeon, title: dungeon ?? (turned ? `${u.name.split(' ')[0]} is already a vampire` : `Bite ${u.name.split(' ')[0]}: a vampire for 2 minutes`), onClick: act(() => store.bite(u.id)) }); }
-      const held = me?.holding ? ITEMS.get(me.holding) : undefined;
+      const held = me?.holding && !isEmpty(me.holding) ? ITEMS.get(me.holding) : undefined; // an empty cup isn't a present
       if (held) items.push({ icon: held.icon, label: 'Give', disabled: !!u.holding || away || !!dungeon,
         title: dungeon ?? (u.holding ? `${u.name.split(' ')[0]}'s hands are full` : `Give ${u.name.split(' ')[0]} your ${held.label.toLowerCase()}`),
         onClick: act(() => store.give(u.id)) });

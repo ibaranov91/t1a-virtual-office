@@ -14,7 +14,7 @@ import {
 import { FOOD_ITEMS, LUNCH_MS, PLATE_PREFIX, picnicSeat, type Eating } from '../../shared/lunch';
 import { INSTRUMENTS, validNote } from '../../shared/instruments';
 import { phrase } from '../../shared/phrases';
-import { ALCOHOL_ITEMS } from '../../shared/drinks';
+import { ALCOHOL_ITEMS, DRINKS, EMPTY_DROP_DRUNK_MS, EMPTY_DROP_MS, emptyDrink, emptyOf, isEmpty } from '../../shared/drinks';
 import { ADMIN_HAT, ALL_HATS, BAT_HAT, BITE_MS, DANCE_ROOM, DRUNK_MAX_LEVEL, DRUNK_MAX_MS, DRUNK_MISWALK, DRUNK_NAMES, EFFECTS, HAT_NAMES, MAX_EFFECTS, RAVER_MS, drunkLevel, effectOf, hatItem, hatOf, walkMs } from '../../shared/effects';
 import { tracksFor } from '../../shared/music';
 import { Arcade } from './arcade';
@@ -84,7 +84,8 @@ type Wire = (json: string) => void;
 const LEAVE_GRACE_MS = 5000; // a dropped tab or quick re-login shouldn't send anyone home
 const DOOR_PAUSE_MS = 400;   // a beat at the door before vanishing
 const FOLLOW_LAG_MS = 300;   // followers set off a beat after the person they follow
-const HOLD_MS = 3 * 60_000;  // a coffee lasts this long
+const HOLD_MS = 3 * 60_000;  // a snack or book you never put down is gone after this long (drinks follow shared/drinks.ts)
+const BOT_SIP_MS = 20_000;   // bots and offline beach walkers have no Drink button: a cocktail sips itself
 const USE_MS = { take: 1200, toggle: 150, toilet: 300, dealer: 350, bell: 100, presentation: 100, room_start: 100, tickets: 100 }; // brewing a coffee vs flicking a switch
 const ARRIVAL_SLACK_MS = 50; // timers can fire a millisecond before the walk is over
 
@@ -113,7 +114,8 @@ export class World {
   private listeners = new Set<{ send: Send; wire?: Wire }>();
   private doorTimers = new Map<string, NodeJS.Timeout>();
   private callTimers = new Map<string, NodeJS.Timeout>(); // per member: when they hang up
-  private holdTimers = new Map<string, NodeJS.Timeout>(); // per person: when the coffee's finished
+  private holdTimers = new Map<string, NodeJS.Timeout>(); // per person: what happens next to what they hold (auto-sip, empty cup slipping, snack gone)
+  private sips = new Map<string, NodeJS.Timeout>();       // per person: a sip under way
   private lastRing = new Map<string, number>();            // per person: when they last rang a bell
   private errands = new Map<string, NodeJS.Timeout>();    // per person: walking over to use an object
   private seats = new Map<string, { user: string; socket: string; held: Set<number> }>();
@@ -751,9 +753,7 @@ export class World {
       }
       else if (item) {
         if (current.use.kind !== 'take' || !current.use.items.some(i => i.id === item.id)) return;
-        this.setHolding(u, item.id, o.id);
-        if (o.type === 'coffee_machine') this.addEffect(u, 'speed'); // TODO(drinks): the buff moves to the `drink` intent (shared/drinks.ts)
-        this.refreshment(u, item.id);
+        this.setHolding(u, item.id, o.id); // a drink does its thing when it's drunk (sip), not when it's taken
       }
     }, Math.max(0, at - Date.now()) + (o.use.kind === 'arcade' || o.use.kind === 'table' || o.use.kind === 'retro' ? 0 : USE_MS[o.use.kind])));
   }
@@ -877,21 +877,21 @@ export class World {
     if (this.library.articlesRead(u.id) >= BOOKWORM_READS && !u.achievements.bookworm) { this.award(u, 'bookworm', now); this.plantChanged(u); }
     if (author && author.id !== u.id && !author.achievements.editor && this.library.readers(read.articleId).size >= EDITOR_READERS) { this.award(author, 'editor', now); this.plantChanged(author); }
   }
-  /** Walk over to a table and put down the coffee or tea you're holding. */
+  /** Walk over to a table and put down the drink (or empty cup) you're holding. The cup is stored as the drink it held. */
   putCup(u: User, tile: Tile) {
-    if (!u.holding || !CUP_ITEMS.includes(u.holding) || u.instance || goingOut(u) || u.presence === 'offline') return;
+    const held = u.holding, item = emptyDrink(held) ?? held;
+    if (!held || !item || !CUP_ITEMS.includes(item) || u.instance || goingOut(u) || u.presence === 'offline') return;
     const problem = this.creatures.cupProblem(tile);
     if (problem) { this.sendTo(u.id, { t: 'notice', text: problem }); return; }
-    const item = u.holding;
     this.atTable(u, tile, () => {
-      if (u.holding !== item) return; // changed their mind
-      const cup = this.creatures.addCup(tile, item, Date.now());
+      if (u.holding !== held) return; // changed their mind
+      const cup = this.creatures.addCup(tile, item, Date.now(), { by: u.id });
       if (typeof cup === 'string') this.sendTo(u.id, { t: 'notice', text: cup });
       else this.setHolding(u, null);
     });
   }
-  /** Walk over to a cup someone left and clear it away. The cleaner, if she's in the room, is delighted. Plates stay:
-   *  someone may still be eating. */
+  /** Walk over to a cup someone left and clear it away. The cleaner, if she's in the room, is delighted. Your own cup,
+   *  with your hands free, goes back into your hand (empty) instead. Plates stay: someone may still be eating. */
   takeCup(u: User, cupId: string) {
     const cup = this.creatures.cups.find(c => c.id === cupId);
     if (!cup || !CUP_ITEMS.includes(cup.item) || u.bot || u.instance || goingOut(u) || u.presence === 'offline') return;
@@ -899,6 +899,7 @@ export class World {
       if (!this.creatures.cups.some(c => c.id === cupId)) return; // the cleaner (or someone) got there first
       const now = Date.now();
       this.creatures.removeCup(cupId);
+      if (cup.by === u.id && !u.holding) { this.setHolding(u, emptyOf(cup.item)); return; } // picked your own cup back up
       if (this.creatures.praise(this.roomOf(u)?.id, now) && !u.achievements.tidy) { this.award(u, 'tidy', now); this.plantChanged(u); }
     });
   }
@@ -1075,16 +1076,55 @@ export class World {
     this.broadcast({ t: 'object', id, ...this.objectState(id), by: by.id });
   }
   give(u: User, to: User) {
-    if (u.instance !== to.instance || !u.holding || to.id === u.id || to.holding || to.presence === 'offline' || goingOut(to)) return;
+    if (u.instance !== to.instance || !u.holding || isEmpty(u.holding) || to.id === u.id || to.holding || to.presence === 'offline' || goingOut(to)) return;
     const item = u.holding;
     this.setHolding(u, null);
     this.setHolding(to, item, undefined, u.id);
+    this.onGiven(to, item, u);
   }
+  /** Put something in someone's hand (or empty it), cancelling any sip, and set up what happens to it next:
+   *  a drink sips itself after its autoSipMs (alcohol only for people without a Drink button), an empty cup slips
+   *  to the floor after EMPTY_DROP_MS, anything else is gone after HOLD_MS. */
   setHolding(u: User, item: string | null, objectId?: string, fromId?: string) {
     clearTimeout(this.holdTimers.get(u.id)); this.holdTimers.delete(u.id);
-    if (item) this.holdTimers.set(u.id, setTimeout(() => this.setHolding(u, null), HOLD_MS));
+    clearTimeout(this.sips.get(u.id)); this.sips.delete(u.id);
     u.holding = item;
     this.broadcast({ t: 'holding', userId: u.id, item, objectId, fromId });
+    if (!item) return;
+    const rule = DRINKS[item];
+    const later = (ms: number, fn: () => void) => this.holdTimers.set(u.id, setTimeout(() => { this.holdTimers.delete(u.id); if (u.holding === item) fn(); }, ms));
+    if (rule) {
+      const auto = rule.autoSipMs ?? (u.bot || u.presence === 'offline' ? BOT_SIP_MS : undefined);
+      if (auto !== undefined) later(auto, () => this.drink(u));
+    } else if (isEmpty(item)) later(effectOf(u.effects, 'drunk') ? EMPTY_DROP_DRUNK_MS : EMPTY_DROP_MS, () => this.dropCup(u));
+    else later(HOLD_MS, () => this.setHolding(u, null));
+  }
+  /** Drink what you're holding: `holding` with phase 'drinking' for the sip, then its effect, then the empty cup
+   *  (or nothing). Handing it over or dropping it mid-sip cancels the sip (setHolding clears it). */
+  drink(u: User) {
+    const item = u.holding, rule = item ? DRINKS[item] : undefined;
+    if (!item || !rule || this.sips.has(u.id)) return;
+    clearTimeout(this.holdTimers.get(u.id)); this.holdTimers.delete(u.id);
+    this.broadcast({ t: 'holding', userId: u.id, item, phase: 'drinking' });
+    this.sips.set(u.id, setTimeout(() => {
+      this.sips.delete(u.id);
+      if (u.holding !== item) return;
+      if (rule.effect === 'speed') this.addEffect(u, 'speed');
+      else this.refreshment(u, item);
+      this.setHolding(u, rule.cup ? emptyOf(item) : null);
+    }, rule.sipMs));
+  }
+  /** The empty cup in your hand slips to the floor where you stand. Somewhere a cup can't stay (a meeting room, the
+   *  dungeon, offline) it's just put away; on the way through a door it waits a moment. */
+  private dropCup(u: User) {
+    const drink = emptyDrink(u.holding);
+    if (!drink) return;
+    if (goingOut(u)) { const held = u.holding; this.holdTimers.set(u.id, setTimeout(() => { this.holdTimers.delete(u.id); if (u.holding === held) this.dropCup(u); }, 2000)); return; }
+    if (!u.instance && u.presence !== 'offline') {
+      const here = this.position(u).tile, now = Date.now(); // a cup already there: it rolls next to it
+      for (const t of [here, ...this.creatures.beside(here)]) if (typeof this.creatures.addCup(t, drink, now, { floor: true, by: u.id }) === 'object') break;
+    }
+    this.setHolding(u, null);
   }
 
   // ---------- effects ----------
@@ -1114,8 +1154,7 @@ export class World {
       this.sendTo(u.id, { t: 'notice', text: burning ? '🍦 Fire extinguished. Brain freeze activated.' : '🍦 Brain freeze! A tiny snow day on the beach.' });
     }
   }
-  /** `from` handed `u` a drink. Handing over a full alcoholic one (instead of drinking it) makes `from` a designated driver.
-   *  TODO(drinks): stream B's `give` calls this once the drink is in the other person's hand. */
+  /** `from` handed `u` a drink (called by `give`). Handing over a full alcoholic one (instead of drinking it) makes `from` a designated driver. */
   onGiven(u: User, item: string, from: User, now = Date.now()) {
     if (from.id === u.id || from.bot || !ALCOHOL_ITEMS.includes(item) || from.achievements.designated) return;
     this.award(from, 'designated', now); this.plantChanged(from);
@@ -2308,7 +2347,8 @@ export class World {
       case 'read_start': if (typeof msg.articleId === 'string') this.startReading(u, msg.articleId); break;
       case 'read_done': this.stopReading(u); break;
       case 'use': this.use(u, String(msg.objectId), msg.item === undefined ? undefined : String(msg.item)); break;
-      case 'drop': if (u.holding) this.setHolding(u, null); break;
+      case 'drop': if (isEmpty(u.holding)) this.dropCup(u); else if (u.holding) this.setHolding(u, null); break;
+      case 'drink': this.drink(u); break;
       case 'pet': this.petCreature(u, String(msg.creatureId)); break;
       case 'dev_bat': if (this.creatures.batAlways) { this.creatures.batBackAt = 0; this.creatures.wantBat(Date.now()); } break;
       case 'lunch': if (msg.tile) this.lunch(u, { x: msg.tile.x | 0, y: msg.tile.y | 0 }, !!msg.open); break;

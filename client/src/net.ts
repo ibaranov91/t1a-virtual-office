@@ -1,5 +1,4 @@
 import { rulesForMode, type RoomMode, type RoomModes } from '../../shared/roomModes';
-import { DRINKS } from '../../shared/drinks';
 import { onMap } from '../../shared/beach';
 import { TABLE_GAMES, type TableView, type TableGameId } from '../../shared/table/types';
 import { playTable } from './sounds';
@@ -13,6 +12,7 @@ import type { FrameBatch } from './retro/player';
 import mapJson from '../../shared/tilemap.json';
 import { applyLayout, besideObject, doorwayTiles, isWalkable, objectById, pathTo, roomAt, sampleMove, stallDoor, stallOfCall, tableOfCall, type Dir, type Room, type Tile, type TileMap } from '../../shared/map';
 import { FOOD_ITEMS, picnicSeat } from '../../shared/lunch';
+import { DRINKS, emptyOf, isEmpty } from '../../shared/drinks';
 import { ACHIEVEMENTS, goingOut, underground, DUNGEON_INSTANCE, MEETING_ROOM_ID, PLANT_STAGES, plantName, ROOM_VOICE_MAX, type JukeboxState, type JukeboxAction, type AgendaItem, type LayoutEdit, type CalEvent, type MeetingRoomInfo, type ChatMsg, type LiveDeck, presentScope, type ObjectState, type ToiletState, type ClientMsg, type LaterItem, type PublicUser, type Reaction, type RtcSignal, type ServerMsg, type Creature, type Cup, CUP_ITEMS, type LibraryState } from '../../shared/protocol';
 import { gameDef } from '../../shared/arcade/registry';
 import { emptyWeek } from '../../shared/arcade/weeks';
@@ -31,6 +31,7 @@ export interface ClientUser extends PublicUser {
   prev: { path: Tile[]; startedAt: number; ms?: number } | null; // walk in progress when a new move was issued
   faceOverride: Dir | null;
   speaking?: boolean; // live mic activity in a voice call (client-only)
+  sipping?: number;   // performance.now() when a sip of what they hold began (client-only; cleared by the next `holding`)
 }
 
 export interface Toast {
@@ -47,8 +48,15 @@ export interface Toast {
 /** A reaction in flight, timed with performance.now() like the render loop. */
 export interface Flying { fromId: string; toId: string; emoji: string; at: number }
 
-/** Item id -> what it looks like, from whatever the map's objects hand out. */
-export const ITEMS = new Map(MAP.objects.flatMap(o => (o.use?.kind === 'take' ? o.use.items : [])).map(i => [i.id, i]));
+/** Item id -> what it looks like, from whatever the map's objects hand out, plus the empty cup or glass a drink leaves. */
+const TAKEN = new Map(MAP.objects.flatMap(o => (o.use?.kind === 'take' ? o.use.items : [])).map(i => [i.id, i]));
+export const ITEMS = new Map([...TAKEN, ...[...TAKEN.values()].filter(i => DRINKS[i.id]?.cup)
+  .map(i => [emptyOf(i.id), { id: emptyOf(i.id), icon: i.icon, label: DRINKS[i.id].glass ? 'Empty glass' : 'Empty cup' }] as const)]);
+/** What a held item looks like; `empty` for an empty cup or glass (drawn dimmed). */
+export function heldItem(id: string | null | undefined): { icon: string; label: string; empty: boolean } | undefined {
+  const it = id ? ITEMS.get(id) : undefined;
+  return it && { icon: it.icon, label: it.label, empty: isEmpty(id) };
+}
 
 /** An admin's portal trip: a portal opens at `from`, they step in, one opens at `to`, they step out (timeline in engine.ts). `at` is performance.now(). */
 export const PORTAL_MS = 2200; // the whole trip, see engine.ts
@@ -305,6 +313,7 @@ export class Store {
   }
   sniffLine(objectId: string) { this.send({ t: 'toilet_sniff', objectId }); }
   drop() { this.send({ t: 'drop' }); }
+  drink() { this.send({ t: 'drink' }); }
   putCup(tile: Tile) { this.send({ t: 'cup_put', tile }); }
   takeCup(cupId: string) { this.send({ t: 'cup_take', cupId }); }
   pet(creatureId: string) { this.send({ t: 'pet', creatureId }); }
@@ -699,7 +708,9 @@ export class Store {
       case 'follow': { const u = this.users.get(msg.userId); if (u) u.following = msg.targetId; break; }
       case 'eating': { const u = this.users.get(msg.userId); if (u) { if (msg.eating) u.eating = msg.eating; else delete u.eating; } break; }
       case 'holding': {
-        const u = this.users.get(msg.userId); if (u) u.holding = msg.item;
+        const u = this.users.get(msg.userId);
+        if (u) { u.holding = msg.item; if (msg.phase === 'drinking') u.sipping = performance.now(); else delete u.sipping; }
+        if (msg.phase) break; // the sip: same item, nothing new to say
         if (msg.objectId) {
           this.objectFx = [...this.objectFx.filter(f => performance.now() - f.at < 4000), { objectId: msg.objectId, at: performance.now() }];
           const o = objectById(MAP, msg.objectId);
@@ -710,7 +721,8 @@ export class Store {
           this.reactions.push({ fromId: msg.fromId, toId: msg.userId, emoji: it.icon, at: performance.now() });
           if (msg.userId === this.me) { playPop(); this.toast({ kind: 'info', text: `${this.name(msg.fromId)} handed you ${it.label.toLowerCase()} ${it.icon}`, expires: 5000 }); }
         }
-        if (msg.objectId && it && msg.userId === this.me && CUP_ITEMS.includes(it.id)) this.toast({ kind: 'info', text: `${it.icon} Click a table to put your cup down`, expires: 5000 });
+        if (msg.objectId && it && msg.userId === this.me && DRINKS[it.id]) this.toast({ kind: 'info', text: `${it.icon} Click yourself to drink it${CUP_ITEMS.includes(it.id) ? ', or a table to put it down' : ''}${DRINKS[it.id].autoSipMs ? ' (or just hold it: you\'ll sip it in a minute)' : ''}`, expires: 6000 });
+        if (msg.userId === this.me && it && isEmpty(it.id)) this.toast({ kind: 'info', text: `${it.icon} ${it.label} · click a table to put it down, or it slips to the floor`, expires: 6000 });
         if (msg.objectId && it && msg.userId === this.me && FOOD_ITEMS.includes(it.id)) this.toast({ kind: 'info', text: `${it.icon} Click a chair at a picnic table to eat`, expires: 5000 });
         break;
       }
