@@ -54,7 +54,6 @@ export interface User extends PublicUser {
   resume?: boolean;     // in the office when the server last stopped: back on that spot, no walk in from the door
   presenceBeforeCall?: Presence;
   prev?: { path: Tile[]; startedAt: number; ms?: number };
-  afk?: boolean;
 }
 
 interface Call { id: string; members: Set<string>; link?: string; fallback: boolean; room?: Room; instance?: string; small?: string } // room: open-voice hall; instance: set when the hall is a meeting room's own (id `room:<instance>`, room = the Meeting room); small: a toilet stall's or a picnic table's own (id `room:stall:<object>` / `room:table:<object>`, room = the room it stands in)
@@ -266,7 +265,7 @@ export class World {
       jukebox: Object.fromEntries([...this.jukeboxes].map(([id, j]) => [id, j.state])) };
   }
   private toPublic = (u: User): PublicUser => {
-    const { path: _p, email: _e, meetLink: _m, google: _g, offlineAt: _o, lastSpot: _l, resume: _rs, presenceBeforeCall: _b, prev: _v, afk: _a, returnTo: _r, walkSeq: _s, dungeon: _d, lastKeySpot: _k, dungeonTimers: _t, items: _i, ...pub } = u;
+    const { path: _p, email: _e, meetLink: _m, google: _g, offlineAt: _o, lastSpot: _l, resume: _rs, presenceBeforeCall: _b, prev: _v, returnTo: _r, walkSeq: _s, dungeon: _d, lastKeySpot: _k, dungeonTimers: _t, items: _i, ...pub } = u;
     return pub;
   };
 
@@ -282,6 +281,7 @@ export class World {
     this.listeners.add(listener);
     send({ t: 'hello', you: userId, serverTime: Date.now(), build: this.build });
     if (u.presence === 'offline' && onMap(u)) this.wakeVacation(u);
+    if (!u.bot) this.setAfk(u, false); // a page just opened: someone's there
     this.stayAfterAll(u);
     this.grantHats(u);
     if (!u.plant && !u.bot) { u.plant = this.newPlant(u, dayNumber(Date.now()) - 1); this.plantChanged(u); } // a pot on your desk from day one; today's status already grows it
@@ -1885,9 +1885,13 @@ export class World {
       for (const id of [...call.members]) { const m = this.users.get(id); if (m) this.leaveCall(m, now); }
     }
   }
+  private setAfk(u: User, afk: boolean) {
+    if (!!u.afk === afk) return;
+    u.afk = afk; this.broadcast({ t: 'afk', userId: u.id, afk });
+  }
   private leaveRoom(u: User) {
     this.setWaiting(u, null); this.setFollowing(u, null);
-    u.afk = true; this.leaveCall(u);
+    this.setAfk(u, true); this.leaveCall(u);
     const occ = this.occupied(), home = u.homeDesk;
     const outside = (t: Tile) => voiceRooms(this.map).every(r => roomAt(this.map, t.x, t.y)?.id !== r.id && !doorwayTiles(this.map, r).some(g => g.some(p => p.x === t.x && p.y === t.y)));
     const free = (t: Tile) => !occ.has(`${t.x},${t.y}`) && outside(t);
@@ -2195,7 +2199,7 @@ export class World {
     switch (msg.t) {
       case 'active':
         if (u.bot) break;
-        u.afk = false;
+        this.setAfk(u, false);
         for (const [id, send] of this.sockets.get(u.id) ?? []) if (id !== socket) send({ t: 'active' });
         break;
       case 'afk': {
@@ -2205,9 +2209,10 @@ export class World {
         else if (call?.room || this.waiting.has(u.id)) this.leaveRoom(u);
         else if (call && knockCall(call)) {
           const remaining = [...call.members].filter(id => id !== u.id);
-          u.afk = true; this.leaveCall(u);
+          this.setAfk(u, true); this.leaveCall(u);
           for (const id of remaining) this.sendTo(id, { t: 'notice', text: `${u.name.split(/\s+/)[0]} stepped away from the call` });
         }
+        this.setAfk(u, true); // idle anywhere, in a call or not: dozing where they stand
         break;
       }
       case 'listening': this.setLofiListening(u, socket, msg.on === true); break;
@@ -2216,7 +2221,7 @@ export class World {
       case 'move': {
         if (!msg.to || typeof msg.to !== 'object') break; // checked before anything changes
         let to = { x: msg.to.x | 0, y: msg.to.y | 0 };
-        u.afk = false;
+        this.setAfk(u, false);
         for (const k of this.knocks.values()) if (k.fromId === u.id && k.state === 'walking') this.closeKnock(k, 'later', 'Knock cancelled', true);
         if (u.door === 'arriving') { this.doorTimer(u, null); this.setDoor(u, null); } // off on their own way: bag's put away
         this.setFollowing(u, null);

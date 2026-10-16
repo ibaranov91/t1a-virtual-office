@@ -1287,7 +1287,8 @@ export class Engine {
     }
     let frame = 0, bob = 0, dx = 0;
     const presenting = this.store.presentation?.presenter === u.id && !this.store.presentation.away;
-    const step = !p.walking && !presenting && u.presence !== 'away' && !u.door && this.dancing(u, p.tile) ? dance(Date.now(), hash(u.id), !!seat, this.dancer) : null;
+    const dozing = this.dozing(u, p);
+    const step = !p.walking && !presenting && !dozing && u.presence !== 'away' && !u.door && this.dancing(u, p.tile) ? dance(Date.now(), hash(u.id), !!seat, this.dancer) : null;
     if (p.walking) frame = 1 + (Math.floor((ms / 1000) * WALK_FPS * WALK_MS_PER_TILE / (u.move?.ms ?? WALK_MS_PER_TILE)) % 4); // quicker steps when quicker
     else if (seat) { frame = lie ? 0 : SIT_FRAME; p = { ...p, dir: seat.dir }; }
     else if (presenting) p = { ...p, dir: 'down' }; // presenting: face the room, back to the board
@@ -1298,6 +1299,7 @@ export class Engine {
       const phase = (ms + hash(u.id) * 37) % 1800;
       bob = u.presence === 'away' ? (phase < 900 ? 1 : 0) : phase < 300 ? 1 : 0; // tiny breathing bob
     }
+    if (dozing) { const t = (ms + hash(u.id) * 37) % 3200; bob = t < 2400 ? 1 : t < 2550 ? -1 : 0; } // nodding off, a jerk awake, and off again
     if (summit) bob = (ms + hash(u.id)) % 600 < 180 ? -2 : 0;
     if (lie) { bob = 0; dx = 0; }
     const row = DIR_ROW[p.dir] ?? 0;
@@ -1328,7 +1330,7 @@ export class Engine {
     const drawBackpack = () => this.blit(ctx, 'backpack', x + dx + (p.dir === 'left' ? 7 : p.dir === 'right' ? -1 : 3), top + 8);
     if (backpack && p.dir === 'down') drawBackpack();
     // at the door: already half out
-    ctx.globalAlpha = u.door === 'leaving' && !p.walking ? 0.45 : u.presence === 'away' ? 0.8 : 1;
+    ctx.globalAlpha = u.door === 'leaving' && !p.walking ? 0.45 : dozing ? 0.72 : u.presence === 'away' ? 0.8 : 1;
     ctx.drawImage(sheet, frame * c.frameW, row * c.frameH, c.frameW, c.frameH, x + dx, baseY - c.frameH + bob + walkBob - 1, c.frameW, c.frameH);
     if (backpack && p.dir !== 'down') drawBackpack();
     if (backpack && p.dir === 'down') { ctx.fillStyle = '#8b613d'; ctx.fillRect(x + dx + 4, top + 10, 1, 5); ctx.fillRect(x + dx + 11, top + 10, 1, 5); }
@@ -1401,6 +1403,26 @@ export class Engine {
     const r = places.size > 1; this.apartCache.set(id, r); return r;
   }
 
+  /** Idle (`afk`) and standing or sitting still: they doze, with z's drifting up instead of a bubble. */
+  private dozing(u: ClientUser, p: Pose) { return !!u.afk && !p.walking && u.presence !== 'offline' && !u.door && !u.vacation; }
+
+  /** Three z's rising from the head, growing and fading, staggered so one is always on its way. */
+  private drawZs(x: number, top: number, ms: number, seed: number) {
+    const ctx = this.ctx;
+    for (let i = 0; i < 3; i++) {
+      const t = ((ms + seed * 53) / 2700 + i / 3) % 1, n = t < 0.4 ? 3 : 4;
+      const zx = Math.round(x + 11 + t * 7 + Math.sin(t * Math.PI * 2) * 1.5), zy = Math.round(top - 2 - t * 13);
+      ctx.globalAlpha = Math.sin(Math.PI * t);
+      const glyph = (dx: number, dy: number, w: number, color: string) => {
+        ctx.fillStyle = color;
+        ctx.fillRect(zx + dx, zy + dy, n + w, 1 + w); ctx.fillRect(zx + dx, zy + dy + n - 1, n + w, 1 + w);
+        for (let k = 1; k < n - 1; k++) ctx.fillRect(zx + dx + n - 1 - k, zy + dy + k, 1 + w, 1 + w);
+      };
+      glyph(-1, -1, 2, 'rgba(40,24,40,0.55)'); glyph(0, 0, 0, '#e8ecff');
+    }
+    ctx.globalAlpha = 1;
+  }
+
   private bubbleFor(u: ClientUser): BubbleKind | null {
     if (u.hand) return 'bubble_hand';
     if (u.door === 'thinking') return 'bubble_think';
@@ -1469,8 +1491,11 @@ export class Engine {
       drawText(ctx, 'LOFI GIRL', bx + 13, by + 8, '#fff4e0');
     }
 
-    // emote bubble with a 2-frame pop
-    const kind = this.bubbleFor(u);
+    // emote bubble with a 2-frame pop; dozing: z's instead of the Away bubble
+    const doze = this.dozing(u, p);
+    if (doze) this.drawZs(x, baseY - 24, ms, hash(u.id));
+    let kind = this.bubbleFor(u);
+    if (doze && kind === 'bubble_zzz') kind = null;
     const st = this.bubbleState.get(u.id);
     if (!st || st.kind !== kind) this.bubbleState.set(u.id, { kind, at: ms });
     if (!kind) return;

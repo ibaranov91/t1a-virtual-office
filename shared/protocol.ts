@@ -197,6 +197,7 @@ export interface PublicUser {
   bloomed: string[];        // plant kinds they've grown to full bloom
   achievements: Record<string, number>; // achievement id → when it was earned (ms)
   effects: Effect[];        // buffs, debuffs, hats; the server adds, expires and broadcasts them
+  afk?: boolean;            // no input for AFK_MS: dozing on the floor until they're back; memory only
 }
 
 /** Office animals and helpers. Not people: never in the user list, never knock, never counted.
@@ -336,6 +337,7 @@ export type ServerMsg =
   | { t: 'tz'; userId: string; tz: string | null }
   | { t: 'user'; user: PublicUser } // someone new joined the roster
   | { t: 'presence'; userId: string; presence: Presence }
+  | { t: 'afk'; userId: string; afk: boolean }
   | { t: 'emote'; userId: string; emote: Emote }
   | { t: 'door'; userId: string; door: Door }
   | { t: 'knock'; knockId: string; fromId: string; toId: string }

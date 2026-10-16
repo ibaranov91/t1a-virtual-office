@@ -974,6 +974,7 @@ export class Store {
       case 'look': { const u = this.users.get(msg.userId); if (u) { u.look = msg.look; u.lookSet = msg.lookSet; if (msg.name) u.name = msg.name; } break; }
       case 'effects': { const u = this.users.get(msg.userId); if (u) u.effects = msg.effects; break; }
       case 'presence': { const u = this.users.get(msg.userId); if (u) u.presence = msg.presence; break; }
+      case 'afk': { const u = this.users.get(msg.userId); if (u) u.afk = msg.afk; break; }
       case 'emote': { const u = this.users.get(msg.userId); if (u) u.emote = msg.emote; break; }
       case 'door': { const u = this.users.get(msg.userId); if (u) u.door = msg.door; break; }
       case 'knock': {

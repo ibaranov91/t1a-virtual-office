@@ -72,8 +72,9 @@ npm run typecheck    # run before every commit or deploy
 - **Voice policy** (`client/src/voicePolicy.ts`, spec `docs/superpowers/specs/2026-10-16-voice-policy-design.md`): shared
   spaces (`room:*`) start muted and open the mic only on the first unmute; knock calls start live. Auto-mute after 1 min
   of silence alone (at once on switching away) or 5 min with others; "you're muted" hint; ⌘⇧M / ⌘⇧D. Idle = 10 min with
-  no input, no own speech and nobody speaking on your voice → "Still here?" → `afk` 2 min later. `active` clears
-  `u.afk` and is relayed to your other tabs. A new tab takes voice only when you're not in a call (or it's the same
+  no input, no own speech and nobody speaking on your voice → "Still here?" → `afk` 2 min later. Outside any call the same 10 min just
+  marks you `afk` (no prompt, nothing to leave). `afk` is public: the sprite dozes (dimmed, nodding, z's) and the sidebar says
+  💤 idle and lists you under Away. `active`, a `move` or a newly opened page clears it; `active` is relayed to your other tabs. A new tab takes voice only when you're not in a call (or it's the same
   `deck.tab`). Knock calls end after `CALL_SILENCE_MS` (2 h) of total silence. Dev: `__voice.timeScale` shortens timers.
 - **Voice diagnostics** observe only: voice/audio lifecycle, devices, page/errors and in-call stats go to
   `data/diag/<date>/<userId>.jsonl` on the instance, with 3-day retention. Inspect the pending buffer with

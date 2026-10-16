@@ -51,6 +51,7 @@ export class Voice {
   private idleLeft = false;
   private idleLeftAt = 0;
   private lastActiveSent = 0;
+  private idleSentAt = 0;
   private switchedAway = document.hidden || !document.hasFocus();
   private hintSince = 0;
   private hintAt = -Infinity;
@@ -442,7 +443,7 @@ export class Voice {
     if (id !== null) this.store.dismiss(id);
   }
   private activity = () => {
-    const now = Date.now(), urgent = this.idlePromptAt !== null || this.idleLeft || now - this.store.activeAt >= AFK_MS * this.policyScale;
+    const now = Date.now(), urgent = this.idlePromptAt !== null || this.idleLeft || !!this.store.users.get(this.store.me)?.afk || now - this.store.activeAt >= AFK_MS * this.policyScale;
     this.store.activeAt = now; this.idleLeft = false; this.clearPrompt();
     if (urgent) diag.event('policy', { action: 'active' });
     if (urgent || now - this.lastActiveSent >= 60_000) { this.lastActiveSent = now; this.store.send({ t: 'active' }); }
@@ -463,8 +464,15 @@ export class Voice {
   private blur = () => { this.switchedAway = true; this.releaseSpace(); };
   private focus = () => { this.switchedAway = false; };
   private visibility = () => { this.switchedAway = document.hidden; if (document.hidden) this.releaseSpace(); };
+  /** Out of any call: nothing to leave, so no prompt; after AFK_MS without input they just doze off where they are. */
+  private checkIdle() {
+    const now = Date.now(), me = this.store.users.get(this.store.me);
+    if (!me || me.afk || this.store.voiceWait || now - this.store.activeAt < AFK_MS * this.policyScale || now - this.idleSentAt < 5000) return;
+    this.idleSentAt = now; this.store.send({ t: 'afk' });
+  }
   private get policyScale() { return import.meta.env.DEV && Number.isFinite(this.timeScale) && this.timeScale > 0 ? this.timeScale : 1; }
   private checkPolicy() {
+    if (this.owner && !this.callId) return this.checkIdle();
     if (!this.owner || !this.callId || this.idleLeft) return;
     const now = Date.now(), peers = this.eligiblePeers(), company = peers.map(u => u.id).sort().join(',');
     if (peers.some(u => u.speaking)) this.store.heardAt = now;

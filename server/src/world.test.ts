@@ -230,7 +230,7 @@ test('AFK rejects a home in the rect, walks outside, stays excluded until an own
   w.walk(a.u, { x: 32, y: 9 }); w.voiceTick(); assert.equal(a.u.afk, true); assert.equal(a.u.callId, null);
   w.handle(a.u, { t: 'move', to: { x: 32, y: 8 } }, a.socket); w.voiceTick(); assert.equal(a.u.afk, false); assert.equal(a.u.callId, 'room:coffee');
   const state = w.snapshot(); assert.equal(state.t, 'state');
-  if (state.t === 'state') for (const u of state.users) for (const key of ['afk', 'prev', 'path', 'presenceBeforeCall', 'callRole']) assert.equal(key in u, false);
+  if (state.t === 'state') for (const u of state.users) for (const key of ['prev', 'path', 'presenceBeforeCall', 'callRole']) assert.equal(key in u, false);
   for (const u of w.dump().users) { assert.equal('afk' in u, false); assert.equal('prev' in u, false); }
 });
 test('leave_room uses a free home outside every hall; end_call falls back from an occupied home to Lobby', t => {

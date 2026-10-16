@@ -73,7 +73,8 @@ test('afk is owner-only; active from another tab clears afk and relays only to o
   const other: ServerMsg[] = [], tab = w.connect(a.u.id, m => other.push(m)); w.handle(a.u, { t: 'afk' }, tab.socket); assert.ok(a.u.callId);
   a.u.afk = true; a.messages.length = other.length = b.messages.length = 0;
   w.handle(a.u, { t: 'active' }, tab.socket);
-  assert.equal(a.u.afk, false); assert.deepEqual(a.messages, [{ t: 'active' }]); assert.deepEqual(other, []); assert.deepEqual(b.messages, []);
+  const back = { t: 'afk', userId: a.u.id, afk: false };
+  assert.equal(a.u.afk, false); assert.deepEqual(a.messages, [back, { t: 'active' }]); assert.deepEqual(other, [back]); assert.deepEqual(b.messages, [back]);
   a.u.bot = true; a.u.afk = true; a.messages.length = 0;
   w.handle(a.u, { t: 'active' }, tab.socket); assert.equal(a.u.afk, true); assert.deepEqual(a.messages, []);
 });
@@ -126,4 +127,18 @@ test('a second tab outside calls takes ownership as before', t => {
   w.connectCall(a.u, b.u); a.messages.length = 0;
   w.handle(a.u, { t: 'deafen', on: true }, a.socket); assert.equal(a.u.deafened, false);
   w.handle(a.u, { t: 'deafen', on: true }, second.socket); assert.equal(a.u.deafened, true);
+});
+
+test('afk outside any call marks them idle for everyone; a move, active or a new page wakes them', t => {
+  const { w, add } = setup(t), a = add('A'), b = add('B');
+  const tile = { ...a.u.tile };
+  w.handle(a.u, { t: 'afk' }, a.socket);
+  assert.equal(a.u.afk, true); assert.equal(a.u.move, null); assert.deepEqual(a.u.tile, tile); // dozing where they are, no walk
+  assert.deepEqual(b.messages.filter(m => m.t === 'afk'), [{ t: 'afk', userId: a.u.id, afk: true }]);
+  const state = w.snapshot(); assert.ok(state.t === 'state' && state.users.find(u => u.id === a.u.id)?.afk);
+  w.handle(a.u, { t: 'afk' }, a.socket); assert.equal(b.messages.filter(m => m.t === 'afk').length, 1); // no repeats
+  w.handle(a.u, { t: 'active' }, a.socket); assert.equal(a.u.afk, false);
+  w.handle(a.u, { t: 'afk' }, a.socket); w.handle(a.u, { t: 'move', to: { x: 34, y: 29 } }, a.socket); assert.equal(a.u.afk, false);
+  w.handle(a.u, { t: 'afk' }, a.socket); w.connect(a.u.id, () => {}); assert.equal(a.u.afk, false);
+  assert.deepEqual(b.messages.filter(m => m.t === 'afk').map(m => m.t === 'afk' && m.afk), [true, false, true, false, true, false]);
 });

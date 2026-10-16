@@ -63,6 +63,11 @@ test('people grouping, you first, name ordering, search by shown place', () => {
   assert.equal(peopleGroups(v, 'offline')[0].id, 'offline');
   assert.deepEqual(peopleGroups(v, 'absent'), []);
 });
+test('idle people sink to the bottom of their room and count as away', () => {
+  const v = view(user('me', 'You'), user('a', 'Amy', 'coffee', { afk: true }), user('b', 'Ben', 'coffee'), user('z', 'Zoe', 'coffee'));
+  assert.deepEqual(channelTree(v, map).flatMap(g => g.rooms).find(r => r.room.id === 'coffee')?.people.map(u => u.id), ['me', 'b', 'z', 'a']);
+  assert.deepEqual(peopleGroups(v).map(g => [g.id, g.people.map(u => u.id)]), [['p-online', ['me', 'b', 'z']], ['p-away', ['a']]]);
+});
 test('every activity branch, precedence and status joining', () => {
   const base = user('a'), v = view(base, user('b', 'Ines', 'coffee', { callId: 'knock:1' }));
   const cases: [Partial<ClientUser>, string][] = [
@@ -74,6 +79,7 @@ test('every activity branch, precedence and status joining', () => {
     [{ eating: { item: 'food', until: 0, open: false } }, '🍽 having lunch'],
     [{ eating: { item: 'food', until: 0, open: true } }, '🍽 having lunch · open to talk'],
     [{ listening: 'lofi', presence: 'away' }, '🎧 listening to Lofi Girl'],
+    [{ listening: 'lofi', afk: true }, '🎧 listening to Lofi Girl'], [{ afk: true, presence: 'away' }, '💤 idle'],
     [{ presence: 'away' }, 'away'], [{ status: 'debugging' }, 'debugging'], [{}, ''], [{ callId: 'room:coffee' }, ''],
   ];
   for (const [extra, expected] of cases) {
