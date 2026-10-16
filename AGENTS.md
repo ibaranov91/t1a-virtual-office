@@ -283,7 +283,8 @@ scripts/deploy.sh          # prod: only from a clean checkout of the head of ori
     NetBird sign-in can't work there.
   - `email`: a public entry for people without NetBird (the hackathon demo). Type any email, no confirmation
     (`EMAIL_LOGIN=true`); people are found or created by it, named as NetBird would name them. Anyone can claim any
-    email, so keep `DECK_ADMINS` / `DECK_SYSADMINS` out of that instance's env file.
+    email, so whoever types an admin's email is that admin. If the proxy entry has a PIN, put it in the env file as `DECK_PROXY_PIN` so the Mac app install command
+    (and the zip download inside it) posts it: `curl -fsSL -b /dev/null -F pin=<PIN> …`.
 - **New instance:** pick the next free port, add a line to `instances.txt`, have someone add a NetBird reverse-proxy
   entry to `http://10.200.142.211:<port>`, then deploy. Check that the proxy entry's port matches.
 - **Only deploy to an instance when its owner asked you to.** Prod gets the head of `main` after a merge (below).
