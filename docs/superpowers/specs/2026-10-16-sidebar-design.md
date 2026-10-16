@@ -20,8 +20,8 @@ bottom of the panel.
    state). No second column.
 2. **Docked on the left, full height under the top bar; the floor shrinks** instead of being covered.
 3. **Groups come from room rules** (data, so a new room lands in the right group by itself):
-   *Voice* (`rules.voice === 'open'`: Coffee, Arcade, Book Club), *Knock* (`rules.knock === 'allow'` and not open voice:
-   Lobby, Co-working, Desks, Music, Orangery, Garden, Admin, Berghain, Terrace), *Quiet* (`knock` is `'disabled'` or
+   *Voice* (`rules.voice === 'open'`: Coffee, Music, Arcade, Book Club), *Knock* (`rules.knock === 'allow'` and not open voice:
+   Lobby, Co-working, Desks, Orangery, Garden, Admin, Berghain, Terrace), *Quiet* (`knock` is `'disabled'` or
    `'later'`: Focus, Meeting, Studio, Library). Live groups, shown only when someone is in them: *In meetings*,
    *Underground*, *Hallway*. *Offline* last, collapsed by default.
 4. **A click on a room opens the room menu**: the go action and the room's things (jukebox, records…). No "peek".
@@ -172,6 +172,7 @@ focus back to the row.
 | use.kind | label | action |
 |---|---|---|
 | `jukebox` | `<label, first letter upper>: now playing` (`Jukebox: now playing`, `DJ booth: now playing`) | `store.openJukebox(o.id)` |
+| `youtube` | `TV: <label>` (Music's Lofi Girl TV; its room is `use.room`) | opens `LofiTV`, like a click on the TV |
 | `records` | `Arcade records` | `store.openRecords()` |
 | `meetings` | `Meetings on now` | `store.openMeetings()` |
 | `library` | `Library shelf` | `store.openLibrary()` |
@@ -181,7 +182,7 @@ focus back to the row.
 | `link` | `Open the <label>` | `store.openLink(o.use)` |
 
   An object belongs to the first room found at `(x, y)`, then `(x, y + h)`, then `(x, y + h + 1)` (wall objects sit
-  on the wall row above their room). Every item closes the menu first (see "Closing after an action"). Today that gives Music → jukebox; Berghain → DJ booth; Arcade → records;
+  on the wall row above their room). Every item closes the menu first (see "Closing after an action"). Today that gives Music → jukebox and its TV; Berghain → DJ booth; Arcade → records;
   Co-working → meetings board, the three clocks (one item), calendar; Coffee → calendar; Lobby → achievements board,
   vault; Library → shelf. `presentation`, `arcade`, `instrument`, `dance`, `take`, `toggle`, `toilet`, `dealer`,
   `bell` are not listed (they need you there).

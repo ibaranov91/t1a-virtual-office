@@ -20,7 +20,7 @@ function view(...us: ClientUser[]): View {
     names: us => us.map(u => u.name).join(' and '), clock: () => '14:30', instruments: {}, jukebox: {}, presentation: null, sysadmin: false };
 }
 test('all 16 rooms derive their groups from rules, in map order', () => {
-  const expected = { voice: ['Coffee', 'Arcade', 'Book Club'], knock: ['Lobby', 'Co-working', 'Desks', 'Music', 'Orangery', 'Garden', 'Admin', 'Berghain', 'Terrace'], quiet: ['Focus', 'Meeting', 'Studio', 'Library'] };
+  const expected = { voice: ['Coffee', 'Music', 'Arcade', 'Book Club'], knock: ['Lobby', 'Co-working', 'Desks', 'Orangery', 'Garden', 'Admin', 'Berghain', 'Terrace'], quiet: ['Focus', 'Meeting', 'Studio', 'Library'] };
   assert.equal(map.rooms.length, 16);
   for (const [id, names] of Object.entries(expected)) assert.deepEqual(map.rooms.filter(r => roomGroup(r) === id).map(r => r.name).sort(), names.sort());
   const tree = channelTree(view(), map);
@@ -88,18 +88,18 @@ test('every activity branch, precedence and status joining', () => {
   assert.equal(activityLine(v, { ...base, reading: 'a' }), '📖 reading');
 });
 test('room things include wall fixtures, dedupe clocks and exclude on-site actions', () => {
-  const expected: Record<string, string[]> = { music: ['jukebox'], cowork: ['meetings', 'clock', 'calendar'], lobby: ['achievements', 'link'], arcade: ['records'], library: ['library'], focus: [], coffee: ['calendar'], berghain: ['jukebox'] };
+  const expected: Record<string, string[]> = { music: ['jukebox', 'youtube'], cowork: ['meetings', 'clock', 'calendar'], lobby: ['achievements', 'link'], arcade: ['records'], library: ['library'], focus: [], coffee: ['calendar'], berghain: ['jukebox'] };
   for (const [id, kinds] of Object.entries(expected)) assert.deepEqual(roomThings(map, room(id)).map(o => o.use!.kind).sort(), kinds.sort(), id);
-  const boxes = roomThings(map, room('music'));
-  const duplicate = { ...boxes[0], id: 'second-box' };
-  assert.equal(roomThings({ ...map, objects: [...map.objects, duplicate] }, room('music')).length, 2);
+  const box = roomThings(map, room('music')).find(o => o.use.kind === 'jukebox')!;
+  const duplicate = { ...box, id: 'second-box' };
+  assert.equal(roomThings({ ...map, objects: [...map.objects, duplicate] }, room('music')).filter(o => o.use.kind === 'jukebox').length, 2);
 });
 test('counts exclude instances/offline, and subtitle reflects music/presentation', () => {
   const v = view(user('0'), user('1'), user('2'), user('off', 'off', 'coffee', { presence: 'offline' }), user('instance', 'Instance', 'coffee', { instance: 'event' }));
   const coffee = () => channelTree(v, map)[0].rooms.find(r => r.room.id === 'coffee')!;
   assert.equal(coffee().count, 3);
   v.users.delete('0'); assert.equal(coffee().count, 2);
-  const box = roomThings(map, room('music'))[0];
+  const box = roomThings(map, room('music')).find(o => o.use.kind === 'jukebox')!;
   v.jukebox[box.id] = { playId: 'play', track: 'unknown-track', by: null, startedAt: 0, pausedAt: null, queue: [], last: null };
   const music = () => channelTree(v, map).flatMap(g => g.rooms).find(r => r.room.id === 'music')!;
   assert.equal(music().subtitle, '♪ unknown-track'); v.jukebox[box.id].pausedAt = 1; assert.equal(music().subtitle, 'paused');

@@ -73,14 +73,15 @@ export function peopleGroups(view: View, query = '') {
     .map(g => ({ ...g, people: ordered(view, [...view.users.values()].filter(u => group(u) === g.id && (!q || matches(u.name, q) || matches(place(view, u), q)))) }))
     .filter(g => g.people.length);
 }
-const THINGS = new Set(['jukebox', 'records', 'meetings', 'library', 'clock', 'achievements', 'calendar', 'link']);
-type ThingUse = Extract<ObjectUse, { kind: 'jukebox' | 'records' | 'meetings' | 'library' | 'clock' | 'achievements' | 'calendar' | 'link' }>;
+const THINGS = new Set(['jukebox', 'youtube', 'records', 'meetings', 'library', 'clock', 'achievements', 'calendar', 'link']);
+type ThingUse = Extract<ObjectUse, { kind: 'jukebox' | 'youtube' | 'records' | 'meetings' | 'library' | 'clock' | 'achievements' | 'calendar' | 'link' }>;
 export function roomThings(map: TileMap, room: Room): (MapObject & { use: ThingUse })[] {
   const seen = new Set<string>();
   return map.objects.filter((o): o is MapObject & { use: ThingUse } => {
     if (!o.use || !THINGS.has(o.use.kind)) return false;
-    const owner = roomAt(map, o.x, o.y) ?? roomAt(map, o.x, o.y + o.h) ?? roomAt(map, o.x, o.y + o.h + 1);
-    const key = o.use.kind === 'jukebox' ? o.id : o.use.kind;
+    const owner = o.use.kind === 'youtube' ? map.rooms.find(r => r.id === (o.use as { room: string }).room)
+      : roomAt(map, o.x, o.y) ?? roomAt(map, o.x, o.y + o.h) ?? roomAt(map, o.x, o.y + o.h + 1);
+    const key = o.use.kind === 'jukebox' || o.use.kind === 'youtube' ? o.id : o.use.kind;
     if (owner?.id !== room.id || seen.has(key)) return false;
     seen.add(key); return true;
   });

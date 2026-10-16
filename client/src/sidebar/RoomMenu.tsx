@@ -4,8 +4,8 @@ import { underground } from '../../../shared/protocol';
 import { roomThings } from './model';
 import { useSurface } from './hooks';
 export type RoomAnchor = { id: string; x: number; y: number };
-export function RoomMenu({ store, engine, at, compact, onClose, onAction }: {
-  store: Store; engine: Engine | null; at: RoomAnchor; compact: boolean; onClose: () => void; onAction: () => void;
+export function RoomMenu({ store, engine, at, compact, onClose, onAction, onTv }: {
+  store: Store; engine: Engine | null; at: RoomAnchor; compact: boolean; onClose: () => void; onAction: () => void; onTv: (id: string) => void;
 }) {
   const surface = useSurface(store, at, compact, onClose);
   const room = MAP.rooms.find(r => r.id === at.id), me = store.users.get(store.me);
@@ -21,13 +21,14 @@ export function RoomMenu({ store, engine, at, compact, onClose, onAction }: {
         {room.rules.voice === 'open' ? 'Walk in and talk' : 'Walk here'}{reason && <small>{reason}</small>}</button>
       {roomThings(MAP, room).map(o => {
         const use = o.use!;
-        const label = use.kind === 'jukebox' ? `${use.label.replace(/^./, c => c.toUpperCase())}: now playing`
+        const label = use.kind === 'jukebox' ? `${use.label.replace(/^./, c => c.toUpperCase())}: now playing` : use.kind === 'youtube' ? `TV: ${use.label}`
           : use.kind === 'records' ? 'Arcade records' : use.kind === 'meetings' ? 'Meetings on now'
           : use.kind === 'library' ? 'Library shelf' : use.kind === 'clock' ? 'Our time zones'
           : use.kind === 'achievements' ? 'Achievements board' : use.kind === 'calendar' ? 'Your calendar' : `Open the ${use.label}`;
         const run = () => {
           switch (use.kind) {
             case 'jukebox': return store.openJukebox(o.id);
+            case 'youtube': return onTv(o.id);
             case 'records': return store.openRecords();
             case 'meetings': return store.openMeetings();
             case 'library': return store.openLibrary();

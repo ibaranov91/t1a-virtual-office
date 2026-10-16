@@ -13,6 +13,7 @@ import { ArcadeOverlay, RecordsPopover } from './park/ArcadeOverlay';
 import { LofiTV } from './LofiTV';
 import { Soundscape } from './soundscape';
 import { needsGesture, resume } from './audio';
+import { prefs, savePrefs } from './prefs';
 import { ITEMS, MAP, Store, type ClientUser } from './net';
 import { inNativeApp, syncNative } from './native';
 import { ExternalLink } from './links';
@@ -255,7 +256,7 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
         {personMenu && <PersonCard key={personMenu.id} store={store} engine={engine} assets={assets} at={personMenu} compact={isCompact}
           onClose={() => setPersonMenu(null)} onAction={() => { setPersonMenu(null); setShowRooms(false); sidebarRef.current?.close(); }}
           onAppearance={() => setShowAppearance(s => me?.lookSet ? !s : true)} />}
-        {roomMenu && <RoomMenu key={roomMenu.id} store={store} engine={engine} at={roomMenu} compact={isCompact}
+        {roomMenu && <RoomMenu key={roomMenu.id} store={store} engine={engine} at={roomMenu} compact={isCompact} onTv={setTv}
           onClose={() => setRoomMenu(null)} onAction={() => { setRoomMenu(null); setShowRooms(false); sidebarRef.current?.close(); }} />}
         {store.seat && <InstrumentPanel key={store.seat} store={store} id={store.seat}
           dialogOpen={!!(showAppearance || showMeet || store.pendingKnock || store.calendarOpen || store.laterOpen || store.meetingsOpen || store.clockOpen || store.jukeboxOpen || store.libraryOpen || !!me?.reading || store.achievementsOpen || store.presentOpen || store.roomOpen || store.chatWith || personMenu || roomMenu || pick)} />}
