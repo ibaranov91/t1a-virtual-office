@@ -11,6 +11,7 @@ import { Avatar } from './Avatar';
 import { overlayOpen } from './hooks';
 import { Icon, IconButton } from '../Icon';
 import { VoiceToggle } from '../VoiceToggle';
+import { REACH_TITLE, reachLabel } from '../voiceReach';
 
 
 export function EnableSound() {
@@ -193,19 +194,28 @@ export function voiceState(voice: Voice | null) {
   if (voice.deafened) return 'deafened';
   if (voice.micError) return 'listen-only';
   if (voice.muted) return 'muted';
-  if (voice.connectedCount() < voice.peerCount()) return 'connecting…';
+  if (voice.peerCount() > 0 && voice.connectedCount() === 0) return 'connecting…'; // one unreachable peer is named, not a whole call shown as connecting
   if (voice.mode === 'ptt') return 'hold Space to talk';
   return 'live';
 }
 
+/** "Can't reach Kim" once the call is live but a peer never connected; polled, since the grace period passes without an event. */
+function useUnreachable(store: Store, voice: Voice | null) {
+  const [, tick] = useState(0);
+  useEffect(() => { const t = setInterval(() => tick(n => n + 1), 2000); return () => clearInterval(t); }, []);
+  if (!voice || voice.onMeet || voice.connectedCount() === 0) return '';
+  return reachLabel(voice.unreachable().map(id => store.name(id)));
+}
+
 /** Knock calls keep the shared Meet link. */
 export function CallChip({ store, voice }: { store: Store; voice: Voice | null }) {
-  const me = store.users.get(store.me); if (!me?.callId) return null;
+  const me = store.users.get(store.me), unreachable = useUnreachable(store, voice);
+  if (!me?.callId) return null;
   const state = voiceState(voice), peers = store.callPeers(me);
   const meet = store.callLink && MEET_LINK_RE.test(store.callLink) ? store.callLink : null;
   return <div className="desk-chip call-chip knock-panel">
     <span className={`dot ${state === 'live' ? 'live' : ''}`} />
-    <span>Talking with {store.names(peers)} <small>· {state}</small></span>
+    <span>Talking with {store.names(peers)} <small>· {state}</small>{unreachable && <small className="cant-reach" title={REACH_TITLE}>{unreachable}</small>}</span>
     <VoiceToggle kind="mic" voice={voice} disabled={!store.connected || !store.voiceOwner} /><VoiceToggle kind="headphones" voice={voice} disabled={!store.connected || !store.voiceOwner} savedDeafened={prefs.deafened} /><IconButton icon="disconnect" label="Leave call" className="end" onClick={() => store.endCall()} />
     {voice?.onMeet && <button onClick={() => voice.setOnMeet(false)}>Use Deck voice</button>}
     {meet && <ExternalLink href={meetAs(meet, store.meetAccount)} onOpen={() => { voice?.setOnMeet(); store.moveToMeet(); }}>Move to Meet</ExternalLink>}
@@ -235,7 +245,7 @@ export function RoomVoiceChip({ store, voice }: { store: Store; voice: Voice | n
 
 
 export function SelfPanel({ store, voice, assets, onProfile }: { store: Store; voice: Voice | null; assets: Assets | null; onProfile: (opener: HTMLButtonElement) => void }) {
-  const me = store.users.get(store.me), room = store.roomCallOf(me);
+  const me = store.users.get(store.me), room = store.roomCallOf(me), unreachable = useUnreachable(store, voice);
   const roomVoice = !!me && !!room && !!voice?.inRoomCall && store.voiceOwner && !me.instance && store.roomOf(me)?.id === room.id;
   const waitRoom = store.voiceWait ? MAP.rooms.find(r => r.id === store.voiceWait) : undefined;
   const meet = store.callLink && MEET_LINK_RE.test(store.callLink) ? store.callLink : null;
@@ -249,7 +259,7 @@ export function SelfPanel({ store, voice, assets, onProfile }: { store: Store; v
   const connected = (where: string, title: string, leave: () => void, leaveLabel: string, extras: React.ReactNode) => <>
     <div className="sb-voice-top">
       <span className={`sb-voice-tile${connecting ? ' connecting' : ''}`}><Icon name="signal" /></span>
-      <div className="sb-voice-text" title={title}><strong className={connecting ? 'connecting' : ''}>{voice?.onMeet ? 'On Meet' : connecting ? 'Connecting…' : 'Voice Connected'}</strong><small>{where}</small></div>
+      <div className="sb-voice-text" title={title}><strong className={connecting ? 'connecting' : ''}>{voice?.onMeet ? 'On Meet' : connecting ? 'Connecting…' : 'Voice Connected'}</strong><small>{where}</small>{unreachable && <small className="cant-reach" title={REACH_TITLE}>{unreachable}</small>}</div>
       <IconButton icon="disconnect" label={leaveLabel} title={leaveLabel} className="sb-disconnect" onClick={leave} />
     </div>
     {(extras || voice?.onMeet) && <div className="sb-voice-actions">{voice?.onMeet && <button onClick={() => voice.setOnMeet(false)}>Use Deck voice</button>}{extras}</div>}
