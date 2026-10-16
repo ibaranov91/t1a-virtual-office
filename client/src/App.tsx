@@ -1353,7 +1353,7 @@ function VoiceIcons({ store, voice, dock }: { store: Store; voice: Voice | null;
   }, [pop]);
   useEffect(() => { if (!elsewhere && pop === 'claim') setPop(null); }, [elsewhere]);
   const err = voice?.micError ?? null;
-  const muted = voice?.muted ?? true, deaf = voice?.deafened ?? prefs.deafened, ptt = (voice?.mode ?? prefs.mode) === 'ptt';
+  const muted = voice?.muted ?? true, deaf = voice?.deafened ?? prefs.deafened, micOff = muted || deaf, ptt = (voice?.mode ?? prefs.mode) === 'ptt';
   const btn = (cls: string, icon: React.ReactNode, label: string, title: string, short: string, onClick: () => void, extra: { disabled?: boolean; pressed?: boolean; badge?: boolean } = {}) =>
     <button className="vbtn chip" data-state={cls} disabled={extra.disabled} aria-label={label} aria-pressed={extra.pressed} title={title} onClick={onClick}>
       {icon}{extra.badge && <b className="vbadge" aria-hidden="true" />}{dock && <small>{short}</small>}</button>;
@@ -1361,12 +1361,12 @@ function VoiceIcons({ store, voice, dock }: { store: Store; voice: Voice | null;
   const away = 'Voice is on in another tab';
   return <div className={`voice-icons${dock ? ' in-dock' : ''}`} ref={ref} role="group" aria-label="Your voice controls">
     {elsewhere
-      ? btn('off elsewhere', <VIcon name="mic" off={muted} />, 'Voice is in another tab', `${away} · click to use voice here`, 'Voice',
+      ? btn('off elsewhere', <VIcon name="mic" off={micOff} />, 'Voice is in another tab', `${away} · click to use voice here`, 'Voice',
         () => setPop(p => (p === 'claim' ? null : 'claim')), { pressed: pop === 'claim', badge: true })
       : !me?.callId ? btn('idle', <VIcon name="mic" />, 'Microphone not in use', 'Mic not in use · knock on someone or walk into Coffee or the Arcade to talk', 'Mic', () => {}, { disabled: true })
-      : btn(err ? 'err' : muted ? 'muted' : 'live', <VIcon name="mic" off={muted} />, muted ? 'Unmute' : 'Mute',
-        err ?? (muted ? 'Muted · click to unmute' : ptt ? 'Mic on · hold Space to talk (click to mute)' : 'Mic live · click to mute') + (ptt && muted ? ' · Space to talk once unmuted' : ''),
-        muted ? 'Unmute' : 'Mic', () => voice?.toggleMute(), { disabled: !owner || !voice, pressed: muted })}
+      : btn(err ? 'err' : micOff ? 'muted' : 'live', <VIcon name="mic" off={micOff} />, deaf ? 'Hear again' : muted ? 'Unmute' : 'Mute',
+        err ?? (deaf ? 'Deafened, so your mic is off · click to hear again' : muted ? 'Muted · click to unmute' : ptt ? 'Mic on · hold Space to talk (click to mute)' : 'Mic live · click to mute') + (ptt && muted ? ' · Space to talk once unmuted' : ''),
+        deaf ? 'Deaf' : muted ? 'Unmute' : 'Mic', () => (deaf ? voice?.toggleDeafen() : voice?.toggleMute()), { disabled: !owner || !voice, pressed: micOff })}
     {btn(elsewhere ? 'off' : deaf ? 'off' : 'live', <VIcon name="speaker" off={deaf} />, deaf ? 'Undeafen' : 'Deafen', elsewhere ? away : deaf ? 'Deafened · click to hear again' : 'Hearing everyone · click to deafen',
       deaf ? 'Deaf' : 'Hear', () => voice?.toggleDeafen(), { disabled: !owner || !voice, pressed: deaf })}
     {btn(me?.hand && room ? 'live' : 'off', <VIcon name="hand" />, me?.hand ? 'Lower hand' : 'Raise hand',
