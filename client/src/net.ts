@@ -572,8 +572,8 @@ export class Store {
       }
       case 'creatures': this.creatures = new Map(msg.creatures.map(c => [c.id, c])); break;
       case 'creature': {
-        const was = this.creatures.get(msg.creature.id), me = this.users.get(this.me), c = msg.creature;
-        if (c.pose === 'pet' && was?.pose !== 'pet' && me && Math.hypot(me.tile.x - c.tile.x, me.tile.y - c.tile.y) < 8) playPet(c.kind === 'dog');
+        const was = this.creatures.get(msg.creature.id), c = msg.creature;
+        if (c.pose === 'pet' && was?.pose !== 'pet' && msg.by === this.me) playPet(c.kind === 'dog');
         this.creatures.set(c.id, c); break;
       }
       case 'cups': this.cups = msg.cups; break;
