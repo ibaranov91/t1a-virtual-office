@@ -8,6 +8,8 @@
 #     <name> -> /opt/deck-<name>, deck-<name>.service, /etc/deck-<name>.env
 #   DECK_SSH_HOST overrides the ssh host (default: Hetzner2-vOffice, as in ~/.ssh/config).
 #   DECK_ALLOW_ADHOC=1 lets a deploy replace the instance's signed Mac app anyway (see the Mac app step).
+#   Prod takes only a clean checkout of the head of origin/main; other instances take this checkout as it is.
+#   One deploy per instance at a time from any machine (a lock on the box); the commit lands in <app>/.deployed-rev.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -32,7 +34,45 @@ case "$LOGIN" in
   *) echo "instance '$NAME': login must be sso or pin, got '$LOGIN'" >&2; exit 1 ;;
 esac
 
-echo "→ deploying '$NAME' ($OWNER, login: $LOGIN) to $HOST:$PORT  →  $URL"
+REV=$(git rev-parse HEAD)
+DIRTY=$([ -z "$(git status --porcelain)" ] || echo "+dirty")
+WHO=$(git config user.email 2>/dev/null || whoami)
+# Prod runs exactly the head of origin/main from a clean checkout: never a branch, a working copy or an older
+# commit, because a stale deploy silently undoes the newer ones.
+main_head() { git fetch -q origin main && git rev-parse origin/main; }
+if [ "$NAME" = prod ]; then
+  HEAD_REV=$(main_head)
+  if [ -n "$DIRTY" ] || [ "$REV" != "$HEAD_REV" ]; then
+    echo "✗ prod deploys only a clean checkout of the head of origin/main (${HEAD_REV:0:7}); this one is ${REV:0:7}$DIRTY." >&2
+    echo "  git fetch origin && git worktree add --detach ../deck-prod origin/main && cd ../deck-prod && npm ci && scripts/deploy.sh" >&2
+    exit 1
+  fi
+fi
+
+# One deploy per instance at a time, from any machine: a lock on the box, held for the whole deploy. A lock
+# older than 20 minutes belongs to a deploy that died and is taken over.
+LOCK=/tmp/deck-deploy-$NAME.lockdir LOCKED=
+cleanup() { [ -z "${SERVED:-}" ] || rm -rf "$SERVED"; [ -z "$LOCKED" ] || ssh "$HOST" "rm -rf $LOCK" || true; }
+trap cleanup EXIT
+for try in $(seq 60); do
+  ssh "$HOST" "find $LOCK -maxdepth 0 -mmin +20 -exec rm -rf {} + 2>/dev/null; mkdir $LOCK 2>/dev/null && echo '$WHO ${REV:0:7}$DIRTY' > $LOCK/owner" && { LOCKED=1; break; }
+  [ "$try" = 60 ] && { echo "✗ gave up waiting for the deploy lock of '$NAME'" >&2; exit 1; }
+  echo "→ waiting for another deploy of '$NAME': $(ssh "$HOST" "cat $LOCK/owner 2>/dev/null" || true)"; sleep 10
+done
+if [ "$NAME" = prod ]; then
+  HEAD_REV=$(main_head)
+  if [ "$REV" != "$HEAD_REV" ]; then
+    echo "✗ main moved to ${HEAD_REV:0:7} while this deploy waited: check out the new head and deploy that (it includes ${REV:0:7})." >&2
+    exit 1
+  fi
+  DEPLOYED=$(ssh "$HOST" "cut -d' ' -f1 $APP/.deployed-rev 2>/dev/null" || true)
+  if [ "$DEPLOYED" = "$REV" ]; then echo "✓ prod already runs ${REV:0:7}, the head of main: nothing to deploy"; exit 0; fi
+  if [ -n "$DEPLOYED" ] && git merge-base --is-ancestor "$REV" "$DEPLOYED" 2>/dev/null; then
+    echo "✗ prod runs ${DEPLOYED:0:7}, which is newer than ${REV:0:7}: refusing to go back" >&2; exit 1
+  fi
+fi
+
+echo "→ deploying '$NAME' at ${REV:0:7}$DIRTY ($OWNER, login: $LOGIN) to $HOST:$PORT  →  $URL"
 npm run build -w client
 # The Mac app ships with the instance (macos/dist). Only a Mac can build it; elsewhere, deploy without it.
 # Installed apps only take an update from their own signer, so a deploy must never swap a signed app for an
@@ -46,7 +86,7 @@ else
   if [ -f "$KC" ]; then WHY="the Mac app build failed"; FIX="fix the build (macos/build.sh --dist $NAME)"; ANYWAY="without a Mac app"
   else WHY="this Mac has no T1A Deck signing identity"; ANYWAY="with an ad-hoc Mac app"
     FIX="import the shared identity, not a new one: DECK_P12_PASSWORD=… macos/make-cert.sh import <p12>"; fi
-  SERVED=$(mktemp -d); trap 'rm -rf "$SERVED"' EXIT
+  SERVED=$(mktemp -d) # removed by cleanup
   SIGNED=false
   if [ -n "$(ssh "$HOST" "cat $APP/macos/dist/manifest.json 2>/dev/null || true")" ]; then
     rsync -az "$HOST:$APP/macos/dist/" "$SERVED/"
@@ -71,7 +111,7 @@ else
   fi
 fi
 rsync -az --delete \
-  --exclude node_modules --exclude data --exclude .claude --exclude '*.log' \
+  --exclude node_modules --exclude data --exclude .claude --exclude .git --exclude '*.log' \
   --exclude macos/.build --exclude macos/build \
   ./ "$HOST:$SRC/"
 
@@ -88,7 +128,7 @@ done
 
 sudo id deck >/dev/null 2>&1 || sudo useradd --system --home /opt/the-deck --shell /usr/sbin/nologin deck
 sudo mkdir -p $APP/data
-sudo rsync -a --delete --exclude data --exclude node_modules $SRC/ $APP/
+sudo rsync -a --delete --exclude data --exclude node_modules --exclude .deployed-rev $SRC/ $APP/
 cd $APP && sudo npm ci --no-audit --no-fund --loglevel=error
 sudo chown -R deck:deck $APP
 
@@ -136,5 +176,6 @@ sudo systemctl restart $SVC
 sleep 2
 systemctl is-active $SVC
 curl -fsS http://$BIND:$PORT/api/health; echo
+echo "$REV$DIRTY $WHO $(date -u +%FT%TZ)" | sudo tee $APP/.deployed-rev >/dev/null
 EOF
-echo "✓ $NAME is up: $URL"
+echo "✓ $NAME is up at ${REV:0:7}$DIRTY: $URL"
