@@ -56,7 +56,9 @@ button.netbird small { font-weight: var(--fw-medium); font-size: var(--fs-sm); o
 .chip.ghost { background: transparent; color: var(--muted); padding: 0 8px; }
 .top-more { display: contents; }
 .more-btn { display: none; font-size: var(--fs-md); }
-.brand { font-weight: var(--fw-heavy); color: var(--accent); letter-spacing: .5px; font-size: var(--fs-lg); white-space: nowrap; }
+.brand { position: relative; font-weight: var(--fw-heavy); color: var(--accent); letter-spacing: .5px; font-size: var(--fs-lg); white-space: nowrap; }
+.brand.brand-drawn { color: transparent; } /* the canvas draws it (logo.ts); the text keeps its size and stays for screen readers */
+.brand-canvas { position: absolute; pointer-events: none; }
 .id-wrap { position: relative; min-width: 0; display: flex; }
 .id-pill { padding: 0; gap: 0; min-width: 0; max-width: 100%; overflow: hidden; }
 .id-pill button { height: 100%; background: transparent; box-shadow: none; color: var(--text); border-radius: 0; }

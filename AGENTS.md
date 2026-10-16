@@ -188,6 +188,11 @@ npm run typecheck    # run before every commit or deploy
   "Gift a hat" (`gift_hat`), which puts `hat:<style>` in their pockets (even offline) and on their head.
 - **Vacation:** calendar absences (`shared/vacation.ts`, `server/src/vacations.ts`) put offline people on the Beach/Mountains activity loop (`server/src/beach.ts`). `onMap` in `shared/beach.ts` includes these walkers and their door transitions for drawing and occupancy; interaction checks still require presence. Client poses follow terrain and seats for everyone; `lie` furniture has one top-row centre seat, drawn sideways (hammocks swing). The 🌴 nameplate, People’s On vacation group and gate sign panel show current vacationers; `Vacation.tsx` formats calendar-date returns without timezone conversion. Offline walkers have a Message-only wheel; native knocks stay quiet while on vacation.
   The shared Travel&Day-off calendar (`VACATION_TEAM_CALENDAR`, empty disables) also supplies time off by attendee/creator email or normalized name; Business Trip/travel does not count.
+- **Logo show** (`client/src/logo.ts`, `BrandLogo.tsx`): "The Deck" in the top bar is drawn on a canvas. Three people who
+  are in (their sprites at half size) toss it together, hop for the ta-da and leave; it rests 60-90 s with no frames
+  drawn; then a stripe of code rain crumbles it and the next crew builds it again. Motion is a pure function of
+  (layout, seed, time), tested in `logo.test.ts`; in dev `__deckLogo.seek(ms)` jumps within the cycle. Reduced motion
+  shows the plain text.
 - **Room behavior is data.** Knock rules, meeting links and home-desk rooms live in `tilemap.json`
   (from `gen-map.mjs`), not in code.
 - **Refreshments:** taking a cocktail applies `drunk` (three strength levels, up to three minutes); coconut removes

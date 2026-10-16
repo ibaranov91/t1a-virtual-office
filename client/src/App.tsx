@@ -12,6 +12,7 @@ import { RetroOverlay } from './retro/RetroOverlay';
 import { INSTRUMENTS, DRUM_PADS, VELOCITIES, VELOCITY_START, keyNote, noteName, type InstrumentKind } from '../../shared/instruments';
 import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { loadAssets, type Assets } from './assets';
+import { BrandLogo } from './BrandLogo';
 import { Engine, type Pick } from './engine';
 import { Voice } from './voice';
 import { Icon, IconButton } from './Icon';
@@ -245,7 +246,7 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
   return (
     <div className="office">
       <div className="office-chrome" ref={chromeRef}>
-      <TopBar store={store} voice={voice} roomName={myRoom?.name}
+      <TopBar store={store} assets={assets} voice={voice} roomName={myRoom?.name}
         onToggleMeet={() => setShowMeet(s => !s)} onProfile={openProfile}
         editing={editing} onToggleEdit={() => setEditing(e => !e)} gmOpen={gmOpen} onToggleGm={() => { setGmOpen(o => !o); setPocketsOpen(false); }} />
       <div className="workspace">
@@ -392,8 +393,8 @@ function InstrumentPanel({ store, id, dialogOpen }: { store: Store; id: string; 
   </section>;
 }
 
-function TopBar({ store, voice, roomName, onToggleMeet, onProfile, editing, onToggleEdit, gmOpen, onToggleGm }: {
-  store: Store; voice: Voice | null; roomName?: string; onToggleMeet: () => void; onProfile: (opener: HTMLButtonElement) => void;
+function TopBar({ store, assets, voice, roomName, onToggleMeet, onProfile, editing, onToggleEdit, gmOpen, onToggleGm }: {
+  store: Store; assets: Assets | null; voice: Voice | null; roomName?: string; onToggleMeet: () => void; onProfile: (opener: HTMLButtonElement) => void;
   editing: boolean; onToggleEdit: () => void; gmOpen: boolean; onToggleGm: () => void;
 }) {
   const me = store.users.get(store.me);
@@ -408,7 +409,7 @@ function TopBar({ store, voice, roomName, onToggleMeet, onProfile, editing, onTo
   return (
     <header className="topbar">
       <div className="top-left">
-        <span className="brand">The Deck</span>
+        <BrandLogo store={store} assets={assets} />
         {isCompact && me && <IdentityPill store={store} onProfile={onProfile} roomName={roomName} />}
       </div>
       <div className="top-right">
