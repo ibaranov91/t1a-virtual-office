@@ -9,6 +9,7 @@ import { needsGesture, resume } from './audio';
 import { prefs, savePrefs, type Category } from './prefs';
 import { ITEMS, MAP, Store, type ClientUser } from './net';
 import { inNativeApp, syncNative } from './native';
+import { fakeShare } from './share';
 import { LiveChip, PresentPanel, SlideOverlay } from './Presentation';
 import { LibraryPanel, ReadingOverlay } from './Library';
 import { ACHIEVEMENTS, underground, dayNumber, JUKEBOX_PER_PERSON, JUKEBOX_QUEUE_MAX, MAX_CHAT_LEN, MEET_LINK_RE, meetAs, normalizeMeetLink, kindName, PLANT_DIES_DAYS, PLANT_KINDS, PLANT_REVEAL, PLANT_STAGES, plantDead, plantName, REACTIONS, TOILET_CAPACITY, TOILET_SHELF_ITEM, TOILET_SHELF_MAX, TOILET_USE_MS, toiletFull, type JukeboxState, type Plant } from '../../shared/protocol';
@@ -168,7 +169,7 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
     e.onZoom = () => tick(n => n + 1);
     e.onEditChange = () => { setEditing(e.editing); tick(n => n + 1); };
     engineRef.current = e; setEngine(e);
-    if (import.meta.env.DEV) Object.assign(window, { __deck: { store, engine: e } });
+    if (import.meta.env.DEV) Object.assign(window, { __deck: { store, engine: e, share: { fake: (id?: string) => fakeShare(store, id) } } });
     return () => { e.destroy(); setEngine(null); };
   }, [assets, store]);
   useEffect(() => { const i = setInterval(() => { tick(n => n + 1); store.checkAgenda(); }, 1000); return () => clearInterval(i); }, [store]);
