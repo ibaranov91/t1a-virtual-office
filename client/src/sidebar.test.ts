@@ -3,12 +3,13 @@ import assert from 'node:assert/strict';
 import mapJson from '../../shared/tilemap.json';
 import { roomAt, type TileMap } from '../../shared/map';
 import { INSTRUMENTS } from '../../shared/instruments';
+import { OFFICE_SCOPE } from '../../shared/protocol';
 import type { ClientUser } from './net';
 import { activityLine, channelTree, GROUPS, peopleGroups, place, roomGroup, roomThings, type View } from './sidebar/model';
 const map = mapJson as unknown as TileMap;
 const room = (id: string) => map.rooms.find(r => r.id === id)!;
 function user(id: string, name = id, roomId = 'coffee', extra: Partial<ClientUser> = {}): ClientUser {
-  return { id, name, look: { skin: '#fff', hair: '#000', shirt: '#000', pants: '#000', eyes: '#000', shoes: '#000', glassesColor: '#000', hatColor: '#000', style: 0, top: 0, bottom: 0, glasses: 0, hat: 0 },
+  return { id, name, look: { skin: '#fff', hair: '#000', shirt: '#000', pants: '#000', eyes: '#000', shoes: '#000', glassesColor: '#000', hatColor: '#000', style: 0, top: 0, bottom: 0, glasses: 0, hat: 0, beard: 0, mustache: 0 },
     lookSet: true, tile: { x: room(roomId).rect.x, y: room(roomId).rect.y }, dir: 'down', move: null, presence: 'online', status: '', emote: null, bot: false, door: null, homeDesk: null,
     callId: null, game: null, deafened: false, hand: false, muted: false, following: null, holding: null, reading: null, meeting: null, instance: null, plant: null, bloomed: [], achievements: {}, effects: [], path: null, prev: null, faceOverride: null, ...extra };
 }
@@ -34,7 +35,7 @@ test('group order, live groups, instances, offline and stable person ordering', 
   assert.deepEqual(tree[0].rooms.find(r => r.room.id === 'coffee')!.people.map(u => u.id), ['me', 'a', 'z']);
   assert.equal(tree[0].count, 3);
   for (const id of ['meetings', 'underground', 'hall', 'offline']) assert.equal(tree.find(g => g.id === id)!.people.length, 1);
-  assert.equal(place(v, v.users.get('mt')!), 'In a meeting');
+  assert.equal(place(v, v.users.get('mt')!), 'In a meeting room');
   assert.equal(place(v, v.users.get('d')!), 'Underground');
   assert.equal(place(v, v.users.get('h')!), 'Hallway');
 });
@@ -93,16 +94,17 @@ test('room things include wall fixtures, dedupe clocks and exclude on-site actio
   const duplicate = { ...boxes[0], id: 'second-box' };
   assert.equal(roomThings({ ...map, objects: [...map.objects, duplicate] }, room('music')).length, 2);
 });
-test('counts/full exclude instances/offline, and subtitle reflects music/presentation', () => {
-  const capacity = room('coffee').capacity;
-  const v = view(...Array.from({ length: capacity }, (_, i) => user(`${i}`)), user('off', 'off', 'coffee', { presence: 'offline' }), user('instance', 'Instance', 'coffee', { instance: 'event' }));
+test('counts exclude instances/offline, and subtitle reflects music/presentation', () => {
+  const v = view(user('0'), user('1'), user('2'), user('off', 'off', 'coffee', { presence: 'offline' }), user('instance', 'Instance', 'coffee', { instance: 'event' }));
   const coffee = () => channelTree(v, map)[0].rooms.find(r => r.room.id === 'coffee')!;
-  assert.equal(coffee().count, capacity); assert.equal(coffee().full, true);
-  v.users.delete('0'); assert.equal(coffee().full, false);
+  assert.equal(coffee().count, 3);
+  v.users.delete('0'); assert.equal(coffee().count, 2);
   const box = roomThings(map, room('music'))[0];
   v.jukebox[box.id] = { playId: 'play', track: 'unknown-track', by: null, startedAt: 0, pausedAt: null, queue: [], last: null };
   const music = () => channelTree(v, map).flatMap(g => g.rooms).find(r => r.room.id === 'music')!;
   assert.equal(music().subtitle, '♪ unknown-track'); v.jukebox[box.id].pausedAt = 1; assert.equal(music().subtitle, 'paused');
-  v.presentation = { deck: { id: 'deck', title: 'Demo', count: 1, ext: ['png'], by: 'me', at: 0 }, slide: 0, presenter: 'me', objectId: 'screen', room: 'focus' };
-  assert.equal(channelTree(v, map).flatMap(g => g.rooms).find(r => r.room.id === 'focus')!.subtitle, '📽 live');
+  v.presentation = { scope: OFFICE_SCOPE, deck: null, slide: 0, presenter: 'me', objectId: 'screen', room: 'focus' };
+  const focus = () => channelTree(v, map).flatMap(g => g.rooms).find(r => r.room.id === 'focus')!;
+  assert.equal(focus().subtitle, '📽 live');
+  v.presentation = { ...v.presentation, scope: 'event' }; assert.equal(focus().subtitle, ''); // a meeting room's show stays inside it
 });

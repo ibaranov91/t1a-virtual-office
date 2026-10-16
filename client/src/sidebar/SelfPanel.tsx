@@ -114,7 +114,7 @@ export function VoiceIcons({ store, voice, dock, rail }: { store: Store; voice: 
   }, [pop]);
   useEffect(() => { if (!elsewhere && pop === 'claim') setPop(null); }, [elsewhere]);
   const err = voice?.micError ?? null;
-  const muted = voice?.muted ?? true, deaf = voice?.deafened ?? prefs.deafened, ptt = (voice?.mode ?? prefs.mode) === 'ptt';
+  const muted = voice?.muted ?? true, deaf = voice?.deafened ?? prefs.deafened, micOff = muted || deaf, ptt = (voice?.mode ?? prefs.mode) === 'ptt';
   const btn = (cls: string, icon: React.ReactNode, label: string, title: string, short: string, onClick: () => void, extra: { disabled?: boolean; pressed?: boolean; badge?: boolean } = {}) =>
     <button className="vbtn chip" data-state={cls} disabled={extra.disabled} aria-label={label} aria-pressed={extra.pressed} title={title} onClick={onClick}>
       {icon}{extra.badge && <b className="vbadge" aria-hidden="true" />}{dock && <small>{short}</small>}</button>;
@@ -122,12 +122,12 @@ export function VoiceIcons({ store, voice, dock, rail }: { store: Store; voice: 
   const away = 'Voice is on in another tab';
   return <div className={`voice-icons${dock ? ' in-dock' : ''}${rail ? ' in-rail' : ''}`} ref={ref} role="group" aria-label="Your voice controls">
     {elsewhere
-      ? btn('off elsewhere', <VIcon name="mic" off={muted} />, 'Voice is in another tab', `${away} · click to use voice here`, 'Voice',
+      ? btn('off elsewhere', <VIcon name="mic" off={micOff} />, 'Voice is in another tab', `${away} · click to use voice here`, 'Voice',
         () => setPop(p => (p === 'claim' ? null : 'claim')), { pressed: pop === 'claim', badge: true })
       : !me?.callId ? btn('idle', <VIcon name="mic" />, 'Microphone not in use', 'Mic not in use · knock on someone or walk into Coffee or the Arcade to talk', 'Mic', () => {}, { disabled: true })
-      : btn(err ? 'err' : muted ? 'muted' : 'live', <VIcon name="mic" off={muted} />, muted ? 'Unmute' : 'Mute',
-        err ?? (muted ? 'Muted · click to unmute' : ptt ? 'Mic on · hold Space to talk (click to mute)' : 'Mic live · click to mute') + (ptt && muted ? ' · Space to talk once unmuted' : ''),
-        muted ? 'Unmute' : 'Mic', () => voice?.toggleMute(), { disabled: !owner || !voice, pressed: muted })}
+      : btn(err ? 'err' : micOff ? 'muted' : 'live', <VIcon name="mic" off={micOff} />, deaf ? 'Hear again' : muted ? 'Unmute' : 'Mute',
+        err ?? (deaf ? 'Deafened, so your mic is off · click to hear again' : muted ? 'Muted · click to unmute' : ptt ? 'Mic on · hold Space to talk (click to mute)' : 'Mic live · click to mute') + (ptt && muted ? ' · Space to talk once unmuted' : ''),
+        deaf ? 'Deaf' : muted ? 'Unmute' : 'Mic', () => (deaf ? voice?.toggleDeafen() : voice?.toggleMute()), { disabled: !owner || !voice, pressed: micOff })}
     {btn(elsewhere ? 'off' : deaf ? 'off' : 'live', <VIcon name="speaker" off={deaf} />, deaf ? 'Undeafen' : 'Deafen', elsewhere ? away : deaf ? 'Deafened · click to hear again' : 'Hearing everyone · click to deafen',
       deaf ? 'Deaf' : 'Hear', () => voice?.toggleDeafen(), { disabled: !owner || !voice, pressed: deaf })}
     {(!rail || room) && btn(me?.hand && room ? 'live' : 'off', <VIcon name="hand" />, me?.hand ? 'Lower hand' : 'Raise hand',
@@ -205,12 +205,13 @@ export function RoomVoiceChip({ store, voice }: { store: Store; voice: Voice | n
 export function SelfPanel({ store, voice, assets }: { store: Store; voice: Voice | null; assets: Assets | null }) {
   const me = store.users.get(store.me), room = store.roomCallOf(me);
   const roomVoice = !!me && !!room && !!voice?.inRoomCall && store.voiceOwner && !me.instance && store.roomOf(me)?.id === room.id;
+  const waitRoom = store.voiceWait ? MAP.rooms.find(r => r.id === store.voiceWait) : undefined; // a meeting room's line shows on its own chip
   return <div className="sb-self sb-up">
     <div className="sb-voice" title={earshotLine(store)}>
       {store.connected && !store.voiceOwner ? <div>Voice is on in another tab <button onClick={() => store.claimVoice()}>Use voice here</button></div>
-        : me?.callId && !room && store.voiceOwner ? <CallChip store={store} voice={voice} />
+        : me?.callId && !me.instance && !room && store.voiceOwner ? <CallChip store={store} voice={voice} />
         : roomVoice ? <RoomVoiceChip store={store} voice={voice} />
-        : store.voiceWait ? <div>Waiting for a spot in {MAP.rooms.find(r => r.id === store.voiceWait)?.name ?? 'room'} voice</div> : null}
+        : waitRoom && !me?.instance ? <div>Waiting for a spot in {waitRoom.name} voice</div> : null}
     </div>
     <div className="sb-identity"><IdentityPill store={store} assets={assets} /><VoiceIcons store={store} voice={voice} /></div>
   </div>;

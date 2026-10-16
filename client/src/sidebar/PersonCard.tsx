@@ -39,6 +39,7 @@ export function PersonCard({ store, engine, assets, at, compact, onClose, onActi
           <button data-action onClick={() => act(() => store.openChat(u.id))}>Message</button>
           <button data-action disabled={!!walk || !engine} onClick={() => act(() => engine?.walkToUser(u.id))}>Walk over</button>
           <button data-action className={following ? 'on' : ''} aria-pressed={following} disabled={!!follow} onClick={() => store.follow(following ? null : u.id)}>{following ? 'Unfollow' : 'Follow'}</button>
+          {!away && !store.roomReason(u) && <button data-action title={`Take ${u.name.split(' ')[0]} to a private room`} onClick={() => act(() => store.createRoom([u.id]))}>Private room</button>}
           {store.admin && me && !me.instance && !u.instance && !away && !offline && <button data-action onClick={() => act(() => store.teleport(u.id))}>Teleport</button>}
           {store.admin && !u.bot && <button data-action onClick={() => act(() => { const v = window.prompt(`New name for ${u.name}`, u.name); if (v?.trim()) store.rename(u.id, v); })}>Rename</button>}
         </>}

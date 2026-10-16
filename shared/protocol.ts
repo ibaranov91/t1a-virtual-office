@@ -19,6 +19,7 @@ export const JUKEBOX_PER_PERSON = 3;
 export interface JukeboxEntry { id: string; track: string; by: string }
 export interface JukeboxState {
   playId: string; track: string; by: string | null; startedAt: number; pausedAt: number | null;
+  next?: string; // what plays after this one unless the queue changes (the queue's head, else a shuffle pick made ahead), for prefetching
   queue: JukeboxEntry[];
   last: { kind: 'pause' | 'play' | 'skip'; by: string; at: number } | null;
 }
@@ -127,7 +128,7 @@ export const ACHIEVEMENTS: Achievement[] = [
   { id: 'event', icon: '🎉', title: 'Party person', how: 'Be in the office during an office event.', soon: true },
 ];
 
-export interface Look { skin: string; hair: string; shirt: string; pants: string; eyes: string; shoes: string; glassesColor: string; hatColor: string; style: number; top: number; bottom: number; glasses: number; hat: number }
+export interface Look { skin: string; hair: string; shirt: string; pants: string; eyes: string; shoes: string; glassesColor: string; hatColor: string; style: number; top: number; bottom: number; glasses: number; hat: number; beard: number; mustache: number }
 
 /** A buff, debuff or hat on a person (see shared/effects.ts). until: when it wears off (ms); absent = until removed. */
 export interface Effect { kind: string; until?: number; data?: Record<string, unknown> }
@@ -176,7 +177,7 @@ export const cupTableAt = <O extends { type: string; x: number; y: number; w: nu
   objects.find(o => CUP_TABLES.includes(o.type) && t.x >= o.x && t.x < o.x + o.w && t.y >= o.y && t.y < o.y + o.h);
 export type CreatureServerMsg =
   | { t: 'creatures'; creatures: Creature[] } // everyone, on connect and when one appears or leaves
-  | { t: 'creature'; creature: Creature }     // one of them set off, sat down, fell asleep…
+  | { t: 'creature'; creature: Creature; by?: string }     // one of them set off, sat down, fell asleep…
   | { t: 'cups'; cups: Cup[] };
 
 /** Quick reactions you can toss at someone; they float up over their head for everyone to see. */
@@ -187,9 +188,9 @@ export type Reaction = typeof REACTIONS[number];
 export interface CalEvent { id: string; title: string; start: string; end: string; allDay: boolean; link: string; meet?: string; declined?: boolean }
 
 /** A calendar meeting with other people, now or within the hour. Sent only to its attendees (the title is theirs). */
-export interface AgendaItem { key: string; instance: string; title: string; start: number; end: number; link?: string; left?: boolean } // left: I left it for good (not busy, no heads-up)
+export interface AgendaItem { key: string; instance: string; title: string; start: number; end: number; link?: string; left?: boolean; adhoc?: boolean; from?: string } // adhoc: a private room someone started (from: host's name); left: I left it for good (not busy, no heads-up)
 /** A meeting room in use, for everyone: who's in it and until when, no title. */
-export interface MeetingRoomInfo { id: string; until: number; members: string[] }
+export interface MeetingRoomInfo { id: string; until: number; members: string[]; voice: string[] } // voice: who is on the room's voice call (at most MAX_CALL_SIZE; the rest get Meet)
 /** Meeting rooms are copies of this room on the map. */
 export const MEETING_ROOM_ID = 'meeting';
 
@@ -209,6 +210,10 @@ export type RtcSignal =
   | { kind: 'answer'; sdp: string; conn: string; inst: string }
   | { kind: 'ice'; candidate: RTCIceCandidateInit | null; conn: string };
 
+/** A knock that went to Later (kept per person, memory only): newest first, one per knocker. */
+export interface LaterItem { id: string; fromId: string; at: number; why: string }
+export const LATER_MAX = 20;
+
 export interface Knock {
   id: string; fromId: string; toId: string;
   state: 'walking' | 'pending' | 'accept' | 'later' | 'blocked';
@@ -219,16 +224,41 @@ export type LayoutEdit =
   | { op: 'move'; id: string; x: number; y: number }
   | { op: 'add'; type: string; x: number; y: number }
   | { op: 'remove'; id: string }
+  | { op: 'rotate'; id: string } // a chair or stool, a quarter turn clockwise
   | { op: 'rug_add'; x: number; y: number; color?: string; pattern?: string; w?: number; h?: number }
   | { op: 'rug'; id: string; color?: string; pattern?: string; w?: number; h?: number };
 
-/** Presentation mode: a deck of slide images shown on a screen object to everyone in its room. */
-export interface DeckInfo { id: string; title: string; count: number; ext: string[]; by: string; at: number } // ext: each slide's file extension
-export interface LiveDeck { deck: DeckInfo; slide: number; presenter: string; objectId: string; room: string; away?: boolean } // away: presenter disconnected, ends after PRESENT_AWAY_MS
+/** Presentation mode. The Meeting room's wall screen shows one thing at a time to everyone in its *scope*:
+ *  the office floor (`OFFICE_SCOPE`) or one meeting instance (the instance id), each with its own single presenter.
+ *  A show is either a deck of slide images from the presenter's own library, or their screen as a stream of JPEG frames. */
+export const OFFICE_SCOPE = 'office';
+export const presentScope = (instance: string | null | undefined) => instance ?? OFFICE_SCOPE;
+/** A deck in someone's library. `key` is a random token in every slide URL, so viewers can load the slides and nobody can enumerate decks. */
+export interface DeckInfo { id: string; title: string; count: number; ext: string[]; by: string; at: number; bytes: number; key: string } // ext: each slide's file extension
+export interface LiveDeck {
+  scope: string;            // OFFICE_SCOPE or a meeting instance id: only its members get `presentation` and `frame`
+  presenter: string; objectId: string; room: string;
+  away?: boolean;           // presenter disconnected, ends after PRESENT_AWAY_MS
+  deck: DeckInfo | null;    // null: screen share (frames)
+  slide: number;            // deck only
+  seq?: number;             // screen share: the latest frame's sequence number
+}
 export const PRESENT_AWAY_MS = 60_000;
 export const PRESENT_MAX_SLIDES = 60;
 export const PRESENT_MAX_BYTES = 30 * 1024 * 1024; // one upload, all slides together
-export const slideUrl = (d: DeckInfo, i: number) => `/api/present/${d.id}/${i + 1}.${d.ext[i]}`;
+export const PRESENT_USER_QUOTA = 100 * 1024 * 1024; // a person's whole library (env PRESENT_USER_QUOTA_MB overrides)
+export const PRESENT_TTL_MS = 24 * 3600_000;         // decks are swept this long after upload (env PRESENT_TTL_HOURS overrides)
+export const FRAME_MAX_BYTES = 300 * 1024;  // one JPEG frame, decoded
+export const FRAME_MIN_INTERVAL_MS = 400;    // the presenter sends at most this often; the server drops faster ones
+export const FRAME_MAX_SIDE = 1280;          // frames are scaled so the longer side fits this
+export const slideUrl = (d: DeckInfo, i: number) => `/api/present/${d.id}/${i + 1}.${d.ext[i]}?k=${d.key}`;
+/** REST (all with the session in `x-deck-session`; errors are `{ error }`, a busy screen is 409 `{ error, presenter }`):
+ *  GET  /api/present/decks                → DecksReply: my decks only, plus my usage
+ *  POST /api/present/upload               { title, objectId, files: base64 PNG/JPG[] | [one PDF] } → { deck } and it starts, if the screen is free
+ *  POST /api/present/start                { deck, objectId } → { deck }: show one of my decks
+ *  DELETE /api/present/<deckId>           → {}: one of mine; stops it if it's live
+ *  GET  /api/present/<deckId>/<n>.<ext>?k=<key>  a slide (no session needed, the key is the secret) */
+export interface DecksReply { decks: DeckInfo[]; used: number; limit: number }
 
 // server -> client
 export type ServerMsg =
@@ -244,6 +274,7 @@ export type ServerMsg =
   // the furniture and rugs: on connect, and to everyone after each admin edit. by: who made it; added: a new thing's id
   | { t: 'layout'; layout: Layout; by?: string; added?: string }
   | { t: 'hello'; you: string; serverTime: number; build?: string } // build: the client bundle the server serves (absent in dev)
+  | { t: 'pong'; id: number; serverTime: number } // the answer to a clock ping, only to the socket that sent it
   | { t: 'state'; users: PublicUser[]; objects: Record<string, ObjectState>; toilets?: Record<string, ToiletState>; jukebox?: Record<string, JukeboxState>; instruments?: Record<string, string | null>; serverTime: number }
   | { t: 'move'; userId: string; from: Tile; to: Tile; startedAt: number; path?: Tile[]; face?: Dir; ms?: number } // ms: per tile, absent = WALK_MS_PER_TILE
   | { t: 'effects'; userId: string; effects: Effect[] }
@@ -254,7 +285,7 @@ export type ServerMsg =
   | { t: 'emote'; userId: string; emote: Emote }
   | { t: 'door'; userId: string; door: Door }
   | { t: 'knock'; knockId: string; fromId: string; toId: string }
-  | { t: 'knock_reply'; knockId: string; fromId: string; toId: string; reply: 'accept' | 'later' | 'blocked'; link?: string; reason?: string; fallback?: boolean; cancelled?: boolean }
+  | { t: 'knock_reply'; knockId: string; fromId: string; toId: string; reply: 'accept' | 'later' | 'blocked'; link?: string; reason?: string; fallback?: boolean; cancelled?: boolean; kept?: boolean /* in the target's Later list: no "missed" toast */ }
   // private settings, only to the user themselves. google: the connected Google account (null = not connected),
   // absent when this instance has no Google sign-in
   | { t: 'me'; meetLink: string; email?: string; google?: string | null; calendar?: boolean; admin?: boolean; sysadmin?: boolean; items?: string[] } // calendar: Calendar access granted; admin: may rearrange the office; sysadmin: may also walk into the Admin room
@@ -274,6 +305,7 @@ export type ServerMsg =
   | { t: 'rtc'; from: string; signal: RtcSignal }
   | { t: 'speaking'; userId: string; on: boolean }
   | { t: 'mute'; userId: string; muted: boolean }
+  | { t: 'room_meet'; instance: string; link: string | null } // the Meet room of the meeting room I'm in (only to its members; null: none yet / left)
   | { t: 'to_meet'; fromId: string } // someone in your call opened its Meet room; come along
   | { t: 'follow'; userId: string; targetId: string | null }
   | { t: 'eating'; userId: string; eating: Eating | null }
@@ -290,11 +322,15 @@ export type ServerMsg =
   | { t: 'gm_items'; targetId: string; items: string[] } // to the asking admin only
   | { t: 'teleport'; userId: string; from: Tile; to: Tile } // an admin stepped through a portal: everyone plays it (the server has already moved them)
   | { t: 'notice'; text: string }
+  | { t: 'later'; items: LaterItem[] }  // only to the person knocked on: their kept Later list, on connect and on every change
+  | { t: 'later_nudge'; text: string; userId?: string } // their busy spell is over and knocks came in meanwhile (userId: the one knocker, for Knock back)
+  | { t: 'room_open' } // you clicked the Meeting room's 'start private room' button: open the popup
   | { t: 'present_open'; objectId: string } // you walked up to the board: show the upload/present panel
   | { t: 'voice_wait'; roomId: string | null }
   | { t: 'voice_owner'; owner: boolean }
   | { t: 'look'; userId: string; look: Look; lookSet: boolean; name?: string }
-  | { t: 'presentation'; live: LiveDeck | null };
+  | { t: 'presentation'; live: LiveDeck | null } // to the scope's members only: what's on their screen (null: nothing). Re-sent when you change scope.
+  | { t: 'frame'; scope: string; seq: number; data: string }; // screen share: one JPEG frame, base64, to the scope's members except the presenter
 
 // client -> server
 export type ClientMsg =
@@ -312,12 +348,15 @@ export type ClientMsg =
   | { t: 'instrument'; objectId: string; action: 'play' | 'leave' }
   | { t: 'note'; objectId: string; note: number; on: boolean; vel: number; preset: number; at: number }
   | ({ t: 'jukebox'; objectId: string } & JukeboxAction)
+  | { t: 'ping'; id: number } // clock sync (NTP-style): the server answers with its time
   | { t: 'move'; to: Tile }
   | { t: 'status'; status: string }
   | { t: 'tz'; tz: string | null } // share (or hide, with null) my time zone
   | { t: 'presence'; presence: Exclude<Presence, 'offline'> }
   | { t: 'knock'; targetId: string }
   | { t: 'knock_reply'; knockId: string; reply: 'accept' | 'later' }
+  | { t: 'later_dismiss'; id: string }
+  | { t: 'later_clear' }
   | { t: 'knock_cancel'; knockId: string } // the knocker calls it back: closes the prompt for both
   | { t: 'meet_link'; link: string }
   | { t: 'google_connect'; calendar?: boolean } // asks for a google_auth URL; calendar: also ask for Calendar access
@@ -329,6 +368,10 @@ export type ClientMsg =
   | { t: 'read_start'; articleId: string }
   | { t: 'read_done' }
   | { t: 'meeting_leave' }           // back to the office (still in the meeting: busy, knocks go to Later)
+  | { t: 'room_create'; title?: string; invite: string[] } // start a private room in a copy of the Meeting room; invite = user ids
+  | { t: 'room_invite'; userIds: string[] } // add people to the private room I'm in
+  | { t: 'room_voice'; on: boolean } // join / leave the voice call of the meeting room I'm in (ad-hoc rooms join on entry, calendar meetings are opt-in)
+  | { t: 'room_meet' } // 'Use Meet' in an ad-hoc room: make (or re-send) its Meet link for everyone in it
   | { t: 'meeting_out'; key: string } // leave the meeting for good: not busy any more, knocks come through again
   | { t: 'google_disconnect' }
   | { t: 'claim_desk' }   // the seat you're sitting on becomes your home desk
@@ -362,6 +405,8 @@ export type ClientMsg =
   | { t: 'gift_hat'; targetId: string; style: string } // office admins only: put a hat in someone's pockets and on their head
   | { t: 'effect'; targetId: string; kind: string; on: boolean; style?: string }
   | { t: 'present_slide'; slide: number } // presenter only
+  | { t: 'present_share'; objectId: string } // beside the screen: start sharing my screen (a busy screen answers with a `notice`)
+  | { t: 'present_frame'; seq: number; data: string } // presenter only, while sharing: one JPEG frame, base64 (≤ FRAME_MAX_BYTES decoded), at most every FRAME_MIN_INTERVAL_MS
   | { t: 'present_stop' };                // presenter only
 
 /** An IANA zone name this runtime knows ('Europe/Warsaw'), so a client can't put arbitrary text on everyone's screen. */

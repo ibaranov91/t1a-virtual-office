@@ -1,6 +1,6 @@
 import type { ClientUser } from '../net';
 import { roomAt, type Room, type TileMap, type MapObject, type ObjectUse } from '../../../shared/map';
-import { underground, type JukeboxState, type LiveDeck } from '../../../shared/protocol';
+import { OFFICE_SCOPE, underground, type JukeboxState, type LiveDeck } from '../../../shared/protocol';
 import { INSTRUMENTS } from '../../../shared/instruments';
 import mapJson from '../../../shared/tilemap.json';
 import { TRACK } from '../../../shared/music';
@@ -10,7 +10,7 @@ export const GROUPS = [
   { id: 'voice', label: 'Voice', hint: 'walk in to talk' },
   { id: 'knock', label: 'Knock', hint: 'knock to talk' },
   { id: 'quiet', label: 'Quiet', hint: 'do not disturb' },
-  { id: 'meetings', label: 'In meetings', hint: 'calendar meetings' },
+  { id: 'meetings', label: 'In meetings', hint: 'meetings and private rooms' },
   { id: 'underground', label: 'Underground', hint: 'somewhere underground' },
   { id: 'hall', label: 'Hallway', hint: 'passing through' },
   { id: 'offline', label: 'Offline', hint: '' },
@@ -26,7 +26,7 @@ export const roomGroup = (room: Room) => room.rules.voice === 'open' ? 'voice' :
 const ordered = (view: View, us: ClientUser[]) => us.sort((a, b) => Number(b.id === view.me) - Number(a.id === view.me) || a.name.localeCompare(b.name));
 const matches = (text: string, query: string) => text.toLocaleLowerCase().includes(query);
 export function place(view: View, u: ClientUser) {
-  return underground(u) ? 'Underground' : u.instance ? 'In a meeting' : view.roomOf(u)?.name ?? 'Hallway';
+  return underground(u) ? 'Underground' : u.instance ? 'In a meeting room' : view.roomOf(u)?.name ?? 'Hallway';
 }
 export function instrument(view: View, u: ClientUser) {
   const o = mapJson.objects.find(o => o.use?.kind === 'instrument' && view.instruments[o.id] === u.id);
@@ -45,7 +45,7 @@ export function activityLine(view: View, u: ClientUser) {
     : u.presence === 'away' ? 'away' : '';
   return line ? `${line}${u.status ? ` · ${u.status}` : ''}` : u.status || '';
 }
-export type ChannelRoom = { room: Room; people: ClientUser[]; count: number; full: boolean; subtitle: string };
+export type ChannelRoom = { room: Room; people: ClientUser[]; count: number; subtitle: string };
 export type ChannelGroup = { id: string; label: string; hint: string; count: number; rooms: ChannelRoom[]; people: ClientUser[] };
 export function channelTree(view: View, map: TileMap, query = ''): ChannelGroup[] {
   const q = query.trim().toLocaleLowerCase(), users = [...view.users.values()];
@@ -57,8 +57,8 @@ export function channelTree(view: View, map: TileMap, query = ''): ChannelGroup[
       if (q && !matches(room.name, q) && !people.length) return [];
       const box = roomThings(map, room).find(o => o.use?.kind === 'jukebox'), state = box && view.jukebox[box.id];
       const subtitle = state ? state.pausedAt !== null ? 'paused' : `♪ ${TRACK.get(state.track)?.title ?? state.track}`
-        : view.presentation?.room === room.id ? '📽 live' : '';
-      return [{ room, people, count: all.length, full: all.length >= room.capacity, subtitle }];
+        : view.presentation?.scope === OFFICE_SCOPE && view.presentation.room === room.id ? '📽 live' : ''; // a meeting room's own show stays inside it
+      return [{ room, people, count: all.length, subtitle }];
     });
     const all = users.filter(u => special(u) === g.id);
     const people = ordered(view, all.filter(u => !q || matches(u.name, q)));

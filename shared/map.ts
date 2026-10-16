@@ -16,6 +16,7 @@ export interface Room {
   spots: Spot[];
   homeDesks?: boolean; // seats here can be claimed as someone's home desk
   plantSlots?: Tile[];  // where plants of people without a home desk stand (the Orangery's shelves)
+  disco?: { x: number; y: number }; // a disco ball comes out here in the evening: the floor point under it, in tiles
   rules: { voice?: 'open'; knock: KnockRule; label?: string; occupantLabel?: string; access?: 'admins' }; // access: only office admins walk in
   meeting: { provider: 'meet' | 'teams'; url: string };
 }
@@ -32,6 +33,7 @@ export type ObjectUse = { kind: 'take'; items: UseItem[] } | { kind: 'toggle'; l
   | { kind: 'achievements'; label: string } // the Lobby notice board: your plant and your badges
   | { kind: 'clock'; label: string; city: string; tz: string } // a Lobby wall clock (real time, one city); clicking opens the list of our cities
   | { kind: 'presentation'; label: string } // the Meeting room screen: upload slides and present them
+  | { kind: 'room_start'; label: string } // the Meeting room's wall sign: start a private room
   | { kind: 'link'; label: string; url: string } // opens a page in a new tab (the safe: the vault)
   | { kind: 'dealer'; label: string; items: string[] } // hands out items into your inventory (the bouncer, the hat stand)
   | { kind: 'bell'; label: string } // the Lobby reception bell: ring it from beside the desk
@@ -53,6 +55,7 @@ export const USE_KINDS = {
   library: { reach: true },
   calendar: {}, jukebox: {}, dance: {}, records: {}, meetings: {}, achievements: {}, clock: {}, link: {},
   presentation: { use: true, reach: true }, // walk to the board first; the panel opens on arrival
+  room_start: { use: true, reach: true }, // the Meeting room's wall sign: walk over, then the server offers a private room
 } as const satisfies Record<UseKind, { wheel?: true; use?: true; reach?: true }>;
 type KindsWith<F extends string> = { [K in UseKind]: (typeof USE_KINDS)[K] extends Record<F, true> ? K : never }[UseKind];
 /** True when this use's kind has that flag in USE_KINDS; narrows the use to those kinds. */
@@ -64,6 +67,7 @@ export interface MapObject {
   wall?: boolean; walkable?: boolean; light?: boolean; steam?: boolean; dir?: Dir;
   use?: ObjectUse; on?: boolean; // on: starting state of a toggle
   onTop?: boolean; // sits on top of another object (the reception bell): allowed to share its tile
+  turned?: boolean; // a chair or stool an admin rotated: keeps its `dir` instead of facing the nearest furniture
   sit?: boolean; // a sofa: blocks walking, but every tile is a seat facing `dir`, reached from the tile in front
 }
 /** A rug, drawn over the floor (9-slice). Never blocks. */
@@ -92,7 +96,7 @@ export interface TileMap {
 
 export const WALK_MS_PER_TILE = 250; // 4 tiles/s
 
-const SEAT_TYPES = new Set(['chair', 'stool']);
+export const SEAT_TYPES = new Set(['chair', 'stool']);
 /**
  * Per-tile lookups, built once per map: the map is read many times a frame (every sprite, every path), so
  * walkable/room/seat are flat typed arrays indexed by `y * width + x` instead of scans over rooms and objects.
@@ -226,6 +230,7 @@ export function sampleMove(path: Tile[], startedAt: number, t: number, ms = WALK
   return { x: a.x + (b.x - a.x) * f, y: a.y + (b.y - a.y) * f, dir: dirBetween(a, b), done: false, tile: f < 0.5 ? a : b, next: b };
 }
 
+const TURN: Record<Dir, Dir> = { down: 'left', left: 'up', up: 'right', right: 'down' }; // a quarter turn clockwise
 const STEP: Record<Dir, Tile> = { down: { x: 0, y: 1 }, up: { x: 0, y: -1 }, left: { x: -1, y: 0 }, right: { x: 1, y: 0 } };
 /** Path to `to`. Sofa seats aren't walkable: you sit down onto one from the tile in front, and get up the same way. */
 export function pathTo(m: TileMap, from: Tile, to: Tile, keepOut = false): Tile[] {
@@ -322,8 +327,8 @@ export function applyLayout(m: TileMap, l: Layout) {
     if (o.type === 'plant_shelf') { if (r) for (let x = o.x; x < o.x + o.w; x++) (r.plantSlots ??= []).push({ x, y: o.y }); continue; }
     if (!SEAT_TYPES.has(o.type)) continue;
     // face the neighbouring furniture
-    o.dir = !free(o.x, o.y - 1) && walls[o.y - 1]?.[o.x] === 0 ? 'up' : !free(o.x, o.y + 1) ? 'down' : !free(o.x + 1, o.y) ? 'right' : !free(o.x - 1, o.y) ? 'left' : 'down';
-    if (r) r.spots.push({ x: o.x, y: o.y, dir: o.dir });
+    if (!o.turned) o.dir = !free(o.x, o.y - 1) && walls[o.y - 1]?.[o.x] === 0 ? 'up' : !free(o.x, o.y + 1) ? 'down' : !free(o.x + 1, o.y) ? 'right' : !free(o.x - 1, o.y) ? 'left' : 'down';
+    if (r) r.spots.push({ x: o.x, y: o.y, dir: o.dir ?? 'down' });
   }
   for (const r of m.rooms) for (const s of r.stand) if (free(s.x, s.y) && !r.spots.some(p => p.x === s.x && p.y === s.y)) r.spots.push(s);
   reindexMap(m);
@@ -378,7 +383,7 @@ export const objectName = (type: string) => ({ table_long: 'long table', table_b
   painting_small: 'small painting', coffee_machine: 'coffee machine', meetings_board: 'meetings board', noticeboard: 'notice board', table_picnic: 'picnic table', food_cart: 'food cart', exit_door: 'exit door', server_rack: 'server rack', dj_booth: 'DJ booth', neon_sign: 'neon sign', bookshelf_tall: 'tall bookshelf' } as Record<string, string>)[type] ?? type.replace(/_/g, ' ');
 
 /** Types that are one of a kind (the way out, the coffee machine…): they can be moved but not removed. */
-export const KEEP_TYPES = new Set(['exit_door', 'coffee_machine', 'fridge', 'jukebox', 'arcade', 'records', 'meetings_board', 'noticeboard', 'clock_nyc', 'clock_berlin', 'clock_moscow', 'safe', 'keyboard', 'drum_kit', 'bass_amp', 'screen', 'toilet', 'bouncer', 'hat_rack', 'bell', 'food_cart', 'dj_booth']);;
+export const KEEP_TYPES = new Set(['exit_door', 'coffee_machine', 'fridge', 'jukebox', 'arcade', 'records', 'meetings_board', 'noticeboard', 'clock_nyc', 'clock_berlin', 'clock_moscow', 'safe', 'keyboard', 'drum_kit', 'bass_amp', 'screen', 'room_start', 'toilet', 'bouncer', 'hat_rack', 'bell', 'food_cart', 'dj_booth']);;
 /** Types that stay exactly where they are. */
 export const FIXED_TYPES = new Set(['exit_door']);
 export const RUG_MIN = 2, RUG_MAX = 24;
@@ -394,6 +399,13 @@ export function applyEdit(m: TileMap, edit: LayoutEdit, newId: () => string): La
       if (!it) return 'it\'s gone';
       if ('type' in it && FIXED_TYPES.has(it.type)) return `the ${objectName(it.type)} stays put`;
       it.x = edit.x; it.y = edit.y;
+      break;
+    }
+    case 'rotate': {
+      const it = objects.find(o => o.id === edit.id);
+      if (!it) return 'it\'s gone';
+      if (!SEAT_TYPES.has(it.type)) return `the ${objectName(it.type)} doesn't turn`;
+      it.dir = TURN[it.dir ?? 'down']; it.turned = true;
       break;
     }
     case 'add': {

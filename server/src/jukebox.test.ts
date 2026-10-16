@@ -53,7 +53,7 @@ test('controls at expiry preserve the successor in either tick/action order', ()
     if (tickFirst) j.advance(at);
     const result = j.act('a', { action, playId }, at);
     assert.equal(result.changed, !tickFirst); assert.equal(j.state.track, 't1');
-    assert.equal(j.state.pausedAt, null); assert.equal(j.state.last, null); assert.equal(j.state.startedAt, at);
+    assert.equal(j.state.pausedAt, null); assert.equal(j.state.last, null); assert.equal(j.state.startedAt, 13000); // the previous end
   }
   for (const action of ['pause', 'play', 'skip'] as const) {
     const j = make(), playId = j.state.playId;
@@ -93,4 +93,29 @@ test('load keeps oldest valid queue entries within all limits', () => {
   const j = Jukebox.load(tracks, { state: { track: 't0', queue } }, 10000, opts());
   assert.equal(j.state.queue.length, 20); assert.deepEqual(j.state.queue.slice(0, 3).map(e => e.track), ['t1', 't2', 't3']);
   assert.equal(j.state.queue.filter(e => e.by === 'a').length, 3); assert.equal(j.state.queue.some(e => e.track === 't4' || e.track === 't5'), false);
+});
+test('next is published ahead: the queue head, else a shuffle pick that then plays', () => {
+  const j = make(); assert.equal(j.state.next, 't1');
+  j.act('a', { action: 'queue', track: 't7' }, 10000); assert.equal(j.state.next, 't7');
+  j.act('a', { action: 'queue', track: 't1' }, 10000); assert.equal(j.state.next, 't7');
+  j.act('a', { action: 'unqueue', entry: j.state.queue[0].id }, 10000); assert.equal(j.state.next, 't1');
+  j.act('a', { action: 'unqueue', entry: j.state.queue[0].id }, 10000); assert.equal(j.state.next, 't2'); // t1 was queued meanwhile: re-picked
+  const next = j.state.next;
+  j.act('a', { action: 'skip', playId: j.state.playId }, 11000); assert.equal(j.state.track, next);
+  assert.ok(j.state.next && j.state.next !== j.state.track && !j.history.includes(j.state.next));
+  const upcoming = j.state.next; j.advance(14000); assert.equal(j.state.track, upcoming);
+});
+test('the successor starts at the exact end unless the tick is a second or more late', () => {
+  const j = make(); j.advance(13250); assert.equal(j.state.startedAt, 13000);
+  j.advance(16999); assert.equal(j.state.startedAt, 16000);
+  j.advance(20000); assert.equal(j.state.startedAt, 20000);
+});
+test('a saved next survives a restart; a stale one is re-picked', () => {
+  const j = make(); const saved = j.dump();
+  assert.equal(Jukebox.load(tracks, saved, 11000, opts()).state.next, j.state.next);
+  const odd = Jukebox.load(tracks, { ...saved, state: { ...saved.state, next: 't9' } }, 11000, opts()); assert.equal(odd.state.next, 't9');
+  for (const next of ['t0', 'missing', 42]) {
+    const l = Jukebox.load(tracks, { ...saved, state: { ...saved.state, next } }, 11000, opts());
+    assert.ok(l.state.next && l.state.next !== 't0' && tracks.some(t => t.id === l.state.next));
+  }
 });

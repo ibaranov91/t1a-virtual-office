@@ -20,7 +20,7 @@ export function Rail({ store, voice, assets, speaking, onExpand, onGroup, onPers
     <div className="sb-rail-peers">{peers.slice(0, 5).map(u => <button key={u.id} aria-label={`Actions for ${u.name}`} onClick={e => onPerson({ id: u.id, ...rowAnchor(e.currentTarget) })}>
       <Avatar assets={assets} user={u} size={28} ring={speaking.has(u.id)} /></button>)}{peers.length > 5 && <span>+{peers.length - 5}</span>}</div>
     <div className="sb-rail-bottom sb-right"><VoiceIcons store={store} voice={voice} rail />
-      {me?.callId && !store.roomCallOf(me) && <button className="sb-danger" aria-label="Leave call" onClick={() => store.endCall()}>☎</button>}
+      {me?.callId && !me.instance && !store.roomCallOf(me) && <button className="sb-danger" aria-label="Leave call" onClick={() => store.endCall()}>☎</button>}
       {me && <button aria-label="Show sidebar" onClick={onExpand}><Avatar assets={assets} user={me} size={28} /></button>}
     </div>
   </aside>;

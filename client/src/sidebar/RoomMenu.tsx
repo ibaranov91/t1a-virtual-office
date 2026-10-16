@@ -15,7 +15,7 @@ export function RoomMenu({ store, engine, at, compact, onClose, onAction }: {
     : me && store.roomOf(me)?.id === room.id ? "You're here" : room.rules.access === 'admins' && !store.sysadmin ? 'Admins only' : null;
   const act = (fn: () => void) => { onAction(); fn(); };
   return <div {...surface} className={`sb-menu sb-surface${compact ? ' sb-surface-sheet' : ''}`} role="menu" aria-label={room.name}>
-    <header>{compact ? <button className="ghost" onClick={onClose}>← Back</button> : <button className="ghost" onClick={onClose} aria-label="Close room menu">×</button>}<b>{room.name}</b><small>{room.rules.label} · {n}/{room.capacity}</small></header>
+    <header>{compact ? <button className="ghost" onClick={onClose}>← Back</button> : <button className="ghost" onClick={onClose} aria-label="Close room menu">×</button>}<b>{room.name}</b><small>{room.rules.label}{n ? ` · ${n} here` : ''}</small></header>
     <div className="sb-surface-body">
       <button data-action role="menuitem" disabled={!!reason || !engine} onClick={() => act(() => engine?.walkToRoom(room.id))}>
         {room.rules.voice === 'open' ? 'Walk in and talk' : 'Walk here'}{reason && <small>{reason}</small>}</button>

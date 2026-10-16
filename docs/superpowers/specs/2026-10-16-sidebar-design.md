@@ -96,7 +96,7 @@ right. Click (or Enter/Space) toggles collapse (`aria-expanded`). Labels and hin
 | `voice` | Voice | walk in to talk |
 | `knock` | Knock | knock to talk |
 | `quiet` | Quiet | do not disturb |
-| `meetings` | In meetings | calendar meetings |
+| `meetings` | In meetings | meetings and private rooms |
 | `underground` | Underground | somewhere underground |
 | `hall` | Hallway | passing through |
 | `offline` | Offline | — (just the count) |
@@ -108,12 +108,12 @@ empty.
 **Room row** (a `button`, the whole row):
 - icon by group: voice `🔊`, knock `#`, quiet `🌙`; a room with `rules.access === 'admins'` shows `🔒` instead.
 - name; the subtitle on the same line, muted and ellipsized: for a room with a jukebox, `♪ <track title>` while
-  playing or `paused`; for the room of a live presentation, `📽 live`; otherwise nothing.
-- count on the right: the number of online people in it outside any instance; when the count reaches
-  `room.capacity` it reads `n/capacity` in the warning color. Hidden when 0.
+  playing or `paused`; for the room of a live office-scope presentation, `📽 live` (a meeting room's own show stays inside it); otherwise nothing.
+- count on the right: the number of online people in it outside any instance. Hidden when 0. No capacity: main
+  dropped the `n/capacity` count from the people list (it was never enforced).
 - your room gets the selected background (`--panel2`) and the accent name color.
 - an empty room is one dimmed line (muted text); an occupied room lists its people under it, indented.
-- `title`: `<name> · <rules.label> · <n>/<capacity>`.
+- `title`: `<name> · <rules.label>`.
 - click or right-click (preventDefault) opens the room menu anchored to the row.
 
 **Person row**: a non-interactive row (`div`) holding sibling buttons — the main one (avatar, name, second line)
@@ -148,7 +148,8 @@ online `#7cc87c`, away `#e0b050`, in_call `#d86a5a`, offline `#666`.
 
 Same header and search. Groups: `In voice` (online people with a `callId`), `Online` (presence online or in_call,
 no call), `Away`, `Offline` (collapsed by default, shares the `offline` collapse id). Same person rows; the second line
-is `<place> · <activityLine>` where place is the room name, `In a meeting` (instance that isn't the dungeon),
+is `<place> · <activityLine>` where place is the room name, `In a meeting room` (an instance that isn't the dungeon:
+a calendar meeting or a private room),
 `Underground` or `Hallway`. Order: you first, then by name. Group ids for collapse: `p-voice`, `p-online`, `p-away`,
 `offline`.
 
@@ -158,7 +159,7 @@ A small popover anchored beside the row (desktop: its left edge 8 px right of th
 the viewport, the same clamp as today's `PersonMenu`), `role="menu"`. Esc and a pointerdown outside close it and give
 focus back to the row.
 
-- Header: room name; under it `<rules.label> · <n>/<capacity>`.
+- Header: room name; under it `<rules.label>` and ` · <n> here` when someone is in it.
 - First item, the go action:
   - voice room → `Walk in and talk`; other rooms → `Walk here`;
   - disabled with the reason as its visible second line, first match wins: you're underground →
@@ -204,6 +205,8 @@ behavior as `PersonMenu`. `role="dialog"`, `aria-label="<name>"`.
     differ) → `<first name> is in a meeting room`;
   - `Follow` / `Unfollow` → `store.follow(…)`, active when following; disabled when away (`door` thinking/leaving),
     offline or dungeon (same rule as today's `PersonMenu`);
+  - `Private room` → `store.createRoom([u.id])` when `store.roomReason(u)` is empty and they aren't heading out (the
+    action wheel's "Take to private room");
   - admins only, same conditions as the action wheel: `Teleport` → `store.teleport(u.id)`, `Rename` → the same
     `window.prompt` + `store.rename`.
   - Each action closes the card (see "Closing after an action"), except Follow, which toggles in place.
@@ -219,12 +222,15 @@ behavior as `PersonMenu`. `role="dialog"`, `aria-label="<name>"`.
 
 **Voice block** — shown above the identity row only when one of these is true (first match):
 1. `store.connected && !store.voiceOwner` → `Voice is on in another tab` + button `Use voice here` (`store.claimVoice()`).
-2. a knock call (`me.callId && !store.roomCallOf(me) && store.voiceOwner`) → today's `CallChip` content: live dot,
+2. a knock call (`me.callId && !me.instance && !store.roomCallOf(me) && store.voiceOwner`) → today's `CallChip` content: live dot,
    `Talking with <names> · <voiceState>`, `Leave` (`store.endCall()`), `Move to Meet` link when there is a Meet link.
 3. room voice (today's `RoomVoiceChip` condition) → its exact text and dot, and zero or one button in today's
    branch order (Hear again when deafened; none when `micError`; Unmute when muted; else Mute), with
    `earshotLine(store)` as the block's `title`.
-4. `store.voiceWait` → `Waiting for a spot in <room> voice`.
+4. `store.voiceWait` naming an office room → `Waiting for a spot in <room> voice`.
+
+Inside a meeting room or private room (`me.instance`) the block stays empty: its voice (Talk, Mute, hand, Leave voice,
+the waiting line, Invite, Meet) lives on the floating `MeetingChip`, unchanged.
 
 Move `CallChip`, `RoomVoiceChip`, `voiceState` and `earshotLine` into the sidebar module and reuse them for this
 block (one implementation; compact still renders them as floating chips).
