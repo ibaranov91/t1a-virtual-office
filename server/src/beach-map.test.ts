@@ -6,10 +6,10 @@ import { findPath, isWalkable, type TileMap } from '../../shared/map';
 const map: TileMap = JSON.parse(readFileSync(new URL('../../shared/tilemap.json', import.meta.url), 'utf8'));
 
 test('vacation wing extends the office and appends two terrain rooms', () => {
-  assert.equal(map.office.h, 52);
+  assert.equal(map.office.h, 48);
   assert.deepEqual(map.rooms.slice(-2).map(r => [r.id, r.rect, r.type, r.capacity, r.rules]), [
-    ['mountains', { x: 1, y: 34, w: 24, h: 15 }, 'vacation', 30, { knock: 'allow', label: 'mountains · knock to talk' }],
-    ['beach', { x: 25, y: 34, w: 59, h: 15 }, 'vacation', 30, { knock: 'allow', label: 'beach · knock to talk' }],
+    ['mountains', { x: 1, y: 34, w: 24, h: 13 }, 'vacation', 30, { knock: 'allow', label: 'mountains · knock to talk' }],
+    ['beach', { x: 25, y: 34, w: 59, h: 13 }, 'vacation', 30, { knock: 'allow', label: 'beach · knock to talk' }],
   ]);
   for (const r of map.rooms.slice(-2)) {
     assert.ok(r.stand.length >= 4 && r.stand.length <= 6);
@@ -36,12 +36,18 @@ test('the building keeps its bottom edge; the hedge has one gate and the wing fu
 test('every fixed vacation destination is walkable and reachable from spawn', () => {
   assert.ok(map.vacation);
   const v = map.vacation;
-  assert.equal(v.pierEnds.length, 2); assert.equal(v.swim.length, 10);
+  assert.deepEqual(v.pierEnds, [{ x: 62, y: 46 }, { x: 63, y: 46 }]);
+  assert.deepEqual(v.swim, [28, 33, 38, 43, 48, 53, 58, 68, 73, 78].map(x => ({ x, y: 46 })));
+  for (const [y, family] of [[44, 'sand_wet'], [45, 'water_shallow'], [46, 'water_deep']] as const)
+    for (let x = 1; x < map.width - 1; x++)
+      assert.ok(map.tiles[map.layers.floor[y][x]].startsWith(x >= 62 && x <= 63 && y >= 43 ? 'pier' : family));
+  assert.equal(map.dungeon!.rect.y, map.office.h + 2);
+  for (const type of ['palm', 'lounger', 'umbrella']) assert.equal(map.objects.filter(o => o.type === type && inWing(map, o.x, o.y)).length, 4);
   for (const t of [v.gate, v.trailFoot, v.summit, ...v.pierEnds, ...v.swim]) {
     assert.ok(isWalkable(map, t.x, t.y), JSON.stringify(t));
     assert.ok(findPath(map, map.spawn, t).length, JSON.stringify(t));
   }
-  for (let y = 49; y <= 51; y++) for (let x = 0; x < map.width; x++) assert.equal(map.tiles[map.layers.walls[y][x]], 'sea');
+  for (let y = 47; y <= 47; y++) for (let x = 0; x < map.width; x++) assert.equal(map.tiles[map.layers.walls[y][x]], 'sea');
 });
 
 test('the mountain has walkable terraces joined by stairs, with no shortcuts through cliff faces', () => {
@@ -59,7 +65,7 @@ test('the mountain has walkable terraces joined by stairs, with no shortcuts thr
 });
 
 import { terrainAt, inWing } from '../../shared/beach';
-import { inRect, layoutProblem, migrateBeach, pathTo, seatAt, withLayout, type Layout } from '../../shared/map';
+import { inRect, layoutProblem, migrateBeach, resetBeach, pathTo, seatAt, withLayout, type Layout } from '../../shared/map';
 
 test('terrain helpers classify each family and restrict the wing to its room rectangles', () => {
   for (const [name, expected] of [['sand_0', 'sand'], ['sand_wet_2', 'sand'], ['water_shallow_1', 'shallow'], ['water_deep_2', 'deep'], ['trail_mtn_12_39', 'trail'], ['trail_mtn_8_37', 'trail'], ['snow_0', 'snow'], ['pier', 'pier']] as const) {
@@ -70,12 +76,12 @@ test('terrain helpers classify each family and restrict the wing to its room rec
   }
   assert.equal(terrainAt(map, map.spawn.x, map.spawn.y), null);
   assert.equal(terrainAt(map, -1, -1), null);
-  for (const [x, y, expected] of [[1, 34, true], [24, 48, true], [25, 34, true], [83, 48, true], [0, 34, false], [84, 34, false], [50, 33, false], [50, 49, false]] as const) assert.equal(inWing(map, x, y), expected);
+  for (const [x, y, expected] of [[1, 34, true], [24, 46, true], [25, 34, true], [83, 46, true], [0, 34, false], [84, 34, false], [50, 33, false], [50, 47, false]] as const) assert.equal(inWing(map, x, y), expected);
 });
 
 test('loungers and hammock each have one reachable lie seat; the remaining footprint blocks', () => {
   const lies = map.objects.filter(o => o.lie);
-  assert.equal(lies.filter(o => o.type === 'lounger').length, 6);
+  assert.equal(lies.filter(o => o.type === 'lounger').length, 4);
   assert.equal(lies.filter(o => o.type === 'hammock').length, 1);
   for (const o of lies) {
     const seat = { x: o.x + Math.floor((o.w - 1) / 2), y: o.y };
@@ -114,4 +120,21 @@ test('saved-layout migration appends wing objects and resolves ids across object
   assert.equal(new Set(ids).size, ids.length);
   // A layout that already has wing furniture is left alone.
   assert.equal(migrateBeach(result, base, map), result);
+});
+
+test('one-time reset replaces wing furniture, preserves office and rugs, and resolves ids without mutating inputs', () => {
+  const base: Layout = { objects: map.objects, rugs: map.rugs };
+  const wing = base.objects.filter(o => inWing(map, o.x, o.y));
+  const saved: Layout = { objects: [
+    ...base.objects.filter(o => !inWing(map, o.x, o.y)),
+    { ...wing[0], id: 'old-wing', x: 60, y: 48 },
+  ], rugs: [...base.rugs, { id: wing[0].id, x: 26, y: 35, w: 2, h: 2, color: 'blue' }] };
+  const before = structuredClone({ saved, base });
+  const result = resetBeach(saved, base, map);
+  assert.deepEqual({ saved, base }, before);
+  assert.deepEqual(result.objects.filter(o => inWing(map, o.x, o.y)), wing);
+  assert.deepEqual(result.objects.filter(o => !inWing(map, o.x, o.y)), saved.objects.filter(o => !inWing(map, o.x, o.y)));
+  assert.deepEqual(result.rugs.map(({ id, ...r }) => r), saved.rugs.map(({ id, ...r }) => r));
+  const ids = [...result.objects, ...result.rugs].map(o => o.id);
+  assert.equal(new Set(ids).size, ids.length);
 });

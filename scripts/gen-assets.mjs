@@ -1954,27 +1954,27 @@ for (const [game, accent] of [['tobu', '#cf82ae'], ['lobster', '#bd524a']]) {
   const grain = (x, y, seed) => ((x * 73856093 ^ y * 19349663 ^ seed * 83492791) >>> 0);
   const make = (name, w, h, draw, outline = true) => { const t = new Img(w, h); draw(t); frames[name] = outline ? t.outline() : t; };
   for (const [family, base, light, dark] of [
-    ['sand', '#e7ce94', '#f4dfac', '#cfb47f'], ['sand_wet', '#baa77f', '#d0bd92', '#a39277'],
-    ['water_shallow', '#4eaead', '#9bdbca', '#389599'], ['water_deep', '#397f9e', '#6fb7c4', '#306d91'],
+    ['sand', '#e3cc98', '#f0deb0', '#cbb383'], ['sand_wet', '#b7a682', '#cdbc95', '#a19279'],
+    ['water_shallow', '#4e9594', '#87cab8', '#3a7f82'], ['water_deep', '#3b6f86', '#62a6b2', '#33607b'],
     ['trail', '#b39b80', '#d1b99a', '#8d8075'], ['snow', '#e8f0e9', '#ffffff', '#b2cbd5'],
   ]) for (let v = 0; v < (family === 'trail' || family === 'snow' ? 2 : 3); v++) {
     make(`${family}_${v}`, 16, 16, t => {
       t.rect(0, 0, 16, 16, base);
       for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) {
         const h = grain(x, y, v + 1);
-        if (h % 23 === 0) t.px(x, y, light);
+        if (h % (family.startsWith('water') ? 47 : 23) === 0) t.px(x, y, light);
         else if (h % 31 === 0) t.px(x, y, dark);
       }
-      if (family.startsWith('water')) for (const [x, y] of [[2 + v, 4], [9 - v, 11]]) {
-        t.hline(x, y, 4, light); t.px(x + 4, y - 1, light); t.hline(x + 1, y + 1, 2, base);
+      if (family.startsWith('water')) for (const [x, y] of [[2 + v, 4]]) {
+        t.hline(x, y, 3, light); t.hline(x + 1, y + 1, 2, base);
       }
       if (family === 'snow') { t.hline(v * 4, 13, 7, dark); t.hline(9 - v, 6, 5, '#d3e1e3'); }
       if (family === 'trail') { t.hline(3 + v * 6, 7, 2, dark); t.px(4 + v * 6, 6, light); }
     }, false);
   }
   make('sea', 16, 16, t => {
-    t.rect(0, 0, 16, 16, '#285772');
-    for (const [x, y] of [[1, 4], [8, 12]]) { t.hline(x, y, 5, '#5795a5'); t.hline(x + 2, y - 1, 3, '#82b5b9'); t.hline(x - 1, y + 1, 4, '#32667f'); }
+    t.rect(0, 0, 16, 16, '#2a4d61');
+    for (const [x, y] of [[1, 4]]) { t.hline(x, y, 5, '#55828e'); t.hline(x + 2, y - 1, 3, '#74a4a8'); t.hline(x - 1, y + 1, 4, '#335a6c'); }
   }, false);
   for (const name of ['rock', 'cliff']) make(name, 16, 16, t => {
     t.rect(0, 0, 16, 16, name === 'cliff' ? '#737d83' : '#929a99');
