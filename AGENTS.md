@@ -202,6 +202,10 @@ npm run typecheck    # run before every commit or deploy
 - **Refreshments:** taking a cocktail, beer or wine (`ALCOHOL_ITEMS`) applies `drunk` (three strength levels, up to three minutes); coconut removes
   one level and one minute and gives `refreshed`; ice cream gives `chilled` and extinguishes `fire_aura`.
   Rules and hints are in `shared/effects.ts`, server interactions in `World.refreshment`, visuals in `client/src/effects.ts`.
+  Drunk has bite: a drunk human's `move` lands a free tile beside the click (same room, no seat or doorway) with chance
+  `DRUNK_MISWALK` × level, capped at 0.6 (`World.drunkAim`; `World.rng` is swappable for tests); the swapped `to` is what
+  everyone gets in `move`. Chat from a drunk sender is drawn through `slur` (`client/src/slur.ts`, seeded by the message id,
+  display only). Achievements: `happy_hour` (first round), `closing_time` (level 3), `designated` (via `World.onGiven`, for B's `give`).
 - **Drinks** (`shared/drinks.ts`, in progress): the contract for drinking what you hold. `DRINKS` says per item what the sip does
   (`speed` for coffee/tea, `World.refreshment` for the bar), how long it takes, whether it sips itself (coffee/tea after 60 s; alcohol
   only on the `drink` intent) and whether it leaves an empty cup (`empty:<drink>` in hand, `emptyOf`/`emptyDrink`). An empty cup goes

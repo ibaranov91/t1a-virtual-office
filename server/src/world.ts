@@ -15,7 +15,7 @@ import { FOOD_ITEMS, LUNCH_MS, PLATE_PREFIX, picnicSeat, type Eating } from '../
 import { INSTRUMENTS, validNote } from '../../shared/instruments';
 import { phrase } from '../../shared/phrases';
 import { ALCOHOL_ITEMS } from '../../shared/drinks';
-import { ADMIN_HAT, ALL_HATS, BAT_HAT, BITE_MS, DANCE_ROOM, DRUNK_MAX_LEVEL, DRUNK_MAX_MS, DRUNK_NAMES, EFFECTS, HAT_NAMES, MAX_EFFECTS, RAVER_MS, drunkLevel, effectOf, hatItem, hatOf, walkMs } from '../../shared/effects';
+import { ADMIN_HAT, ALL_HATS, BAT_HAT, BITE_MS, DANCE_ROOM, DRUNK_MAX_LEVEL, DRUNK_MAX_MS, DRUNK_MISWALK, DRUNK_NAMES, EFFECTS, HAT_NAMES, MAX_EFFECTS, RAVER_MS, drunkLevel, effectOf, hatItem, hatOf, walkMs } from '../../shared/effects';
 import { tracksFor } from '../../shared/music';
 import { Arcade } from './arcade';
 import { Table } from './table';
@@ -105,6 +105,7 @@ const rtcSignal = (s: unknown): s is RtcSignal =>
 
 export class World {
   users = new Map<string, User>();
+  rng: () => number = Math.random; // tests swap in a fixed one (drunk mis-walks)
   knocks = new Map<string, Knock & { timer?: NodeJS.Timeout }>();
   private sockets = new Map<string, Map<string, Send>>();
   private owners = new Map<string, string>();
@@ -474,6 +475,20 @@ export class World {
   }
   roomOf(u: User) { const p = this.position(u); return roomAt(this.map, p.tile.x, p.tile.y); }
 
+  private miswalkNoticeAt = new Map<string, number>();
+  /** A drunk human's click sometimes lands a tile off: a free floor tile beside it, in the same room (never a seat or doorway). */
+  drunkAim(u: User, to: Tile, now = Date.now()): Tile {
+    const e = effectOf(u.effects, 'drunk');
+    if (u.bot || !e || (e.until !== undefined && e.until <= now) || underground(u)) return to;
+    if (this.rng() >= Math.min(0.6, DRUNK_MISWALK * drunkLevel(e))) return to;
+    const room = roomAt(this.map, to.x, to.y), occ = this.occupied(u.instance);
+    const doorway = (t: Tile) => !room && this.map.rooms.some(r => doorwayTiles(this.map, r).some(g => g.some(d => d.x === t.x && d.y === t.y)));
+    const options = [[0, -1], [1, 0], [0, 1], [-1, 0]].map(([dx, dy]) => ({ x: to.x + dx, y: to.y + dy })).filter(t =>
+      isWalkable(this.map, t.x, t.y) && roomAt(this.map, t.x, t.y) === room && !seatAt(this.map, t.x, t.y) && !occ.has(`${t.x},${t.y}`) && !doorway(t));
+    if (!options.length) return to;
+    if (now - (this.miswalkNoticeAt.get(u.id) ?? -Infinity) >= 10_000) { this.miswalkNoticeAt.set(u.id, now); this.sendTo(u.id, { t: 'notice', text: '🥴 Not quite where you aimed' }); }
+    return options[Math.floor(this.rng() * options.length)];
+  }
   /** Start a walk. Mid-walk, the new path starts at the tile being entered, timed for when we get there. */
   walk(u: User, to: Tile, face?: Dir, now = Date.now(), msPerTile?: number): number | null {
     const pos = this.position(u, now);
@@ -1082,6 +1097,10 @@ export class World {
       const remaining = active?.until === undefined ? 0 : Math.max(0, active.until - now);
       this.addEffect(u, 'drunk', { ms: Math.min(DRUNK_MAX_MS, remaining + EFFECTS.drunk.ms!), data: { level } }, now);
       this.sendTo(u.id, { t: 'notice', text: `🍹 ${DRUNK_NAMES[level - 1]} · round ${level}/${DRUNK_MAX_LEVEL}. Coconut takes the wobble down.` });
+      const had = u.achievements;
+      this.award(u, 'happy_hour', now);
+      if (level >= DRUNK_MAX_LEVEL) this.award(u, 'closing_time', now);
+      if (u.achievements !== had) this.plantChanged(u);
     } else if (item === 'coconut') {
       const level = drunkLevel(active), remaining = (active?.until ?? now + EFFECTS.drunk.ms!) - now - EFFECTS.drunk.ms!;
       if (level > 1 && remaining > 0) this.addEffect(u, 'drunk', { ms: remaining, data: { level: level - 1 } }, now);
@@ -1094,6 +1113,12 @@ export class World {
       this.addEffect(u, 'chilled', {}, now);
       this.sendTo(u.id, { t: 'notice', text: burning ? '🍦 Fire extinguished. Brain freeze activated.' : '🍦 Brain freeze! A tiny snow day on the beach.' });
     }
+  }
+  /** `from` handed `u` a drink. Handing over a full alcoholic one (instead of drinking it) makes `from` a designated driver.
+   *  TODO(drinks): stream B's `give` calls this once the drink is in the other person's hand. */
+  onGiven(u: User, item: string, from: User, now = Date.now()) {
+    if (from.id === u.id || from.bot || !ALCOHOL_ITEMS.includes(item) || from.achievements.designated) return;
+    this.award(from, 'designated', now); this.plantChanged(from);
   }
   /** Put an effect on someone (replacing one of the same kind), for its rule's duration unless `ms` says otherwise. */
   addEffect(u: User, kind: string, opts: { ms?: number; data?: Record<string, unknown> } = {}, now = Date.now()) {
@@ -2112,13 +2137,14 @@ export class World {
       case 'note': this.note(u, msg, socket); break;
       case 'move': {
         if (!msg.to || typeof msg.to !== 'object') break; // checked before anything changes
-        const to = { x: msg.to.x | 0, y: msg.to.y | 0 };
+        let to = { x: msg.to.x | 0, y: msg.to.y | 0 };
         u.afk = false;
         for (const k of this.knocks.values()) if (k.fromId === u.id && k.state === 'walking') this.closeKnock(k, 'later', 'Knock cancelled', true);
         if (u.door === 'arriving') { this.doorTimer(u, null); this.setDoor(u, null); } // off on their own way: bag's put away
         this.setFollowing(u, null);
         if (underground(u) ? !this.inDungeon(to) : u.instance && !this.inMeetingRoom(to)) break;
         if (!this.isSysadmin(u) && adminOnly(this.map, to.x, to.y)) { this.sendTo(u.id, { t: 'notice', text: `🔒 ${roomAt(this.map, to.x, to.y)?.name ?? 'That room'}: sysadmins only` }); break; }
+        to = this.drunkAim(u, to);
         const at = this.walk(u, to);
         const hole = this.map.dungeon?.hole;
         if (at !== null && hole && this.sameTile(to, hole)) this.dungeonTimer(u, 'fall', at, () => {

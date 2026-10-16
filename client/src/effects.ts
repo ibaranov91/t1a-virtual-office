@@ -142,8 +142,9 @@ export const EFFECT_DRAW: Record<string, FxDraw> = {
   },
   drunk: {
     sway: (ms, seed, p, e) => {
-      const strength = 1 + (drunkLevel(e) - 1) * 0.45;
-      const s = Math.sin((ms + seed * 53) / (p.walking ? 160 : 420));
+      const level = drunkLevel(e), strength = 1 + (level - 1) * 0.5;
+      let s = Math.sin((ms + seed * 53) / ((p.walking ? 160 : 420) - (level - 1) * 30));
+      if (level >= 3) s += 0.6 * Math.sin((ms + seed * 31) / 900) ** 3; // wasted: a slow lurch on top of the wobble
       return { dx: Math.round(s * (p.walking ? 2 : 1) * strength), rot: s * (p.walking ? 0.16 : 0.1) * strength };
     },
     front(c) {

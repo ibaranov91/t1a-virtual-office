@@ -21,6 +21,7 @@ import type { CabinetSummary, ParkRecords, ArcadeBoards } from '../../shared/pro
 import { playPark, playHand, playKnock, playPop, playAchievement, playDungeon, playPet } from './sounds';
 import type { Soundscape } from './soundscape';
 import { bestOffset, clockSample, CLOCK_SAMPLES, type ClockSample } from './clockSync';
+import { slurBy } from './slur';
 
 export const MAP = mapJson as unknown as TileMap;
 const baseRoomRules = Object.fromEntries(MAP.rooms.map(r => [r.id, { ...r.rules }]));
@@ -754,7 +755,7 @@ export class Store {
         if (m.fromId !== this.me && this.chatWith !== other) {
           this.unread.set(other, (this.unread.get(other) ?? 0) + 1);
           this.toasts = this.toasts.filter(t => !(t.kind === 'chat' && t.userId === other));
-          this.toast({ kind: 'chat', userId: other, text: `${this.name(other)}: ${m.text}`, expires: 10000 });
+          this.toast({ kind: 'chat', userId: other, text: `${this.name(other)}: ${slurBy(this.users.get(m.fromId)?.effects, m.text, m.at, m.id)}`, expires: 10000 });
           playPop();
         }
         break;

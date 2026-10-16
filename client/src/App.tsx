@@ -24,6 +24,7 @@ import { Soundscape } from './soundscape';
 import { needsGesture, resume } from './audio';
 import { prefs, savePrefs } from './prefs';
 import { ITEMS, MAP, Store, type ClientUser } from './net';
+import { slurBy } from './slur';
 import { inNativeApp, syncNative } from './native';
 import { ExternalLink } from './links';
 import { fakeShare } from './share';
@@ -1329,7 +1330,7 @@ function ChatPanel({ store, withId }: { store: Store; withId: string }) {
         {!msgs.length && <p className="muted">Say hi to {other?.name.split(' ')[0] ?? 'them'} 👋{other?.presence === 'offline' ? ' They\'ll see it when they\'re back.' : ''}</p>}
         {msgs.map(m => (
           <div key={m.id} className={`msg${m.fromId === store.me ? ' mine' : ''}`}>
-            <span>{m.text}</span><small>{time(m.at)}</small>
+            <span>{slurBy(store.users.get(m.fromId)?.effects, m.text, m.at, m.id)}</span><small>{time(m.at)}</small>
           </div>
         ))}
       </div>

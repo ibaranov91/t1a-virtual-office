@@ -145,6 +145,9 @@ export const ACHIEVEMENTS: Achievement[] = [
   { id: 'bellringer', icon: '🛎️', title: 'Ding!', how: 'Ring the reception bell in the Lobby.' },
   { id: 'tidy', icon: '🧽', title: 'Tidy soul', how: 'Clear a cup off a table while the cleaner is in the room to see it.', secret: 'The cleaner notices who tidies up after themselves.' },
   { id: 'bughunter', icon: '🐛', title: 'Bug hunter', how: 'Report a bug at the Lobby terminal that gets marked fixed.' },
+  { id: 'happy_hour', icon: '🍹', title: 'Happy hour', how: 'Get tipsy on a drink from the bar.', secret: 'The beach bar does more than coconuts.' },
+  { id: 'closing_time', icon: '🥴', title: 'Closing time', how: 'Have three rounds and get properly wasted.', secret: 'One more round… and one more after that.' },
+  { id: 'designated', icon: '🚗', title: 'Designated driver', how: 'Hand a full drink from the bar to someone else instead of drinking it.', secret: 'Not every cocktail is for you.' },
   { id: 'event', icon: '🎉', title: 'Party person', how: 'Be in the office during an office event.', soon: true },
 ];
 
