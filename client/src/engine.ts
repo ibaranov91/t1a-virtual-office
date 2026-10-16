@@ -367,7 +367,34 @@ export class Engine {
     for (const o of MAP.dungeon?.decor ?? []) this.blit(ctx, o.type, o.x * TS, o.y * TS);
     // wall decor + floor-level furniture (chairs) are static
     for (const o of MAP.objects) if ((o.wall || o.walkable) && o.type !== 'dance_floor') this.drawItem(ctx, o); // the dance floor animates: see drawDanceFloor
+    this.drawOpenVoiceSigns(ctx);
     return c;
+  }
+  /** Permanent neon wall signs, baked once with the interior; only rooms with open voice get one. */
+  private drawOpenVoiceSigns(ctx: CanvasRenderingContext2D) {
+    // Clear wall sections beside the windows, TV and doorways (art pixels, relative to each room).
+    const mounts: Record<string, [number, number]> = { coffee: [112, 128], music: [0, 128], arcade: [0, 160], bookclub: [32, 110] };
+    for (const r of MAP.rooms) {
+      const mount = mounts[r.id];
+      if (r.rules.voice !== 'open' || !mount) continue;
+      const x = r.rect.x * TS + mount[0], y = r.rect.y * TS + mount[1];
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.fillStyle = '#111c29'; ctx.fillRect(0, 0, 64, 23);
+      ctx.fillStyle = '#243d49'; ctx.fillRect(2, 23, 62, 2);
+      ctx.shadowColor = '#40f5df'; ctx.shadowBlur = 7;
+      ctx.strokeStyle = '#40f5df'; ctx.lineWidth = 1;
+      ctx.strokeRect(1.5, 1.5, 61, 20);
+      // A tiny microphone with two sound waves, drawn in the same pixel grid as the floor.
+      ctx.fillStyle = '#ff81cf';
+      ctx.fillRect(5, 6, 3, 5); ctx.fillRect(4, 10, 1, 2); ctx.fillRect(8, 10, 1, 2);
+      ctx.fillRect(5, 12, 3, 1); ctx.fillRect(6, 13, 1, 2);
+      ctx.fillRect(10, 7, 1, 4); ctx.fillRect(12, 6, 1, 6);
+      drawText(ctx, 'OPEN VOICE', 17, 5, '#b5fff2');
+      ctx.shadowBlur = 0;
+      drawText(ctx, 'WALK IN · TALK', 5, 15, '#ffb0df');
+      ctx.restore();
+    }
   }
   private drawRug(ctx: CanvasRenderingContext2D, r: Rug) {
     for (let y = r.y; y < r.y + r.h; y++) for (let x = r.x; x < r.x + r.w; x++) {

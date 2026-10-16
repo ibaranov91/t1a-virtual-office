@@ -1,6 +1,7 @@
 /// <reference types="node" />
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { readFileSync } from 'node:fs';
 import { pathTo, isWalkable, pathDuration, WALK_MS_PER_TILE, type Tile, type TileMap } from '../../shared/map';
 import { DUNGEON_INSTANCE, type ServerMsg } from '../../shared/protocol';
 import { DungeonView } from './dungeon';
@@ -13,11 +14,27 @@ Object.assign(globalThis, {
   requestAnimationFrame: () => 0, cancelAnimationFrame() {},
   document: { activeElement: null, createElement: () => ({ getContext: () => ({
     fillStyle: '', createRadialGradient: () => ({ addColorStop() {} }), clearRect() { fills.clear(); },
+    save() {}, restore() {}, translate() {}, strokeRect() {},
     fillRect(this: { fillStyle: string }, x: number, y: number) { fills.set(`${x},${y}`, this.fillStyle); },
   }) }) },
 });
 const { Store, MAP } = await import('./net');
 const { Engine } = await import('./engine');
+test('open voice signs stay visible clear of furniture and interactive wall objects', () => {
+  const signs: { x: number; y: number; w: number; h: number }[] = [];
+  let x = 0, y = 0;
+  const ctx = { save() {}, restore() {}, translate(a: number, b: number) { x = a; y = b; }, fillRect() {},
+    strokeRect(a: number, b: number, w: number, h: number) { signs.push({ x: x + a, y: y + b, w, h }); } };
+  (Engine.prototype as any).drawOpenVoiceSigns(ctx);
+  assert.equal(signs.length, MAP.rooms.filter(r => r.rules.voice === 'open').length);
+  const { frames } = JSON.parse(readFileSync(new URL('../public/assets/atlas.json', import.meta.url), 'utf8'));
+  for (const s of signs) for (const o of MAP.objects.filter(o => !o.wall || o.use)) {
+    const f = frames[o.type]; if (!f) continue;
+    const ox = o.x * MAP.tileSize + (o.w * MAP.tileSize - f.w) / 2;
+    const oy = o.wall ? o.y * MAP.tileSize : (o.y + o.h) * MAP.tileSize - f.h;
+    assert.ok(s.x + s.w <= ox || s.x >= ox + f.w || s.y + s.h <= oy || s.y >= oy + f.h, `sign overlaps ${o.type} at ${o.x},${o.y}`);
+  }
+});
 type ClientUser = import('./net').ClientUser;
 const receive = (store: InstanceType<typeof Store>, msg: ServerMsg) => (store as any).onMessage(msg);
 function fixture() {
