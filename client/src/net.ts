@@ -474,9 +474,18 @@ export class Store {
     if (u.presence === 'offline') return 'Offline';
     if (me?.callId && me.callId === u.callId) return 'Already talking';
     if (u.door === 'thinking' || u.door === 'leaving') return 'Heading out';
-    if (hall || room?.rules.voice === 'open') return `In ${(hall ?? room)!.name} — just walk in`;
+    const talking = !!u.callId && !u.callId.startsWith('room:'); // a direct talk: knock even when they stand in a hall or stall
+    if (!talking && (hall || room?.rules.voice === 'open')) return `In ${(hall ?? room)!.name} — just walk in`;
     if (mine) return `You're in ${mine.name} voice — step out to knock`;
     return room?.rules.knock === 'disabled' ? `${room.name}: ${room.rules.label}` : null;
+  }
+  /** On a direct talk while fully inside a hall's room or a toilet stall: the place's name, else null. */
+  talkConflict(): string | null {
+    const me = this.users.get(this.me);
+    if (!me?.callId || me.callId.startsWith('room:') || me.instance) return null;
+    if (Object.values(this.toilets).some(t => t.in.includes(me.id))) return 'the stall';
+    const r = this.roomOf(me);
+    return r?.rules.voice === 'open' ? r.name : null;
   }
   endCall() { this.send({ t: 'end_call' }); }
   moveToMeet() { this.send({ t: 'to_meet' }); }
