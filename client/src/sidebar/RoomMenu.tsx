@@ -26,7 +26,8 @@ export function RoomMenu({ store, engine, at, compact, onClose, onAction, onTv }
         const label = use.kind === 'jukebox' ? `${use.label.replace(/^./, c => c.toUpperCase())}: now playing` : use.kind === 'youtube' ? `TV: ${use.label}`
           : use.kind === 'records' ? 'Arcade records' : use.kind === 'meetings' ? 'Meetings on now'
           : use.kind === 'library' ? 'Library shelf' : use.kind === 'clock' ? 'Our time zones'
-          : use.kind === 'achievements' ? 'Achievements board' : use.kind === 'calendar' ? 'Your calendar' : use.kind === 'tickets' ? 'Bug terminal: report a bug' : `Open the ${use.label}`;
+          : use.kind === 'achievements' ? 'Achievements board' : use.kind === 'calendar' ? 'Your calendar' : use.kind === 'tickets' ? 'Bug terminal: report a bug'
+          : use.kind === 'room_start' ? 'Start a private room' : `Open the ${use.label}`;
         const run = () => {
           switch (use.kind) {
             case 'jukebox': return store.openJukebox(o.id);
@@ -39,9 +40,11 @@ export function RoomMenu({ store, engine, at, compact, onClose, onAction, onTv }
             case 'calendar': return store.openCalendar();
             case 'link': return store.openLink(use);
             case 'tickets': return store.use(o.id); // walks over; the screen opens on arrival
+            case 'room_start': return store.use(o.id); // walks to the kiosk; the server opens the popup on arrival
           }
         };
-        return <button key={o.id} data-action role="menuitem" onClick={() => act(run)}>{label}</button>;
+        const why = use.kind === 'room_start' && me && (underground(me) || me.instance) ? reason : null; // the kiosk is a walk away
+        return <button key={o.id} data-action role="menuitem" disabled={!!why} onClick={() => act(run)}>{label}{why && <small>{why}</small>}</button>;
       })}
       {store.admin && <div className="sb-room-modes" role="group" aria-label="Room mode">
         <b>Room mode</b>
