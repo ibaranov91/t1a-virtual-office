@@ -1,3 +1,4 @@
+import { Icon } from './Icon';
 import { useEffect, useState } from 'react';
 import type { Store, ClientUser } from './net';
 
@@ -23,9 +24,9 @@ export function RoomPopup({ store }: { store: Store }) {
   const name = (id: string) => store.users.get(id)?.name.split(' ')[0] ?? '?';
   return <div className="modal-backdrop room-backdrop" onPointerDown={e => { if (e.target === e.currentTarget) close(); }}>
     <form className="meet-panel guided room-popup" role="dialog" aria-label={inside ? 'Invite to the private room' : 'Private room'} onSubmit={e => { e.preventDefault(); go(); }}>
-      <div className="rooms-head"><span>🔒 {inside ? `Invite to ${inside.title}` : 'Private room'}</span><button type="button" className="ghost" aria-label="Close" onClick={close}>×</button></div>
+      <div className="rooms-head"><span><Icon name="lock" /> {inside ? `Invite to ${inside.title}` : 'Private room'}</span><button type="button" className="ghost" aria-label="Close" onClick={close}><Icon name="close" /></button></div>
       {!inside && <input autoFocus value={title} maxLength={60} onChange={e => setTitle(e.target.value)} placeholder="Title (optional)" aria-label="Room title" />}
-      {picked.length > 0 && <div className="room-chips">{picked.map(id => <button type="button" key={id} className="chip" title="Remove" onClick={() => toggle(id)}>{name(id)} ×</button>)}</div>}
+      {picked.length > 0 && <div className="room-chips">{picked.map(id => <button type="button" key={id} className="chip" title="Remove" onClick={() => toggle(id)}>{name(id)} <Icon name="close" /></button>)}</div>}
       <input autoFocus={!!inside} value={q} onChange={e => setQ(e.target.value)} placeholder="Find people…" aria-label="Find people" />
       <ul className="room-people">
         {shown.map(u => <PersonRow key={u.id} u={u} on={picked.includes(u.id)} full={picked.length >= MAX_INVITES} onToggle={() => toggle(u.id)} />)}

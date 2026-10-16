@@ -1,3 +1,4 @@
+import { Icon } from '../Icon';
 import type { Assets } from '../assets';
 import type { Store, ClientUser } from '../net';
 import { prefs } from '../prefs';
@@ -26,13 +27,13 @@ export function PersonRow({ store, user: u, assets, speaking, people, onPerson, 
         {showLine && <small>{line}</small>}</span>
     </button>
     {!offline && <span className="sb-marks">
-      {u.callId && u.muted && <span className="sb-danger" title="Mic off">🔇</span>}
-      {u.callId && u.deafened && <span className="sb-crossed" title="Deafened">🎧</span>}
-      {u.hand && store.roomCallOf(u) && <span title="Hand raised">✋</span>}
+      {u.callId && u.muted && <span className="sb-danger" title="Mic off"><Icon name="mic" off /></span>}
+      {u.callId && u.deafened && <span className="sb-danger" title="Deafened"><Icon name="headphones" off /></span>}
+      {u.hand && store.roomCallOf(u) && <span title="Hand raised"><Icon name="hand" /></span>}
       {u.game && <span>{u.game.role === 'player' ? '🕹' : '👀'}</span>}
       {playing && <span title={playing.name}>{playing.icon}</span>}
     </span>}
-    {!!unread && <button className="sb-unread" aria-label={`Message ${u.name}, ${unread} unread`} onClick={() => { onAction(); store.openChat(u.id); }}>💬 {unread}</button>}
-    {!offline && (prefs.localMuted[u.id] ? <span className="sb-volume">🔕</span> : volume !== 100 && <span className="sb-volume">{volume}%</span>)}
+    {!!unread && <button className="sb-unread" aria-label={`Message ${u.name}, ${unread} unread`} onClick={() => { onAction(); store.openChat(u.id); }}><Icon name="message" /> {unread}</button>}
+    {!offline && (prefs.localMuted[u.id] ? <span className="sb-volume" title="Muted for me"><Icon name="volume" off /></span> : volume !== 100 && <span className="sb-volume">{volume}%</span>)}
   </div>;
 }

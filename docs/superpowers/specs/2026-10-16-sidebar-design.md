@@ -31,9 +31,9 @@ bottom of the panel.
 7. **Phones: a bottom sheet** from the dock's 👥 button, half or full height; the person card and room menu open as
    their own bottom sheet above it with "← Back".
 8. **Knock calls are a mark on the person's row** ("📞 with Leo"); people stay under the room they stand in.
-9. The status pill and the voice buttons leave the top bar (desktop) for the sidebar; the call and room-voice chips
-   leave the floor (desktop) for the sidebar's voice block. "People" leaves the top bar's ⋯ menu. Nothing else in the
-   top bar changes.
+9. The status pill and the voice buttons leave the top bar (desktop) for the sidebar's bottom card. The call and
+   room-voice chips stay on the floor on every layout for quick mic and headphones control; the sidebar's voice
+   section is the compact status. "People" leaves the top bar's ⋯ menu. Nothing else in the top bar changes.
 10. **No server or protocol change.** Everything shown is already on the client.
 
 UI copy stays English like the rest of the app (strings below are exact).
@@ -79,7 +79,7 @@ UI copy stays English like the rest of the app (strings below are exact).
 ## Rooms view
 
 **Header**: a two-segment toggle `Rooms` | `People` (`role="tablist"`, the segments `role="tab"`, `aria-selected`),
-then the collapse button `«` (`aria-label="Collapse sidebar"`; hidden on compact, where the sheet has `×`).
+then the collapse button `chevron-left` (`aria-label="Collapse sidebar"`; hidden on compact, where the sheet has `close`).
 
 **Search**: an input under the header, placeholder `Find a person or room`, `type="search"`. Case-insensitive
 substring on person names and room names. In Rooms view a room stays if its name matches (then with all its people,
@@ -106,7 +106,7 @@ Live groups (`meetings`, `underground`, `hall`) and `offline` hold people direct
 empty.
 
 **Room row** (a `button`, the whole row):
-- icon by group: voice `🔊`, knock `#`, quiet `🌙`; a room with `rules.access === 'admins'` shows `🔒` instead.
+- Shared `Icon` by group: voice `volume`, knock text `#`, quiet `moon`; admins-only rooms use `lock`. Row icons are 14 px; rail icons are 20 px.
 - name; the subtitle on the same line, muted and ellipsized: for a room with a jukebox, `♪ <track title>` while
   playing or `paused`; for the room of a live office-scope presentation, `📽 live` (a meeting room's own show stays inside it); otherwise nothing.
 - count on the right: the number of online people in it outside any instance. Hidden when 0. No capacity: main
@@ -119,11 +119,11 @@ empty.
 **Person row**: a non-interactive row (`div`) holding sibling buttons — the main one (avatar, name, second line)
 opens the card; the unread badge is its own button. Never a button inside a button. Avatar 22 px (head of their sprite, see Avatar), the presence dot on it, the speaking
 ring around it while they talk. Name (you: `<name> (you)`, accent color). Second line (muted, one line, ellipsized)
-from `activityLine` below. Right side, in this order and only when true: mic off (`🔇`, red) when in a call and
-muted; deafened (`🎧` crossed) when in a call and deafened; hand `✋` when `u.hand` and in a room call; game `🕹` /
+from `activityLine` below. Right side, in this order and only when true: mic off (`mic` off, red) when in a call and
+muted; deafened (`headphones` off, red) when in a call and deafened; hand `hand` when `u.hand` and in a room call; game `🕹` /
 `👀`; the instrument they play (today's `instrumentIcon(store, u.id)`, independent of the second line, so it shows
-during a call too); the unread badge `💬 n` (the sibling button: opens that chat); your local volume when it is
-not 100% (`60%`, muted text) or `🔕` when you muted them. Offline rows are dimmed and show only the name and the
+during a call too); the unread badge `message` + count (the sibling button: opens that chat); your local volume when it is
+not 100% (`60%`, muted text) or `volume` off when you muted them. Offline rows are dimmed and show only the name and the
 unread badge (no second line, no other marks). Order inside a room or group: you first, then by name (`localeCompare`), never by activity
 (rows must not jump).
 
@@ -209,8 +209,7 @@ behavior as `PersonMenu`. `role="dialog"`, `aria-label="<name>"`.
     offline or dungeon (same rule as today's `PersonMenu`);
   - `Private room` → `store.createRoom([u.id])` when `store.roomReason(u)` is empty and they aren't heading out (the
     action wheel's "Take to private room");
-  - admins only, same conditions as the action wheel: `Teleport` → `store.teleport(u.id)`, `Rename` → the same
-    `window.prompt` + `store.rename`.
+  - admins only, same conditions as the action wheel: `Teleport` → `store.teleport(u.id)` (Rename lives in the GM panel only, like the wheel since #114).
   - Each action closes the card (see "Closing after an action"), except Follow, which toggles in place.
   - **Reasons are text, not tooltips**: when Knock (or Walk over/Follow) is disabled, the first reason shows as a
     muted line under the grid (`In Coffee — just walk in`, `Offline`…), because touch has no tooltips.
@@ -222,33 +221,44 @@ behavior as `PersonMenu`. `role="dialog"`, `aria-label="<name>"`.
 
 ## Your strip (bottom of the panel)
 
-**Voice block** — shown above the identity row only when one of these is true (first match):
+**One bottom card**, full sidebar width minus its margins: `margin: 8px; padding: 10px 10px 10px 12px`,
+`border-radius: 12px`, `background: var(--bg)`, `border: 1px solid var(--line)`,
+`box-shadow: 0 -2px 12px rgba(0,0,0,.25)`. Nothing wraps. The rail keeps its compact controls, without a card.
+
+**Voice section** — compact status above the identity row, separated by a 1 px `--line` divider, only when there is
+something to say (first match):
 1. `store.connected && !store.voiceOwner` → `Voice is on in another tab` + button `Use voice here` (`store.claimVoice()`).
-2. a knock call (`me.callId && !me.instance && !store.roomCallOf(me) && store.voiceOwner`) → today's `CallChip` content: live dot,
-   `Talking with <names> · <voiceState>`, `Leave` (`store.endCall()`), `Move to Meet` link when there is a Meet link.
-3. room voice (today's `RoomVoiceChip` condition) → its exact text and dot, and zero or one button in today's
-   branch order (Hear again when deafened; none when `micError`; Unmute when muted; else Mute), with
-   `earshotLine(store)` as the block's `title`.
+2. a knock call (`me.callId && !me.instance && !store.roomCallOf(me) && store.voiceOwner`) → first line
+   `Voice connected` in `--accent2` with a small `volume` signal icon; second line muted
+   `with <names> · <voiceState>`. On the right, `Move to Meet` when there is a Meet link, then a red `disconnect`
+   icon button, `Leave call` (`store.endCall()`).
+3. room voice (today's `RoomVoiceChip` condition) → first line `Voice connected` in green, or `Muted` / `Deafened` /
+   `Listen-only` in `--danger`; second line muted `<room name> · here: <first names or nobody yet>`.
+   No mute or leave button here: the identity row controls the mic, and walking out leaves room voice.
 4. `store.voiceWait` naming an office room → `Waiting for a spot in <room> voice`.
 
-Inside a meeting room or private room (`me.instance`) the block stays empty: its voice (Talk, Mute, hand, Leave voice,
-the waiting line, Invite, Meet) lives on the floating `MeetingChip`, unchanged.
+Both lines ellipsize; `title` keeps the full text, plus `earshotLine(store)` for room voice.
+Inside a meeting room or private room (`me.instance`) the section stays empty: its voice lives on `MeetingChip`.
 
-Move `CallChip`, `RoomVoiceChip`, `voiceState` and `earshotLine` into the sidebar module and reuse them for this
-block (one implementation; compact still renders them as floating chips).
+`CallChip` and `RoomVoiceChip` stay on the floor on **every layout**, with their existing texts and conditions,
+mic and headphones `VoiceToggle` controls, and a red `disconnect` button for knock calls. The sidebar's section
+is their compact status, not a second floating chip. `voiceState` and `earshotLine` stay shared in the sidebar module.
 
-**Identity row**: your avatar (28 px) with the presence dot — a click opens the presence menu (Online / Away /
-In a call, today's `presence-pop`, opening upward); your name; under it the status (or `Set a status`, muted, `title`
-`Set a status (waters your plant)`) — a click opens the status popover (today's `status-pop`: input with
-`maxLength=80`, Enter saves, Esc cancels, outside click saves, `Clear`), opening upward. Then `VoiceIcons`
-(mic, deafen, hand, sound settings) unchanged in behavior; its settings popover opens upward.
+**Identity row**: one flex row, centered, `gap: 10px`. Your 40 px avatar (32 px crisp sprite head) has a 12 px presence
+dot; clicking it opens Online / Away / In a call (`presence-pop`, upward). Your name is 15 px, weight 800,
+`--text`, ellipsized; the status below is 12 px `--muted`, ellipsized, or `Set a status`. No room name here.
+Name and status are one button opening `status-pop` upward: input with `maxLength=80`, Enter saves, Esc cancels,
+outside click saves, `Clear`.
 
-This is today's `IdentityPill` and `VoiceIcons` logic moved into the sidebar module, not rewritten.
+On the right (`margin-left:auto`): mic split (`VoiceToggle` + input chevron), headphones split (`VoiceToggle` +
+output chevron), hand only in a room call, then settings. Buttons are 36×36, icons 22 px, radius 8 px, hover
+`--panel2`. One voice popover has input / output / settings / claim views, opens upward and right-aligned to the
+card, moves focus inside on opening and back to its trigger on closing. Escape respects `overlayOpen(store)`.
 
 ## Rail (collapsed)
 
 56 px wide, in flow (wide and narrow modes). Top to bottom, each a button with an `aria-label`:
-- `»` expand (`Show sidebar`).
+- `chevron-right` expand (`Show sidebar`).
 - one button for each of the three room groups (`voice` 🔊, `knock` #, `quiet` 🌙) that has people, its online count
   under the icon; a click switches to Rooms view, expands the panel, opens that group and scrolls it into view. The
   live groups and Offline have no rail button.
@@ -270,8 +280,9 @@ This is today's `IdentityPill` and `VoiceIcons` logic moved into the sidebar mod
 - **Person card and room menu** render as their own bottom sheet (the anchor rules don't apply): same left/right/bottom
   as the sheet, `max-height: calc(100% - 16px)`, scrolling body, `z-index:9`, header `← Back` that closes just that
   sheet. The pinned Mac desktop window (640×420) is compact by height, so it gets this layout too.
-- Floating `CallChip` and `RoomVoiceChip` stay on the floor on compact (the sheet is usually closed). On wide and
-  narrow they are not rendered on the floor.
+- Floating `CallChip` and `RoomVoiceChip` stay on the floor on every layout (the sheet is usually closed on compact).
+  They offer mic/headphones controls and a red disconnect for knock calls; on wide and narrow the bottom card also
+  shows the compact voice status.
 - The top bar on compact keeps `IdentityPill` (today's look). On wide and narrow, `IdentityPill` and the top bar
   `VoiceIcons` are not rendered.
 
@@ -322,7 +333,7 @@ New folder `client/src/sidebar/`:
   `presentation`, `sysadmin`.
 - `Sidebar.tsx` — mode, width, persistence, panel/rail/sheet frames, resize handle, header, search, view switch.
 - `ChannelTree.tsx`, `PeopleList.tsx`, `PersonRow.tsx` (shared row), `RoomMenu.tsx`, `PersonCard.tsx`, `Rail.tsx`.
-- `SelfPanel.tsx` — voice block, identity row, and the moved `IdentityPill`, `VoiceIcons`, `VIcon`, `COG`,
+- `SelfPanel.tsx` — voice block, identity row, and the moved `IdentityPill`, `VoiceIcons`,
   `CallChip`, `RoomVoiceChip`, `voiceState`, `earshotLine`, `EnableSound` (exported for App.tsx's `Dock` and the
   compact top bar).
 - `Avatar.tsx` — `Avatar` + `useSpeaking`.

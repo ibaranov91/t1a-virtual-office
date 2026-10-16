@@ -1,3 +1,4 @@
+import { Icon } from '../Icon';
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import type { Assets } from '../assets';
 import type { Engine } from '../engine';
@@ -14,14 +15,15 @@ import type { PersonAnchor } from './PersonCard';
 import type { RoomAnchor } from './RoomMenu';
 export type { PersonAnchor } from './PersonCard';
 type Settings = { width: number; collapsed: boolean; view: 'rooms' | 'people'; closed: string[] };
-const defaults = (): Settings => ({ width: 264, collapsed: false, view: 'rooms', closed: ['offline'] });
-const clamp = (n: number) => Math.max(220, Math.min(380, n));
+const WIDTH = 300; // fits the bottom card's name beside mic, headphones and settings
+const defaults = (): Settings => ({ width: WIDTH, collapsed: false, view: 'rooms', closed: ['offline'] });
+const clamp = (n: number) => Math.max(260, Math.min(400, n));
 function load(): Settings {
   const d = defaults();
   try {
     const s = JSON.parse(localStorage.getItem('deck.sidebar') ?? 'null');
     if (!s || typeof s !== 'object') return d;
-    return { width: typeof s.width === 'number' && Number.isFinite(s.width) ? clamp(s.width) : d.width,
+    return { width: typeof s.width === 'number' && Number.isFinite(s.width) && s.width !== 264 ? clamp(s.width) : d.width, // 264 was the old default: never chosen by hand
       collapsed: typeof s.collapsed === 'boolean' ? s.collapsed : d.collapsed,
       view: s.view === 'people' ? 'people' : 'rooms', closed: Array.isArray(s.closed) && s.closed.every((id: unknown) => typeof id === 'string') ? s.closed : d.closed };
   } catch { return d; }
@@ -72,14 +74,14 @@ export const Sidebar = forwardRef<{ close: () => void }, {
       {compact && <button className="sb-grab" aria-label={full ? 'Half height' : 'Full height'} onPointerDown={e => { grab.current = e.clientY; e.currentTarget.setPointerCapture(e.pointerId); }}
         onPointerUp={e => { const dy = e.clientY - (grab.current ?? e.clientY); grab.current = null; if (dy > 80) close(); else if (dy < -40) setFull(true); else if (Math.abs(dy) < 8) setFull(f => !f); }} onPointerCancel={() => { grab.current = null; }}><span /></button>}
       <header className="sb-header"><div role="tablist" aria-label="Sidebar view">{(['rooms', 'people'] as const).map(v => <button key={v} role="tab" aria-selected={settings.view === v} onClick={() => update({ view: v })}>{v === 'rooms' ? 'Rooms' : 'People'}</button>)}</div>
-        <button className="ghost" aria-label={compact ? 'Close people' : 'Collapse sidebar'} onClick={compact ? close : collapse}>{compact ? '×' : '«'}</button></header>
+        <button className="ghost" aria-label={compact ? 'Close people' : 'Collapse sidebar'} onClick={compact ? close : collapse}><Icon name={compact ? "close" : "chevron-left"} /></button></header>
       <div className="sb-body"><input ref={search} className="sb-search" type="search" aria-label="Find a person or room" placeholder="Find a person or room" value={query} onChange={e => setQuery(e.target.value)}
         onKeyDown={e => { if (!overlayOpen(store) && e.key === 'Escape' && !surfaceOpen && !popoverOpen()) { e.stopPropagation(); if (query) setQuery(''); else e.currentTarget.blur(); } }} />
         {settings.view === 'rooms' ? <ChannelTree {...list} onRoom={onRoom} /> : <PeopleList {...list} />}
       </div>
       {!compact && <SelfPanel store={store} voice={voice} assets={assets} />}
-      {!compact && <div className="sb-resize" role="separator" aria-label="Sidebar width" aria-orientation="vertical" aria-valuemin={220} aria-valuemax={380} aria-valuenow={settings.width} tabIndex={0}
-        onDoubleClick={() => update({ width: 264 })} onPointerDown={e => { drag.current = { x: e.clientX, width: settings.width }; e.currentTarget.setPointerCapture(e.pointerId); }}
+      {!compact && <div className="sb-resize" role="separator" aria-label="Sidebar width" aria-orientation="vertical" aria-valuemin={260} aria-valuemax={400} aria-valuenow={settings.width} tabIndex={0}
+        onDoubleClick={() => update({ width: WIDTH })} onPointerDown={e => { drag.current = { x: e.clientX, width: settings.width }; e.currentTarget.setPointerCapture(e.pointerId); }}
         onPointerMove={e => { if (drag.current) { const next = { ...current.current, width: clamp(drag.current.width + e.clientX - drag.current.x) }; current.current = next; setSettings(next); } }}
         onPointerUp={() => { if (drag.current) { drag.current = null; save(current.current); } }} onPointerCancel={() => { drag.current = null; save(current.current); }}
         onKeyDown={e => { if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') { e.preventDefault(); update({ width: clamp(settings.width + (e.key === 'ArrowLeft' ? -10 : 10)) }); } }} />}
