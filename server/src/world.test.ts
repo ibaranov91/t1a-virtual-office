@@ -1341,3 +1341,15 @@ test('walking onto the Berghain dance floor starts dancing on arrival; changing 
   tick(10_000);
   assert.equal(dancing(bot.u), false, 'bots stay off the floor');
 });
+
+test('a broadcast is stringified once for wire listeners; a join sends one user, not the snapshot', t => {
+  const { w, add } = setup(t), a = add('A'); a.messages.length = 0;
+  const wired: string[] = [], other: string[] = [];
+  w.connect(a.u.id, () => {}, j => wired.push(j)); w.connect(a.u.id, () => {}, j => other.push(j));
+  a.messages.length = 0; wired.length = 0; other.length = 0;
+  const b = w.addUser('B');
+  assert.equal(wired.length, 1); assert.equal(wired[0], other[0]); // the same string to both
+  assert.deepEqual(a.messages.map(m => m.t), ['user']);
+  const msg = a.messages[0] as Extract<ServerMsg, { t: 'user' }>;
+  assert.equal(msg.user.id, b.id); assert.ok(!('email' in msg.user));
+});

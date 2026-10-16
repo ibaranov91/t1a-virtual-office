@@ -505,6 +505,11 @@ export class Store {
         this.soundscape?.resetCrossings();
         break;
       }
+      case 'user': {
+        const p = msg.user;
+        this.users.set(p.id, { ...p, game: p.game ?? null, path: null, prev: null, faceOverride: null, speaking: false });
+        break;
+      }
       case 'follow': { const u = this.users.get(msg.userId); if (u) u.following = msg.targetId; break; }
       case 'eating': { const u = this.users.get(msg.userId); if (u) { if (msg.eating) u.eating = msg.eating; else delete u.eating; } break; }
       case 'holding': {
