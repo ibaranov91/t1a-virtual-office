@@ -2,7 +2,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { drawText, textWidth } from './font';
 import { MAP, type Store } from './net';
-import type { Assets } from './assets';
 import { PdfError, renderPdf } from './pdfSlides';
 import { PRESENT_AWAY_MS, PRESENT_MAX_BYTES, PRESENT_MAX_SLIDES, slideUrl, type DeckInfo } from '../../shared/protocol';
 
@@ -100,7 +99,7 @@ export function PresentPanel({ store, id }: { store: Store; id: string }) {
 const SCORES = ['GRAPHICS', 'SOUND', 'GAMEPLAY', 'SLIDES'];
 
 /** The slides as a page out of a 90s games magazine. The presenter turns pages with ← →. */
-export function SlideOverlay({ store, assets }: { store: Store; assets?: Assets | null }) {
+export function SlideOverlay({ store }: { store: Store }) {
   const live = store.presentation!, deck = live.deck, mine = live.presenter === store.me;
   const n = live.slide + 1, total = deck.count;
   const [awaySince, setAwaySince] = useState<number | null>(null);
@@ -131,7 +130,6 @@ export function SlideOverlay({ store, assets }: { store: Store; assets?: Assets 
         </div>
         <div className="watch-slide">
           <img key={n} src={slideUrl(deck, live.slide)} alt={`Slide ${n} of ${total}`} draggable={false} />
-          <PresenterPip store={store} assets={assets} slide={live.slide} />
         </div>
         <div className="watch-foot">
           {live.away && <span className="mag-away">{presenter} lost connection · ends in {left}s</span>}
@@ -185,23 +183,9 @@ export function SlideOverlay({ store, assets }: { store: Store; assets?: Assets 
   );
 }
 
-/** Slides are up somewhere I can't see them: say so, and take me there. */
+/** One chip for slides I'm not looking at: in the screen's room it asks once per deck (Watch / Not now), then offers Show;
+ *  elsewhere it takes me there. Leaving the room closes the slides. */
 export function LiveChip({ store, onGo }: { store: Store; onGo: (room: string) => void }) {
-  const live = store.presentation;
-  if (!live) return null;
-  const here = store.inPresentationRoom();
-  if (here && !store.slidesHidden) return null;
-  const go = () => (here ? store.hideSlides(false) : onGo(live.room));
-  return (
-    <div className="desk-chip live-chip" onClick={go}>
-      <span><b className="live-dot">● LIVE</b> {live.deck.title} · {store.name(live.presenter).split(' ')[0]}</span>
-      <button onClick={e => { e.stopPropagation(); go(); }}>{here ? 'Show' : 'Go watch'}</button>
-    </div>
-  );
-}
-
-/** Standing still in the screen's room while slides are up asks once per deck whether to watch. Leaving the room closes them. */
-export function WatchPrompt({ store }: { store: Store }) {
   const [ask, setAsk] = useState(false);
   const asked = useRef<string | null>(null);
   useEffect(() => {
@@ -220,28 +204,23 @@ export function WatchPrompt({ store }: { store: Store }) {
     return () => clearInterval(t);
   }, [store]);
   const live = store.presentation;
-  if (!ask || !live || !store.slidesHidden) return null;
-  return (
-    <div className="desk-chip watch-ask" role="dialog" aria-label="Watch the presentation?">
-      <span>{store.name(live.presenter).split(' ')[0]} is presenting '{live.deck.title}'. Watch?</span>
-      <button onClick={() => { setAsk(false); store.hideSlides(false); }}>Watch</button>
+  if (!live) return null;
+  const here = store.inPresentationRoom();
+  if (here && !store.slidesHidden) return null;
+  const who = store.name(live.presenter).split(' ')[0];
+  const show = () => { setAsk(false); store.hideSlides(false); };
+  if (ask && here) return (
+    <div className="desk-chip live-chip watch-ask" role="dialog" aria-label="Watch the presentation?">
+      <span><b className="live-dot">● LIVE</b> {who} is presenting '{live.deck.title}'. Watch?</span>
+      <button onClick={show}>Watch</button>
       <button className="ghost" onClick={() => setAsk(false)}>Not now</button>
     </div>
   );
-}
-
-/** The presenter in the slides' corner: swaying a little, and a hop whenever they turn the page. */
-function PresenterPip({ store, assets, slide }: { store: Store; assets?: Assets | null; slide: number }) {
-  const ref = useRef<HTMLCanvasElement>(null);
-  const live = store.presentation, u = live && store.users.get(live.presenter);
-  useEffect(() => {
-    const canvas = ref.current;
-    if (!canvas || !assets || !u) return;
-    const f = assets.atlas.character, ctx = canvas.getContext('2d')!;
-    canvas.width = f.frameW; canvas.height = f.frameH;
-    ctx.clearRect(0, 0, f.frameW, f.frameH);
-    ctx.drawImage(assets.sheet(u.look), 0, 0, f.frameW, f.frameH, 0, 0, f.frameW, f.frameH); // facing us, standing
-  }, [assets, u?.look]);
-  if (!u || !assets) return null;
-  return <canvas ref={ref} key={slide} className="watch-pip" aria-hidden />;
+  const go = () => (here ? show() : onGo(live.room));
+  return (
+    <div className="desk-chip live-chip" onClick={go}>
+      <span><b className="live-dot">● LIVE</b> {live.deck.title} · {who}</span>
+      <button onClick={e => { e.stopPropagation(); go(); }}>{here ? 'Show' : 'Go watch'}</button>
+    </div>
+  );
 }
