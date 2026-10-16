@@ -35,7 +35,7 @@ export interface View {
 export const roomGroup = (room: Room) => room.rules.voice === 'open' ? 'voice' : room.rules.knock === 'allow' ? 'knock' : 'quiet';
 /** Vacationers come back soonest first; everyone else by name, me on top. */
 const byReturn = (us: ClientUser[]) => us.sort((a, b) => (a.vacation?.until ?? 0) - (b.vacation?.until ?? 0) || a.name.localeCompare(b.name));
-const ordered = (view: View, us: ClientUser[]) => us.sort((a, b) => Number(b.id === view.me) - Number(a.id === view.me) || a.name.localeCompare(b.name));
+const ordered = (view: View, us: ClientUser[]) => us.sort((a, b) => Number(b.id === view.me) - Number(a.id === view.me) || Number(!!a.afk) - Number(!!b.afk) || a.name.localeCompare(b.name)); // idle people sink below the ones who are here
 const matches = (text: string, query: string) => text.toLocaleLowerCase().includes(query);
 export function place(view: View, u: ClientUser) {
   return underground(u) ? 'Underground' : u.instance ? 'In a meeting room' : view.roomOf(u)?.name ?? 'Hallway';
@@ -58,6 +58,7 @@ export function activityLine(view: View, u: ClientUser) {
     : u.eating ? `🍽 having lunch${u.eating.open ? ' · open to talk' : ''}`
     : playing ? `${playing.icon} playing ${playing.name}`
     : u.listening === 'lofi' ? '🎧 listening to Lofi Girl'
+    : u.afk ? '💤 idle'
     : u.presence === 'away' ? 'away' : '';
   const status = splitStatus(u.status ?? '').text;
   return line ? `${line}${status ? ` · ${status}` : ''}` : status;
@@ -84,7 +85,7 @@ export function hoverCard(view: View, u: ClientUser, ctx: HoverContext) {
     : underground(u) ? 'somewhere underground' : u.instance ? 'in a meeting room'
     : u.meeting ? `in a meeting until ${view.clock(u.meeting)}`
     : u.eating ? `having lunch${u.eating.open ? ' · open to talk' : ''}`
-    : u.presence === 'away' ? 'away' : u.presence === 'offline' ? 'offline' : 'around';
+    : u.presence === 'offline' ? 'offline' : u.afk ? 'idle' : u.presence === 'away' ? 'away' : 'around';
   if (room && voice?.name !== room.name) presence += ` · ${room.name}`;
   const { emoji, text: status } = splitStatus(u.status ?? ''), pills: string[] = [];
   if (u.table) pills.push(ctx.tableDescription(u.table.objectId, u.id));
@@ -131,7 +132,7 @@ export function channelTree(view: View, map: TileMap, query = ''): ChannelGroup[
 }
 export function peopleGroups(view: View, query = '') {
   const q = query.trim().toLocaleLowerCase();
-  const group = (u: ClientUser) => u.vacation ? 'vacation' : u.presence === 'offline' ? 'offline' : u.callId ? 'p-voice' : u.presence === 'away' ? 'p-away' : 'p-online';
+  const group = (u: ClientUser) => u.vacation ? 'vacation' : u.presence === 'offline' ? 'offline' : u.callId ? 'p-voice' : u.presence === 'away' || u.afk ? 'p-away' : 'p-online';
   return [{ id: 'p-voice', label: 'In voice' }, { id: 'p-online', label: 'Online' }, { id: 'p-away', label: 'Away' }, { id: 'vacation', label: 'On vacation' }, { id: 'offline', label: 'Offline' }]
     .map(g => { const found = [...view.users.values()].filter(u => group(u) === g.id && (!q || matches(u.name, q) || matches(place(view, u), q))); return { ...g, people: g.id === 'vacation' ? byReturn(found) : ordered(view, found) }; })
     .filter(g => g.people.length);

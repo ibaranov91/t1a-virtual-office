@@ -19,7 +19,7 @@ export function Avatar({ assets, user, size, ring, dot = true }: { assets: Asset
   }, [assets, user.look, size]);
   return <span className={`sb-avatar${ring ? ' speaking' : ''}${size >= 40 ? ' large' : ''}`} style={{ width: size, height: size }}>
     {assets ? <canvas ref={ref} width={size} height={size} aria-hidden="true" /> : user.name[0]}
-    {dot && <i style={{ background: PRESENCE_COLOR[user.presence] }} />}
+    {dot && <i style={{ background: PRESENCE_COLOR[user.afk && user.presence !== 'offline' ? 'away' : user.presence] }} />}
   </span>;
 }
 export function useSpeaking(store: Store, engine: Engine | null) {
