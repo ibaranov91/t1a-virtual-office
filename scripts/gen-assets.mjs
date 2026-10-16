@@ -150,13 +150,21 @@ const RUGS = {
   teal: ['#4f9a92', '#36706b', '#7cc2b8'],
   burgundy: ['#7a2e38', '#561f28', '#a8505a'],
 };
-for (const [color, [main, dark, acc]] of Object.entries(RUGS)) {
+// the motif between the borders; every one repeats every 16px so a big rug tiles seamlessly (keep in step with RUG_PATTERNS in shared/map.ts)
+const RUG_MOTIFS = {
+  diamond: (t, dark, acc) => { for (let i = 0; i < 4; i++) { t.px(8 + i, 4 + i, acc); t.px(8 - i, 4 + i, acc); t.px(8 + i, 12 - i, acc); t.px(8 - i, 12 - i, acc); } t.px(8, 8, dark); },
+  stripes: (t, dark, acc) => { for (const y of [3, 7, 11, 15]) t.hline(0, y, 16, acc); for (const y of [5, 13]) t.hline(0, y, 16, dark); },
+  checks: (t, dark, acc) => { for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) if (((x >> 2) + (y >> 2)) & 1) t.px(x, y, acc); },
+  dots: (t, dark, acc) => { for (const [x, y] of [[4, 4], [12, 4], [4, 12], [12, 12], [8, 8]]) { t.rect(x - 1, y - 1, 2, 2, acc); t.px(x - 1, y - 1, dark); } },
+  zigzag: (t, dark, acc) => { for (const base of [3, 11]) for (let x = 0; x < 16; x++) { const y = base + Math.abs((x % 8) - 4); t.px(x, y, acc); t.px(x, y + 1, dark); } },
+  plaid: (t, dark, acc) => { for (const p of [4, 12]) { t.vline(p, 0, 16, acc); t.hline(0, p, 16, acc); } for (const [x, y] of [[4, 4], [12, 4], [4, 12], [12, 12]]) t.px(x, y, dark); for (const p of [8]) { t.vline(p, 0, 16, dark); t.hline(0, p, 16, dark); } },
+  plain: (t, dark) => { for (const [x, y] of [[3, 3], [11, 11]]) t.px(x, y, dark); },
+};
+for (const [color, [main, dark, acc]] of Object.entries(RUGS)) for (const [pattern, motif] of Object.entries(RUG_MOTIFS)) {
   for (const part of ['nw', 'n', 'ne', 'w', 'c', 'e', 'sw', 's', 'se']) {
     const t = new Img(16, 16);
     t.rect(0, 0, 16, 16, main);
-    // diamond motif
-    for (let i = 0; i < 4; i++) { t.px(8 + i, 4 + i, acc); t.px(8 - i, 4 + i, acc); t.px(8 + i, 12 - i, acc); t.px(8 - i, 12 - i, acc); }
-    t.px(8, 8, dark);
+    motif(t, dark, acc);
     const n = part.includes('n'), s = part.includes('s'), w = part.includes('w'), e = part.includes('e');
     if (n) { t.hline(0, 0, 16, OUT); t.rect(0, 1, 16, 2, dark); t.hline(0, 4, 16, acc); }
     if (s) { t.hline(0, 15, 16, OUT); t.rect(0, 13, 16, 2, dark); t.hline(0, 11, 16, acc); }
@@ -165,7 +173,7 @@ for (const [color, [main, dark, acc]] of Object.entries(RUGS)) {
     if (n) t.hline(w ? 1 : 0, 0, 16, OUT);
     if (s) for (let x = 1; x < 16; x += 2) t.px(x, 15, '#eadcb8');
     if (n) for (let x = 1; x < 16; x += 2) t.px(x, 0, '#eadcb8');
-    frames[`rug_${color}_${part}`] = t;
+    frames[pattern === 'diamond' ? `rug_${color}_${part}` : `rug_${color}_${pattern}_${part}`] = t;
   }
 }
 
@@ -465,9 +473,9 @@ for (const n of [1, 2]) {
   frames.clock = t.outline();
   // the world clocks: a coloured rim, no hands (the engine draws those from the real time)
   for (const [city, rim] of [['nyc', '#d8584a'], ['berlin', '#e8c040'], ['moscow', '#4a88d8']]) {
-    const w = new Img(16, 16);
-    w.ellipse(8, 7, 6, 6, rim); w.ellipse(8, 7, 5, 5, '#f8f4ec');
-    for (const [x, y] of [[8, 3], [8, 11], [4, 7], [12, 7]]) w.px(x, y, '#a89a8c');
+    const w = new Img(24, 16);
+    // an e-ink readout: a coloured bezel round an off-white panel; the engine prints the digits (3x5, HH:MM) from the real time
+    w.rect(0, 2, 24, 11, rim); w.rect(1, 3, 22, 9, '#e6e2d6'); w.hline(1, 3, 22, '#c4c0b2');
     frames[`clock_${city}`] = w.outline();
   }
 }
@@ -1514,6 +1522,165 @@ for (const axis of ['h', 'v']) { // a room door only admins open: the closed doo
     t.hline(1, sy + 8, 30, '#7a4a2c');
   }
   frames.bookshelf_tall = t.outline();
+}
+
+// ---------- more plants, furniture and wall decor (fixed pixels, no random calls: existing art stays unchanged) ----------
+{
+  const pot = (t, x, y, w, h) => { // terracotta pot with a rim
+    t.rect(x, y, w, h, '#c0643c'); t.hline(x - 1, y, w + 2, '#d8805a'); t.hline(x - 1, y + 1, w + 2, '#d8805a');
+    t.vline(x + 1, y + 2, h - 3, '#d8805a'); t.hline(x, y + h - 1, w, '#9a4a2a');
+  };
+  { // fern: a low fountain of drooping fronds
+    const t = new Img(16, 28);
+    for (const [x, y, rx, ry, c] of [[8, 14, 6, 4, '#3f7a35'], [4, 17, 4, 3, '#4a7e3a'], [12, 17, 4, 3, '#4a7e3a'], [8, 10, 4, 4, '#4a7e3a'], [8, 8, 2, 4, '#5f9a48'], [5, 12, 3, 3, '#5f9a48'], [11, 12, 3, 3, '#5f9a48']]) t.ellipse(x, y, rx, ry, c);
+    for (const [x, y] of [[8, 5], [7, 8], [5, 11], [11, 11], [3, 16], [13, 16], [8, 13]]) t.px(x, y, '#8cc864');
+    pot(t, 4, 20, 8, 7);
+    frames.fern = t.outline();
+  }
+  { // cactus in a small pot, one pink flower
+    const t = new Img(16, 28);
+    t.rect(6, 4, 4, 17, '#4a8a4a'); t.vline(7, 5, 15, '#6aa860'); t.vline(9, 6, 14, '#3a6e3c');
+    t.rect(2, 10, 3, 2, '#4a8a4a'); t.rect(2, 7, 2, 4, '#4a8a4a'); t.vline(2, 8, 3, '#6aa860'); t.rect(11, 12, 3, 2, '#4a8a4a'); t.rect(12, 8, 2, 5, '#4a8a4a'); t.vline(12, 9, 3, '#6aa860');
+    for (const [x, y] of [[8, 8], [7, 12], [8, 16], [3, 8], [13, 10]]) t.px(x, y, '#e8f0c8');
+    t.px(7, 3, '#e87aa0'); t.px(8, 3, '#e87aa0'); t.px(7, 2, '#f8b0c8'); t.px(8, 4, '#e87aa0');
+    pot(t, 4, 21, 8, 6);
+    frames.cactus = t.outline();
+  }
+  { // palm in a big pot, reaching up over the tile behind it
+    const t = new Img(16, 46);
+    t.rect(7, 12, 2, 20, '#7a5230'); t.vline(7, 12, 20, '#9a6a3e'); for (const y of [16, 21, 26]) t.hline(7, y, 2, '#5a3a20');
+    for (const [x, y, rx, ry, c] of [[8, 9, 7, 2, '#3f7a35'], [4, 8, 4, 3, '#4a7e3a'], [12, 8, 4, 3, '#4a7e3a'], [8, 5, 3, 4, '#5f9a48'], [3, 12, 3, 3, '#4a7e3a'], [13, 12, 3, 3, '#4a7e3a'], [8, 10, 3, 3, '#5f9a48']]) t.ellipse(x, y, rx, ry, c);
+    for (const [x, y] of [[8, 2], [4, 6], [12, 6], [2, 11], [14, 11], [8, 8]]) t.px(x, y, '#8cc864');
+    t.rect(4, 33, 8, 12, '#8a5232'); t.hline(3, 32, 10, '#b4703f'); t.hline(3, 33, 10, '#b4703f'); t.vline(5, 34, 9, '#b4703f'); t.hline(4, 44, 8, '#6a3c22');
+    frames.palm = t.outline();
+  }
+  { // planter box with a clipped hedge and a few blossoms (2x1)
+    const t = new Img(32, 24);
+    t.rect(1, 4, 30, 12, '#3f7a35'); t.hline(2, 3, 28, '#4a7e3a'); t.hline(3, 2, 26, '#5f9a48');
+    for (const [x, y] of [[5, 6], [11, 9], [17, 5], [23, 8], [27, 11], [8, 12], [20, 12]]) t.px(x, y, '#8cc864');
+    for (const [x, y, c] of [[6, 4, '#e87aa0'], [14, 7, '#f8e0a0'], [21, 5, '#e87aa0'], [26, 8, '#f8e0a0'], [10, 3, '#f8e0a0']]) t.px(x, y, c);
+    t.rect(1, 16, 30, 7, '#8a5232'); t.hline(0, 15, 32, '#b4703f'); t.hline(1, 22, 30, '#6a3c22'); for (const x of [6, 15, 24]) t.vline(x, 17, 5, '#6a3c22');
+    frames.planter = t.outline();
+  }
+  { // floor lamp: weighted base, thin pole, a warm drum shade
+    const t = new Img(16, 40);
+    t.rect(4, 36, 8, 2, '#4a3a40'); t.hline(5, 35, 6, '#6a5a60');
+    t.rect(7, 12, 2, 23, '#8a7a50'); t.vline(7, 12, 23, '#c8a040');
+    t.rect(3, 3, 10, 9, '#f0d898'); t.hline(4, 2, 8, '#f8e8b8'); t.hline(3, 11, 10, '#d8b868');
+    t.vline(3, 3, 9, '#d8b868'); t.vline(12, 3, 9, '#c8a458'); t.rect(5, 5, 3, 4, '#fff4cc');
+    frames.floor_lamp = t.outline();
+  }
+  { // wastebasket
+    const t = new Img(16, 16);
+    t.rect(4, 6, 8, 9, '#7a8490'); t.hline(3, 5, 10, '#aab2bc'); t.hline(3, 6, 10, '#aab2bc'); t.hline(4, 14, 8, '#56606c');
+    for (const x of [6, 8, 10]) t.vline(x, 8, 5, '#56606c');
+    t.px(6, 4, '#f4f0e6'); t.px(7, 3, '#f4f0e6'); t.px(8, 4, '#d8c8a8'); t.px(10, 4, '#f4f0e6');
+    frames.bin = t.outline();
+  }
+  { // water cooler: a blue bottle on a white cabinet with a cup tap
+    const t = new Img(16, 32);
+    t.rect(4, 1, 8, 10, '#8cc8e8'); t.hline(5, 0, 6, '#b8e0f4'); t.vline(5, 2, 8, '#c8ecfa'); t.rect(4, 7, 8, 4, '#6ab0d8');
+    t.rect(3, 11, 10, 18, '#e8eaee'); t.hline(3, 11, 10, '#fafafa'); t.vline(12, 12, 17, '#c0c4cc'); t.hline(3, 28, 10, '#a8acb4');
+    t.rect(5, 15, 2, 2, '#4a7ab0'); t.rect(9, 15, 2, 2, '#b4534a'); t.rect(5, 20, 6, 4, '#c8ccd4'); t.hline(5, 24, 6, '#a8acb4');
+    t.rect(4, 29, 2, 2, '#56606c'); t.rect(10, 29, 2, 2, '#56606c');
+    frames.water_cooler = t.outline();
+  }
+  { // little round side table with a mug and a sprig in a vase
+    const t = new Img(16, 20);
+    t.ellipse(8, 7, 7, 3, '#b97a45'); t.hline(3, 5, 10, '#d49a5e'); t.hline(2, 8, 12, '#8a5232');
+    t.rect(7, 10, 2, 7, '#8a5232'); t.rect(4, 17, 8, 2, '#6a3c22'); t.hline(5, 16, 6, '#8a5232');
+    t.rect(4, 3, 3, 3, '#f4f0e6'); t.px(7, 4, '#f4f0e6'); t.hline(4, 3, 3, '#7a4a2c');
+    t.rect(10, 3, 2, 3, '#86b8d4'); t.px(10, 2, '#5f9a48'); t.px(11, 1, '#5f9a48'); t.px(11, 0, '#e87aa0');
+    frames.side_table = t.outline();
+  }
+  { // coat stand with a hat on top and a coat on one peg
+    const t = new Img(16, 36);
+    t.rect(7, 4, 2, 28, '#7a4a2c'); t.vline(7, 4, 28, '#9a6a3e');
+    t.rect(3, 6, 10, 2, '#7a4a2c'); t.px(2, 5, '#9a6a3e'); t.px(13, 5, '#9a6a3e');
+    t.rect(4, 31, 8, 2, '#5a3420'); t.hline(5, 33, 6, '#3e2214');
+    t.rect(6, 1, 4, 3, '#3b5582'); t.hline(5, 4, 6, '#2e4468');
+    t.rect(1, 8, 5, 14, '#843a35'); t.vline(1, 8, 14, '#b4534a'); t.hline(1, 21, 5, '#5e2a26'); t.rect(2, 7, 2, 2, '#b4534a');
+    frames.coat_stand = t.outline();
+  }
+  { // small framed poster
+    const t = new Img(16, 16);
+    t.rect(3, 2, 10, 12, '#f4f0e6'); t.rect(4, 3, 8, 7, '#3b5582'); t.ellipse(8, 6, 2, 2, '#f8d878'); t.hline(4, 9, 8, '#2e4468');
+    t.hline(5, 11, 6, '#b4534a'); t.hline(5, 12, 4, '#9a9288');
+    frames.poster = t.outline();
+  }
+  { // wall shelf with books, a mug and a little plant (2x1)
+    const t = new Img(32, 16);
+    t.rect(2, 12, 28, 2, '#7a4a2c'); t.hline(2, 12, 28, '#9a6a3e'); t.rect(4, 14, 2, 1, '#5a3420'); t.rect(26, 14, 2, 1, '#5a3420');
+    const bk = [['#7a2e38', 6], ['#2f5a3e', 8], ['#3b5582', 7], ['#8a6a30', 6], ['#5a3a6a', 8]];
+    let x = 4; for (const [c, h] of bk) { t.rect(x, 12 - h, 2, h, c); t.vline(x, 12 - h, h, '#3a2329'); x += 2; }
+    t.rect(15, 6, 3, 6, '#843a35'); t.rect(15, 7, 3, 1, '#f4f0e6');
+    t.rect(22, 8, 5, 4, '#c0643c'); t.hline(21, 8, 7, '#d8805a'); t.ellipse(24, 6, 3, 3, '#4a7e3a'); t.px(23, 4, '#8cc864'); t.px(25, 5, '#e87aa0');
+    frames.wall_shelf = t.outline();
+  }
+  { // tall wall mirror (1x2)
+    const t = new Img(16, 32);
+    t.rect(3, 3, 10, 26, '#b08a30'); t.rect(4, 4, 8, 24, '#bcd8e8'); t.vline(5, 5, 8, '#e8f6ff'); t.vline(6, 7, 5, '#e8f6ff');
+    t.hline(4, 20, 8, '#9cc0d4'); t.hline(4, 25, 8, '#9cc0d4'); t.hline(3, 3, 10, '#e8c860'); t.hline(3, 28, 10, '#8a6a20');
+    frames.mirror = t.outline();
+  }
+  { // trailing ivy in a hanging pot
+    const t = new Img(16, 16);
+    t.rect(5, 1, 6, 4, '#c0643c'); t.hline(4, 1, 8, '#d8805a'); t.hline(5, 4, 6, '#9a4a2a');
+    for (const [x, y] of [[4, 5], [3, 7], [4, 9], [3, 11], [5, 6], [11, 5], [12, 7], [11, 9], [12, 12], [7, 5], [9, 5], [8, 7], [7, 9], [9, 11]]) t.ellipse(x + 0.5, y + 0.5, 1.5, 1.5, '#4a7e3a');
+    for (const [x, y] of [[4, 6], [12, 7], [8, 6], [3, 11]]) t.px(x, y, '#8cc864');
+    frames.wall_ivy = t.outline();
+  }
+}
+
+// ---------- the edit-mode catalog: 40 more plants, furniture and wall pieces (placed by admins only; fixed pixels, no random calls) ----------
+{
+  const pot = (t, x, y, w, h, c = '#c0643c', hi = '#d8805a', lo = '#9a4a2a') => { t.rect(x, y, w, h, c); t.hline(x - 1, y, w + 2, hi); t.vline(x + 1, y + 1, h - 2, hi); t.hline(x, y + h - 1, w, lo); };
+  const dots = (t, list, c) => { for (const [x, y] of list) t.px(x, y, c); };
+  const make = (name, w, h, draw) => { const t = new Img(w, h); draw(t); frames[name] = t.outline(); };
+  // ----- plants (1x1) -----
+  make('succulent', 16, 20, t => { for (const [x, y, rx, ry, c] of [[8, 12, 3, 4, '#6aa860'], [5, 14, 2, 3, '#5f9a48'], [11, 14, 2, 3, '#5f9a48'], [8, 14, 2, 3, '#86c070']]) t.ellipse(x, y, rx, ry, c); pot(t, 4, 14, 8, 5, '#d8c8a8', '#f4ecd8', '#a89878'); });
+  make('bonsai', 16, 22, t => { t.rect(7, 9, 2, 7, '#7a5230'); t.px(6, 12, '#7a5230'); t.px(10, 11, '#7a5230'); for (const [x, y, rx, ry] of [[8, 6, 4, 3], [4, 10, 3, 2], [12, 9, 3, 2]]) t.ellipse(x, y, rx, ry, '#4a7e3a'); dots(t, [[7, 5], [4, 9], [12, 8]], '#8cc864'); pot(t, 4, 16, 8, 4, '#3b5582', '#5577a8', '#2e4468'); });
+  make('snake_plant', 16, 30, t => { for (const [x, h, c] of [[5, 16, '#3f7a35'], [7, 21, '#4a7e3a'], [9, 18, '#3f7a35'], [11, 13, '#4a7e3a']]) { t.rect(x, 22 - h, 2, h, c); t.vline(x, 22 - h, h, '#c8d060'); } pot(t, 4, 22, 8, 7, '#5a5a66', '#7a7a88', '#3a3a44'); });
+  make('monstera', 16, 30, t => { for (const [x, y, rx, ry] of [[8, 9, 5, 4], [4, 13, 4, 3], [12, 13, 4, 3], [8, 15, 3, 3]]) { t.ellipse(x, y, rx, ry, '#2f7a46'); t.px(x - 1, y, null); } dots(t, [[7, 7], [10, 8], [3, 12], [12, 12], [8, 14]], '#5fb06a'); t.vline(8, 14, 6, '#2a6a3e'); dots(t, [[6, 9], [10, 11], [5, 13]], null); pot(t, 4, 21, 8, 8, '#e8e4dc', '#fafafa', '#b0aca4'); });
+  make('orchid', 16, 26, t => { t.vline(8, 8, 10, '#4a7e3a'); t.vline(9, 6, 6, '#4a7e3a'); for (const [x, y] of [[6, 7], [10, 5], [11, 9], [7, 10], [9, 8]]) { t.ellipse(x, y, 1.5, 1.5, '#f0a8d0'); t.px(x, y, '#f8e0a0'); } t.ellipse(5, 18, 3, 1.5, '#4a7e3a'); t.ellipse(11, 18, 3, 1.5, '#4a7e3a'); pot(t, 5, 18, 6, 6, '#e8e4dc', '#fafafa', '#b0aca4'); });
+  make('tulips', 16, 24, t => { for (const [x, y, c] of [[5, 6, '#e8554a'], [8, 4, '#f8c840'], [11, 6, '#e87aa0']]) { t.vline(x, y + 2, 9, '#4a7e3a'); t.rect(x - 1, y, 3, 3, c); t.px(x - 1, y - 1, c); t.px(x + 1, y - 1, c); } t.ellipse(6, 12, 2, 1, '#4a7e3a'); t.ellipse(10, 12, 2, 1, '#4a7e3a'); pot(t, 4, 14, 8, 8); });
+  make('sunflower', 16, 30, t => { t.vline(8, 9, 14, '#4a7e3a'); t.ellipse(5, 17, 3, 1.5, '#4a7e3a'); t.ellipse(11, 15, 3, 1.5, '#4a7e3a'); for (const [dx, dy] of [[0, -4], [4, 0], [0, 4], [-4, 0], [3, 3], [-3, 3], [3, -3], [-3, -3]]) t.ellipse(8 + dx, 6 + dy, 2, 2, '#f8c840'); t.ellipse(8, 6, 3, 3, '#6a4020'); t.px(7, 5, '#8a5a30'); pot(t, 4, 23, 8, 6); });
+  make('bamboo', 16, 38, t => { for (const [x, h] of [[5, 26], [8, 30], [11, 22]]) { t.rect(x, 28 - h, 2, h, '#7aaa48'); t.vline(x, 28 - h, h, '#a8d070'); for (let y = 28 - h + 4; y < 28; y += 6) t.hline(x, y, 2, '#4a7a30'); t.ellipse(x - 2, 28 - h + 3, 2, 1, '#5f9a48'); t.ellipse(x + 4, 28 - h + 5, 2, 1, '#5f9a48'); } pot(t, 3, 28, 10, 9, '#3a4a56', '#566878', '#26323c'); });
+  make('ficus', 16, 40, t => { t.rect(7, 12, 2, 18, '#7a5230'); t.vline(7, 12, 18, '#9a6a3e'); for (const [x, y, rx, ry, c] of [[8, 8, 6, 6, '#3f7a35'], [4, 12, 3, 3, '#4a7e3a'], [12, 12, 3, 3, '#4a7e3a'], [8, 6, 4, 4, '#5f9a48']]) t.ellipse(x, y, rx, ry, c); dots(t, [[6, 4], [10, 6], [4, 10], [12, 9], [8, 11]], '#8cc864'); pot(t, 4, 30, 8, 9, '#8a5232', '#b4703f', '#6a3c22'); });
+  make('lavender', 16, 24, t => { for (const x of [4, 6, 8, 10, 12]) { t.vline(x, 8 + (x % 3), 7, '#4a7e3a'); t.rect(x - 1, 3 + (x % 3), 2, 5, '#8a6ac8'); t.px(x - 1, 3 + (x % 3), '#b8a0e8'); } pot(t, 3, 15, 10, 7, '#d8c8a8', '#f4ecd8', '#a89878'); });
+  // ----- floor pieces (1x1) -----
+  make('filing_cabinet', 16, 28, t => { t.rect(3, 3, 10, 24, '#7a8490'); t.hline(3, 3, 10, '#aab2bc'); for (const y of [5, 12, 19]) { t.rect(4, y, 8, 6, '#8a94a0'); t.hline(4, y, 8, '#aab2bc'); t.rect(7, y + 2, 2, 1, '#2e3640'); } t.hline(3, 26, 10, '#56606c'); });
+  make('printer', 16, 20, t => { t.rect(2, 8, 12, 9, '#c8ccd4'); t.hline(2, 8, 12, '#e8eaee'); t.rect(4, 4, 8, 4, '#f4f0e6'); t.hline(4, 4, 8, '#d8d4c8'); t.rect(4, 12, 8, 3, '#56606c'); t.px(12, 10, '#5fd05a'); t.px(11, 10, '#e8554a'); t.hline(2, 17, 12, '#8a94a0'); });
+  make('vending_machine', 16, 34, t => { t.rect(2, 2, 12, 30, '#3b5582'); t.hline(2, 2, 12, '#5577a8'); t.rect(4, 5, 8, 14, '#bcd8e8'); for (const [x, y, c] of [[5, 7, '#e8554a'], [8, 7, '#f8c840'], [5, 11, '#5fd05a'], [8, 11, '#e87aa0'], [5, 15, '#f8c840'], [8, 15, '#e8554a']]) t.rect(x, y, 2, 3, c); t.rect(11, 6, 1, 8, '#2e4468'); t.rect(4, 22, 8, 5, '#2e4468'); t.rect(5, 28, 6, 2, '#1a2a44'); t.vline(4, 5, 14, '#e8f6ff'); });
+  make('mini_fridge', 16, 24, t => { t.rect(2, 2, 12, 21, '#e8eaee'); t.hline(2, 2, 12, '#fafafa'); t.hline(2, 9, 12, '#a8acb4'); t.vline(12, 4, 3, '#8a94a0'); t.vline(12, 11, 5, '#8a94a0'); t.vline(13, 3, 19, '#c0c4cc'); t.hline(2, 22, 12, '#a8acb4'); });
+  make('globe', 16, 22, t => { t.rect(7, 16, 2, 3, '#8a5232'); t.rect(4, 19, 8, 2, '#6a3c22'); t.ellipse(8, 9, 6, 6, '#4a8ac8'); for (const [x, y, rx, ry] of [[6, 7, 2, 2], [10, 10, 2, 3], [5, 12, 1, 1]]) t.ellipse(x, y, rx, ry, '#5f9a48'); t.px(10, 5, '#d8f0ff'); t.px(11, 6, '#d8f0ff'); t.hline(3, 9, 1, '#c8a040'); t.vline(13, 5, 8, '#c8a040'); });
+  make('trophy', 16, 24, t => { t.rect(6, 12, 4, 5, '#e8c860'); t.rect(4, 3, 8, 9, '#e8c860'); t.vline(5, 4, 7, '#f8e8a0'); t.hline(3, 5, 1, '#c8a040'); t.vline(3, 5, 4, '#c8a040'); t.vline(12, 5, 4, '#c8a040'); t.hline(12, 5, 1, '#c8a040'); t.rect(4, 17, 8, 3, '#3a2329'); t.rect(5, 20, 6, 2, '#5a3420'); t.hline(7, 18, 2, '#e8c860'); });
+  make('speaker', 16, 26, t => { t.rect(3, 2, 10, 22, '#2e3640'); t.hline(3, 2, 10, '#56606c'); t.ellipse(8, 8, 3, 3, '#56606c'); t.ellipse(8, 8, 1.5, 1.5, '#1a1e24'); t.ellipse(8, 17, 4, 4, '#56606c'); t.ellipse(8, 17, 2, 2, '#1a1e24'); t.px(11, 4, '#5fd05a'); });
+  make('umbrella_stand', 16, 22, t => { t.rect(4, 10, 8, 10, '#3a4a56'); t.hline(3, 10, 10, '#566878'); t.hline(4, 19, 8, '#26323c'); t.rect(5, 2, 2, 8, '#b4534a'); t.rect(8, 4, 2, 6, '#3b5582'); t.rect(10, 3, 1, 7, '#e8c860'); t.px(5, 1, '#843a35'); t.px(8, 3, '#2e4468'); });
+  make('boxes', 16, 18, t => { t.rect(1, 8, 10, 9, '#c8964a'); t.hline(1, 8, 10, '#e0b468'); t.vline(5, 8, 9, '#a87a38'); t.rect(8, 2, 7, 7, '#b88638'); t.hline(8, 2, 7, '#d8a458'); t.rect(10, 4, 3, 1, '#f4f0e6'); t.hline(1, 16, 10, '#8a5a28'); });
+  make('barrel', 16, 20, t => { t.rect(3, 3, 10, 15, '#8a5232'); t.ellipse(8, 3, 5, 2, '#b4703f'); for (const y of [6, 14]) t.hline(3, y, 10, '#5a5a66'); t.vline(5, 4, 13, '#a8683a'); t.hline(3, 17, 10, '#6a3c22'); });
+  make('vase_floor', 16, 28, t => { t.ellipse(8, 18, 5, 8, '#3b6a96'); t.rect(6, 7, 4, 6, '#3b6a96'); t.hline(5, 6, 6, '#5588b8'); t.vline(5, 14, 8, '#6aa0cc'); t.hline(5, 24, 6, '#26466a'); for (const [x, y, c] of [[6, 1, '#e87aa0'], [9, 0, '#f8c840'], [8, 3, '#e8554a']]) { t.vline(x < 8 ? 7 : 9, y + 2, 5, '#4a7e3a'); t.ellipse(x, y + 1, 1.5, 1.5, c); } });
+  make('statue', 16, 34, t => { t.rect(3, 26, 10, 7, '#a8a49c'); t.hline(3, 26, 10, '#d0ccc4'); t.hline(3, 32, 10, '#78746c'); t.rect(6, 12, 4, 14, '#c8c4bc'); t.ellipse(8, 8, 3, 3.5, '#d8d4cc'); t.rect(3, 13, 3, 2, '#c8c4bc'); t.rect(10, 13, 3, 2, '#c8c4bc'); t.vline(6, 12, 14, '#e8e4dc'); t.px(7, 7, '#a8a49c'); });
+  // ----- floor pieces (2x1) -----
+  make('aquarium', 32, 28, t => { t.rect(1, 3, 30, 17, '#2f78a8'); t.rect(2, 4, 28, 15, '#5ab0d8'); t.rect(2, 15, 28, 4, '#d8c890'); t.hline(1, 3, 30, '#8a94a0'); t.vline(5, 7, 8, '#4a9a50'); t.vline(7, 9, 6, '#4a9a50'); t.vline(25, 8, 7, '#4a9a50'); t.rect(11, 8, 4, 2, '#f08a3a'); t.px(15, 8, '#f08a3a'); t.px(12, 8, '#fff'); t.rect(19, 11, 3, 2, '#f8d040'); t.px(22, 11, '#f8d040'); dots(t, [[17, 6], [18, 5], [9, 12]], '#e8f6ff'); t.rect(1, 20, 30, 5, '#4a3a40'); t.hline(1, 20, 30, '#6a5a60'); t.rect(3, 25, 2, 2, '#2e2428'); t.rect(27, 25, 2, 2, '#2e2428'); });
+  make('tv_stand', 32, 30, t => { t.rect(3, 2, 26, 15, '#1a1e24'); t.rect(4, 3, 24, 13, '#3b6a96'); t.rect(5, 4, 8, 4, '#5588b8'); t.hline(4, 12, 24, '#2e5478'); t.rect(14, 17, 4, 2, '#56606c'); t.rect(1, 20, 30, 7, '#6a4a30'); t.hline(1, 20, 30, '#8a6240'); t.rect(4, 22, 10, 4, '#4a3220'); t.rect(18, 22, 10, 4, '#4a3220'); t.rect(2, 27, 2, 2, '#3e2214'); t.rect(28, 27, 2, 2, '#3e2214'); });
+  make('credenza', 32, 24, t => { t.rect(1, 4, 30, 15, '#8a5232'); t.hline(1, 4, 30, '#b4703f'); t.hline(1, 5, 30, '#a8683a'); for (const x of [2, 12, 22]) { t.rect(x, 7, 8, 10, '#6a3c22'); t.rect(x + 3, 11, 2, 1, '#e8c860'); } t.rect(3, 19, 2, 3, '#4a2a18'); t.rect(27, 19, 2, 3, '#4a2a18'); t.ellipse(6, 3, 2, 2, '#4a7e3a'); });
+  make('shelf_low', 32, 24, t => { t.rect(1, 3, 30, 18, '#7a4a2c'); t.rect(3, 5, 26, 14, '#2e180e'); t.hline(3, 12, 26, '#7a4a2c'); const B = ['#7a2e38', '#2f5a3e', '#3b5582', '#8a6a30', '#5a3a6a']; let x = 4; for (const c of B.concat(B)) { t.rect(x, 7, 2, 5, c); x += 2; } t.rect(22, 14, 4, 4, '#c0643c'); t.ellipse(24, 13, 2, 2, '#4a7e3a'); t.rect(4, 14, 5, 4, '#e8e4dc'); t.rect(2, 21, 3, 2, '#5a3420'); t.rect(27, 21, 3, 2, '#5a3420'); });
+  // ----- wall pieces -----
+  make('wall_clock', 16, 16, t => { t.ellipse(8, 8, 6, 6, '#f4f0e6'); t.ellipse(8, 8, 5, 5, '#fff'); t.ellipse(8, 8, 6.5, 6.5, null); dots(t, [[8, 4], [8, 12], [4, 8], [12, 8]], '#3a2329'); t.vline(8, 5, 4, '#3a2329'); t.hline(8, 8, 3, '#b4534a'); });
+  make('dartboard', 16, 16, t => { t.ellipse(8, 8, 6, 6, '#2e3640'); t.ellipse(8, 8, 5, 5, '#e8554a'); t.ellipse(8, 8, 4, 4, '#f4f0e6'); t.ellipse(8, 8, 3, 3, '#3a8a50'); t.ellipse(8, 8, 1.5, 1.5, '#e8554a'); t.px(10, 6, '#8a94a0'); t.px(11, 5, '#3b5582'); });
+  make('cork_board', 16, 16, t => { t.rect(2, 3, 12, 10, '#b4703f'); t.rect(3, 4, 10, 8, '#d49a5e'); t.rect(4, 5, 4, 4, '#f4f0e6'); t.rect(9, 6, 3, 5, '#f8e0a0'); t.px(5, 5, '#e8554a'); t.px(10, 6, '#3b5582'); t.hline(5, 8, 2, '#9a9288'); });
+  make('wall_tv', 32, 16, t => { t.rect(2, 2, 28, 12, '#1a1e24'); t.rect(3, 3, 26, 10, '#3b6a96'); t.rect(4, 4, 10, 5, '#86b8d4'); t.hline(4, 11, 22, '#2e5478'); t.px(27, 12, '#5fd05a'); });
+  make('banner', 16, 32, t => { t.rect(3, 2, 10, 2, '#7a4a2c'); t.rect(4, 4, 8, 20, '#3b5582'); t.rect(4, 4, 1, 20, '#5577a8'); t.rect(6, 8, 4, 4, '#f8d878'); t.px(7, 16, '#f8d878'); t.px(8, 18, '#f8d878'); t.px(9, 16, '#f8d878'); for (const x of [4, 6, 8, 10]) t.rect(x, 24, 2, 3, '#f8d878'); t.hline(4, 27, 8, null); });
+  make('pennants', 32, 16, t => { t.hline(2, 3, 28, '#3a2329'); let x = 3; for (const c of ['#e8554a', '#f8c840', '#5fd05a', '#3b6a96', '#e87aa0', '#8a6ac8']) { for (let r = 0; r < 6; r++) t.hline(x, 4 + r, 4 - Math.floor(r / 2) * 1, c); x += 4; } });
+  make('diploma', 16, 16, t => { t.rect(3, 3, 10, 9, '#8a5232'); t.rect(4, 4, 8, 7, '#f4f0e6'); t.hline(5, 6, 6, '#9a9288'); t.hline(5, 8, 4, '#9a9288'); t.rect(9, 9, 2, 2, '#b4534a'); });
+  make('fire_extinguisher', 16, 16, t => { t.rect(6, 4, 5, 10, '#d8453a'); t.hline(6, 4, 5, '#f07a6a'); t.rect(7, 2, 3, 2, '#2e3640'); t.rect(10, 2, 3, 1, '#2e3640'); t.rect(6, 8, 5, 3, '#f4f0e6'); t.vline(5, 6, 5, '#2e3640'); });
+  make('exit_sign', 16, 16, t => { t.rect(2, 5, 12, 6, '#1f7a46'); t.hline(2, 5, 12, '#3aa464'); t.rect(4, 7, 2, 2, '#f4f0e6'); t.rect(7, 7, 2, 2, '#f4f0e6'); t.rect(10, 7, 2, 2, '#f4f0e6'); });
+  make('wall_sconce', 16, 16, t => { t.rect(6, 7, 4, 6, '#c8a040'); t.hline(5, 12, 6, '#8a6a20'); t.ellipse(8, 5, 3, 3.5, '#fff4cc'); t.ellipse(8, 5, 2, 2.5, '#fffbe8'); t.hline(5, 8, 6, '#f0d898'); });
+  make('neon_heart', 16, 16, t => { for (const [x, y] of [[5, 5], [6, 4], [7, 5], [9, 5], [10, 4], [11, 5], [4, 6], [12, 6], [5, 8], [11, 8], [6, 10], [10, 10], [7, 11], [9, 11], [8, 12]]) t.px(x, y, '#ff5aa0'); dots(t, [[6, 5], [10, 5], [5, 6]], '#ffb0d0'); });
+  make('wall_plants', 32, 16, t => { t.rect(2, 11, 28, 2, '#7a4a2c'); t.hline(2, 11, 28, '#9a6a3e'); for (const [x, c] of [[5, '#c0643c'], [13, '#d8c8a8'], [21, '#3b5582']]) { t.rect(x, 7, 6, 4, c); t.hline(x - 1, 7, 8, '#e8d8c0'); } for (const [x, y, rx, ry, c] of [[8, 4, 3, 3, '#4a7e3a'], [16, 5, 3, 2, '#5f9a48'], [24, 4, 3, 3, '#3f7a35']]) t.ellipse(x, y, rx, ry, c); dots(t, [[7, 3], [16, 4], [24, 3]], '#8cc864'); dots(t, [[16, 3]], '#e87aa0'); });
+  make('whiteboard_small', 32, 16, t => { t.rect(2, 2, 28, 11, '#c8ccd0'); t.rect(3, 3, 26, 9, '#f8f8f4'); t.hline(5, 5, 10, '#5577a8'); t.hline(5, 7, 14, '#b4534a'); t.hline(5, 9, 8, '#7a9a55'); t.rect(20, 5, 6, 5, '#f8e0a0'); t.rect(8, 13, 14, 1, '#a8b0b8'); });
+  make('record_wall', 16, 16, t => { t.rect(2, 2, 12, 12, '#2e3640'); t.ellipse(8, 8, 5, 5, '#1a1e24'); t.ellipse(8, 8, 2, 2, '#b4534a'); t.px(8, 8, '#f4f0e6'); t.hline(5, 6, 2, '#56606c'); t.hline(9, 10, 2, '#56606c'); });
 }
 
 // ---------- pack world atlas (shelf packer) ----------

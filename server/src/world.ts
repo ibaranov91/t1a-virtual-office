@@ -77,7 +77,9 @@ const USE_MS = { take: 1200, toggle: 150, toilet: 300, dealer: 350, bell: 100, p
 const ARRIVAL_SLACK_MS = 50; // timers can fire a millisecond before the walk is over
 
 /** Office admins rearrange the furniture: NetBird emails, or (only for name logins, so dev) plain names. */
-const ADMINS = (process.env.DECK_ADMINS ?? 'ivan.baranov@t1a.com').split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+const ADMINS = (process.env.DECK_ADMINS ?? 'ivan.baranov@t1a.com,varvara.tikhonova@t1a.com,andrii.butko@t1a.com').split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+/** Sysadmins are the admins who also get into the Admin room (and its servers). */
+const SYSADMINS = (process.env.DECK_SYSADMINS ?? 'ivan.baranov@t1a.com').split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
 const listed = (list: string[], u: User) => !u.bot && list.some(a => (a.includes('@') ? a === u.email : !u.email && a === u.name.toLowerCase()));
 
 /** Dev bots answer DMs and reactions so there's something to talk to when testing alone. */
@@ -139,8 +141,10 @@ export class World {
   // ---------- transport ----------
   broadcast(msg: ServerMsg) { for (const l of this.listeners) l(msg); }
   /** Private settings for the user themselves. */
-  me(u: User): ServerMsg { return { t: 'me', meetLink: u.meetLink ?? '', email: u.email, google: googleEnabled ? u.google?.email ?? null : undefined, calendar: !!u.google?.scopes.includes(CALENDAR_SCOPE), admin: this.isAdmin(u) || undefined, items: u.items.length ? u.items : undefined }; }
+  me(u: User): ServerMsg { return { t: 'me', meetLink: u.meetLink ?? '', email: u.email, google: googleEnabled ? u.google?.email ?? null : undefined, calendar: !!u.google?.scopes.includes(CALENDAR_SCOPE), admin: this.isAdmin(u) || undefined, sysadmin: this.isSysadmin(u) || undefined, items: u.items.length ? u.items : undefined }; }
   isAdmin(u: User) { return listed(ADMINS, u); }
+  /** Only sysadmins may walk into the Admin room (access: 'admins'); the other office admins are locked out like everyone else. */
+  isSysadmin(u: User) { return listed(SYSADMINS, u); }
   hasItem(u: User, item: string) { return u.items.includes(item); }
   /** Put one in the inventory (at most ITEMS_MAX of a kind) and tell the owner. */
   addItem(u: User, item: string) {
@@ -331,7 +335,7 @@ export class World {
   walk(u: User, to: Tile, face?: Dir, now = Date.now()): number | null {
     const pos = this.position(u, now);
     const from = pos.next;
-    const keepOut = !this.isAdmin(u); // admins-only rooms: everyone else's path goes around, and never in
+    const keepOut = !this.isSysadmin(u); // admins-only rooms: everyone else's path goes around, and never in
     const path = pathTo(this.map, from, to, keepOut); // also sits down onto a sofa
     if (!path.length) return null; // nothing changes: the current walk (and its dungeon timers) goes on
     if (path.length > 1 && this.readPlans.get(u.id)?.seq !== this.walkingTo) this.stopReading(u);
@@ -929,6 +933,55 @@ export class World {
     const wearing = u.effects.find(e => e.kind === 'hat')?.data?.style, item = hatItem(ADMIN_HAT), has = u.items.includes(item), should = this.isAdmin(u);
     if (should && !has) { u.items = [...u.items, item]; if (!wearing) this.addEffect(u, 'hat', { data: { style: ADMIN_HAT } }); this.sendTo(u.id, this.me(u)); }
     if (!should && has) { u.items = u.items.filter(i => i !== item); if (wearing === ADMIN_HAT) this.removeEffect(u, 'hat'); this.sendTo(u.id, this.me(u)); }
+  }
+  // ---------- renaming people (admins) ----------
+  /** An admin renames a person (someone took another's name). Names stay unique, and can't be a plain-name admin entry (that would make them an admin on name logins). */
+  private rename(u: User, msg: Extract<ClientMsg, { t: 'rename' }>) {
+    const target = this.users.get(String(msg.targetId)), say = (text: string) => this.sendTo(u.id, { t: 'notice', text });
+    if (!this.isAdmin(u) || !target || target.bot) return;
+    const name = String(msg.name ?? '').replace(/\s+/g, ' ').trim().slice(0, 24);
+    if (!name) return say('✏️ A name can\'t be empty');
+    if (name === target.name) return;
+    const clash = this.findByName(name);
+    if (clash && clash.id !== target.id) return say(`✏️ "${clash.name}" is taken`);
+    if ([...ADMINS, ...SYSADMINS].some(a => !a.includes('@') && a === name.toLowerCase())) return say('✏️ That name is reserved');
+    const was = target.name;
+    target.name = name;
+    this.broadcast(this.snapshot());
+    say(`✏️ ${was} is now ${name}`);
+    if (target.id !== u.id) this.sendTo(target.id, { t: 'notice', text: `✏️ ${u.name} renamed you to ${name}` });
+  }
+
+  // ---------- teleport (admins) ----------
+  /** An admin steps through a portal to stand beside anyone on the floor. The server jumps them at once; every client plays the portals (`teleport`). */
+  private teleport(u: User, targetId: string) {
+    const target = this.users.get(targetId), say = (text: string) => this.sendTo(u.id, { t: 'notice', text });
+    if (!this.isAdmin(u) || u.presence === 'offline' || !target || target.id === u.id || target.presence === 'offline') return;
+    if (u.instance || target.instance || goingOut(u)) return say('🌀 No portal from here: you or they are in a meeting, underground or on the way out');
+    const there = this.position(target).dest;
+    if (!this.isSysadmin(u) && adminOnly(this.map, there.x, there.y)) return say('🔒 Admin room: sysadmins only');
+    const taken = new Set([...this.users.values()].filter(p => p.presence !== 'offline' && !p.instance && p.id !== u.id).map(p => { const d = this.position(p).dest; return `${d.x},${d.y}`; }));
+    let to: Tile | null = null;
+    for (let r = 1; r <= 3 && !to; r++) { // the nearest free tile around them, front first
+      for (const [dx, dy] of [[0, 1], [1, 0], [-1, 0], [0, -1], [1, 1], [-1, 1], [1, -1], [-1, -1], [0, 2], [2, 0], [-2, 0], [0, -2], [2, 2], [-2, 2], [2, -2], [-2, -2], [0, 3], [3, 0], [-3, 0], [0, -3]]) {
+        if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+        const t = { x: there.x + dx, y: there.y + dy };
+        if (!isWalkable(this.map, t.x, t.y) || taken.has(`${t.x},${t.y}`) || seatAt(this.map, t.x, t.y)) continue;
+        if (!this.isSysadmin(u) && adminOnly(this.map, t.x, t.y)) continue;
+        if (roomAt(this.map, t.x, t.y)?.id !== roomAt(this.map, there.x, there.y)?.id) continue; // not through a wall into the next room
+        to = t; break;
+      }
+    }
+    if (!to) return say('🌀 No room to step out next to them');
+    const from = this.position(u).tile;
+    for (const k of this.knocks.values()) if ((k.fromId === u.id || k.toId === u.id) && (k.state === 'walking' || k.state === 'pending')) this.closeKnock(k, 'later', 'Knock cancelled', k.fromId === u.id);
+    this.stopReading(u); this.leaveCall(u); this.setFollowing(u, null);
+    for (const [id, seat] of this.seats) if (seat.user === u.id) this.endSeat(id);
+    this.toilets.leave(u.id, Date.now()); this.arcade.leave(u);
+    if (u.effects.some(e => e.kind === 'dance') && roomAt(this.map, to.x, to.y)?.id !== DANCE_ROOM) this.removeEffect(u, 'dance');
+    this.place(u, to);
+    u.dir = dirBetween(to, there); this.broadcast({ t: 'instance', userId: u.id, instance: u.instance, tile: u.tile, dir: u.dir });
+    this.broadcast({ t: 'teleport', userId: u.id, from, to });
   }
   /** An admin looks into someone's pockets (never part of the public user). */
   private gmItems(u: User, msg: Extract<ClientMsg, { t: 'gm_items' }>) {
@@ -1606,7 +1659,7 @@ export class World {
         this.setFollowing(u, null);
         const to = { x: msg.to.x | 0, y: msg.to.y | 0 };
         if (underground(u) ? !this.inDungeon(to) : u.instance && !this.inMeetingRoom(to)) break;
-        if (!this.isAdmin(u) && adminOnly(this.map, to.x, to.y)) { this.sendTo(u.id, { t: 'notice', text: `🔒 ${roomAt(this.map, to.x, to.y)?.name ?? 'That room'}: admins only` }); break; }
+        if (!this.isSysadmin(u) && adminOnly(this.map, to.x, to.y)) { this.sendTo(u.id, { t: 'notice', text: `🔒 ${roomAt(this.map, to.x, to.y)?.name ?? 'That room'}: sysadmins only` }); break; }
         const at = this.walk(u, to);
         const hole = this.map.dungeon?.hole;
         if (at !== null && hole && this.sameTile(to, hole)) this.dungeonTimer(u, 'fall', at, () => {
@@ -1618,6 +1671,8 @@ export class World {
       case 'status': this.setStatus(u, String(msg.status ?? '')); break;
       case 'effect': this.requestEffect(u, msg); break;
       case 'gm_items': this.gmItems(u, msg); break;
+      case 'teleport': this.teleport(u, String(msg.targetId)); break;
+      case 'rename': this.rename(u, msg); break;
       case 'gift_hat': this.giftHat(u, msg); break;
       case 'tz': {
         const tz = isTimeZone(msg.tz) ? msg.tz : undefined;
