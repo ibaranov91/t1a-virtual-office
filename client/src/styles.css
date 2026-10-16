@@ -450,7 +450,13 @@ button:focus-visible, summary:focus-visible, input[type="range"]:focus-visible {
 .meeting-list li > span { flex: 1; }
 .meeting-chip b { color: var(--accent); }
 
-.now-playing { grid-column: 2; grid-row: 1; justify-self: center; min-width: 0; max-width: 100%; overflow: hidden; }
+.top-middle { grid-column: 2; grid-row: 1; justify-self: center; display: flex; align-items: center; gap: 8px; min-width: 0; max-width: 100%; }
+.now-playing { min-width: 0; overflow: hidden; }
+.header-voice { gap: 6px; padding: 0 4px 0 10px; min-width: 0; border: 2px solid var(--wood); height: 34px; } /* .room-voice.live/.ptt recolor the border */
+.header-voice .now-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.header-voice .vbtn { width: 30px; height: 28px; }
+.header-voice .icon-button { min-width: 28px; min-height: 28px; width: 28px; height: 28px; padding: 0; }
+.header-voice > button:not(.vbtn):not(.icon-button), .header-voice a { height: 26px; min-height: 0; padding: 0 8px; font-size: var(--fs-sm); }
 .now-playing button { height: 30px; min-height: 0; padding: 0 8px; background: transparent; color: var(--text); box-shadow: none; font-size: var(--fs-md); }
 .now-playing .jukebox-controls { gap: 2px; }
 .jukebox-chip { gap: 4px; padding-left: 6px; cursor: pointer; }
