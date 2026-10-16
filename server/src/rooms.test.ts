@@ -166,3 +166,13 @@ test('the bouncer sells drugs into the inventory (at most ITEMS_MAX); racking sp
   w.handle(b.u, { t: 'toilet_sniff', objectId: stall.id }, b.socket);
   assert.equal(w.toilets.state(stall.id).shelf, 0);
 });
+
+test('a cleaned stall is back in order once it has sat empty', t => {
+  const { w } = setup(t), stall = toilets[2];
+  for (let i = 1; i <= TOILET_FULL; i++) { w.toilets.arrive(stall.id, `u${i}`, i); w.toilets.leave(`u${i}`, i); }
+  assert.equal(w.toilets.state(stall.id).fill, TOILET_FULL);
+  assert.deepEqual(w.toilets.fullEmpty(1e9), [stall.id]);
+  w.toilets.clean(stall.id, 1e9);
+  assert.equal(w.toilets.state(stall.id).fill, 0);
+  assert.deepEqual(w.toilets.fullEmpty(2e9), []);
+});

@@ -119,7 +119,9 @@ export class World {
 
   creatures = new Creatures({ map: () => this.map, broadcast: msg => this.broadcast(msg),
     people: () => [...this.users.values()].filter(u => u.presence !== 'offline' && !u.instance).map(u => this.position(u).dest),
-    personTile: id => { const p = this.users.get(id); return p && p.presence !== 'offline' && !p.instance ? this.position(p).dest : null; } });
+    personTile: id => { const p = this.users.get(id); return p && p.presence !== 'offline' && !p.instance ? this.position(p).dest : null; },
+    fullStalls: () => this.toilets.fullEmpty(Date.now()).flatMap(id => { const o = this.map.objects.find(o => o.id === id); return o ? [{ id, door: stallDoor(o) }] : []; }),
+    cleanStall: id => this.toilets.clean(id, Date.now()) });
   private petDays = new Map<string, { day: number; kinds: Set<string> }>(); // who has petted what today (memory only)
   private batTries = new Map<string, number>();                             // last try at the bat, per person
   build?: string; // sent in hello so open pages reload after a deploy

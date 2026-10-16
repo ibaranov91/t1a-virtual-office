@@ -1,9 +1,9 @@
 import { test, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { BAT_RESPAWN_MS, CLEAN_MS, CUP_LINGER_MS, CUP_TTL_MS, PET_FOLLOW_MS, PET_MS, Creatures, flightPath } from './creatures';
+import { BAT_RESPAWN_MS, CLEAN_MS, STALL_CLEAN_MS, CUP_LINGER_MS, CUP_TTL_MS, PET_FOLLOW_MS, PET_MS, Creatures, flightPath } from './creatures';
 import { World } from './world';
-import { isWalkable, type TileMap, type Tile } from '../../shared/map';
+import { isWalkable, stallDoor, type TileMap, type Tile } from '../../shared/map';
 import { MAX_CUPS, type ServerMsg } from '../../shared/protocol';
 
 const map: TileMap = JSON.parse(readFileSync(new URL('../../shared/tilemap.json', import.meta.url), 'utf8'));
@@ -162,4 +162,23 @@ test('petting both the cat and the dog in a day makes a whisperer', (t: TestCont
   w.petCreature(u, 'dog');
   assert.ok(u.achievements.whisperer);
   w.petCreature(u, 'cleaner'); // not a pet: ignored
+});
+
+test('the cleaner scrubs an out-of-order toilet stall and puts it back in order', () => {
+  const stall = map.objects.find(o => o.use?.kind === 'toilet')!, door = stallDoor(stall), may = new Date(2026, 4, 1);
+  let dirty = true;
+  const cleaned: string[] = [];
+  const c = new Creatures({ map: () => map, broadcast: () => {}, people: () => [],
+    fullStalls: () => dirty ? [{ id: stall.id, door }] : [], cleanStall: id => { cleaned.push(id); dirty = false; } });
+  const lady = c.add('cleaner', 'Valentina', c.base());
+  let now = 0;
+  for (let i = 0; !lady.cleaning && i < 20; i++) { now = Math.max(now, lady.until); c.tick(now, may); }
+  assert.equal(lady.cleaning, `stall:${stall.id}`);
+  const walk = lady.walk!, end = walk.path[walk.path.length - 1];
+  assert.deepEqual(end, door, 'stands at the stall door');
+  now = walk.startedAt + (walk.path.length - 1) * walk.ms;
+  c.tick(now, may);
+  assert.equal(lady.pose, 'clean'); assert.deepEqual(cleaned, [], 'still dirty while she scrubs');
+  c.tick(now + STALL_CLEAN_MS, may);
+  assert.deepEqual(cleaned, [stall.id]);
 });
