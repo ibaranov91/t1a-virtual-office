@@ -650,6 +650,7 @@ export class Store {
         this.checkAgenda();
         break;
       }
+      case 'vacation': { const u = this.users.get(msg.userId); if (u) u.vacation = msg.vacation; break; }
       case 'meeting': { const u = this.users.get(msg.userId); if (u) u.meeting = msg.until; break; }
       case 'meetings': this.meetingRooms = msg.rooms; break;
       case 'library': this.library = { articles: msg.articles, reads: msg.reads }; break;

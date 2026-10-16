@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import {
-  adminOnly, applyEdit, stallDoor, stallLine, applyLayout, besideObject, playSpots, dirBetween, doorwayTiles, KEEP_TYPES, migrateEastWing, layoutProblem, objectName, voiceRooms, findPath, isWalkable, pathDuration, pathTo, roomAt, routes, sampleMove, seatAt, uniqueIds, withLayout, WALK_MS_PER_TILE,
+  adminOnly, applyEdit, stallDoor, stallLine, applyLayout, besideObject, playSpots, dirBetween, doorwayTiles, KEEP_TYPES, migrateBeach, migrateEastWing, layoutProblem, objectName, voiceRooms, findPath, isWalkable, pathDuration, pathTo, roomAt, routes, sampleMove, seatAt, uniqueIds, withLayout, WALK_MS_PER_TILE,
   type MapObject, type Dir, type Layout, type Room, type Spot, type TileMap, type Tile,
 } from '../../shared/map';
 import {
@@ -17,6 +17,10 @@ import { Arcade } from './arcade';
 import { Jukebox } from './jukebox';
 import { Library } from './library';
 import { migrateBookClub, migrateLibrary, readingSeats } from '../../shared/library';
+import { onMap } from '../../shared/beach';
+import type { Vacation } from '../../shared/vacation';
+import { Vacations } from './vacations';
+import { Beach } from './beach';
 import { Meetings } from './meetings';
 import { BAT_COOLDOWN_MS, Creatures } from './creatures';
 import { PresentError, type Presenter } from './presentation';
@@ -51,7 +55,7 @@ const knockCall = (c?: Call) => !!c && !c.room;
 interface Instance { id: string; end: number; members: Set<string>; talk: Set<string>; out: Set<string>; meet?: string; meetBusy?: boolean } // talk: on the room's voice (private rooms: everyone, calendar meetings: who opted in); out: left it on purpose; meet: the room's shared Meet link
 
 // data/state.json format; bump it with a migration in load that checks data.version
-export const STATE_VERSION = 1;
+export const STATE_VERSION = 2;
 const WALK_HOME_AFTER_MS = 5 * 60_000; // back within this: return to where you were, else your home desk
 
 const SKINS = ['#f8dcc0', '#f2c79b', '#e2ad7f', '#c98d5e', '#a46a43', '#7c4f32'];
@@ -146,8 +150,8 @@ export class World {
     broadcast: msg => this.broadcast(msg), user: id => this.users.get(id) });
 
   creatures = new Creatures({ map: () => this.map, broadcast: msg => this.broadcast(msg),
-    people: () => [...this.users.values()].filter(u => u.presence !== 'offline' && !u.instance).map(u => this.position(u).dest),
-    personTile: id => { const p = this.users.get(id); return p && p.presence !== 'offline' && !p.instance ? this.position(p).dest : null; },
+    people: () => [...this.users.values()].filter(u => onMap(u) && !u.instance).map(u => this.position(u).dest),
+    personTile: id => { const p = this.users.get(id); return p && onMap(p) && !p.instance ? this.position(p).dest : null; },
     fullStalls: () => this.toilets.fullEmpty(Date.now()).flatMap(id => { const o = this.map.objects.find(o => o.id === id); return o ? [{ id, door: stallDoor(o) }] : []; }),
     cleanStall: id => this.toilets.clean(id, Date.now()) });
   private petDays = new Map<string, { day: number; kinds: Set<string> }>(); // who has petted what today (memory only)
@@ -160,6 +164,7 @@ export class World {
     this.baseLayout = structuredClone({ objects: map.objects, rugs: map.rugs });
     for (const o of map.objects) if (o.use?.kind === 'toggle') this.objectOn.set(o.id, o.on ?? true);
     this.syncJukeboxes();
+    setInterval(() => this.beach.tick(), 1000).unref();
     setInterval(() => { const now = Date.now(); this.voiceTick(now); this.jukeboxTick(now); this.instrumentTick(now); this.effectsTick(now); this.lunchTick(now); this.laterTick(now); this.toilets.tick(now); this.present?.tick(); }, 250).unref();
   }
 
@@ -214,6 +219,7 @@ export class World {
     const listener = { send, wire };
     this.listeners.add(listener);
     send({ t: 'hello', you: userId, serverTime: Date.now(), build: this.build });
+    if (u.presence === 'offline' && onMap(u)) this.wakeVacation(u);
     this.stayAfterAll(u);
     this.grantHats(u);
     if (!u.plant && !u.bot) { u.plant = this.newPlant(u, dayNumber(Date.now()) - 1); this.plantChanged(u); } // a pot on your desk from day one; today's status already grows it
@@ -302,15 +308,18 @@ export class World {
       if (u.instance) this.leaveInstance(u);
       this.setFollowing(u, null);
       for (const f of this.users.values()) if (f.following === u.id) this.setFollowing(f, null);
+      this.beach.release(u);
       this.setDoor(u, 'leaving');
       u.lastSpot = this.position(u).dest;
-      const at = this.walk(u, this.map.exit, 'up') ?? Date.now();
+      const vacationExit = !!u.vacation && !!this.map.vacation;
+      const exit = vacationExit ? this.map.vacation!.gate : this.map.exit;
+      const at = this.walk(u, exit, 'up');
       this.doorTimer(u, () => {
         this.setDoor(u, null);
         this.arcade.leave(u);
         u.offlineAt = Date.now();
         this.setPresence(u, 'offline');
-      }, Math.max(0, at - Date.now()) + DOOR_PAUSE_MS);
+      }, at === null && vacationExit ? 0 : Math.max(0, (at ?? Date.now()) - Date.now()) + DOOR_PAUSE_MS);
     }, LEAVE_GRACE_MS);
   }
   /** Reconnected before they were out the door: put the bag down and stay where they are. */
@@ -332,6 +341,39 @@ export class World {
     this.broadcast({ t: 'door', userId: u.id, door });
   }
 
+  // ---------- vacation ----------
+  beach = new Beach(this);
+  vacations = new Vacations(this);
+  setVacation(u: User, vacation: Vacation | null) {
+    const old = u.vacation;
+    if ((old ?? null) === vacation || old && vacation && old.until === vacation.until && old.back === vacation.back) return;
+    u.vacation = vacation;
+    this.broadcast({ t: 'vacation', userId: u.id, vacation });
+    if (u.presence !== 'offline' || u.instance || !this.map.vacation) return;
+    if (vacation && !old) {
+      this.beach.release(u); this.doorTimer(u, null);
+      this.bumpWalk(u); u.tile = { ...this.map.vacation.gate }; u.move = null; u.path = null; u.prev = undefined; u.resume = undefined;
+      this.setDoor(u, 'arriving');
+      this.beach.arrive(u, () => this.setDoor(u, null));
+    } else if (!vacation && old) {
+      this.beach.release(u); this.doorTimer(u, null);
+      this.setDoor(u, 'leaving');
+      const at = this.walk(u, this.map.vacation.gate, 'up');
+      this.vacationGoneAt(u, at);
+    }
+  }
+  private vacationGoneAt(u: User, at: number | null) {
+    if (at === null) { this.bumpWalk(u); u.move = null; u.path = null; u.prev = undefined; this.setDoor(u, null); return; }
+    const seq = u.walkSeq;
+    this.doorTimer(u, () => { if (u.walkSeq === seq) this.setDoor(u, null); }, Math.max(0, at - Date.now()) + DOOR_PAUSE_MS);
+  }
+  private wakeVacation(u: User) {
+    this.beach.release(u); this.doorTimer(u, null);
+    if (u.move) this.walk(u, this.position(u).next);
+    this.setDoor(u, null); u.resume = undefined;
+    this.setPresence(u, 'online');
+  }
+
   // ---------- users ----------
   addUser(name: string, bot = false, tile?: Tile, email?: string): User {
     const u: User = {
@@ -342,6 +384,7 @@ export class World {
     };
     this.users.set(u.id, u);
     this.broadcast({ t: 'user', user: this.toPublic(u) });
+    if (!bot) this.vacations.syncDev();
     return u;
   }
   findByEmail(email: string) { return [...this.users.values()].find(u => u.email === email.toLowerCase()); }
@@ -368,7 +411,7 @@ export class World {
   roomOf(u: User) { const p = this.position(u); return roomAt(this.map, p.tile.x, p.tile.y); }
 
   /** Start a walk. Mid-walk, the new path starts at the tile being entered, timed for when we get there. */
-  walk(u: User, to: Tile, face?: Dir, now = Date.now()): number | null {
+  walk(u: User, to: Tile, face?: Dir, now = Date.now(), msPerTile?: number): number | null {
     const pos = this.position(u, now);
     const from = pos.next;
     const keepOut = !this.isSysadmin(u); // admins-only rooms: everyone else's path goes around, and never in
@@ -385,7 +428,7 @@ export class World {
     if (u.effects.some(e => e.kind === 'dance') && (roomAt(this.map, to.x, to.y)?.id !== DANCE_ROOM || seatAt(this.map, to.x, to.y))) this.removeEffect(u, 'dance', now);
     this.arcade.leave(u);
     u.prev = u.move && u.path && now < u.move.startedAt + pathDuration(u.path, u.move.ms) ? { path: u.path, startedAt: u.move.startedAt, ...(u.move.ms ? { ms: u.move.ms } : {}) } : undefined;
-    const per = walkMs(u.effects), ms = per === WALK_MS_PER_TILE ? undefined : per; // the usual pace stays implicit
+    const per = msPerTile ?? walkMs(u.effects), ms = per === WALK_MS_PER_TILE ? undefined : per; // the usual pace stays implicit
     u.move = { from, to, startedAt, face, ...(ms ? { ms } : {}) }; u.path = path; u.tile = to;
     if (face) u.dir = face;
     else if (path.length > 1) { const a = path[path.length - 2], b = path[path.length - 1]; u.dir = b.x > a.x ? 'right' : b.x < a.x ? 'left' : b.y > a.y ? 'down' : 'up'; }
@@ -443,6 +486,7 @@ export class World {
     if (target) this.trail(u, this.position(target).dest);
   }
   private setFollowing(u: User, id: string | null) {
+    if (id && this.users.get(id)?.presence === 'offline') return;
     if (u.following === id) return;
     u.following = id;
     this.broadcast({ t: 'follow', userId: u.id, targetId: id });
@@ -1182,7 +1226,7 @@ export class World {
     const hadCalendar = !!u.google?.scopes.includes(CALENDAR_SCOPE);
     u.google = link;
     this.sendTo(u.id, this.me(u));
-    if (!hadCalendar && link?.scopes.includes(CALENDAR_SCOPE)) void this.meetings.poll(); // their meetings show up now, not in 2 minutes
+    if (!hadCalendar && link?.scopes.includes(CALENDAR_SCOPE)) { this.vacations.soon(); void this.meetings.poll(); } // their meetings show up now, not in 2 minutes
   }
 
   // ---------- the place under the garden ----------
@@ -1619,6 +1663,7 @@ export class World {
       const before = this.map.objects.find(o => o.id === pending.objectId), after = next.objects.find(o => o.id === pending.objectId);
       if (!after || after.use?.kind !== 'instrument' || before?.x !== after.x || before?.y !== after.y) this.cancelSeatWalk(user);
     }
+    const beachArrivals = this.beach.cancelAll();
     applyLayout(this.map, next);
     this.instrumentTick(Date.now());
     this.syncToggles(); this.syncJukeboxes(true);
@@ -1630,6 +1675,7 @@ export class World {
       else if (seat.x !== o.homeDesk!.x || seat.y !== o.homeDesk!.y) this.setDesk(o, { x: seat.x, y: seat.y });
     }
     this.stepAside();
+    for (const { u, entry } of beachArrivals) this.beach.arrive(u, entry);
     return true;
   }
   /** Lamps added get switched on, lamps removed are forgotten. */
@@ -1650,10 +1696,15 @@ export class World {
   private stepAside() {
     const ok = (t: Tile) => isWalkable(this.map, t.x, t.y) || !!seatAt(this.map, t.x, t.y);
     for (const u of this.users.values()) {
-      if (u.presence === 'offline') { if (!ok(u.tile)) u.tile = { ...this.map.spawn }; continue; }
+      if (!onMap(u)) { if (!ok(u.tile)) u.tile = { ...this.map.spawn }; continue; }
       const p = this.position(u);
-      if (!ok(p.dest)) { for (const t of this.freeNear(p.dest, u.instance)) if (this.walk(u, t) !== null) break; }
-      else if ((p.tile.x !== p.dest.x || p.tile.y !== p.dest.y) && u.path?.some(t => !ok(t))) this.walk(u, p.dest, u.move?.face);
+      const reroute = (to: Tile, face?: Dir) => {
+        const at = this.walk(u, to, face);
+        if (u.presence === 'offline' && !u.vacation && u.door === 'leaving') this.vacationGoneAt(u, at);
+        return at;
+      };
+      if (!ok(p.dest)) { for (const t of this.freeNear(p.dest, u.instance)) if (reroute(t) !== null) break; }
+      else if ((p.tile.x !== p.dest.x || p.tile.y !== p.dest.y) && u.path?.some(t => !ok(t))) reroute(p.dest, u.move?.face);
     }
   }
   /** Free walkable tiles around `t`, nearest first. */
@@ -1672,7 +1723,7 @@ export class World {
   occupied(instance: string | null = null) {
     const s = new Set<string>();
     // `tile` is already where a walk ends (`walk` sets it to the destination), so no need to sample the move
-    for (const u of this.users.values()) if (u.presence !== 'offline' && u.instance === instance) s.add(`${u.tile.x},${u.tile.y}`);
+    for (const u of this.users.values()) if (onMap(u) && u.instance === instance) s.add(`${u.tile.x},${u.tile.y}`);
     return s;
   }
 
@@ -1708,7 +1759,7 @@ export class World {
     const shared = this.tableOf(from);
     if (shared && shared === this.tableOf(to)) return this.arrive(k); // already side by side at the table
     const why = this.laterWhy(to);
-    if (why) return this.keepLater(k, from, to, why, `${to.name} is ${why} — left a knock`); // no point walking over
+    if (why) return this.keepLater(k, from, to, why, `${to.name} is ${why} — ${why === 'on vacation' ? 'sent to Later' : 'left a knock'}`); // no point walking over
     // walk next to them (nearest free neighbouring tile)
     const here = this.position(from).next;
     const spot = this.nextTo(this.position(to).dest, here);
@@ -1730,7 +1781,7 @@ export class World {
     const table = this.tableOf(from);
     const openTable = table && table === this.tableOf(to) && this.eatingNow(to) && to.eating!.open; // sharing a table with someone open to talk
     const why = openTable ? null : this.laterWhy(to);
-    if (why) return this.keepLater(k, from, to, why, `${to.name} is ${why} — left a knock`); // got busy during the walk
+    if (why) return this.keepLater(k, from, to, why, `${to.name} is ${why} — ${why === 'on vacation' ? 'sent to Later' : 'left a knock'}`); // got busy during the walk
     k.state = 'pending';
     this.setEmote(to, 'knock');
     this.broadcast({ t: 'knock', knockId: k.id, fromId: from.id, toId: to.id });
@@ -1742,8 +1793,8 @@ export class World {
   /** Why a knock on this person goes to Later right now (null: they can answer). */
   private laterWhy(to: User): string | null {
     const room = this.roomOf(to), stall = this.toilets.inside(to.id), lunch = this.eatingNow(to) && !to.eating!.open;
-    if (!(room?.rules.knock === 'later' || (to.presence === 'in_call' && !to.callId) || to.meeting || to.reading || stall || lunch)) return null;
-    return stall ? 'on the toilet' : to.meeting ? 'in a meeting' : to.reading ? 'reading' : lunch ? 'at lunch' : room?.rules.occupantLabel ?? 'in a call';
+    if (!(room?.rules.knock === 'later' || (to.presence === 'in_call' && !to.callId) || to.meeting || to.vacation || to.reading || stall || lunch)) return null;
+    return stall ? 'on the toilet' : to.meeting ? 'in a meeting' : to.vacation ? 'on vacation' : to.reading ? 'reading' : lunch ? 'at lunch' : room?.rules.occupantLabel ?? 'in a call';
   }
 
   // ---------- Later list ----------
@@ -2021,7 +2072,7 @@ export class World {
     return {
       version: STATE_VERSION,
       users: [...this.users.values()].map(u => {
-        return { id: u.id, name: u.name, nameSet: u.nameSet, email: u.email, meetLink: u.meetLink, google: u.google, homeDesk: u.homeDesk, look: u.look, lookSet: u.lookSet, tile: underground(u) ? this.dungeonExit(false) : u.tile, dir: u.dir, status: u.status, presence: u.presence, bot: u.bot, plant: u.plant, bloomed: u.bloomed, achievements: u.achievements, effects: u.effects.filter(e => e.until === undefined), items: u.items, danced: u.danced,
+        return { id: u.id, name: u.name, nameSet: u.nameSet, email: u.email, meetLink: u.meetLink, google: u.google, vacation: u.vacation, homeDesk: u.homeDesk, look: u.look, lookSet: u.lookSet, tile: underground(u) ? this.dungeonExit(false) : u.tile, dir: u.dir, status: u.status, presence: u.presence, bot: u.bot, plant: u.plant, bloomed: u.bloomed, achievements: u.achievements, effects: u.effects.filter(e => e.until === undefined), items: u.items, danced: u.danced,
           resume: (!u.bot && u.presence !== 'offline' && !goingOut(u) && !u.instance && !this.toilets.inside(u.id)) || undefined }; // meetings and stalls don't survive a restart
       }),
       objects: Object.fromEntries(this.objectOn),
@@ -2051,7 +2102,9 @@ export class World {
         if (!covers(r)) return true;
         console.warn(`saved ${r.color} rug dropped: covers the hole or hatch`); return false;
       });
-      const merged = this.withNewFixtures(migrateBookClub(migrateLibrary(migrateEastWing({ objects, rugs }, this.baseLayout), this.baseLayout, this.map), this.baseLayout, this.map));
+      let migrated = migrateBookClub(migrateLibrary(migrateEastWing({ objects, rugs }, this.baseLayout), this.baseLayout, this.map), this.baseLayout, this.map);
+      if (version < 2) migrated = migrateBeach(migrated, this.baseLayout, this.map);
+      const merged = this.withNewFixtures(migrated);
       // ids saved by an older build can clash with this one's (a plant and the safe were both o57): each gets its own,
       // and the next save keeps it
       const layout = uniqueIds(merged, this.baseLayout), was = [...merged.objects, ...merged.rugs].map(o => o.id);
@@ -2070,11 +2123,12 @@ export class World {
       const tile = this.inDungeon(d.tile) ? this.dungeonExit(false) : isWalkable(this.map, d.tile.x, d.tile.y) || seatAt(this.map, d.tile.x, d.tile.y) ? d.tile : { ...this.map.spawn };
       const legacy = lookFor(d.name);
       const look = { ...legacy, ...d.look, eyes: d.look?.eyes ?? legacy.eyes, shoes: d.look?.shoes ?? legacy.shoes, top: d.look?.top ?? 0, bottom: d.look?.bottom ?? 0, glasses: d.look?.glasses ?? 0, hat: d.look?.hat ?? 0, beard: d.look?.beard ?? 0, mustache: d.look?.mustache ?? 0, glassesColor: d.look?.glassesColor ?? legacy.glassesColor, hatColor: d.look?.hatColor ?? legacy.hatColor };
-      this.users.set(d.id, { ...d, look, lookSet: d.lookSet ?? false, homeDesk: d.homeDesk ?? null, plant: d.plant ?? null, bloomed: d.bloomed ?? [], achievements: d.achievements ?? {}, items: Array.isArray(d.items) ? d.items.filter((i: unknown): i is string => typeof i === 'string') : [], effects: (d.effects ?? []).filter(e => Object.prototype.hasOwnProperty.call(EFFECTS, e.kind) && e.until === undefined), tile, move: null, path: null, emote: null, door: null, callId: null, deafened: false, hand: false, muted: false, following: null, holding: null, meeting: null, reading: null, instance: null, game: null, presence: d.bot ? d.presence : 'offline' });
+      this.users.set(d.id, { ...d, vacation: d.vacation && d.vacation.until > now ? d.vacation : null, look, lookSet: d.lookSet ?? false, homeDesk: d.homeDesk ?? null, plant: d.plant ?? null, bloomed: d.bloomed ?? [], achievements: d.achievements ?? {}, items: Array.isArray(d.items) ? d.items.filter((i: unknown): i is string => typeof i === 'string') : [], effects: (d.effects ?? []).filter(e => Object.prototype.hasOwnProperty.call(EFFECTS, e.kind) && e.until === undefined), tile, move: null, path: null, emote: null, door: null, callId: null, deafened: false, hand: false, muted: false, following: null, holding: null, meeting: null, reading: null, instance: null, game: null, presence: d.bot ? d.presence : 'offline' });
       // back within WALK_HOME_AFTER_MS of the restart (a reconnect takes seconds): their spot, not their desk
       const u = this.users.get(d.id)!;
       if (d.resume && !d.bot && tile === d.tile) { u.lastSpot = { ...tile }; u.offlineAt = now; u.resume = true; } else u.resume = undefined;
     }
+    for (const u of this.users.values()) if (u.vacation) { u.presence = 'offline'; u.resume = undefined; this.beach.boot(u); }
     for (const [id, on] of Object.entries(data.objects ?? {})) if (this.objectOn.has(id)) this.objectOn.set(id, !!on);
     this.arcade.load(data.arcade);
     for (const [id, saved] of Object.entries(data.jukebox ?? {})) {

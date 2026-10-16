@@ -46,9 +46,10 @@ export function startBots(world: World, count = 4) {
   };
   const treats = map.objects.filter(o => o.use?.kind === 'take');
   const bots = () => [...world.users.values()].filter(u => u.bot);
+  world.vacations.syncDev(true);
   const next = new Map<string, number>();
   const presenceUntil = new Map<string, number>();
-  for (const b of bots()) { next.set(b.id, Date.now() + Math.random() * 6000); b.presence = 'online'; } // away/in-call timers aren't persisted, so start fresh
+  for (const b of bots()) { if (b.vacation) continue; next.set(b.id, Date.now() + Math.random() * 6000); b.presence = 'online'; } // away/in-call timers aren't persisted, so start fresh
 
   const goSomewhere = (b: User, preferRoom?: string) => {
     const occ = world.occupied();
@@ -70,6 +71,7 @@ export function startBots(world: World, count = 4) {
   setInterval(() => {
     const now = Date.now();
     for (const b of bots()) {
+      if (b.vacation) continue;
       // a bot standing in the club dances by itself (the world ends it when it walks out)
       if (b.presence === 'online' && !b.move && !b.callId && roomAt(map, b.tile.x, b.tile.y)?.id === DANCE_ROOM && !b.effects.some(e => e.kind === 'dance')) world.startDance(b, now);
       if (b.callId) { presenceUntil.delete(b.id); continue; } // on a call: stay put

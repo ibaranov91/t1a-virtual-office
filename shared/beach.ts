@@ -1,4 +1,5 @@
 import { inRect, type TileMap } from './map';
+import type { PublicUser } from './protocol';
 
 /** Terrain drives poses for everyone, independently of vacation status. */
 export function terrainAt(map: TileMap, x: number, y: number): 'sand' | 'shallow' | 'deep' | 'trail' | 'snow' | 'pier' | null {
@@ -13,3 +14,7 @@ export function terrainAt(map: TileMap, x: number, y: number): 'sand' | 'shallow
 
 export const inWing = (map: TileMap, x: number, y: number) =>
   map.rooms.some(r => (r.id === 'beach' || r.id === 'mountains') && inRect(r.rect, x, y));
+
+/** Present on the floor, including offline vacation walkers and their door animations. */
+export const onMap = (u: Pick<PublicUser, 'presence' | 'vacation' | 'door'>) =>
+  u.presence !== 'offline' || !!u.vacation || u.door !== null;
