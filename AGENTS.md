@@ -285,6 +285,9 @@ page answers curl with 401); deploy.sh sets `DECK_PUBLIC_URL` / `DECK_INSTALL_UR
   branch changed the Swift sources installs that build, and pointing it back installs prod's again. Anything
   but prod gets a small purple mark on the menu bar person. `macos/build.sh` alone makes a local build that
   never self-updates. (Older per-instance apps, "The Deck (iva)" etc., no longer get updates; reinstall.)
+- **Mute and sound from the menu:** the right-click menu has "Mute microphone" and "Disable sound (and microphone)", the
+  page's own mic and headphones buttons (`__deckNative.clickMic` / `clickSpeaker`); the page reports back (`voiceMenu`,
+  `micOff`, `soundOff`), so the checkmarks always match the page. Sound off greys the mic item: Enable sound brings both back.
 - **Unread messages:** a blue dot on the menu bar person and a count on the Dock icon (no bouncing).
   Clicking the person opens the oldest unread chat; the web top bar has the same as a 💬 N button.
 

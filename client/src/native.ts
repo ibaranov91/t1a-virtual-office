@@ -4,6 +4,7 @@ import type { Store } from './net';
 import type { WellnessRequest } from './wellness';
 import type { Voice } from './voice';
 import { prefs } from './prefs';
+import { voiceControlState } from './voiceControls';
 
 type Handler = { postMessage(msg: unknown): void };
 const handler = (): Handler | undefined => (window as unknown as { webkit?: { messageHandlers?: { deck?: Handler } } }).webkit?.messageHandlers?.deck;
@@ -35,6 +36,9 @@ export function syncNative(store: Store, voice: Voice | null) {
     openWellness: (kind: string) => { if (kind === 'water' || kind === 'stretch' || kind === 'pomodoro') store.openWellness(kind); },
     wellnessPermission: (status: string) => window.dispatchEvent(new CustomEvent('deck:wellness-permission', { detail: status })),
     wake: () => store.reconnectNow(), // the app saw the network come back or the Mac wake up
+    // the menu's mic and audio items do what the page's buttons do (deafened, the mic item undeafens), so both stay in step
+    clickMic: () => voice?.[voiceControlState('mic', voice, prefs.deafened).action](),
+    clickSpeaker: () => voice?.[voiceControlState('headphones', voice, prefs.deafened).action](),
   } });
   // The app compares this with its own build and updates itself. Asked on every (re)connect: a deploy
   // that only changes the Mac app restarts the server without reloading this page.
@@ -45,12 +49,16 @@ export function syncNative(store: Store, voice: Voice | null) {
     if (store.connected && !wasConnected) void checkMacApp();
     wasConnected = store.connected;
     const me = store.users.get(store.me);
+    const owner = store.connected && !!store.voiceOwner && !!voice;
+    const micControl = voiceControlState('mic', voice, prefs.deafened), speakerControl = voiceControlState('headphones', voice, prefs.deafened);
     const state = {
       type: 'state', connected: store.connected,
       inCall: !!me?.callId,
       // the same states as the mic and speaker buttons (VoiceIcons in App.tsx)
       mic: !store.connected || !store.voiceOwner ? 'off' : !me?.callId ? 'idle' : voice?.micError ? 'err' : voice?.transmitting ? 'live' : 'muted', // deafened silences the mic too
       speaker: !store.connected || !store.voiceOwner ? 'off' : (voice?.deafened ?? prefs.deafened) ? 'deafened' : 'live',
+      // the menu's mic and sound items (hidden while voice lives in another tab); off = the page's buttons show them off
+      voiceMenu: owner, micOff: micControl.off, micErr: !!voice?.micError, soundOff: speakerControl.off,
       busy: me?.presence === 'away' || !!me?.callId || !!me?.vacation, // quiet mode: icon only, no knock card
       knocks: store.toasts.filter(t => t.kind === 'knock_in').map(t => ({ id: t.knockId, text: t.text })),
       meetings: meetingHeadsUps(store.toasts),

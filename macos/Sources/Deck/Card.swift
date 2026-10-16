@@ -6,6 +6,7 @@ import AppKit
 struct DeckState {
   var connected = false, inCall = false, busy = false
   var mic = "off", speaker = "off" // as the page's buttons: mic idle|live|muted|err|off, speaker live|deafened|off
+  var voiceMenu = false, micOff = true, micErr = false, soundOff = false // the menu's mic and sound items, as the page's buttons
   var knocks: [(id: String, text: String)] = []
   var meetings: [(id: String, text: String)] = [] // heads-ups a minute before a meeting; id = the meeting's key
   var unread: [(id: String, name: String, count: Int)] = [] // oldest first
