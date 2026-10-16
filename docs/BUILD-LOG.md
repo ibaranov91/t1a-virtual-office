@@ -37,7 +37,8 @@ full list is in `git log --first-parent main`.
 | 14:05 | Prod deploys only from the head of `main`, one at a time from any machine (#110) |
 | 14:17–15:05 | Direct talk across rooms (#113); lunch tables as small voice rooms (#117); one type scale and `docs/UI.md` (#120); open-voice neon signs (#121) |
 | 15:05–15:34 | Cocktails and a judgmental cat on the beach (#122); snowcapped peaks and walkable terraces (#123, #126); status emoji and a Discord-style profile popout (#124); an any-email demo instance for the judges (#125); a smaller vacation wing (#127); a trophy screen and an unlock moment for achievements (#128) |
-| afternoon | Hackathon audit: README write-up, this log, the feature map, CI, docs checked against the code, small fixes |
+| 15:30–17:00 | Drinks you actually drink (empty cups, the cat judges the drunk, #143–#151); the Meeting room booking kiosk (#150); open-voice signs and wellness reminders (#138, #145) |
+| afternoon | Hackathon audit: README write-up, this log, the feature map, CI, docs checked against the code, small fixes; submission slides (`docs/hackathon/`) |
 
 ## How we worked
 
@@ -46,7 +47,7 @@ full list is in `git log --first-parent main`.
 - **Coding agents wrote most of the code:** Claude Code and Codex, often several at once in separate git worktrees.
   The humans chose the features, wrote or approved a spec for each bigger one (`docs/superpowers/specs/`), reviewed
   the code and tested it in two browsers and on phones.
-- **Pull requests:** from the afternoon of day 1, changes went through pull requests (over 120 merged in about 28
+- **Pull requests:** from the afternoon of day 1, changes went through pull requests (over 150 merged in about 30
   hours; a few small fixes were pushed to `main` directly). `npm test` (600+ tests), `npm run typecheck` and
   `npm run build -w client` run locally before each merge (`.github/workflows/ci.yml` can run them on GitHub by hand).
 - **Prod is always the head of `main`.** `scripts/deploy.sh` refuses anything else, and it holds a lock on the box,
