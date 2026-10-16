@@ -296,6 +296,7 @@ export type ServerMsg =
   | { t: 'voice_wait'; roomId: string | null }
   | { t: 'voice_owner'; owner: boolean }
   | { t: 'look'; userId: string; look: Look; lookSet: boolean; name?: string }
+  | { t: 'room_open' }  // the Meeting room's 'start private room' wall button was clicked
   | { t: 'presentation'; live: LiveDeck | null };
 
 // client -> server
