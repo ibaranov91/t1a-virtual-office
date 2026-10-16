@@ -4,9 +4,9 @@ import {
   type MapObject, type Dir, type Layout, type Room, type Spot, type TileMap, type Tile,
 } from '../../shared/map';
 import {
-  NOTE_RATE, NOTE_BURST, ITEMS_MAX, TOILET_SHELF_ITEM, toiletFull, NOTE_HELD_MAX, SEAT_CHANGES_PER_10S, DUNGEON_INSTANCE, underground, MAX_CALL_SIZE, MEETING_ROOM_ID, MAX_CHAT_LEN, normalizeMeetLink, REACTIONS, ROOM_VOICE_MAX,
+  NOTE_RATE, NOTE_BURST, ITEMS_MAX, TOILET_SHELF_ITEM, toiletFull, NOTE_HELD_MAX, SEAT_CHANGES_PER_10S, DUNGEON_INSTANCE, underground, MAX_CALL_SIZE, LATER_MAX, MEETING_ROOM_ID, MAX_CHAT_LEN, normalizeMeetLink, REACTIONS, ROOM_VOICE_MAX,
   CUP_ITEMS, BOOK_ITEM, BOOKWORM_READS, EDITOR_READERS, dayNumber, isTimeZone, plantDead, BOTANIST_KINDS, PLANT_KINDS, PLANT_STAGES, presentScope, type Plant,
-  type ChatMsg, type ClientMsg, type Door, type Effect, type Knock, type LayoutEdit, type Look, type Presence, type PublicUser, type Reaction, type ServerMsg,
+  type ChatMsg, type ClientMsg, type Door, type Effect, type Knock, type LaterItem, type LayoutEdit, type Look, type Presence, type PublicUser, type Reaction, type ServerMsg,
 } from '../../shared/protocol';
 import { FOOD_ITEMS, LUNCH_MS, PLATE_PREFIX, picnicSeat, type Eating } from '../../shared/lunch';
 import { INSTRUMENTS, validNote } from '../../shared/instruments';
@@ -157,7 +157,7 @@ export class World {
     this.baseLayout = structuredClone({ objects: map.objects, rugs: map.rugs });
     for (const o of map.objects) if (o.use?.kind === 'toggle') this.objectOn.set(o.id, o.on ?? true);
     this.syncJukeboxes();
-    setInterval(() => { const now = Date.now(); this.voiceTick(now); this.jukeboxTick(now); this.instrumentTick(now); this.effectsTick(now); this.lunchTick(now); this.toilets.tick(now); this.present?.tick(); }, 250).unref();
+    setInterval(() => { const now = Date.now(); this.voiceTick(now); this.jukeboxTick(now); this.instrumentTick(now); this.effectsTick(now); this.lunchTick(now); this.laterTick(now); this.toilets.tick(now); this.present?.tick(); }, 250).unref();
   }
 
   // ---------- transport ----------
@@ -218,6 +218,7 @@ export class World {
     send({ t: 'layout', layout: this.layout() }); // before anyone's walk, which every client paths on this floor
     send(this.snapshot());
     send(this.me(u));
+    if (!u.bot) send({ t: 'later', items: this.laterList.get(userId) ?? [] });
     if (underground(u) && u.dungeon) send({ t: 'dungeon', ...u.dungeon });
     if (u.reading) this.stopReading(u); // a fresh page has no overlay; the old read ends
     send({ t: 'meetings', rooms: this.meetingRooms() });
@@ -1602,8 +1603,11 @@ export class World {
     if (room?.rules.knock === 'disabled') {
       return this.closeKnock(k, 'blocked', `${to.name} is in ${room.name} — ${room.rules.label ?? 'no knocking'}`);
     }
+    this.clearLater(from, to.id); // knocking on them is the answer to their knock
     const shared = this.tableOf(from);
     if (shared && shared === this.tableOf(to)) return this.arrive(k); // already side by side at the table
+    const why = this.laterWhy(to);
+    if (why) return this.keepLater(k, from, to, why, `${to.name} is ${why} — left a knock`); // no point walking over
     // walk next to them (nearest free neighbouring tile)
     const here = this.position(from).next;
     const spot = this.nextTo(this.position(to).dest, here);
@@ -1622,18 +1626,66 @@ export class World {
     // face the person
     const a = this.position(from).tile, b = this.position(to).tile;
     from.dir = b.x > a.x ? 'right' : b.x < a.x ? 'left' : b.y > a.y ? 'down' : 'up';
+    const table = this.tableOf(from);
+    const openTable = table && table === this.tableOf(to) && this.eatingNow(to) && to.eating!.open; // sharing a table with someone open to talk
+    const why = openTable ? null : this.laterWhy(to);
+    if (why) return this.keepLater(k, from, to, why, `${to.name} is ${why} — left a knock`); // got busy during the walk
     k.state = 'pending';
     this.setEmote(to, 'knock');
     this.broadcast({ t: 'knock', knockId: k.id, fromId: from.id, toId: to.id });
-    const table = this.tableOf(from);
-    if (table && table === this.tableOf(to) && this.eatingNow(to) && to.eating!.open) return this.reply(to, k.id, 'accept'); // sharing a table with someone open to talk
-    const stall = this.toilets.inside(to.id), lunch = this.eatingNow(to) && !to.eating!.open;
-    if (room?.rules.knock === 'later' || (to.presence === 'in_call' && !to.callId) || to.meeting || to.reading || stall || lunch) {
-      const why = stall ? 'on the toilet' : to.meeting ? 'in a meeting' : to.reading ? 'reading' : lunch ? 'at lunch' : room?.rules.occupantLabel ?? 'in a call';
-      k.timer = setTimeout(() => this.closeKnock(k, 'later', `${to.name} is ${why} — sent to Later`), 1400);
-    } else {
-      k.timer = setTimeout(() => this.closeKnock(k, 'later', `${to.name} didn't answer — sent to Later`), 30_000);
-      if (to.bot) setTimeout(() => this.reply(to, k.id, Math.random() < 0.65 ? 'accept' : 'later'), 1500 + Math.random() * 2500);
+    if (openTable) return this.reply(to, k.id, 'accept');
+    k.timer = setTimeout(() => this.closeKnock(k, 'later', `${to.name} didn't answer — sent to Later`), 30_000);
+    if (to.bot) setTimeout(() => this.reply(to, k.id, Math.random() < 0.65 ? 'accept' : 'later'), 1500 + Math.random() * 2500);
+  }
+
+  /** Why a knock on this person goes to Later right now (null: they can answer). */
+  private laterWhy(to: User): string | null {
+    const room = this.roomOf(to), stall = this.toilets.inside(to.id), lunch = this.eatingNow(to) && !to.eating!.open;
+    if (!(room?.rules.knock === 'later' || (to.presence === 'in_call' && !to.callId) || to.meeting || to.reading || stall || lunch)) return null;
+    return stall ? 'on the toilet' : to.meeting ? 'in a meeting' : to.reading ? 'reading' : lunch ? 'at lunch' : room?.rules.occupantLabel ?? 'in a call';
+  }
+
+  // ---------- Later list ----------
+  // Knocks on someone busy are kept per person (memory only), newest first, one per knocker.
+  private laterList = new Map<string, LaterItem[]>();
+  /** When each person's current busy spell began (and what it is), to tell them who knocked once it's over. */
+  private busy = new Map<string, { since: number; why: string }>();
+  private sendLater(id: string) { this.sendTo(id, { t: 'later', items: this.laterList.get(id) ?? [] }); }
+  private keepLater(k: Knock & { timer?: NodeJS.Timeout }, from: User, to: User, why: string, reason: string) {
+    const items = (this.laterList.get(to.id) ?? []).filter(i => i.fromId !== from.id);
+    items.unshift({ id: randomUUID().slice(0, 8), fromId: from.id, at: Date.now(), why });
+    this.laterList.set(to.id, items.slice(0, LATER_MAX));
+    this.sendLater(to.id);
+    this.closeKnock(k, 'later', reason, false, true);
+  }
+  /** Drop what `fromId` left in this person's list (all of it without an id). */
+  private clearLater(u: User, fromId?: string) {
+    const items = this.laterList.get(u.id);
+    if (!items?.length) return;
+    const rest = fromId ? items.filter(i => i.fromId !== fromId) : [];
+    if (rest.length === items.length) return;
+    this.laterList.set(u.id, rest);
+    this.sendLater(u.id);
+  }
+  private laterTick(now: number) {
+    for (const u of this.users.values()) {
+      if (u.bot) continue;
+      const online = u.presence !== 'offline' && !!this.sockets.get(u.id)?.size;
+      const items = this.laterList.get(u.id);
+      if (u.callId && items?.some(i => this.users.get(i.fromId)?.callId === u.callId)) { // talking with them now, however it came about
+        this.laterList.set(u.id, items.filter(i => this.users.get(i.fromId)?.callId !== u.callId)); this.sendLater(u.id);
+      }
+      const why = online ? this.laterWhy(u) : null, was = this.busy.get(u.id);
+      if (why && !was) this.busy.set(u.id, { since: now, why });
+      else if (!why && was) {
+        this.busy.delete(u.id);
+        const news = (this.laterList.get(u.id) ?? []).filter(i => i.at >= was.since);
+        if (online && news.length) {
+          const first = this.users.get(news[0].fromId)?.name ?? 'Someone';
+          this.sendTo(u.id, { t: 'later_nudge', userId: news.length === 1 ? news[0].fromId : undefined,
+            text: `While you were ${was.why}: ${news.length === 1 ? `${first} knocked` : `${first} and ${news.length - 1} other${news.length > 2 ? 's' : ''} knocked`}` });
+        }
+      } else if (why && was) was.why = why;
     }
   }
 
@@ -1648,17 +1700,18 @@ export class World {
     this.closeKnock(k, reply);
   }
 
-  private closeKnock(k: Knock & { timer?: NodeJS.Timeout }, reply: 'accept' | 'later' | 'blocked', reason?: string, cancelled?: boolean) {
+  private closeKnock(k: Knock & { timer?: NodeJS.Timeout }, reply: 'accept' | 'later' | 'blocked', reason?: string, cancelled?: boolean, kept?: boolean) {
     if (k.timer) clearTimeout(k.timer);
     const wasPending = k.state === 'pending';
     k.state = reply;
     const to = this.users.get(k.toId);
     if (to && wasPending && to.emote === 'knock') this.setEmote(to, null);
-    const base = { t: 'knock_reply', knockId: k.id, fromId: k.fromId, toId: k.toId, reply, reason, cancelled } as const;
+    const base = { t: 'knock_reply', knockId: k.id, fromId: k.fromId, toId: k.toId, reply, reason, cancelled, kept } as const;
     if (reply === 'accept' && to) {
       // join (or start) the call; whoever they knocked, everyone in it shares the same Meet link
       const from = this.users.get(k.fromId);
       const call = from ? this.connectCall(from, to) : null;
+      if (from) { this.clearLater(to, from.id); this.clearLater(from, to.id); }
       // the link goes only to the two people involved; everyone else just learns the knock is over
       const pair = new Set([k.fromId, k.toId]);
       for (const id of pair) this.sendTo(id, { ...base, link: call?.link, fallback: call?.fallback });
@@ -1799,6 +1852,8 @@ export class World {
       case 'speaking': if (u.callId) this.broadcast({ t: 'speaking', userId: u.id, on: !!msg.on }); break;
       case 'mute': if (u.callId) { u.muted = !!msg.muted; this.broadcast({ t: 'mute', userId: u.id, muted: u.muted }); } break;
       case 'knock': { const to = this.users.get(msg.targetId); if (to) this.knock(u, to); break; }
+      case 'later_dismiss': { const id = String(msg.id); const i = this.laterList.get(u.id)?.find(x => x.id === id); if (i) this.clearLater(u, i.fromId); break; }
+      case 'later_clear': this.clearLater(u); break;
       case 'knock_reply': this.reply(u, msg.knockId, msg.reply === 'accept' ? 'accept' : 'later'); break;
       case 'knock_cancel': {
         const k = this.knocks.get(String(msg.knockId));

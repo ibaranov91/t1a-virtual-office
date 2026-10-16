@@ -210,6 +210,10 @@ export type RtcSignal =
   | { kind: 'answer'; sdp: string; conn: string; inst: string }
   | { kind: 'ice'; candidate: RTCIceCandidateInit | null; conn: string };
 
+/** A knock that went to Later (kept per person, memory only): newest first, one per knocker. */
+export interface LaterItem { id: string; fromId: string; at: number; why: string }
+export const LATER_MAX = 20;
+
 export interface Knock {
   id: string; fromId: string; toId: string;
   state: 'walking' | 'pending' | 'accept' | 'later' | 'blocked';
@@ -281,7 +285,7 @@ export type ServerMsg =
   | { t: 'emote'; userId: string; emote: Emote }
   | { t: 'door'; userId: string; door: Door }
   | { t: 'knock'; knockId: string; fromId: string; toId: string }
-  | { t: 'knock_reply'; knockId: string; fromId: string; toId: string; reply: 'accept' | 'later' | 'blocked'; link?: string; reason?: string; fallback?: boolean; cancelled?: boolean }
+  | { t: 'knock_reply'; knockId: string; fromId: string; toId: string; reply: 'accept' | 'later' | 'blocked'; link?: string; reason?: string; fallback?: boolean; cancelled?: boolean; kept?: boolean /* in the target's Later list: no "missed" toast */ }
   // private settings, only to the user themselves. google: the connected Google account (null = not connected),
   // absent when this instance has no Google sign-in
   | { t: 'me'; meetLink: string; email?: string; google?: string | null; calendar?: boolean; admin?: boolean; sysadmin?: boolean; items?: string[] } // calendar: Calendar access granted; admin: may rearrange the office; sysadmin: may also walk into the Admin room
@@ -317,6 +321,8 @@ export type ServerMsg =
   | { t: 'gm_items'; targetId: string; items: string[] } // to the asking admin only
   | { t: 'teleport'; userId: string; from: Tile; to: Tile } // an admin stepped through a portal: everyone plays it (the server has already moved them)
   | { t: 'notice'; text: string }
+  | { t: 'later'; items: LaterItem[] }  // only to the person knocked on: their kept Later list, on connect and on every change
+  | { t: 'later_nudge'; text: string; userId?: string } // their busy spell is over and knocks came in meanwhile (userId: the one knocker, for Knock back)
   | { t: 'present_open'; objectId: string } // you walked up to the board: show the upload/present panel
   | { t: 'voice_wait'; roomId: string | null }
   | { t: 'voice_owner'; owner: boolean }
@@ -347,6 +353,8 @@ export type ClientMsg =
   | { t: 'presence'; presence: Exclude<Presence, 'offline'> }
   | { t: 'knock'; targetId: string }
   | { t: 'knock_reply'; knockId: string; reply: 'accept' | 'later' }
+  | { t: 'later_dismiss'; id: string }
+  | { t: 'later_clear' }
   | { t: 'knock_cancel'; knockId: string } // the knocker calls it back: closes the prompt for both
   | { t: 'meet_link'; link: string }
   | { t: 'google_connect'; calendar?: boolean } // asks for a google_auth URL; calendar: also ask for Calendar access
