@@ -5,7 +5,7 @@ import { roomAt, type TileMap } from '../../shared/map';
 import { INSTRUMENTS } from '../../shared/instruments';
 import { OFFICE_SCOPE } from '../../shared/protocol';
 import type { ClientUser } from './net';
-import { activityLine, channelTree, GROUPS, peopleGroups, place, roomGroup, roomThings, splitStatus, joinStatus, type View } from './sidebar/model';
+import { hoverCard, activityLine, channelTree, GROUPS, peopleGroups, place, roomGroup, roomThings, splitStatus, joinStatus, type View } from './sidebar/model';
 const map = mapJson as unknown as TileMap;
 const room = (id: string) => map.rooms.find(r => r.id === id)!;
 function user(id: string, name = id, roomId = 'coffee', extra: Partial<ClientUser> = {}): ClientUser {
@@ -152,4 +152,61 @@ test('banner backgrounds cover defaults, colors, each pixel pattern and images',
   for (const background of backgrounds) { assert.match(background, /gradient\(/); assert.match(background, /color-mix\(in srgb, #123456 70%, black\)/); }
   assert.match(backgrounds[0], /45deg/); assert.match(backgrounds[1], /8px/); assert.match(backgrounds[3], /3px.*12px/);
   assert.equal(bannerStyle({ kind: 'image', url: '/banners/test.png' }, look), 'url("/banners/test.png") center / cover');
+});
+const hoverNow = Date.parse('2026-10-16T13:26:00Z');
+const hoverCtx = {
+  now: hoverNow, zone: 'Europe/Warsaw', speaking: false,
+  tableDescription: () => 'Playing Chess', gameDescription: () => 'Playing Deck Park · level 2',
+  articleTitle: () => 'A good read', items: new Map([['coffee', { icon: '☕', label: 'Coffee' }]]),
+};
+function card(extra: Partial<ClientUser> = {}, roomId = 'coffee', others: ClientUser[] = []) {
+  const u = user('a', 'Amy', roomId, extra), v = view(user('me'), u, ...others);
+  return hoverCard(v, u, hoverCtx);
+}
+test('hover card presence follows priority and names the room once', () => {
+  assert.equal(card().presence, 'around · Coffee');
+  assert.equal(card({ callId: 'room:coffee' }).presence, 'in Coffee voice');
+  assert.equal(card({ callId: 'room:coffee' }).live, true);
+  const peer = user('b', 'Bob', 'coffee', { callId: 'knock:1' });
+  assert.equal(card({ callId: 'knock:1', door: 'leaving' }, 'coffee', [peer]).presence, 'talking with Bob · Coffee');
+  assert.equal(card({ callId: 'knock:1' }, 'coffee', [peer]).live, true);
+  for (const [extra, expected] of [
+    [{ presence: 'away' }, 'away'], [{ presence: 'offline' }, 'offline'],
+    [{ door: 'thinking' }, 'packing up…'], [{ door: 'leaving' }, 'heading out'], [{ door: 'arriving' }, 'just arrived'],
+    [{ instance: 'dungeon' }, 'somewhere underground'], [{ instance: 'meeting:1', meeting: 1 }, 'in a meeting room'],
+    [{ meeting: 1 }, 'in a meeting until 14:30'],
+    [{ eating: { item: 'food', until: 0, open: true } }, 'having lunch · open to talk'],
+  ] as [Partial<ClientUser>, string][]) assert.equal(card(extra).presence, `${expected} · Coffee`);
+  assert.match(card({ vacation: { until: hoverNow, back: '2026-10-20' }, presence: 'offline' }).presence, /^on vacation until .*20.* · Coffee$/);
+});
+test('hover card splits header emoji from status and includes all activity pills', () => {
+  const result = card({ status: '🧑‍💻 coding', game: { cabinet: 'o1', role: 'player' }, reading: 'article',
+    following: 'b', holding: 'coffee', effects: [{ kind: 'speed', until: hoverNow + 1501 }, { kind: 'hat' }, { kind: 'gum', until: hoverNow }] },
+    'coffee', [user('b', 'Bob Smith')]);
+  assert.equal(result.name, 'Amy'); assert.equal(result.emoji, '🧑‍💻'); assert.equal(result.status, 'coding');
+  assert.deepEqual(result.pills, ['Playing Deck Park · level 2', 'reading A good read', 'following Bob', 'holding ☕ Coffee', '⚡ Caffeinated · 2s']);
+  const u = user('a'), v = view(u);
+  u.table = { objectId: 'o1' } as NonNullable<ClientUser['table']>;
+  assert.deepEqual(hoverCard(v, u, hoverCtx).pills, ['Playing Chess']);
+  assert.deepEqual(card().pills, []); assert.equal(card().status, '');
+});
+test('hover card local time uses the shared zone offset, including date boundaries and fractional hours', () => {
+  for (const [tz, expected] of [['Europe/Berlin', 'same time'], ['Europe/Helsinki', '1h ahead'], ['Europe/London', '1h behind'], ['Asia/Kolkata', '3.5h ahead'], ['Pacific/Kiritimati', '12h ahead']]) {
+    assert.ok(card({ tz }).localTime.endsWith(` · ${expected}`), tz);
+  }
+  assert.equal(card({ tz: 'Europe/Berlin' }).localTime, '3:26 PM · Berlin · same time');
+  assert.equal(card().localTime, '');
+  const me = user('me', 'Me', 'coffee', { tz: 'Europe/Berlin' }), v = view(me);
+  const own = hoverCard(v, me, hoverCtx); assert.equal(own.localTime, ''); assert.equal(own.you, '(you)');
+  v.users.set('a', user('a', 'Amy', 'coffee', { tz: 'Europe/London' }));
+  me.tz = 'Europe/London'; assert.ok(hoverCard(v, v.users.get('a')!, hoverCtx).localTime.endsWith('same time'));
+});
+test('hover card footer hints cover self, offline, any shared call, quiet room and default', () => {
+  assert.equal(card().footer, 'Click to knock, message or follow');
+  assert.equal(card({ presence: 'offline' }).footer, 'Click to message');
+  assert.equal(card({}, 'focus').footer, 'Focus: no knocking · click for more');
+  const me = user('me', 'Me', 'coffee', { callId: 'knock:1' }), u = user('a', 'Amy', 'coffee', { callId: 'knock:1' }), v = view(me, u);
+  assert.equal(hoverCard(v, me, hoverCtx).footer, 'Click to react');
+  assert.equal(hoverCard(v, u, hoverCtx).footer, 'Click for volume & more');
+  assert.equal(hoverCard(v, u, { ...hoverCtx, wheelOpen: true }).footer, '');
 });

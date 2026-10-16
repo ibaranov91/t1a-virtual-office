@@ -1082,3 +1082,24 @@ button:focus-visible, summary:focus-visible, input[type="range"]:focus-visible {
 .sb-person-banner { position: relative; }
 .sb-person-banner > button { position: absolute; top: 4px; right: 4px; background: var(--panel); color: var(--text); }
 .sb-card-head { align-items: flex-start; }
+/* The floor's mini profile: position follows the sprite without React layout updates. */
+.hover-card-anchor { position: absolute; left: 0; top: 0; z-index: 6; width: 280px; max-width: calc(100% - 16px); pointer-events: none; visibility: hidden; }
+.hover-card { min-width: min(200px, 100%); padding: 10px 12px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-lg); box-shadow: 0 6px 20px rgba(0,0,0,.45); color: var(--text); display: flex; flex-direction: column; gap: 6px; overflow-wrap: anywhere; transform-origin: center var(--hover-origin, bottom); animation: hover-card-in 120ms ease-out; }
+.hover-card-banner { height: 36px; margin: -10px -12px 0; border-radius: var(--radius-lg) var(--radius-lg) 0 0; }
+.hover-card-header { display: flex; align-items: flex-end; gap: 8px; min-width: 0; margin-top: -18px; }
+.hover-card-header > .sb-avatar { border: 3px solid var(--panel); box-sizing: content-box; }
+.hover-card-name { display: flex; align-items: baseline; gap: 4px; min-width: 0; font-size: var(--fs-md); }
+.hover-card-name strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: var(--fw-heavy); }
+.hover-card-name > span, .hover-card-name > small { flex: none; }
+.hover-card-name > small { color: var(--muted); font-size: var(--fs-sm); }
+.hover-card-presence { color: var(--muted); font-size: var(--fs-sm); }
+.hover-card-presence.live { color: var(--accent2); }
+.hover-card-status { font-size: var(--fs-sm); color: var(--text); display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+.hover-card-pills { display: flex; flex-wrap: wrap; gap: 4px; font-size: var(--fs-xs); }
+.hover-card-pills > span { max-width: 100%; padding: 2px 5px; border-radius: var(--radius-sm); background: var(--panel2); }
+.hover-card-time { display: flex; align-items: center; gap: 4px; color: var(--muted); font-size: var(--fs-xs); }
+.hover-card-time .ui-icon { flex: none; width: var(--icon-sm); height: var(--icon-sm); }
+.hover-card-footer { padding-top: 6px; border-top: 1px solid var(--line); color: var(--muted); font-size: var(--fs-xs); }
+@keyframes hover-card-in { from { opacity: 0; transform: scale(.96); } to { opacity: 1; transform: scale(1); } }
+@media (prefers-reduced-motion: reduce) { .hover-card { animation: none; } }
+@media (max-width: 560px), (max-height: 500px), (hover: none) { .hover-card-anchor { display: none; } }
