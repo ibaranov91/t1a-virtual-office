@@ -1,16 +1,17 @@
 // Calendar meetings: who's in which meeting now or soon, merged from every connected Google Calendar.
 // One connected attendee is enough: everyone on the event's guest list (by sign-in email) gets the heads-up,
 // shows as "in a meeting" and can step into the meeting's room.
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import type { AgendaItem } from '../../shared/protocol';
 import { CALENDAR_SCOPE, forgetAccess, listMeetings, type CalMeeting } from './google';
 import type { User, World } from './world';
 
 const POLL_MS = 2 * 60_000;   // calendars change rarely; heads-ups are worked out from start times client-side
 const AHEAD_MS = 70 * 60_000; // what counts as "soon"
+const ADHOC_MS = 3 * 3_600_000; // how long a private room lasts
 const EARLY_MS = 10 * 60_000; // you can step into a meeting's room this long before it starts
 
-export interface Meeting extends CalMeeting { instance: string; owners: Set<string> } // owners: whose calendars it came from
+export interface Meeting extends CalMeeting { instance: string; owners: Set<string>; adhoc?: { host: string; hostName: string; invited: Set<string> } } // owners: whose calendars it came from
 
 export class Meetings {
   events = new Map<string, Meeting>();
@@ -46,6 +47,7 @@ export class Meetings {
           for (const [k, m] of this.events) if (m.owners.has(u.id) && !next.has(k)) next.set(k, m); // keep what we knew
         }
       }
+      for (const [k, m] of this.events) if (m.adhoc) next.set(k, m); // private rooms aren't on any calendar
       this.events = next;
     } finally { this.polling = false; }
     this.tick();
@@ -53,7 +55,7 @@ export class Meetings {
 
   /** Deck people on this meeting's guest list (or whose calendar it's from). */
   attendees(m: Meeting): User[] {
-    return [...this.world.users.values()].filter(u => !u.bot && (m.owners.has(u.id) || (!!u.email && m.emails.includes(u.email))));
+    return [...this.world.users.values()].filter(u => !u.bot && (m.owners.has(u.id) || !!m.adhoc?.invited.has(u.id) || (!!u.email && m.emails.includes(u.email))));
   }
   canEnter(u: User, m: Meeting, now = Date.now()) { return now >= m.start - EARLY_MS && now < m.end && this.attendees(m).includes(u); }
   hasLeft(u: User, key: string) { return this.left.get(u.id)?.has(key) ?? false; }
@@ -69,9 +71,24 @@ export class Meetings {
   }
   rejoin(u: User, key: string) { if (this.left.get(u.id)?.delete(key)) this.tick(); }
 
+  /** A private room: a Meeting-room copy for the host and whoever they invite, for the next 3 hours. */
+  createAdhoc(host: User, title: string, invited: Set<string>, now = Date.now()): Meeting {
+    const key = `adhoc:${randomUUID()}`;
+    invited.add(host.id);
+    const m: Meeting = { key, title, start: now, end: now + ADHOC_MS, emails: [], instance: Meetings.instanceOf(key), owners: new Set(), adhoc: { host: host.id, hostName: host.name, invited } };
+    this.events.set(key, m);
+    return m;
+  }
+  /** The private room this person is standing in, if any. */
+  adhocOf(u: User): Meeting | undefined {
+    return u.instance ? [...this.events.values()].find(m => m.adhoc && m.instance === u.instance) : undefined;
+  }
+  /** Everyone who can see this private room on their agenda. */
+  notify(m: Meeting) { for (const u of this.attendees(m)) if (u.presence !== 'offline') this.sendAgenda(u, true); this.tick(); }
+
   agendaOf(u: User, now = Date.now()): AgendaItem[] {
     return [...this.events.values()].filter(m => m.end > now && this.attendees(m).includes(u)).sort((a, b) => a.start - b.start)
-      .map(m => ({ key: m.key, instance: m.instance, title: m.title, start: m.start, end: m.end, link: m.link, left: this.hasLeft(u, m.key) || undefined }));
+      .map(m => ({ key: m.key, instance: m.instance, title: m.title, start: m.start, end: m.end, link: m.link, left: this.hasLeft(u, m.key) || undefined, ...(m.adhoc && { adhoc: true, from: m.adhoc.hostName }) }));
   }
   /** Send this person their agenda if it changed (force: e.g. a fresh page). */
   sendAgenda(u: User, force = false) {

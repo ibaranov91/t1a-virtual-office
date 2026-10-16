@@ -1361,3 +1361,39 @@ test('a broadcast is stringified once for wire listeners; a join sends one user,
   const msg = a.messages[0] as Extract<ServerMsg, { t: 'user' }>;
   assert.equal(msg.user.id, b.id); assert.ok(!('email' in msg.user));
 });
+test('private rooms: create, invite, enter, busy, leave/rejoin, expiry and validation', t => {
+  const { w, add, tick } = setup(t), host = add('Host'), b = add('B'), c = add('C'), bot = add('Bot', { x: 32, y: 12 }, true), off = add('Off'); off.u.presence = 'offline';
+  w.meetings.poll = async () => {};
+  const agenda = (x: { messages: ServerMsg[] }) => [...x.messages].reverse().find(m => m.t === 'agenda') as Extract<ServerMsg, { t: 'agenda' }> | undefined;
+  w.handle(host.u, { t: 'room_create', title: `  ${'x'.repeat(60)}  `, invite: [b.u.id, b.u.id, host.u.id, bot.u.id, 'nope', off.u.id] }, host.socket);
+  const m = [...w.meetings.events.values()].find(e => e.adhoc)!;
+  assert.match(m.key, /^adhoc:/); assert.equal(m.title, 'x'.repeat(40)); assert.equal(m.end - m.start, 3 * 3600_000);
+  assert.deepEqual([...m.adhoc!.invited].sort(), [host.u.id, b.u.id, off.u.id].sort());
+  assert.equal(host.u.instance, m.instance); assert.equal(roomAt(w.map, host.u.tile.x, host.u.tile.y)?.id, 'meeting');
+  assert.ok(host.u.meeting); assert.ok(b.u.meeting); assert.equal(c.u.meeting, null); assert.equal(bot.u.meeting, null);
+  const item = agenda(b)!.items[0]; assert.equal(item.adhoc, true); assert.equal(item.from, 'Host'); assert.equal(agenda(c)?.items.length ?? 0, 0);
+  w.handle(b.u, { t: 'meeting_go', key: m.key }, b.socket); assert.equal(b.u.instance, m.instance);
+  w.handle(c.u, { t: 'meeting_go', key: m.key }, c.socket); assert.equal(c.u.instance, null); // not invited
+  // invite: only from inside, never bots
+  w.handle(c.u, { t: 'room_invite', userIds: [c.u.id] }, c.socket); assert.ok(!m.adhoc!.invited.has(c.u.id));
+  w.handle(b.u, { t: 'room_invite', userIds: [c.u.id, bot.u.id] }, b.socket);
+  assert.ok(m.adhoc!.invited.has(c.u.id)); assert.ok(!m.adhoc!.invited.has(bot.u.id)); assert.equal(agenda(c)!.items[0].adhoc, true); assert.ok(c.u.meeting);
+  // knocks go to Later while busy
+  w.handle(c.u, { t: 'meeting_out', key: m.key }, c.socket); assert.equal(c.u.meeting, null);
+  // leave and rejoin
+  w.handle(b.u, { t: 'meeting_leave' }, b.socket); assert.equal(b.u.instance, null); assert.ok(b.u.meeting);
+  w.handle(b.u, { t: 'meeting_out', key: m.key }, b.socket); assert.equal(b.u.meeting, null);
+  w.handle(b.u, { t: 'meeting_go', key: m.key }, b.socket); assert.equal(b.u.instance, m.instance); assert.ok(b.u.meeting);
+  // a calendar poll keeps it
+  delete (w.meetings as { poll?: unknown }).poll; void w.meetings.poll();
+  // expiry
+  tick(3 * 3600_000 + 16_000); w.meetings.tick();
+  assert.equal(w.meetings.events.has(m.key), false); assert.equal(host.u.instance, null); assert.equal(b.u.instance, null); assert.equal(host.u.meeting, null);
+  // validation: invite cap, bots/offline/dungeon can't host
+  const many = Array.from({ length: 35 }, (_, i) => add(`P${i}`).u.id);
+  w.handle(host.u, { t: 'room_create', title: '   ', invite: many }, host.socket);
+  const m2 = [...w.meetings.events.values()].find(e => e.adhoc)!;
+  assert.equal(m2.title, 'Private room'); assert.equal(m2.adhoc!.invited.size, 30);
+  w.handle(bot.u, { t: 'room_create', invite: [] }, bot.socket); assert.equal([...w.meetings.events.values()].filter(e => e.adhoc).length, 1);
+  w.handle(off.u, { t: 'room_create', invite: [] }, off.socket); assert.equal([...w.meetings.events.values()].filter(e => e.adhoc).length, 1);
+});
