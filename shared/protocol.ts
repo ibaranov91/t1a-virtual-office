@@ -152,6 +152,7 @@ export interface PublicUser {
   listening?: 'lofi' | null; // an audible Lofi TV in one of this person's open pages; never persisted
   reading: string | null;   // library article id they're reading at a reading desk; knocks go to Later
   eating?: Eating;          // having lunch at a picnic table (see shared/lunch.ts)
+  vacation?: { until: number; back?: string } | null; // on vacation now, per their calendar
   meeting: number | null;   // in a calendar meeting until then (ms); knocks go to Later
   instance: string | null;  // meeting room or dungeon: only people in the same instance see each other
   plant: Plant | null;      // on their home desk, or in the Orangery if they have none
@@ -306,6 +307,7 @@ export type ServerMsg =
   | { t: 'calendar'; events?: CalEvent[]; error?: string } // my own events, only to me
   | { t: 'agenda'; items: AgendaItem[] } // my calendar meetings now and soon, only to me
   | { t: 'dungeon'; key: Tile | null; hasKey: boolean; event?: 'fell' | 'key' | 'locked' | 'opening' | 'escaped' | 'gave_up' }
+  | { t: 'vacation'; userId: string; vacation: { until: number; back?: string } | null } // current vacation only
   | { t: 'meeting'; userId: string; until: number | null }
   | { t: 'reading'; userId: string; articleId: string | null }
   | ({ t: 'library' } & LibraryState)

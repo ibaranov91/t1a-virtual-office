@@ -13,16 +13,17 @@ export function PersonRow({ store, user: u, assets, speaking, people, onPerson, 
   onPerson: (at: PersonAnchor) => void; onAction: () => void;
 }) {
   const offline = u.presence === 'offline', activity = activityLine(store, u);
-  const line = people ? [place(store, u), activity].filter(Boolean).join(' · ') : activity;
+  const line = people && !offline ? [place(store, u), activity].filter(Boolean).join(' · ') : activity;
+  const showLine = !!line && (!offline || !!u.vacation); // an offline vacationer still says when they're back
   const open = (el: HTMLElement) => onPerson({ id: u.id, ...rowAnchor(el) });
   const playing = instrument(store, u), volume = Math.round((prefs.volumes[u.id] ?? 1) * 100);
   const unread = store.unread.get(u.id);
-  return <div className={`sb-person${offline ? ' off' : ''}${!offline && line ? ' two-lines' : ''}`}>
+  return <div className={`sb-person${offline ? ' off' : ''}${showLine ? ' two-lines' : ''}`}>
     <button className={`sb-person-main${u.id === store.me ? ' me' : ''}`} onClick={e => open(e.currentTarget)}
       onContextMenu={e => { e.preventDefault(); open(e.currentTarget); }} aria-haspopup="dialog">
       {!offline && <Avatar assets={assets} user={u} size={22} ring={speaking.has(u.id)} />}
       <span className="sb-person-text"><span>{u.name}{!offline && u.id === store.me ? ' (you)' : ''}</span>
-        {!offline && line && <small>{line}</small>}</span>
+        {showLine && <small>{line}</small>}</span>
     </button>
     {!offline && <span className="sb-marks">
       {u.callId && u.muted && <span className="sb-danger" title="Mic off">🔇</span>}

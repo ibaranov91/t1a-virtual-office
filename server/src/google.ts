@@ -2,6 +2,7 @@
 // Refresh tokens stay on the server, encrypted with GOOGLE_TOKEN_KEY; access tokens live in memory only.
 // More scopes (Calendar…) are asked for later, incrementally, on the same client.
 import type { CalEvent } from '../../shared/protocol';
+import { zonedTime, type Absence } from '../../shared/vacation';
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
 
 const CLIENT_ID = process.env.GOOGLE_CLIENT_ID ?? '';
@@ -156,3 +157,33 @@ export const listMeetings = async (userId: string, link: GoogleLink, aheadMs: nu
   return out;
 };
 export const forgetAccess = (userId: string) => access.delete(userId);
+
+
+/** Absences only: titles are filtered here and never leave this function. */
+export const listAbsences = async (tokenOwnerId: string, link: GoogleLink, calendarId: string, own: boolean): Promise<{ timeZone: string; items: Absence[] }> => {
+  const now = Date.now(), q = new URLSearchParams({
+    singleEvents: 'true', timeMin: new Date(now - 86400000).toISOString(), timeMax: new Date(now + 30 * 86400000).toISOString(), maxResults: '250',
+    fields: own ? 'nextPageToken,timeZone,items(status,eventType,summary,start,end,attendees(self,responseStatus))' : 'nextPageToken,timeZone,items(status,eventType,start,end)',
+  });
+  q.append('eventTypes', 'outOfOffice');
+  if (own) q.append('eventTypes', 'default');
+  const items: Absence[] = [];
+  let timeZone = 'UTC';
+  for (let page = 0; page < 5; page++) {
+    const r = await fetch(`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events?${q}`, { headers: { authorization: `Bearer ${await token(tokenOwnerId, link)}` } });
+    const j = await r.json().catch(() => ({})) as { timeZone?: string; nextPageToken?: string; items?: GEvent[]; error?: { message?: string } };
+    if (!r.ok) throw Object.assign(new Error(`calendar: ${r.status} ${j.error?.message ?? ''}`), { status: r.status });
+    timeZone = j.timeZone ?? timeZone;
+    for (const e of j.items ?? []) {
+      if (e.status === 'cancelled' || e.attendees?.some(a => a.self && a.responseStatus === 'declined')) continue;
+      const allDay = !!e.start?.date && !!e.end?.date;
+      if (e.eventType !== 'outOfOffice' && !(own && (e.eventType === 'default' || e.eventType === undefined) && allDay && /отпуск|vacation|holiday|\bpto\b|\booo\b|out of office|urlop|відпустк|day off/i.test(e.summary ?? ''))) continue;
+      const start = allDay ? zonedTime(e.start!.date!, timeZone) : Date.parse(e.start?.dateTime ?? '');
+      const end = allDay ? zonedTime(e.end!.date!, timeZone) : Date.parse(e.end?.dateTime ?? '');
+      if (Number.isFinite(start) && Number.isFinite(end) && end > start) items.push({ start, end, ...(allDay ? { allDay: { endDate: e.end!.date! } } : {}) });
+    }
+    if (!j.nextPageToken) break;
+    q.set('pageToken', j.nextPageToken);
+  }
+  return { timeZone, items };
+};

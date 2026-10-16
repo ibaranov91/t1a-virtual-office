@@ -1935,6 +1935,196 @@ for (const [game, accent] of [['tobu', '#cf82ae'], ['lobster', '#bd524a']]) {
   }
 }
 
+// ---------- vacation: beach and mountains ----------
+{
+  // Local hashes keep every older frame's random sequence unchanged.
+  const grain = (x, y, seed) => ((x * 73856093 ^ y * 19349663 ^ seed * 83492791) >>> 0);
+  const make = (name, w, h, draw, outline = true) => { const t = new Img(w, h); draw(t); frames[name] = outline ? t.outline() : t; };
+  for (const [family, base, light, dark] of [
+    ['sand', '#e7ce94', '#f4dfac', '#cfb47f'], ['sand_wet', '#baa77f', '#d0bd92', '#a39277'],
+    ['water_shallow', '#4eaead', '#9bdbca', '#389599'], ['water_deep', '#397f9e', '#6fb7c4', '#306d91'],
+    ['trail', '#b39b80', '#d1b99a', '#8d8075'], ['snow', '#e8f0e9', '#ffffff', '#b2cbd5'],
+  ]) for (let v = 0; v < (family === 'trail' || family === 'snow' ? 2 : 3); v++) {
+    make(`${family}_${v}`, 16, 16, t => {
+      t.rect(0, 0, 16, 16, base);
+      for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) {
+        const h = grain(x, y, v + 1);
+        if (h % 23 === 0) t.px(x, y, light);
+        else if (h % 31 === 0) t.px(x, y, dark);
+      }
+      if (family.startsWith('water')) for (const [x, y] of [[2 + v, 4], [9 - v, 11]]) {
+        t.hline(x, y, 4, light); t.px(x + 4, y - 1, light); t.hline(x + 1, y + 1, 2, base);
+      }
+      if (family === 'snow') { t.hline(v * 4, 13, 7, dark); t.hline(9 - v, 6, 5, '#d3e1e3'); }
+      if (family === 'trail') { t.hline(3 + v * 6, 7, 2, dark); t.px(4 + v * 6, 6, light); }
+    }, false);
+  }
+  make('sea', 16, 16, t => {
+    t.rect(0, 0, 16, 16, '#285772');
+    for (const [x, y] of [[1, 4], [8, 12]]) { t.hline(x, y, 5, '#5795a5'); t.hline(x + 2, y - 1, 3, '#82b5b9'); t.hline(x - 1, y + 1, 4, '#32667f'); }
+  }, false);
+  for (const name of ['rock', 'cliff']) make(name, 16, 16, t => {
+    t.rect(0, 0, 16, 16, name === 'cliff' ? '#737d83' : '#929a99');
+    t.rect(1, 1, 12, name === 'cliff' ? 4 : 9, '#aab1a9'); t.hline(2, 1, 10, '#c4c7b8');
+    t.hline(4, 10, 10, '#646f78'); t.vline(12, 5, 5, '#596975');
+    t.hline(0, 14, 8, '#596975'); t.hline(2, 12, 4, '#879775'); t.px(3, 11, '#a0ae7b');
+    if (name === 'cliff') { t.vline(3, 6, 5, '#626f79'); t.vline(9, 8, 7, '#65727c'); }
+  }, false);
+  make('pier', 16, 16, t => {
+    t.rect(0, 0, 16, 16, '#466d78');
+    for (let y = 0; y < 16; y += 4) {
+      t.rect(0, y, 16, 3, '#b99164'); t.hline(0, y, 16, '#d4b280'); t.hline(5, y + 2, 6, '#95734f');
+      for (const x of [2, 13]) t.px(x, y + 1, '#665c53');
+    }
+  }, false);
+  make('palm', 24, 40, t => {
+    t.ellipse(12, 36, 7, 2, [46, 52, 42, 65]);
+    for (let y = 13; y < 37; y++) { const x = 10 + Math.floor((37 - y) / 9); t.hline(x, y, 4, '#9b744b'); t.px(x, y, '#c3a16a'); if (y % 4 === 0) t.hline(x + 1, y, 3, '#795b40'); }
+    for (const [cx, cy, rx, ry] of [[7, 8, 6, 3], [17, 8, 6, 3], [5, 14, 4, 5], [19, 14, 4, 5], [12, 5, 3, 4]]) {
+      t.ellipse(cx, cy, rx, ry, '#3c7851'); t.hline(cx - rx + 1, cy - 1, rx + 1, '#76a65b');
+    }
+    t.ellipse(11, 13, 2, 2, '#8b6546'); t.ellipse(15, 14, 2, 2, '#a17d4e');
+  });
+  make('pine', 24, 40, t => {
+    t.ellipse(12, 37, 8, 2, [46, 52, 42, 65]); t.rect(10, 25, 4, 13, '#8e6d4c');
+    for (const [top, bottom, width] of [[3, 16, 7], [11, 26, 10], [20, 34, 11]]) for (let y = top; y < bottom; y++) {
+      const w = Math.floor((y - top) / (bottom - top) * width);
+      t.hline(12 - w, y, w * 2 + 1, '#315e4e'); if (y % 4 < 2) t.hline(12 - w, y, w + 1, '#4c8060');
+    }
+  });
+  make('lounger', 32, 20, t => {
+    t.rect(2, 4, 27, 11, '#8a8d87'); t.rect(3, 3, 26, 10, '#ece8d7');
+    for (let x = 5; x < 28; x += 4) t.rect(x, 4, 2, 8, '#6196ae');
+    t.rect(3, 2, 7, 8, '#c1d1ce'); t.hline(3, 2, 7, '#fff5db');
+    t.vline(4, 14, 4, '#eee5ce'); t.vline(27, 14, 4, '#eee5ce');
+  });
+  make('umbrella', 28, 32, t => {
+    t.ellipse(15, 29, 8, 2, [46, 52, 42, 55]); t.vline(13, 10, 20, '#aa8660');
+    t.ellipse(14, 11, 12, 8, '#e8dfc6');
+    for (let y = 4; y <= 17; y++) for (let x = 3; x <= 24; x++) if (t.alpha(x, y) && Math.floor((x - 14) / Math.max(1, y / 4)) % 2 === 0) t.px(x, y, '#ba6558');
+    t.hline(4, 16, 8, '#f6e8c9'); t.px(14, 3, '#f6e8c9');
+  });
+  make('hammock', 48, 22, t => {
+    for (let x = 1; x < 47; x++) {
+      const y = Math.round(4 + 8 * Math.sin((x - 1) / 45 * Math.PI));
+      t.px(x, y, '#d7c69c'); t.px(x, y + 1, '#a58463');
+      if (x > 5 && x < 42) for (let dy = 2; dy < 7; dy++) t.px(x, y + dy, (x + dy) % 4 < 2 ? '#74a6a1' : '#e8dbb5');
+    }
+    t.hline(1, 3, 3, '#e8dbb5'); t.hline(44, 3, 3, '#e8dbb5');
+  });
+  make('beach_bar', 48, 40, t => {
+    t.rect(3, 17, 3, 20, '#b68e50'); t.rect(42, 17, 3, 20, '#b68e50');
+    t.rect(3, 26, 42, 11, '#a98048');
+    for (let x = 5; x < 44; x += 4) { t.vline(x, 28, 8, '#d5b76c'); t.px(x, 33, '#8a693f'); }
+    t.rect(1, 24, 46, 4, '#d4ad69'); t.hline(1, 24, 46, '#f0d497');
+    for (const [x, c] of [[10, '#4c8a65'], [20, '#bc7856'], [32, '#5e94a4']]) { t.rect(x, 18, 3, 6, c); t.vline(x + 1, 16, 2, c); t.px(x + 1, 20, '#e8dba7'); }
+    for (let y = 3; y < 17; y++) { const inset = Math.max(0, 8 - Math.floor(y / 2)); t.hline(inset, y, 48 - inset * 2, y % 3 === 0 ? '#a8894a' : '#dbc27c'); }
+    for (let x = 1; x < 47; x += 3) t.vline(x, 14, 4 + x % 2, '#c3a45e');
+  });
+  make('vacation_sign', 16, 24, t => {
+    t.rect(7, 11, 3, 12, '#8b6946'); t.rect(1, 2, 14, 13, '#c7a26b'); t.hline(2, 3, 12, '#e7c58a');
+    t.vline(8, 7, 6, '#805f3d'); t.hline(4, 6, 8, '#4d8657'); t.hline(6, 5, 5, '#75a263'); t.px(4, 7, '#4d8657'); t.px(12, 7, '#4d8657');
+  });
+  make('summit_flag', 16, 32, t => {
+    t.vline(5, 2, 28, '#7c8c96'); t.vline(6, 2, 28, '#e5e8de');
+    for (let x = 7; x < 15; x++) t.vline(x, 3, 9 - (x - 7), '#c75f55');
+    t.hline(7, 3, 7, '#ed9a76'); t.ellipse(6, 30, 4, 1, '#aabac1');
+  });
+  make('sandcastle', 16, 18, t => {
+    t.rect(2, 8, 12, 8, '#c6a46b'); t.rect(3, 8, 10, 6, '#e4c991');
+    for (const x of [2, 6, 11]) { t.rect(x, 4, 3, 8, '#d4b67c'); t.px(x, 3, '#f0d9a1'); t.px(x + 2, 3, '#f0d9a1'); }
+    t.rect(7, 12, 3, 4, '#9b8158'); t.hline(3, 9, 10, '#f0d9a1');
+  });
+  make('shells', 16, 16, t => {
+    for (const [x, y, c] of [[4, 6, '#efd5bf'], [11, 11, '#e6bba8']]) { t.ellipse(x, y, 3, 2, c); t.px(x, y + 1, '#ad8e81'); t.px(x - 1, y - 1, '#fff0d4'); }
+  });
+  make('beach_ball', 16, 18, t => {
+    t.ellipse(8, 14, 6, 2, [46, 52, 42, 55]); t.ellipse(8, 9, 6, 6, '#f2e6c9');
+    t.ellipse(5, 8, 2, 4, '#ce7660'); t.ellipse(10, 11, 3, 3, '#65a7b2'); t.ellipse(9, 5, 2, 2, '#e7bc61'); t.px(6, 5, '#fff7e2');
+  });
+  make('suitcase', 10, 10, t => {
+    t.hline(3, 1, 4, '#586a6a'); t.rect(1, 3, 8, 6, '#b78b57'); t.hline(1, 3, 8, '#e1ba7d');
+    t.vline(3, 4, 4, '#7d644e'); t.vline(6, 4, 4, '#7d644e'); t.px(4, 5, '#83aaa0'); t.px(2, 9, '#4d5c60'); t.px(7, 9, '#4d5c60');
+  });
+  make('backpack', 10, 14, t => {
+    t.hline(3, 1, 4, '#74654c'); t.rect(1, 3, 8, 10, '#9b704e'); t.rect(2, 3, 6, 4, '#c29860');
+    t.rect(2, 9, 6, 3, '#bb8e58'); t.hline(2, 9, 6, '#e0bb7c'); t.vline(1, 5, 6, '#6d624c'); t.px(5, 6, '#e1c582');
+  });
+  make('fishing_rod', 12, 16, t => {
+    for (let y = 2; y < 16; y++) t.px(2 + Math.floor((15 - y) / 2), y, '#b79b6b');
+    t.vline(10, 3, 10, '#d4e2d9'); t.px(9, 2, '#d4e2d9'); t.rect(9, 12, 2, 2, '#c86756'); t.px(10, 14, '#eee8cc'); t.rect(2, 12, 2, 3, '#725b45');
+  });
+
+  // Match gen-map's massif and its switchback, summit and pine ledge carves.
+  // Assets also run alone, so this must not depend on the generated tilemap.
+  const mountainOpen = (x, y) =>
+    (y === 41 && x >= 22 && x <= 24) || (x === 22 && y >= 38 && y <= 41) ||
+    (y === 38 && x >= 8 && x <= 22) || (x === 8 && y >= 36 && y <= 38) ||
+    (y === 36 && x >= 8 && x <= 17) || (y >= 34 && y <= 35 && x >= 16 && x <= 18) ||
+    (y === 43 && [4, 10, 16, 20].includes(x));
+  const mountain = (x, y) => x >= 1 && x <= 24 && y >= 34 && y <= 43 && !mountainOpen(x, y);
+  const mountainWalkable = (x, y) => x >= 1 && x <= 83 && y >= 34 && y <= 44 && !mountain(x, y);
+  const mix = (a, b, t) => a + (b - a) * t;
+  const noise = (x, y, seed) => {
+    const ix = Math.floor(x), iy = Math.floor(y), fx = x - ix, fy = y - iy;
+    const sx = fx * fx * (3 - 2 * fx), sy = fy * fy * (3 - 2 * fy);
+    // Avalanche the local hash before interpolation: neighbouring lattice points are independent.
+    const sample = (x, y) => {
+      let h = grain(x, y, seed);
+      h = Math.imul(h ^ h >>> 16, 0x7feb352d);
+      h = Math.imul(h ^ h >>> 15, 0x846ca68b);
+      return ((h ^ h >>> 16) >>> 0) / 4294967295;
+    };
+    return mix(mix(sample(ix, iy), sample(ix + 1, iy), sx),
+      mix(sample(ix, iy + 1), sample(ix + 1, iy + 1), sx), sy);
+  };
+  const ridge = (px, py) => {
+    const u = px + py * 0.38, v = py - px * 0.22;
+    const fold = 1 - Math.abs(2 * noise(u / 46, v / 30, 71) - 1);
+    return fold * 0.66 + noise(u / 23, v / 17, 137) * 0.24 + noise(px / 9, py / 11, 293) * 0.10;
+  };
+  const stone = ['#4b525b', '#676e73', '#8d938e', '#aeb2a6', '#c9cbbf'];
+  const mountainPixel = (px, py) => {
+    const x = Math.floor(px / 16), y = Math.floor(py / 16), j = py - y * 16;
+    const h = ridge(px, py), slope = h - ridge(px - 1, py - 1);
+    const summit = Math.max(0, 1 - Math.hypot(Math.max(256 - px, 0, px - 303), Math.max(544 - py, 0, py - 575)) / 64);
+    const shade = h * 2.4 + slope * 32 + summit * 0.7;
+    let color = stone[Math.max(0, Math.min(4, Math.floor(shade + 0.7)))];
+    if (h < 0.31 || (slope < -0.026 && h < 0.63)) color = stone[0];
+    // Snow settles on the upper, lit faces; its boundary follows the same world-space ridges.
+    if (summit > 0 && h > 0.73 - summit * 0.18 && slope > -0.006)
+      color = slope > 0.005 ? '#f1f5f2' : '#c9d6dc';
+    if (mountainWalkable(x, y + 1)) {
+      const rim = 9 + Math.floor(noise(px / 9, (y + 1) * 16 / 20, 419) * 3);
+      if (j === rim - 1) color = stone[4];
+      if (j >= rim) {
+        const flute = noise(px / 3, py / 42, 521);
+        color = stone[flute < 0.30 || j === 15 ? 0 : flute > 0.64 && j < rim + 3 ? 2 : 1];
+      }
+    }
+    if (mountainWalkable(x, y - 1) && j < 3) {
+      const pebble = noise(px / 2, py / 2, 617);
+      if (pebble > 0.58) color = j === 0 ? stone[3] : stone[1];
+    }
+    if (y >= 41) {
+      const moss = noise(px / 13, py / 7, 733), tuft = noise(px / 2, py / 4, 811);
+      if (moss > 0.59 && tuft > 0.48 && (h < 0.64 || j > 12))
+        color = tuft > 0.65 ? '#8fae67' : '#6f8f55';
+      // Sparse low boulders, anchored to a world-space lattice, can cross frame boundaries.
+      const bx = Math.floor(px / 29), by = Math.floor(py / 19);
+      if (grain(bx, by, 907) % 5 === 0) {
+        const dx = px - (bx * 29 + 14), dy = py - (by * 19 + 10);
+        if (dx * dx / 36 + dy * dy / 16 < 1) color = stone[dy > 1 ? 0 : dx + dy < -1 ? 4 : 2];
+      }
+    }
+    return color;
+  };
+  for (let y = 34; y <= 43; y++) for (let x = 1; x <= 24; x++) if (mountain(x, y))
+    make(`mtn_${x}_${y}`, 16, 16, t => {
+      for (let j = 0; j < 16; j++) for (let i = 0; i < 16; i++) t.px(i, j, mountainPixel(x * 16 + i, y * 16 + j));
+    }, false);
+}
+
 // ---------- pack world atlas (shelf packer) ----------
 const names = Object.keys(frames).sort((a, b) => frames[b].h - frames[a].h || frames[b].w - frames[a].w);
 const AW = 256; let x = 0, y = 0, rowH = 0; const rects = {};

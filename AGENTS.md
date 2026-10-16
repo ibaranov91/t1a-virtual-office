@@ -159,6 +159,7 @@ npm run typecheck    # run before every commit or deploy
   pockets on connect (`grantHats`, by sign-in email; put on the first time, removable after). Special hats (`SPECIAL_HATS`: the judge's
   hat and the Odyssey laurel, winged and crested helmets) are gifted: in the GM panel an admin picks a person and clicks a hat under
   "Gift a hat" (`gift_hat`), which puts `hat:<style>` in their pockets (even offline) and on their head.
+- **Vacation:** calendar absences (`shared/vacation.ts`, `server/src/vacations.ts`) put offline people on the Beach/Mountains activity loop (`server/src/beach.ts`). `onMap` in `shared/beach.ts` includes these walkers and their door transitions for drawing and occupancy; interaction checks still require presence. Client poses follow terrain and seats for everyone; `lie` furniture has one top-row centre seat, drawn sideways (hammocks swing). The 🌴 nameplate, People’s On vacation group and gate sign panel show current vacationers; `Vacation.tsx` formats calendar-date returns without timezone conversion. Offline walkers have a Message-only wheel; native knocks stay quiet while on vacation.
 - **Room behavior is data.** Knock rules, meeting links and home-desk rooms live in `tilemap.json`
   (from `gen-map.mjs`), not in code.
 
