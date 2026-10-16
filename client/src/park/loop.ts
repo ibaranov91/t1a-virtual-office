@@ -1,4 +1,4 @@
-import { Runner } from '../../../shared/park/runner';
+import { Runner } from '../../../shared/arcade/runner';
 import type { ParkIncoming, ParkOutgoing } from '../../../shared/park/types';
 import { playPark } from '../sounds';
 
@@ -6,6 +6,7 @@ import { playPark } from '../sounds';
 export class ParkLoop {
   readonly runner: Runner;
   private raf = 0;
+  private screenSound = '';
   private stopFrame: (() => void) | null = null;
   constructor(userId: string, send: (msg: ParkOutgoing) => void) {
     this.runner = new Runner({ userId, transport: { send }, now: () => performance.now() });
@@ -20,6 +21,9 @@ export class ParkLoop {
       this.runner.setLocalBits(sample());
       this.runner.tick();
       for (const fx of this.runner.drainFx()) playPark(fx.kind);
+      const s = this.runner.session, key = s?.view.kind === 'screen' ? `${s.epoch}:${s.view.screen}` : '';
+      if (key && key !== this.screenSound && s?.view.kind === 'screen') playPark(s.view.screen);
+      this.screenSound = key;
       draw();
       this.raf = requestAnimationFrame(frame);
     };

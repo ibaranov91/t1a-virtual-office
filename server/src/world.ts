@@ -205,7 +205,7 @@ export class World {
     send({ t: 'creatures', creatures: this.creatures.all() });
     send({ t: 'cups', cups: this.creatures.cups });
     send({ t: 'arcade', cabinets: this.arcade.summary() });
-    send({ t: 'arcade_records', records: structuredClone(this.arcade.records) });
+    send({ t: 'arcade_boards', boards: this.arcade.boards() });
     for (const person of this.users.values()) send({ t: 'game_status', userId: person.id, game: person.game });
     if (!u.bot) this.meetings.sendAgenda(u, true);
     send({ t: 'voice_wait', roomId: this.waiting.get(userId) ?? null });
@@ -1651,7 +1651,7 @@ export class World {
     if (!this.sockets.get(u.id)?.has(socket)) return;
     if (['move', 'use', 'follow', 'instrument'].includes(msg.t)) this.cancelSeatWalk(u.id);
     if (msg.t === 'voice_claim') { this.setOwner(u.id, socket); return; }
-    if (typeof msg.t === 'string' && msg.t.startsWith('game_')) {
+    if (typeof msg.t === 'string' && (msg.t.startsWith('game_') || msg.t === 'crew_name')) {
       if (this.owners.get(u.id) === socket) this.arcade.handle(u, msg);
       return;
     }

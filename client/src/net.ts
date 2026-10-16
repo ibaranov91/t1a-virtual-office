@@ -3,8 +3,10 @@ import mapJson from '../../shared/tilemap.json';
 import { applyLayout, besideObject, doorwayTiles, isWalkable, objectById, pathTo, roomAt, sampleMove, type Dir, type Tile, type TileMap } from '../../shared/map';
 import { FOOD_ITEMS } from '../../shared/lunch';
 import { ACHIEVEMENTS, underground, DUNGEON_INSTANCE, PLANT_STAGES, plantName, ROOM_VOICE_MAX, type JukeboxState, type JukeboxAction, type AgendaItem, type LayoutEdit, type CalEvent, type MeetingRoomInfo, type ChatMsg, type LiveDeck, type ObjectState, type ToiletState, type ClientMsg, type PublicUser, type Reaction, type RtcSignal, type ServerMsg, type Creature, type Cup, CUP_ITEMS, type LibraryState } from '../../shared/protocol';
+import { gameDef } from '../../shared/arcade/registry';
+import { emptyWeek } from '../../shared/arcade/weeks';
 import { ParkLoop } from './park/loop';
-import type { CabinetSummary, ParkRecords } from '../../shared/protocol';
+import type { CabinetSummary, ParkRecords, ArcadeBoards } from '../../shared/protocol';
 import { playPark, playHand, playKnock, playPop, playDungeon, playPet } from './sounds';
 import type { Soundscape } from './soundscape';
 
@@ -79,6 +81,7 @@ export class Store {
   gameOpen = false;
   cabinets: CabinetSummary[] = [];
   arcadeRecords: ParkRecords = {};
+  arcadeBoards: ArcadeBoards = { records: {}, week: emptyWeek(''), hall: [] };
   recordsOpen = false;
   gameCheers = new Map<string, { kind: 0 | 1 | 2; at: number }>();
   chats = new Map<string, ChatMsg[]>(); // by the other person's id
@@ -156,15 +159,20 @@ export class Store {
   gameMenu(op: 'lobby' | 'restart') {
     const s = this.park?.runner.session; if (s) this.send({ t: 'game_menu', epoch: s.epoch, op });
   }
+  crewName(name: string) { this.send({ t: 'crew_name', name }); }
+  gamePredict(userId: string) { const s = this.park?.runner.session; if (s) this.send({ t: 'game_predict', epoch: s.epoch, userId }); }
+  gameFavourite(userId: string) { const s = this.park?.runner.session; if (s) this.send({ t: 'game_favourite', epoch: s.epoch, userId }); }
   gameCheer(kind: 0 | 1 | 2) { if (this.gameOpen && this.connected) this.send({ t: 'game_cheer', kind }); }
   gameDescription(cabinet: string, userId?: string) {
     const s = this.cabinets.find(s => s.cabinet === cabinet);
-    if (userId && this.users.get(userId)?.game?.role === 'spectator') return 'Watching Deck Park';
-    if (!s) return 'Deck Park · click to play';
-    if (s.phase === 'lobby') return 'In the Deck Park lobby';
+    if (!s) return 'Arcade · click to play';
+    const game = s.game === 'hub' ? 'Arcade hub' : gameDef(s.game).name;
+    if (userId && this.users.get(userId)?.game?.role === 'spectator') return `Watching ${game}`;
+    if (s.phase === 'lobby') return 'In the Arcade hub';
     const peers = s.players.filter(id => id !== userId).map(id => this.users.get(id)).filter((u): u is ClientUser => !!u);
-    return `Playing Deck Park · level ${s.level}${peers.length ? ` with ${this.names(peers)}` : ''}`;
+    return `Playing ${game}${s.round ? ` · round ${s.round}/3` : ` · level ${s.level}`}${peers.length ? ` with ${this.names(peers)}` : ''}`;
   }
+
   moveTo(to: Tile) { this.send({ t: 'move', to }); }
   joinRoom(roomId: string) {
     const me = this.users.get(this.me), room = MAP.rooms.find(r => r.id === roomId);
@@ -484,7 +492,7 @@ export class Store {
         }
         return;
       case 'arcade': this.cabinets = msg.cabinets; break;
-      case 'arcade_records': this.arcadeRecords = msg.records; break;
+      case 'arcade_boards': this.arcadeBoards = msg.boards; this.arcadeRecords = msg.boards.records; break;
       case 'call_moved':
         this.toast({ kind: 'call_moved', roomId: msg.roomId, text: `${this.name(msg.userId).split(' ')[0]} went into ${MAP.rooms.find(r => r.id === msg.roomId)?.name ?? msg.roomId}`, expires: 15000 });
         break;

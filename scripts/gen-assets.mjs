@@ -1683,6 +1683,46 @@ for (const axis of ['h', 'v']) { // a room door only admins open: the closed doo
   make('record_wall', 16, 16, t => { t.rect(2, 2, 12, 12, '#2e3640'); t.ellipse(8, 8, 5, 5, '#1a1e24'); t.ellipse(8, 8, 2, 2, '#b4534a'); t.px(8, 8, '#f4f0e6'); t.hline(5, 6, 2, '#56606c'); t.hline(9, 10, 2, '#56606c'); });
 }
 
+// ---------- Break Set: pads, cursors, cards, awards and the first versus games ----------
+{
+  const make = (name, w, h, draw) => { const t = new Img(w, h); draw(t); frames[`party_${name}`] = t.outline(); };
+  const colors = ['#f08a80', '#80b8f0', '#a0d880', '#f2d060'];
+  colors.forEach((c, slot) => make(`marker_${slot}`, 7, 6, t => {
+    if (slot === 0) for (let y = 0; y < 5; y++) t.hline(3 - Math.floor(y / 2), y, 1 + 2 * Math.floor(y / 2), c);
+    if (slot === 1) t.ellipse(3, 3, 2.5, 2.5, c);
+    if (slot === 2) t.rect(1, 1, 5, 4, c);
+    if (slot === 3) for (let y = 0; y < 5; y++) { const w = 2 - Math.abs(y - 2); t.hline(3 - w, y, 1 + 2 * w, c); }
+  }));
+  for (const off of [false, true]) make(off ? 'pad_off' : 'pad', 16, 16, t => { t.rect(0, 0, 16, 16, off ? '#54545a' : '#38605c'); t.hline(0, 0, 16, off ? '#8c8a98' : '#a0d880'); t.hline(0, 15, 16, OUT); });
+  make('crew_sign', 16, 16, t => { t.rect(1, 1, 14, 14, W1); t.hline(2, 1, 12, W1L); t.hline(3, 5, 10, '#fff4e0'); t.hline(4, 8, 8, '#fff4e0'); t.px(10, 11, '#f2d060'); });
+  make('mode', 16, 16, t => { t.rect(1, 1, 14, 14, '#38605c'); t.rect(3, 4, 4, 8, colors[0]); t.rect(9, 4, 4, 8, colors[1]); });
+  for (const crack of [0, 1, 2]) make(crack ? `crumble_crack_${crack}` : 'crumble', 16, 16, t => {
+    t.rect(0, 0, 16, 16, crack ? '#a87b67' : '#be9b7c'); t.hline(0, 0, 16, '#f0c49b'); t.hline(0, 15, 16, '#72534b');
+    if (crack) for (const [x, y] of [[7, 0], [7, 1], [8, 2], [8, 3], [7, 4], [6, 5], [6, 6], [5, 7], [6, 8], [7, 9], [7, 10], [8, 11], [8, 12], [9, 13], [9, 14]]) t.px(x, y, OUT);
+    if (crack === 2) { t.hline(1, 6, 5, OUT); t.hline(8, 10, 7, OUT); t.vline(11, 10, 5, OUT); }
+  });
+  make('platform', 16, 16, t => { t.rect(0, 0, 16, 5, '#4f7772'); t.hline(0, 0, 16, '#a0d8b0'); t.hline(0, 4, 16, '#253f40'); });
+  make('stapler', 16, 12, t => { t.rect(2, 8, 12, 2, '#b88a20'); t.hline(3, 7, 10, '#fff0a0'); t.rect(2, 3, 11, 3, '#e8b830'); t.hline(3, 2, 9, '#f8e070'); t.rect(11, 5, 3, 3, '#b88a20'); t.px(3, 4, '#fff0a0'); });
+  make('pound', 16, 8, t => { for (const x of [2, 7, 12]) { t.vline(x, 0, 4, '#fff0a0'); t.px(x - 1, 2, '#fff0a0'); t.px(x + 1, 2, '#fff0a0'); } t.hline(1, 6, 14, '#f2b45a'); });
+  make('tackle', 16, 8, t => { for (const [x, y, w] of [[0, 1, 8], [3, 3, 11], [0, 5, 8]]) t.hline(x, y, w, '#c5e4ef'); });
+  make('star', 16, 16, t => { for (const [y, x, w] of [[2, 7, 2], [3, 6, 4], [4, 6, 4], [5, 3, 10], [6, 2, 12], [7, 4, 8], [8, 5, 6], [9, 4, 8], [10, 4, 3], [10, 9, 3], [11, 3, 3], [11, 10, 3]]) t.hline(x, y, w, '#f2d060'); t.px(7, 5, '#fff0a0'); });
+  make('award', 12, 16, t => { t.rect(3, 2, 6, 6, '#f2d060'); t.hline(1, 3, 10, '#f2d060'); t.vline(1, 3, 4, '#b88a20'); t.vline(10, 3, 4, '#b88a20'); t.rect(5, 8, 2, 4, '#f2d060'); t.hline(2, 13, 8, '#b88a20'); });
+  make('favourite', 16, 16, t => { t.hline(3, 3, 4, '#f08a80'); t.hline(9, 3, 4, '#f08a80'); for (const [y, x, w] of [[4, 2, 12], [5, 2, 12], [6, 2, 12], [7, 3, 10], [8, 4, 8], [9, 5, 6], [10, 6, 4], [11, 7, 2]]) t.hline(x, y, w, '#f08a80'); });
+  for (const game of ['crumble', 'crown', 'park', 'surprise']) make(`card_${game}`, 32, 32, t => {
+    t.rect(1, 1, 30, 30, '#4f7772'); t.hline(2, 1, 28, '#a0d8b0');
+    if (game === 'crumble') { t.blit(frames.party_crumble, 3, 4); t.blit(frames.party_crumble_crack_2, 13, 16); }
+    if (game === 'crown') { t.blit(frames.party_stapler, 8, 10); t.blit(frames.party_star, 1, 1); }
+    if (game === 'park') { t.blit(frames.park_key, 3, 9); t.blit(frames.park_door_open, 17, 0); }
+    if (game === 'surprise') { t.hline(12, 7, 8, '#f2d060'); t.vline(19, 8, 6, '#f2d060'); t.hline(14, 14, 6, '#f2d060'); t.vline(14, 14, 4, '#f2d060'); t.rect(14, 22, 2, 2, '#f2d060'); }
+  });
+  for (const control of ['move', 'jump', 'action']) make(`control_${control}`, 16, 16, t => {
+    t.rect(1, 1, 14, 14, '#e8dcc8');
+    if (control === 'move') { t.hline(3, 7, 10, '#355451'); t.vline(7, 3, 10, '#355451'); }
+    if (control === 'jump') { t.vline(7, 4, 8, '#355451'); t.hline(5, 6, 5, '#355451'); t.px(6, 5, '#355451'); t.px(8, 5, '#355451'); }
+    if (control === 'action') for (let i = 0; i < 7; i++) { t.px(4 + i, 4 + i, '#b4534a'); t.px(10 - i, 4 + i, '#b4534a'); }
+  });
+}
+
 // ---------- pack world atlas (shelf packer) ----------
 const names = Object.keys(frames).sort((a, b) => frames[b].h - frames[a].h || frames[b].w - frames[a].w);
 const AW = 256; let x = 0, y = 0, rowH = 0; const rects = {};
