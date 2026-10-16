@@ -39,3 +39,10 @@ test('Russian draughts: no pieces/no moves win, king counter resets, third repet
   assert.equal(apply(repeated,0,legalMoves(repeated)[0])!.result?.reason, 'Threefold repetition');
   assert.equal('positions' in publicView(repeated), false);
 });
+test('Russian draughts: the view lists moves as played, captures marked', () => {
+  const s = at({ 35:1, 44:-1, 1:-1, 56:1 }); s.moves = [];
+  const n = apply(s, 0, { from:35, path:[53] })!;
+  assert.deepEqual(publicView(n).moves, [{ from:35, path:[53], capture:true }]);
+  const quiet = apply(init(), 0, legalMoves(init())[0])!;
+  assert.equal(publicView(quiet).moves[0].capture, false);
+});
