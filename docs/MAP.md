@@ -79,8 +79,8 @@ Each room is filled with its letter (table below) and labelled with its id. `#` 
     0         1         2         3         4         5         6         7         8    
     0123456789012345678901234567890123456789012345678901234567890123456789012345678901234
   0 #####################################################################################
-  1 ##################*****###########*##################################################
-  2 ##################*****#*############################################################
+  1 ##################*****###########*########################****######################
+  2 ##################*****#*##################################****######################
   3 #X.........XX#X...........#.XXXX*XX.*.X#X...........*#X........X#XXXXX....###########
   4 #.XX.XX.XX...#...h.h.h....#..s.........#.XX.XX.XX.XX.#,**.**.*..#......XX.###########
   5 #..h.h..h....#...XXXXXXh..#......s.....#.h..h..h..h..#X...**...X#X.....h.X###########
@@ -172,7 +172,7 @@ A maze under the garden, not connected to the office: you fall in through the ho
 | E | `cowork` | Co-working | cowork | 16,13 23×10 | 16 | allow |  |  | yes | 19 | knock to talk |
 | F | `studio` | Studio | focus | 40,3 13×8 | 8 | disabled |  |  | yes | 9 | quiet · no knocks |
 | G | `desks` | Desks | cowork | 40,13 13×10 | 10 | allow |  |  | yes | 13 | knock to talk |
-| H | `music` | Music | music | 54,3 10×8 | 12 | allow |  |  |  | 3 | jukebox · knock to talk |
+| H | `music` | Music | music | 54,3 10×8 | 12 | allow | open |  |  | 3 | jukebox · open voice · walk in to talk |
 | I | `arcade` | Arcade | arcade | 54,13 10×10 | 12 | allow | open |  |  | 9 | arcade · open voice · walk in to talk |
 | J | `orangery` | Orangery | orangery | 1,25 14×8 | 12 | allow |  |  |  | 3 | plants · knock to talk |
 | K | `garden` | Garden | garden | 16,25 48×8 | 30 | allow |  |  |  | 11 | outside · knock to talk |
@@ -214,6 +214,7 @@ Every object with a `use` (wall decor counts toward the room below it). Routing 
 | o96 | `meetings_board` | `meetings` | — | 18,12 | 1×1 | cowork | meetings (on a wall) |
 | o118 | `lamp` | `toggle` | wheel use reach | 52,3 | 1×1 | studio | lamp |
 | o138 | `lamp` | `toggle` | wheel use reach | 40,16 | 1×1 | desks | lamp |
+| o140 | `lofi_tv` | `youtube` | — | 59,1 | 4×2 | music | Lofi Girl · YouTube Live (on a wall) |
 | o143 | `arcade` | `arcade` | use reach | 54,13 | 1×2 | arcade | Deck Park |
 | o144 | `arcade` | `arcade` | use reach | 56,13 | 1×2 | arcade | Deck Park |
 | o145 | `arcade` | `arcade` | use reach | 61,13 | 1×2 | arcade | Deck Park |
@@ -254,7 +255,7 @@ Kinds with no object on the map yet: none.
 | `cowork` | clock_nyc, clock_berlin, clock_moscow, table_big ×8, chair ×16, plant ×2, lamp, calendar, meetings_board |
 | `studio` | window ×2, painting, desk ×8, chair ×8, plant ×2, lamp, wall_shelf, poster, wall_ivy |
 | `desks` | painting_small, desk ×8, chair ×8, sofa, plant, lamp |
-| `music` | jukebox, window ×2, plant ×2, keyboard, drum_kit, bass_amp, floor_lamp, palm, poster, wall_ivy |
+| `music` | jukebox, window, lofi_tv, plant ×2, keyboard, drum_kit, bass_amp, floor_lamp, palm, poster, wall_ivy |
 | `arcade` | arcade ×3, records, plant, painting_small, sofa ×2, lamp ×2 |
 | `orangery` | plant_shelf ×6, plant ×2, lamp, fern, planter ×2, cactus |
 | `garden` | tree ×7, flowerbed ×4, pond, bench ×2 |

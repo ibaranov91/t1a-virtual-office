@@ -149,12 +149,12 @@ test('lie furniture has one reachable seat per object', () => {
     assert.equal(seats, 1);
   }
 });
-test('version 1 migrates wing furniture once; version 2 preserves removed and moved props', t => {
-  const { w } = people(t), old = w.dump(); old.version = 1;
+test('version 2 migrates wing furniture once; version 3 preserves removed and moved props', t => {
+  const { w } = people(t), old = w.dump(); old.version = 2;
   old.layout = { objects: old.layout?.objects ?? w.layout().objects.filter(o => !inWing(w.map, o.x, o.y)), rugs: w.map.rugs };
   const migrated = new World(structuredClone(map)); migrated.load(old);
   assert.equal(migrated.map.objects.filter(o => o.type === 'lounger').length, 6);
-  const next = migrated.dump(); assert.equal(next.version, 2);
+  const next = migrated.dump(); assert.equal(next.version, 3);
   next.layout!.objects = next.layout!.objects.filter(o => o.type !== 'hammock');
   const restored = new World(structuredClone(map)); restored.load(next);
   assert.equal(restored.map.objects.filter(o => o.type === 'lounger').length, 6);

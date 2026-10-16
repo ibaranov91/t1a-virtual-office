@@ -1793,6 +1793,132 @@ for (const axis of ['h', 'v']) { // a room door only admins open: the closed doo
   make('record_wall', 16, 16, t => { t.rect(2, 2, 12, 12, '#2e3640'); t.ellipse(8, 8, 5, 5, '#1a1e24'); t.ellipse(8, 8, 2, 2, '#b4534a'); t.px(8, 8, '#f4f0e6'); t.hline(5, 6, 2, '#56606c'); t.hline(9, 10, 2, '#56606c'); });
 }
 
+// ---------- Lofi Girl TV: a big wall screen, with a YouTube badge and pixel lettering ----------
+{
+  const t = new Img(64, 32);
+  t.rect(1, 1, 62, 29, '#17171e'); t.hline(3, 1, 58, '#5a5362');
+  t.rect(4, 4, 56, 22, '#263344'); t.rect(5, 5, 54, 20, '#38465a');
+  // a warm study room behind the station title: city window, desk and a lamp
+  t.rect(6, 6, 15, 15, '#687e94'); t.vline(13, 6, 15, '#293344'); t.hline(6, 13, 15, '#293344');
+  for (const [x, y, h] of [[7, 16, 5], [10, 12, 9], [15, 15, 6], [18, 10, 11]]) t.rect(x, y, 2, h, '#3a485f');
+  t.rect(5, 22, 54, 3, '#a96c48'); t.rect(18, 17, 7, 5, '#d2a16b'); t.hline(16, 16, 11, '#eac48c');
+  t.rect(7, 7, 12, 8, '#e53843');
+  for (let y = 0; y < 5; y++) t.hline(11, 9 + y, 4 - Math.abs(2 - y), '#fff3dd');
+  const font = {
+    L: ['100','100','100','100','111'], O: ['111','101','101','101','111'], F: ['111','100','110','100','100'],
+    I: ['111','010','010','010','111'], G: ['111','100','101','101','111'], R: ['110','101','110','101','101'],
+    V: ['101','101','101','101','010'], E: ['111','100','110','100','111'], ' ': ['000','000','000','000','000'],
+  };
+  const text = (str, x, y, color) => [...str].forEach((ch, k) => font[ch].forEach((row, j) => [...row].forEach((v, i) => { if (v === '1') t.px(x + k * 4 + i, y + j, color); })));
+  text('LOFI GIRL', 24, 7, '#fff0cd');
+  t.rect(35, 16, 22, 7, '#a82c39'); t.rect(37, 18, 2, 2, '#fff3dd'); text('LIVE', 41, 17, '#fff3dd');
+  t.rect(27, 30, 10, 1, '#55505c'); t.px(58, 28, '#a7d88c');
+  frames.lofi_tv = t.outline();
+}
+
+// ---------- Break Set: pads, cursors, cards, awards and versus games ----------
+{
+  const make = (name, w, h, draw) => { const t = new Img(w, h); draw(t); frames[`party_${name}`] = t.outline(); };
+  const colors = ['#f08a80', '#80b8f0', '#a0d880', '#f2d060'];
+  colors.forEach((c, slot) => make(`marker_${slot}`, 7, 6, t => {
+    if (slot === 0) for (let y = 0; y < 5; y++) t.hline(3 - Math.floor(y / 2), y, 1 + 2 * Math.floor(y / 2), c);
+    if (slot === 1) t.ellipse(3, 3, 2.5, 2.5, c);
+    if (slot === 2) t.rect(1, 1, 5, 4, c);
+    if (slot === 3) for (let y = 0; y < 5; y++) { const w = 2 - Math.abs(y - 2); t.hline(3 - w, y, 1 + 2 * w, c); }
+  }));
+  for (const off of [false, true]) make(off ? 'pad_off' : 'pad', 16, 16, t => { t.rect(0, 0, 16, 16, off ? '#54545a' : '#38605c'); t.hline(0, 0, 16, off ? '#8c8a98' : '#a0d880'); t.hline(0, 15, 16, OUT); });
+  make('crew_sign', 16, 16, t => { t.rect(1, 1, 14, 14, W1); t.hline(2, 1, 12, W1L); t.hline(3, 5, 10, '#fff4e0'); t.hline(4, 8, 8, '#fff4e0'); t.px(10, 11, '#f2d060'); });
+  make('mode', 16, 16, t => { t.rect(1, 1, 14, 14, '#38605c'); t.rect(3, 4, 4, 8, colors[0]); t.rect(9, 4, 4, 8, colors[1]); });
+  for (const crack of [0, 1, 2]) make(crack ? `crumble_crack_${crack}` : 'crumble', 16, 16, t => {
+    t.rect(0, 0, 16, 16, crack ? '#a87b67' : '#be9b7c'); t.hline(0, 0, 16, '#f0c49b'); t.hline(0, 15, 16, '#72534b');
+    if (crack) for (const [x, y] of [[7, 0], [7, 1], [8, 2], [8, 3], [7, 4], [6, 5], [6, 6], [5, 7], [6, 8], [7, 9], [7, 10], [8, 11], [8, 12], [9, 13], [9, 14]]) t.px(x, y, OUT);
+    if (crack === 2) { t.hline(1, 6, 5, OUT); t.hline(8, 10, 7, OUT); t.vline(11, 10, 5, OUT); }
+  });
+  make('platform', 16, 16, t => { t.rect(0, 0, 16, 5, '#4f7772'); t.hline(0, 0, 16, '#a0d8b0'); t.hline(0, 4, 16, '#253f40'); });
+  make('stapler', 16, 12, t => { t.rect(2, 8, 12, 2, '#b88a20'); t.hline(3, 7, 10, '#fff0a0'); t.rect(2, 3, 11, 3, '#e8b830'); t.hline(3, 2, 9, '#f8e070'); t.rect(11, 5, 3, 3, '#b88a20'); t.px(3, 4, '#fff0a0'); });
+  make('pound', 16, 8, t => { for (const x of [2, 7, 12]) { t.vline(x, 0, 4, '#fff0a0'); t.px(x - 1, 2, '#fff0a0'); t.px(x + 1, 2, '#fff0a0'); } t.hline(1, 6, 14, '#f2b45a'); });
+  make('tackle', 16, 8, t => { for (const [x, y, w] of [[0, 1, 8], [3, 3, 11], [0, 5, 8]]) t.hline(x, y, w, '#c5e4ef'); });
+  make('star', 16, 16, t => { for (const [y, x, w] of [[2, 7, 2], [3, 6, 4], [4, 6, 4], [5, 3, 10], [6, 2, 12], [7, 4, 8], [8, 5, 6], [9, 4, 8], [10, 4, 3], [10, 9, 3], [11, 3, 3], [11, 10, 3]]) t.hline(x, y, w, '#f2d060'); t.px(7, 5, '#fff0a0'); });
+  make('award', 12, 16, t => { t.rect(3, 2, 6, 6, '#f2d060'); t.hline(1, 3, 10, '#f2d060'); t.vline(1, 3, 4, '#b88a20'); t.vline(10, 3, 4, '#b88a20'); t.rect(5, 8, 2, 4, '#f2d060'); t.hline(2, 13, 8, '#b88a20'); });
+  make('favourite', 16, 16, t => { t.hline(3, 3, 4, '#f08a80'); t.hline(9, 3, 4, '#f08a80'); for (const [y, x, w] of [[4, 2, 12], [5, 2, 12], [6, 2, 12], [7, 3, 10], [8, 4, 8], [9, 5, 6], [10, 6, 4], [11, 7, 2]]) t.hline(x, y, w, '#f08a80'); });
+  make('quiver_stone', 16, 16, t => { t.rect(0,0,16,16,'#616980'); t.hline(0,0,16,'#9cacc0'); t.hline(0,7,16,'#3e4559'); t.hline(0,15,16,'#30384b'); t.vline(7,0,7,'#3e4559'); t.vline(3,8,7,'#3e4559'); });
+  make('bow', 8, 12, t => { t.vline(1,1,10,'#ead5a0'); t.vline(5,3,6,'#b87947'); t.px(3,1,'#d9a65f'); t.px(4,2,'#d9a65f'); t.px(4,9,'#d9a65f'); t.px(3,10,'#d9a65f'); t.hline(0,5,8,'#e5e2cd'); });
+  for (const stuck of [false,true]) make(stuck ? 'arrow_stuck' : 'arrow',10,4,t => { t.hline(1,2,8,stuck ? '#d5ba8f' : '#fff4e0'); t.px(7,1,'#b2c3d0'); t.px(7,3,'#b2c3d0'); t.px(1,1,'#f08a80'); t.px(0,0,'#f08a80'); });
+  make('quiver_spikes',16,8,t => { for (let x=0;x<16;x+=4) { t.px(x+2,0,'#e2c8cf'); t.hline(x+1,2,3,'#e2c8cf'); t.rect(x,4,4,4,'#b55368'); } });
+  make('run_window',16,24,t => { t.rect(1,1,14,22,'#253848'); t.rect(3,3,10,17,'#6b8097'); t.vline(7,3,17,'#33485b'); t.hline(3,10,10,'#33485b'); t.hline(3,4,4,'#aec8cf'); t.hline(0,22,16,'#92a0ab'); });
+  make('run_floor',16,16,t => { t.rect(0,0,16,16,'#5d6972'); t.hline(0,0,16,'#d2c69d'); t.hline(0,3,16,'#e7ba60'); t.hline(0,5,16,'#343f50'); t.rect(4,9,7,2,'#424d60'); });
+  make('run_dash',24,8,t => { for (const [x,y,w] of [[0,1,16],[5,3,19],[0,6,13]]) t.hline(x,y,w,'#bfe8df'); t.hline(14,4,8,'#f2d060'); });
+  make('volley_floor',16,16,t => { t.rect(0,0,16,16,'#b58c65'); t.hline(0,0,16,'#f4d5a1'); t.hline(0,2,16,'#dfb881'); t.vline(7,3,13,'#91704f'); t.hline(1,9,5,'#c79e74'); });
+  make('volley_net',4,16,t => { t.rect(0,0,4,16,'#cee1d7'); t.vline(1,0,16,'#344b50'); for (let y=2;y<16;y+=4) t.hline(0,y,4,'#344b50'); });
+  make('volley_ball',8,8,t => { t.ellipse(3.5,3.5,3.5,3.5,'#fff4e0'); t.vline(3,1,6,'#d99259'); t.hline(1,3,6,'#5f91bb'); t.px(2,1,'#fff'); });
+  make('volley_impact',16,16,t => { for (const [x,y] of [[2,2],[12,2],[1,8],[13,8],[3,12],[11,12]]) { t.rect(x,y,2,2,'#f2d060'); } t.hline(6,0,3,'#fff4e0'); });
+  colors.forEach((c,slot) => {
+    make(`trail_${slot}`,5,5,t => { t.rect(0,0,5,5,c); t.hline(1,2,3,'#fff4e0'); });
+    make(`bike_${slot}`,7,5,t => { t.rect(1,1,5,3,c); t.px(6,2,'#fff4e0'); t.px(1,0,'#a6c6cc'); t.px(1,4,'#a6c6cc'); t.hline(2,2,2,'#273446'); });
+  });
+  make('sky_cloud',24,8,t => { t.ellipse(7,4,6,3,'#aec8cf'); t.ellipse(14,3,5,3,'#c7dfe0'); t.ellipse(19,5,4,2,'#aec8cf'); });
+  for (const kind of ['normal','moving','breaking','spring']) make(`sky_${kind}`,24,kind === 'spring' ? 8 : 6,t => {
+    const c = { normal:'#91b77e', moving:'#80b8f0', breaking:'#dc9d7c', spring:'#f2d060' }[kind];
+    t.rect(0,0,24,5,c); t.hline(1,0,22,'#eef4d7'); t.hline(0,4,24,'#3d5961');
+    if (kind === 'moving') { t.hline(6,2,12,'#3d5961'); t.px(5,2,'#fff4e0'); t.px(18,2,'#fff4e0'); }
+    if (kind === 'breaking') { t.px(10,0,'#70564c'); t.px(11,1,'#70564c'); t.px(10,2,'#70564c'); t.px(9,3,'#70564c'); }
+    if (kind === 'spring') { t.hline(8,1,8,'#b55c74'); t.hline(9,3,6,'#b55c74'); t.hline(8,6,8,'#b55c74'); }
+  });
+  for (const game of ['crumble', 'crown', 'park', 'surprise', 'quiver', 'screenrun', 'volley', 'trails', 'skylanes']) make(`card_${game}`, 32, 32, t => {
+    t.rect(1, 1, 30, 30, '#4f7772'); t.hline(2, 1, 28, '#a0d8b0');
+    if (game === 'crumble') { t.blit(frames.party_crumble, 3, 4); t.blit(frames.party_crumble_crack_2, 13, 16); }
+    if (game === 'crown') { t.blit(frames.party_stapler, 8, 10); t.blit(frames.party_star, 1, 1); }
+    if (game === 'park') { t.blit(frames.park_key, 3, 9); t.blit(frames.park_door_open, 17, 0); }
+    if (game === 'quiver') { t.blit(frames.party_bow,8,9); t.blit(frames.party_arrow,14,13); t.blit(frames.party_quiver_spikes,8,23); }
+    if (game === 'screenrun') { t.blit(frames.party_run_window,3,3); t.blit(frames.party_run_dash,4,15); t.blit(frames.party_run_floor,15,25); }
+    if (game === 'volley') { t.blit(frames.party_volley_net,15,15); t.blit(frames.party_volley_ball,19,5); t.hline(3,27,26,'#f4d5a1'); }
+    if (game === 'trails') { t.rect(5,7,3,19,colors[0]); t.rect(7,23,14,3,colors[0]); t.blit(frames.party_bike_0,20,22); t.rect(17,5,3,11,colors[1]); t.blit(frames.party_bike_1,16,14); }
+    if (game === 'skylanes') { t.blit(frames.party_sky_cloud,4,3); t.blit(frames.party_sky_normal,2,23); t.blit(frames.party_sky_spring,7,12); }
+    if (game === 'surprise') { t.hline(12, 7, 8, '#f2d060'); t.vline(19, 8, 6, '#f2d060'); t.hline(14, 14, 6, '#f2d060'); t.vline(14, 14, 4, '#f2d060'); t.rect(14, 22, 2, 2, '#f2d060'); }
+  });
+  for (const control of ['move', 'aim', 'jump', 'action']) make(`control_${control}`, 16, 16, t => {
+    t.rect(1, 1, 14, 14, '#e8dcc8');
+    if (control === 'move') { t.hline(3, 7, 10, '#355451'); t.vline(7, 3, 10, '#355451'); }
+    if (control === 'aim') { t.ellipse(7,7,4,4,'#5577a8'); t.ellipse(7,7,2,2,'#e8dcc8'); t.hline(3,7,9,'#355451'); t.vline(7,3,9,'#355451'); }
+    if (control === 'jump') { t.vline(7, 4, 8, '#355451'); t.hline(5, 6, 5, '#355451'); t.px(6, 5, '#355451'); t.px(8, 5, '#355451'); }
+    if (control === 'action') for (let i = 0; i < 7; i++) { t.px(4 + i, 4 + i, '#b4534a'); t.px(10 - i, 4 + i, '#b4534a'); }
+  });
+}
+
+// ---------- game table (fixed pixels; no shared random calls) ----------
+{
+  for (const running of [false, true]) {
+    const t = new Img(32, 24);
+    t.rect(3, 15, 3, 8, '#594035'); t.rect(26, 15, 3, 8, '#594035');
+    t.rect(1, 2, 30, 15, '#9a6c47'); t.rect(2, 3, 28, 11, '#b98b5d'); t.hline(2, 3, 28, '#dfb87d');
+    t.rect(4, 5, 24, 8, '#42675a');
+    if (running) {
+      for (let y = 0; y < 4; y++) for (let x = 0; x < 8; x++) t.rect(8 + x * 2, 5 + y * 2, 2, 2, (x + y) % 2 ? '#42675a' : '#e6d6af');
+      for (const [x, y, c] of [[9,6,'#fff0d3'],[13,8,'#fff0d3'],[19,10,'#302a35'],[21,6,'#302a35']]) t.px(x,y,c);
+    } else { t.rect(9,6,5,5,'#e6d6af'); t.rect(18,6,5,5,'#302a35'); }
+    frames[running ? 'game_table_on' : 'game_table'] = t.outline();
+  }
+  for (const colour of ['w','b']) {
+    const body = colour === 'w' ? '#fff0d3' : '#494152', shade = colour === 'w' ? '#c6aa82' : '#302a35', shine = colour === 'w' ? '#fff9e9' : '#8a7d96';
+    for (const piece of ['p','r','n','b','q','k']) {
+      const t = new Img(16,16);
+      t.rect(3,12,10,2,shade); t.hline(4,11,8,body); t.rect(6,8,4,3,body);
+      if (piece === 'p') { t.ellipse(8,5,3,3,body); t.hline(7,3,3,shine); }
+      if (piece === 'r') { t.rect(4,4,8,5,body); for (let x=4;x<12;x+=3) t.rect(x,2,2,3,body); t.hline(5,5,6,shine); }
+      if (piece === 'n') { t.rect(5,4,6,5,body); t.rect(3,6,4,2,body); t.rect(8,2,2,3,body); t.px(6,5,shade); t.hline(6,3,3,shine); }
+      if (piece === 'b') { t.ellipse(8,5,3,4,body); t.px(8,1,shine); t.px(8,4,shade); t.px(9,3,shade); }
+      if (piece === 'q') { t.rect(5,5,6,4,body); for (const x of [3,7,11]) { t.rect(x,2,2,4,body); t.px(x,1,shine); } t.hline(5,7,6,shade); }
+      if (piece === 'k') { t.rect(5,5,6,4,body); t.rect(7,0,2,5,body); t.hline(5,2,6,shine); }
+      frames[`chess_${colour}_${piece}`] = t.outline();
+    }
+    for (const king of [false,true]) {
+      const t = new Img(16,16); t.ellipse(8,10,6,3,shade); t.ellipse(8,8,6,3,body); t.hline(5,6,6,shine);
+      if (king) { t.hline(5,9,6,shade); for (const x of [5,8,10]) { t.px(x,7,shade); t.px(x,8,shade); } }
+      frames[`checkers_${colour}_${king ? 'king' : 'man'}`] = t.outline();
+    }
+  }
+}
+
 // ---------- vacation: beach and mountains ----------
 {
   // Local hashes keep every older frame's random sequence unchanged.

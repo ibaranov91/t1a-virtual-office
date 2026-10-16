@@ -337,9 +337,10 @@ check. Audit every `presence === 'offline'` / `!== 'offline'` in `client/src` wi
   `pierEnds` tile, or every `swim` tile. Use a reachability flood from the gate, like the one from spawn. The
   client ghost runs the same check.
 - **Migrating saved layouts** (prod has one):
-  - `STATE_VERSION` goes from 1 to 2.
-  - In `load`, when `data.version < 2`, `migrateBeach(saved, base, map)` (`shared/map.ts`) appends the base
-    layout's objects that lie in the wing and keeps `uniqueIds`. It runs **once**, next to
+  - `STATE_VERSION` goes to 3 (main already used 2 for the Music TV).
+  - In `load`, when `data.version < 3`, `migrateBeach(saved, base, map)` (`shared/map.ts`) appends the base
+    layout's objects that lie in the wing and keeps `uniqueIds`; a saved layout that already has furniture in the
+    wing is left as it is. It runs **once**, next to
     `migrateBookClub`/`migrateLibrary`, before `withNewFixtures`.
   - Saved coordinates are absolute and the building doesn't move, so nothing else changes.
   - Saved user tiles are always office tiles (the dump moves underground people to the dungeon exit), so they stay
@@ -382,7 +383,7 @@ check. Audit every `presence === 'offline'` / `!== 'offline'` in `client/src` wi
 - `toPublic` gains only `vacation`;
 - the dev vacation bots, and `VACATION_FAKE`;
 - `lie` seats: one seat per lounger and hammock, reachable;
-- `migrateBeach` runs once by version;
+- `migrateBeach` runs once by version (< 3);
 - `layoutProblem` refuses blocking the trail or the pier.
 
 **Existing tests stay green.** Dungeon coordinates come from `map.dungeon`, and the acoustics invariant exempts

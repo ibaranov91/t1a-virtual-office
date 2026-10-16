@@ -1,8 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { execFileSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
 import { findPath, isWalkable, type TileMap } from '../../shared/map';
 
 const map: TileMap = JSON.parse(readFileSync(new URL('../../shared/tilemap.json', import.meta.url), 'utf8'));
@@ -19,19 +17,20 @@ test('vacation wing extends the office and appends two terrain rooms', () => {
   }
 });
 
-test('building floor and walls differ from the pre-wing map only at the two hedge gates', () => {
-  const before: TileMap = JSON.parse(execFileSync('git', ['show', '7a7ce7e4e618ea13207840c272ba65406022eadd:shared/tilemap.json'], { cwd: fileURLToPath(new URL('../..', import.meta.url)), encoding: 'utf8' }));
-  for (const layer of ['floor', 'walls'] as const) {
-    const changed: string[] = [];
-    for (let y = 0; y < 34; y++) for (let x = 0; x < map.width; x++)
-      if (map.tiles[map.layers[layer][y][x]] !== before.tiles[before.layers[layer][y][x]]) changed.push(`${x},${y}`);
-    assert.deepEqual(changed, ['50,33', '51,33'], layer);
+test('the building keeps its bottom edge; the hedge has one gate and the wing furniture comes last', () => {
+  const terrain = /^(sand|water|sea|rock|cliff|trail|snow|pier)/;
+  for (let y = 0; y < 34; y++) for (let x = 0; x < map.width; x++)
+    for (const layer of ['floor', 'walls'] as const) assert.ok(!terrain.test(map.tiles[map.layers[layer][y][x]] ?? ''), `${layer} ${x},${y}`);
+  const gate: number[] = [];
+  for (let x = 16; x < 64; x++) {
+    const wall = map.tiles[map.layers.walls[33][x]];
+    if (wall === 'hedge') continue;
+    assert.equal(map.tiles[map.layers.floor[33][x]], 'door_floor'); gate.push(x);
   }
-  for (const x of [50, 51]) {
-    assert.equal(map.tiles[map.layers.floor[33][x]], 'door_floor');
-    assert.ok(isWalkable(map, x, 32)); assert.ok(isWalkable(map, x, 33));
-  }
-  assert.deepEqual(map.objects.slice(0, before.objects.length), before.objects);
+  assert.deepEqual(gate, [50, 51]);
+  for (const x of gate) { assert.ok(isWalkable(map, x, 32)); assert.ok(isWalkable(map, x, 33)); }
+  const first = map.objects.findIndex(o => inWing(map, o.x, o.y));
+  assert.ok(first > 0 && map.objects.slice(first).every(o => inWing(map, o.x, o.y)));
 });
 
 test('every fixed vacation destination is walkable and reachable from spawn', () => {
@@ -99,6 +98,6 @@ test('saved-layout migration appends wing objects and resolves ids across object
   assert.deepEqual(result.objects.filter(o => !inWing(map, o.x, o.y)), saved.objects);
   const ids = [...result.objects, ...result.rugs].map(o => o.id);
   assert.equal(new Set(ids).size, ids.length);
-  // The caller owns the version gate: a second invocation deliberately appends again.
-  assert.equal(migrateBeach(result, base, map).objects.length, result.objects.length + wing.length);
+  // A layout that already has wing furniture is left alone.
+  assert.equal(migrateBeach(result, base, map), result);
 });

@@ -568,7 +568,11 @@ export class Store {
       case 'eating': { const u = this.users.get(msg.userId); if (u) { if (msg.eating) u.eating = msg.eating; else delete u.eating; } break; }
       case 'holding': {
         const u = this.users.get(msg.userId); if (u) u.holding = msg.item;
-        if (msg.objectId) this.objectFx = [...this.objectFx.filter(f => performance.now() - f.at < 4000), { objectId: msg.objectId, at: performance.now() }];
+        if (msg.objectId) {
+          this.objectFx = [...this.objectFx.filter(f => performance.now() - f.at < 4000), { objectId: msg.objectId, at: performance.now() }];
+          const o = objectById(MAP, msg.objectId);
+          if (o?.type === 'coffee_machine') this.soundscape?.coffeeBrew(o, msg.userId);
+        }
         const it = msg.item ? ITEMS.get(msg.item) : undefined;
         if (msg.fromId && it) { // handed over: the item hops across like a reaction
           this.reactions.push({ fromId: msg.fromId, toId: msg.userId, emoji: it.icon, at: performance.now() });

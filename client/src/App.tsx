@@ -4,6 +4,7 @@ import { loadAssets, type Assets } from './assets';
 import { Engine, type Pick } from './engine';
 import { Voice } from './voice';
 import { ArcadeOverlay, RecordsPopover } from './park/ArcadeOverlay';
+import { LofiTV } from './LofiTV';
 import { Soundscape } from './soundscape';
 import { needsGesture, resume } from './audio';
 import { prefs, savePrefs, type Category } from './prefs';
@@ -119,6 +120,7 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
   const engineRef = useRef<Engine | null>(null);
   const [showRooms, setShowRooms] = useState(() => window.innerWidth > 900);
   const [showMeet, setShowMeet] = useState(false);
+  const [tv, setTv] = useState<string | null>(null);
   const [pick, setPick] = useState<Pick | null>(null);
   const [personMenu, setPersonMenu] = useState<PersonMenuAt | null>(null);
   const openPerson = (at: PersonMenuAt) => { setPick(null); setPersonMenu(at); };
@@ -156,6 +158,7 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
       if (use?.kind === 'arcade' && p) { setPick(null); return store.use(p.id); }
       if (use?.kind === 'dance' && p) { setPick(null); return store.dance(p.id); }
       if (use?.kind === 'records') { setPick(null); return store.openRecords(); }
+      if (use?.kind === 'youtube' && p) { setPick(null); return setTv(p.id); }
       if (use?.kind === 'jukebox' && p) { setPick(null); return store.openJukebox(p.id); }
       if (use?.kind === 'bell' && p) { setPick(null); return store.ring(p.id); }
       if (use?.kind === 'library') { setPick(null); return store.openLibrary(); }
@@ -214,6 +217,7 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
         {store.meetingsOpen && <MeetingsPanel store={store} />}
         {store.libraryOpen && <LibraryPanel store={store} />}
         {me?.reading && <ReadingOverlay key={me.reading} store={store} articleId={me.reading} />}
+        {tv && <LofiTV store={store} id={tv} onClose={() => setTv(null)} />}
         {store.jukeboxOpen && <JukeboxPanel key={store.jukeboxOpen} store={store} id={store.jukeboxOpen} />}
         {store.recordsOpen && <RecordsPopover store={store} />}
         {store.linkOpen && <LinkPanel store={store} />}
@@ -683,7 +687,7 @@ function JukeboxPanel({ store, id }: { store: Store; id: string }) {
   const onKey = (e: React.KeyboardEvent) => {
     if (e.key === 'Escape') { e.stopPropagation(); close(); }
     if (e.key !== 'Tab') return;
-    const controls = [...(panel.current?.querySelectorAll<HTMLElement>('button:not(:disabled), a[href]') ?? [])];
+    const controls = [...(panel.current?.querySelectorAll<HTMLElement>('button:not(:disabled), a[href], input:not(:disabled)') ?? [])];
     const first = controls[0], end = controls[controls.length - 1];
     if (e.shiftKey && (document.activeElement === first || document.activeElement === panel.current)) { e.preventDefault(); end?.focus(); }
     else if (!e.shiftKey && document.activeElement === end) { e.preventDefault(); first?.focus(); }
@@ -693,6 +697,10 @@ function JukeboxPanel({ store, id }: { store: Store; id: string }) {
       <div className="rooms-head"><span>🎵 {box?.kind === 'jukebox' ? box.label.replace(/^./, c => c.toUpperCase()) : 'Jukebox'}</span><button className="ghost" aria-label="Close jukebox" onClick={close}>×</button></div>
       {!known && <p role="status">Reconnecting…</p>}
       {!inside && <div className="jukebox-walk"><span>Walk into {room?.name ?? 'the room'} to pick music</span><button disabled={!known} onClick={() => store.walkToJukebox(id)}>Walk over</button></div>}
+      <label className="volume-control jukebox-volume"><span>Volume for me</span>
+        <input type="range" min="0" max="100" step="5" value={Math.round((prefs.jukeboxVolumes[id] ?? 1) * 100)} aria-label="Jukebox volume for me"
+          onChange={e => { prefs.jukeboxVolumes[id] = Number(e.target.value) / 100; savePrefs(); }} /><output>{Math.round((prefs.jukeboxVolumes[id] ?? 1) * 100)}%</output>
+      </label>
       <section>
         <h3>Now playing</h3>
         {state && track && <>

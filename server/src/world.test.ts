@@ -25,6 +25,17 @@ function setup(t: TestContext) {
   return { w, add, settle, join, fill, tick: (ms: number) => t.mock.timers.tick(ms) };
 }
 const voiceChanges = (messages: ServerMsg[]) => messages.filter(m => m.t === 'call' || m.t === 'voice_wait');
+test('Music joins visitors into one hall call and removes them when they walk out', t => {
+  const { w, add, settle } = setup(t);
+  const a = add('A', { x: 58, y: 8 }), b = add('B', { x: 60, y: 8 });
+  w.voiceTick();
+  assert.equal(a.u.callId, 'room:music'); assert.equal(b.u.callId, 'room:music');
+  assert.ok(a.messages.some(m => m.t === 'call' && m.userId === b.u.id && m.callId === 'room:music'));
+  settle(a.u, { x: 58, y: 25 }); w.voiceTick();
+  assert.equal(a.u.callId, null); assert.equal(b.u.callId, 'room:music');
+  settle(a.u, { x: 58, y: 8 }); w.voiceTick();
+  assert.equal(a.u.callId, b.u.callId);
+});
 test('250 ms tick joins standing humans outside the door without changing presence or churning', t => {
   const { w, add, tick, settle } = setup(t), a = add('A'); a.u.presence = 'away';
   tick(249); assert.equal(a.u.callId, null); tick(1); assert.equal(a.u.callId, 'room:coffee');
