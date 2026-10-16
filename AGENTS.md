@@ -229,11 +229,14 @@ iva    8083   pin     ibaranov91            https://voffice-iva.pub.t1a.cloud
 ```
 
 ```bash
-scripts/deploy.sh <name>   # no argument = prod. Deploys your WORKING COPY (uncommitted changes included)
+scripts/deploy.sh <name>   # a personal instance: deploys this checkout as it is (uncommitted changes included)
+scripts/deploy.sh          # prod: only from a clean checkout of the head of origin/main (see "Landing a PR")
 ```
 - Each instance is fully separate: `/opt/deck-<name>`, its own `data/`, `/etc/deck-<name>.env` and
-  `deck-<name>.service`. Prod uses `/opt/the-deck`, `/etc/the-deck.env` and `the-deck.service`. The script locks
-  per instance, refuses a port that's already in use, and prints the URL. Set `DECK_SSH_HOST` if your ssh alias differs.
+  `deck-<name>.service`. Prod uses `/opt/the-deck`, `/etc/the-deck.env` and `the-deck.service`. The script holds a
+  lock on the box for the whole deploy (one deploy per instance at a time, whoever runs it), refuses a port that's
+  already in use, records the commit in `<app>/.deployed-rev` and prints the URL. Set `DECK_SSH_HOST` if your ssh
+  alias differs.
 - **Login mode** (column 3) is re-applied on every deploy:
   - `sso`: NetBird sign-in. The NetBird proxy entry must use NetBird SSO so it sends `X-NetBird-User`. The server
     trusts that header only from `NETBIRD_TRUSTED_CIDR` *and* a caller whose NetBird name looks like the proxy (`NETBIRD_TRUSTED_PEER`).
@@ -241,13 +244,38 @@ scripts/deploy.sh <name>   # no argument = prod. Deploys your WORKING COPY (unco
     NetBird sign-in can't work there.
 - **New instance:** pick the next free port, add a line to `instances.txt`, have someone add a NetBird reverse-proxy
   entry to `http://10.200.142.211:<port>`, then deploy. Check that the proxy entry's port matches.
-- **Only deploy to an instance when its owner asked you to.** Never deploy prod unless asked.
+- **Only deploy to an instance when its owner asked you to.** Prod gets the head of `main` after a merge (below).
 - **Check after a deploy:**
   ```bash
   ssh Hetzner2-vOffice 'systemctl is-active deck-<name>; curl -s http://10.200.142.211:<port>/api/config'
   ```
   Public `pin` URLs answer 401 (the PIN page) to curl. That's expected.
 - **Logs:** `ssh Hetzner2-vOffice journalctl -u deck-<name> -f`.
+
+## Landing a PR and deploying prod
+Several people and agents merge and deploy at the same time. Prod must always run one known commit, the head of
+`main`, and a deploy must never undo a newer one.
+1. **Rebase onto fresh main** right before merging: `git fetch origin && git rebase origin/main`, then
+   `npm test`, `npm run typecheck`, `npm run build -w client`, then `git push --force-with-lease`. Don't merge `main`
+   into your branch.
+2. **Merge only an up-to-date branch:** `gh pr merge <n> --merge`, and only while your branch contains `origin/main`
+   (`git fetch origin && git merge-base --is-ancestor origin/main HEAD`). If `main` moved, go back to step 1.
+3. **Deploy prod from the head of `origin/main` only**: never from a feature branch, a working copy or an older
+   commit. Use a clean detached checkout (a worktree you keep for deploys is fine):
+   ```bash
+   git fetch origin && git worktree add --detach ../deck-prod origin/main   # next time: git -C ../deck-prod checkout --detach origin/main
+   cd ../deck-prod && npm ci && scripts/deploy.sh
+   ```
+   `deploy.sh` enforces this for prod:
+   - it refuses a dirty checkout or any commit other than the head;
+   - it waits while someone else deploys;
+   - it stops if `main` moved while it waited: check out the new head and run it again, since that head includes
+     your change;
+   - it does nothing if prod already runs the head;
+   - it refuses to go back to an older commit.
+4. **Check** `systemctl is-active the-deck` and that `/opt/the-deck/.deployed-rev` shows the head.
+5. **Rollback** = revert on `main` through a PR, then deploy the head. Never deploy an old commit or a branch to prod.
+   To try a branch before merging, deploy it to your own instance (`andr`, `var`, `iva`).
 
 ## Conventions
 - TypeScript strict, both sides. Match the surrounding style: compact, comments only where the *why* isn't obvious.
