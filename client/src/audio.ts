@@ -8,6 +8,9 @@ const attempts = new WeakMap<HTMLAudioElement, object>();
 const failed = new Set<HTMLAudioElement>();
 const listeners = new Set<() => void>();
 const changed = () => { for (const l of listeners) l(); };
+/** Safari and the Mac app (WKWebView): once the mic is open, macOS voice processing mangles Web Audio output, so call
+ *  voices play from their own <audio> element instead (volume follows the soundscape, no pan or reverb). */
+export const DIRECT_VOICE = typeof navigator !== 'undefined' && /AppleWebKit/.test(navigator.userAgent) && !/Chrome\/|Chromium\//.test(navigator.userAgent);
 
 export function audio() {
   if (!ctx) {

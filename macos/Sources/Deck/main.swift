@@ -33,7 +33,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
   var window: NSWindow!      // separate window, opened from the popover
   var desk: DeskWindow!      // pinned to the desktop
   var arranging = false
-  var state = DeckState()
+  var state = DeckState() { didSet { holdForCall(state.connected && state.inCall) } }
+  var callActivity: NSObjectProtocol? // held during a call so App Nap doesn't throttle a hidden web view's voice
   let card = KnockCard()
   let updater = Updater()
   let wellness = WellnessNotifications()
@@ -457,6 +458,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
     renderIcon()
     updateCard(old)
     updateIfIdle()
+  }
+
+  /// The app is usually hidden in the menu bar, where App Nap and timer coalescing make call audio choppy.
+  func holdForCall(_ on: Bool) {
+    if on, callActivity == nil {
+      callActivity = ProcessInfo.processInfo.beginActivity(options: [.userInitiated, .latencyCritical, .idleSystemSleepDisabled], reason: "Voice call")
+    } else if !on, let a = callActivity {
+      ProcessInfo.processInfo.endActivity(a); callActivity = nil
+    }
   }
 
   /// Updates install themselves when you won't notice the restart: not in a call, no popover or window open.

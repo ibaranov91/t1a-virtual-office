@@ -2,7 +2,7 @@ import { NoteClock, type InstrumentKind } from '../../shared/instruments';
 import { startVoice, type SynthVoice } from './synth';
 import { distanceGain, reverbImpulse, soundModel } from '../../shared/acoustics';
 import { roomAt, type MapObject, type Room, type Tile } from '../../shared/map';
-import { audio, categoryOutput, rms, subscribeAudio } from './audio';
+import { audio, categoryOutput, DIRECT_VOICE, playMedia, rms, subscribeAudio } from './audio';
 import { TRACK } from '../../shared/music';
 import { currentPlay } from './jukeboxSync';
 import { JukeboxPlayer } from './jukeboxPlayer';
@@ -38,7 +38,7 @@ interface Source {
   kind: 'voice' | 'jukebox' | 'instrument' | 'retro'; jukebox?: Jukebox; instrument?: Instrument; duck?: number; modelGain?: number;
   input: AudioNode; low: BiquadFilterNode; dry: GainNode; pan: StereoPannerNode; send: GainNode;
   bus: ConvolverNode | null; category: 'voice' | 'music'; clipGain: number; tile?: Tile;
-  level: Level;
+  level: Level; el?: HTMLAudioElement; // DIRECT_VOICE: the voice plays from this element, the graph stays silent
 }
 export class Soundscape {
   private clocks = new Map<string, NoteClock>();
@@ -132,13 +132,15 @@ export class Soundscape {
   /** The jukebox should be playing for me but is still loading (or waiting for data). */
   jukeboxLoading(id: string) { return !!this.sources.get(`obj:${id}`)?.jukebox?.loading; }
   levels(): Level[] { return [...this.sources.values()].map(s => ({ ...s.level })); }
-  addVoice(id: string, stream: MediaStream) {
+  addVoice(id: string, stream: MediaStream, el: HTMLAudioElement) {
     this.remove(id);
-    this.add(id, 'voice', audio().createMediaStreamSource(stream), 1);
+    if (DIRECT_VOICE) { this.add(id, 'voice', audio().createGain(), 1).el = el; el.volume = 0; el.muted = false; void playMedia(el); } // re-played unmuted, so a Safari block shows "Enable sound"
+    else this.add(id, 'voice', audio().createMediaStreamSource(stream), 1);
     this.update();
   }
   remove(id: string) {
     const s = this.sources.get(id); if (!s) return;
+    if (s.el) s.el.muted = true;
     if (s.instrument) { this.allOff(id.slice(4)); s.instrument.analyser?.disconnect(); }
     if (s.kind === 'jukebox') { s.jukebox!.player.destroy(); s.jukebox!.analyser?.disconnect(); }
     s.input.disconnect(); s.low.disconnect(); s.dry.disconnect(); s.pan.disconnect(); s.send.disconnect();
@@ -256,6 +258,7 @@ export class Soundscape {
       s.dry.gain.setTargetAtTime(gain * v, c.currentTime, gain ? .08 : .02);
       s.send.gain.setTargetAtTime(send * v, c.currentTime, send ? .08 : .02);
       s.pan.pan.setTargetAtTime(model.pan, c.currentTime, .08);
+      if (s.el) s.el.volume = prefs.deafened ? 0 : Math.min(1, gain * v * mix);
       if (s.kind === 'jukebox') {
         const j = s.jukebox!, state = this.store.connected ? this.store.jukebox[id.slice(4)] : undefined;
         j.heard = gain > 0 && !me.instance;

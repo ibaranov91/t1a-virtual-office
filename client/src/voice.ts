@@ -6,9 +6,11 @@ import type { ClientUser, Store } from './net';
 interface Peer {
   pc: RTCPeerConnection; audio: HTMLAudioElement; transceiver?: RTCRtpTransceiver;
   pendingIce: RTCIceCandidateInit[]; conn: string | null; remoteInst: string | null;
-  replacing: boolean;
+  replacing: boolean; since: number;
 }
 const rid = () => Math.random().toString(36).slice(2, 10);
+// A peer that hasn't connected within CONNECT_MS (longer on each retry), or dropped to disconnected for LOST_MS, is rebuilt.
+const CONNECT_MS = 10_000, CONNECT_MAX_MS = 40_000, LOST_MS = 5_000;
 const around = (u: ClientUser) => !u.bot && u.presence !== 'offline' && u.door !== 'thinking' && u.door !== 'leaving';
 
 export class Voice {
@@ -32,6 +34,8 @@ export class Voice {
   private handSince = 0;
   private lastActivity = Date.now();
   private afk: number;
+  private watchdog: number;
+  private retries = new Map<string, number>();
   private poseTimer: number;
   private insideRect = false;
   private inst = rid();
@@ -46,6 +50,7 @@ export class Voice {
     window.addEventListener('blur', this.releaseSpace);
     this.poseTimer = window.setInterval(() => this.checkInside(), 100);
     this.afk = window.setInterval(() => this.checkAfk(), 15000);
+    this.watchdog = window.setInterval(() => this.checkPeers(), 2000);
     setAudioDeafened(this.deafened);
     this.unsub = subscribePrefs(() => {
       const changed = this.deafened !== prefs.deafened || this.mode !== prefs.mode;
@@ -84,13 +89,14 @@ export class Voice {
     if (wasOwner && !owner) this.spaceHeld = false;
     const ids = new Set(this.eligiblePeers().map(u => u.id));
     for (const id of [...this.peers.keys()]) if (!ids.has(id)) this.closePeer(id);
+    for (const id of [...this.retries.keys()]) if (!ids.has(id)) this.retries.delete(id);
     for (const id of ids) if (!this.peers.has(id)) {
       const p = this.createPeer(id);
       if (this.store.me < id) void this.offer(id, p).catch(e => console.warn('voice offer', e));
       else this.signal(id, { kind: 'hello', inst: this.inst });
     }
     this.checkInside(); this.sendRule();
-    if (owner && callId && !this.local && !this.micAttempted) void this.requestMic(callId);
+    this.openMic();
   }
   private checkInside() {
     const me = this.store.users.get(this.store.me), room = this.store.roomCallOf(me);
@@ -137,7 +143,12 @@ export class Voice {
   setMuted(muted: boolean) {
     if (!this.store.voiceOwner || !this.store.connected) return;
     this.muted = muted;
-    this.store.send({ t: 'mute', muted: this.muted }); this.sendRule(); this.store.changed();
+    this.store.send({ t: 'mute', muted: this.muted }); this.sendRule(); this.openMic(); this.store.changed();
+  }
+  /** The mic opens on the first unmute, not on joining: rooms start muted, and an open mic switches macOS (and
+   *  Bluetooth headsets) into call mode, which makes everything else sound worse. */
+  private openMic() {
+    if (this.owner && this.callId && !this.muted && !this.local && !this.micAttempted) void this.requestMic(this.callId);
   }
   toggleMute() {
     this.setMuted(!this.muted);
@@ -164,7 +175,7 @@ export class Voice {
     for (const id of [...this.peers.keys()]) this.closePeer(id);
   }
   destroy() {
-    this.dead = true; this.unsub(); this.stopVoice(); clearInterval(this.afk); clearInterval(this.poseTimer); this.store.onRtc = undefined;
+    this.dead = true; this.unsub(); this.stopVoice(); clearInterval(this.afk); clearInterval(this.watchdog); clearInterval(this.poseTimer); this.store.onRtc = undefined;
     for (const event of ['pointerdown', 'pointermove', 'keydown', 'wheel'] as const) window.removeEventListener(event, this.activity);
     window.removeEventListener('keydown', this.keyDown); window.removeEventListener('keyup', this.keyUp); window.removeEventListener('blur', this.releaseSpace);
   }
@@ -172,7 +183,7 @@ export class Voice {
   private createPeer(id: string): Peer {
     const pc = new RTCPeerConnection({ iceServers: this.iceServers }), el = new Audio();
     el.autoplay = true; el.muted = true;
-    const p: Peer = { pc, audio: el, pendingIce: [], conn: null, remoteInst: null, replacing: false };
+    const p: Peer = { pc, audio: el, pendingIce: [], conn: null, remoteInst: null, replacing: false, since: Date.now() };
     if (this.store.me < id) {
       p.transceiver = pc.addTransceiver('audio', { direction: 'sendrecv' });
       pc.createDataChannel('deck');
@@ -184,16 +195,34 @@ export class Voice {
     pc.ontrack = e => {
       if (!this.current(id, p)) return;
       const stream = e.streams[0] ?? new MediaStream([e.track]);
-      el.srcObject = stream; void playMedia(el); this.store.soundscape?.addVoice(id, stream);
+      el.srcObject = stream; void playMedia(el); this.store.soundscape?.addVoice(id, stream, el);
     };
     pc.onconnectionstatechange = () => {
       if (!this.current(id, p)) return;
+      if (pc.connectionState === 'connected') this.retries.delete(id);
+      else if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') p.since = Date.now(); // the clock starts when it drops
       if (pc.connectionState === 'failed' && this.store.me < id) {
         pc.restartIce(); void this.offer(id, p).catch(e => console.warn('voice ICE restart', e));
       }
       this.store.changed();
     };
     this.sendRule(); return p;
+  }
+  /** The offering side (lower id) rebuilds a peer stuck short of connected; the other side follows the new offer's `conn`. */
+  private checkPeers() {
+    if (!this.owner || !this.store.connected) return;
+    const now = Date.now();
+    for (const [id, p] of [...this.peers]) {
+      const state = p.pc.connectionState;
+      if (this.store.me > id || state === 'connected') continue;
+      const tries = this.retries.get(id) ?? 0;
+      const wait = state === 'disconnected' ? LOST_MS : Math.min(CONNECT_MS * (tries + 1), CONNECT_MAX_MS);
+      if (now - p.since < wait) continue;
+      this.retries.set(id, tries + 1);
+      console.info(`voice: ${state} with ${id} for ${Math.round((now - p.since) / 1000)} s, reconnecting (try ${tries + 1})`);
+      this.closePeer(id);
+      void this.offer(id, this.createPeer(id)).catch(e => console.warn('voice reconnect', e));
+    }
   }
   private current(id: string, p: Peer) { return this.peers.get(id) === p && p.pc.signalingState !== 'closed'; }
   private closePeer(id: string) {
