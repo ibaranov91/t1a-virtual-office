@@ -227,7 +227,7 @@ Every object with a `use` (wall decor counts toward the room below it). Routing 
 | o288 | `retro_tobu` | `retro` | use reach | 62,13 | 1×2 | arcade | Tobu Tobu Girl |
 | o289 | `retro_lobster` | `retro` | use reach | 63,13 | 1×2 | arcade | Shock Lobster |
 | o290 | `terminal` | `tickets` | use reach | 3,14 | 2×1 | lobby | bug terminal |
-| o307 | `beach_bar` | `take` | wheel use reach | 65,35 | 3×1 | beach | cocktail, coconut, icecream |
+| o307 | `beach_bar` | `take` | wheel use reach | 65,35 | 3×1 | beach | cocktail, beer, wine, coconut, icecream |
 | o308 | `vacation_sign` | `vacations` | — | 52,34 | 1×1 | beach |  |
 | o313 | `wellness_cooler` | `wellness` | — | 37,3 | 1×1 | coffee | Water cooler |
 | o314 | `stretch_mat` | `wellness` | — | 20,30 | 2×1 | garden | Stretching mat |

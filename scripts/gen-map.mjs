@@ -575,7 +575,8 @@ for (const x of [30, 46, 62, 78]) {
 }
 obj('hammock', 31, 35, 3, 1, { lie: true, dir: 'down' });
 obj('beach_bar', 65, 35, 3, 1, { use: { kind: 'take', items: [
-  { id: 'cocktail', label: 'Cocktail', icon: '🍹' }, { id: 'coconut', label: 'Coconut', icon: '🥥' }, { id: 'icecream', label: 'Ice cream', icon: '🍦' },
+  { id: 'cocktail', label: 'Cocktail', icon: '🍹' }, { id: 'beer', label: 'Beer', icon: '🍺' }, { id: 'wine', label: 'Wine', icon: '🍷' }, // alcohol: drinking gets you drunk (shared/drinks.ts)
+  { id: 'coconut', label: 'Coconut', icon: '🥥' }, { id: 'icecream', label: 'Ice cream', icon: '🍦' },
 ] } });
 obj('vacation_sign', gateX + 2, 34, 1, 1, { use: { kind: 'vacations' } });
 obj('summit_flag', 12, 34);

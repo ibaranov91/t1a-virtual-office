@@ -205,10 +205,10 @@ export interface Creature {
   hum?: boolean; // the cleaner hums while she roams (a ♪ over her head)
   say?: string;  // and now and then says something short (a speech bubble for a few seconds)
 }
-/** A cup someone left on a table; the cleaner takes it away. */
-export interface Cup { id: string; tile: Tile; item: string; at: number }
-export const MAX_CUPS = 12;
-export const CUP_ITEMS = ['coffee', 'tea'];
+/** A cup someone left on a table (or dropped on the floor: `floor`); the cleaner takes it away. by: who left it. */
+export interface Cup { id: string; tile: Tile; item: string; at: number; floor?: true; by?: string }
+export const MAX_CUPS = 12; // table and floor cups together; past it the oldest cup vanishes when one is dropped
+export const CUP_ITEMS = ['coffee', 'tea', 'cocktail', 'beer', 'wine']; // drinks that leave a cup or glass behind (see shared/drinks.ts)
 /** Furniture you can put a cup on. */
 export const CUP_TABLES = ['table_long', 'table_round', 'table_big', 'desk', 'counter', 'table_picnic'];
 export const cupTableAt = <O extends { type: string; x: number; y: number; w: number; h: number }>(objects: O[], t: Tile) =>
@@ -359,7 +359,7 @@ export type ServerMsg =
   | { t: 'to_meet'; fromId: string } // someone in your call opened its Meet room; come along
   | { t: 'follow'; userId: string; targetId: string | null }
   | { t: 'eating'; userId: string; eating: Eating | null }
-  | { t: 'holding'; userId: string; item: string | null; objectId?: string; fromId?: string } // objectId: just taken; fromId: handed over
+  | { t: 'holding'; userId: string; item: string | null; objectId?: string; fromId?: string; phase?: 'drinking' } // objectId: just taken; fromId: handed over; phase: sipping it now (the item stays until the sip ends)
   | { t: 'jukebox'; id: string; state: JukeboxState }
   | { t: 'object'; id: string; on: boolean; by: string }
   | { t: 'toilet'; id: string; state: ToiletState }
@@ -458,7 +458,8 @@ export type ClientMsg =
   | { t: 'chat'; toId: string; text: string }
   | { t: 'chat_history'; withId: string }
   | { t: 'use'; objectId: string; item?: string } // walk over to an object and use it
-  | { t: 'drop' }                    // finish what you're holding
+  | { t: 'drop' }                    // finish what you're holding (an empty cup: drop it on the floor where you stand)
+  | { t: 'drink' }                   // drink what you're holding: the sip, then its effect (shared/drinks.ts), then an empty cup in hand
   | { t: 'give'; targetId: string } // hand it to someone with empty hands
   | { t: 'bite'; targetId: string } // a vampire walks up to someone and bites: they're a vampire too, for BITE_MS
   | { t: 'deafen'; on: boolean }

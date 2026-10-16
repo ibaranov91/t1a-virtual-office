@@ -199,9 +199,15 @@ npm run typecheck    # run before every commit or deploy
   shows the plain text.
 - **Room behavior is data.** Knock rules, meeting links and home-desk rooms live in `tilemap.json`
   (from `gen-map.mjs`), not in code.
-- **Refreshments:** taking a cocktail applies `drunk` (three strength levels, up to three minutes); coconut removes
+- **Refreshments:** taking a cocktail, beer or wine (`ALCOHOL_ITEMS`) applies `drunk` (three strength levels, up to three minutes); coconut removes
   one level and one minute and gives `refreshed`; ice cream gives `chilled` and extinguishes `fire_aura`.
   Rules and hints are in `shared/effects.ts`, server interactions in `World.refreshment`, visuals in `client/src/effects.ts`.
+- **Drinks** (`shared/drinks.ts`, in progress): the contract for drinking what you hold. `DRINKS` says per item what the sip does
+  (`speed` for coffee/tea, `World.refreshment` for the bar), how long it takes, whether it sips itself (coffee/tea after 60 s; alcohol
+  only on the `drink` intent) and whether it leaves an empty cup (`empty:<drink>` in hand, `emptyOf`/`emptyDrink`). An empty cup goes
+  on a table (`cup_put`) or slips to the floor after `EMPTY_DROP_MS` (`drop`, or by itself): `Creatures.addCup(..., { floor: true, by })`
+  accepts any tile and evicts the oldest cup past `MAX_CUPS`. `DRUNK_MISWALK` is the chance a drunk walk ends a tile off.
+  Buffs still come on take until the `drink` intent is wired (TODO(drinks) in `World.use`).
   Biscuit walks to visible drunk humans and judges them on arrival, at most once every 30 seconds (`Creatures.judge`);
   the jokes live in `PHRASES.cat.judge`. He respects petting and cancels the lecture if they sober up first.
 
