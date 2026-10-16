@@ -113,20 +113,24 @@ export class Creatures {
   // ---------- cups ----------
   /** The table (or desk, or counter) under this tile, if a cup can go on it. */
   tableAt(t: Tile) { return cupTableAt(this.map.objects, t); }
-  cupProblem(t: Tile, item = ''): string | null {
+  cupProblem(t: Tile, item = '', floor = false): string | null {
     const plate = isPlate(item);
-    if (!this.tableAt(t)) return plate ? 'Plates go on a table' : 'Cups go on a table';
+    if (!floor && !this.tableAt(t)) return plate ? 'Plates go on a table' : 'Cups go on a table';
     if (this.cups.some(c => c.tile.x === t.x && t.y === c.tile.y)) return 'There\'s a cup there already';
-    if (this.cups.filter(c => isPlate(c.item) === plate).length >= (plate ? MAX_PLATES : MAX_CUPS)) return plate ? 'The tables are full of plates: wait for the cleaner' : 'The tables are full of cups: wait for the cleaner';
+    if (!floor && this.cups.filter(c => isPlate(c.item) === plate).length >= (plate ? MAX_PLATES : MAX_CUPS)) return plate ? 'The tables are full of plates: wait for the cleaner' : 'The tables are full of cups: wait for the cleaner';
     return null;
   }
   /** Walkable tiles touching this tile, from where you can reach across to it. */
   beside(t: Tile, m = this.map) { return N4.map(d => ({ x: t.x + d.x, y: t.y + d.y })).filter(p => isWalkable(m, p.x, p.y)); }
-  addCup(t: Tile, item: string, now: number): Cup | string {
-    const problem = this.cupProblem(t, item);
+  /** Put a cup down. floor: dropped where someone stands (any tile); nobody chooses to drop, so instead of refusing
+   *  a full floor the oldest cup vanishes. by: who left it. */
+  addCup(t: Tile, item: string, now: number, opts: { floor?: true; by?: string } = {}): Cup | string {
+    const problem = this.cupProblem(t, item, !!opts.floor);
     if (problem) return problem;
-    const cup = { id: `cup${now.toString(36)}${(this.seq++).toString(36)}`, tile: { x: t.x, y: t.y }, item, at: now };
-    this.cups = [...this.cups, cup]; this.announceCups();
+    let cups = this.cups;
+    if (opts.floor) while (cups.filter(c => !isPlate(c.item)).length >= MAX_CUPS) { const oldest = cups.filter(c => !isPlate(c.item)).sort((a, b) => a.at - b.at)[0]; cups = cups.filter(c => c !== oldest); }
+    const cup: Cup = { id: `cup${now.toString(36)}${(this.seq++).toString(36)}`, tile: { x: t.x, y: t.y }, item, at: now, ...(opts.floor ? { floor: true as const } : {}), ...(opts.by ? { by: opts.by } : {}) };
+    this.cups = [...cups, cup]; this.announceCups();
     return cup;
   }
   removeCup(id: string) {

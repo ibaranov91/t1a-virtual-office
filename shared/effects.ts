@@ -41,6 +41,7 @@ export const RAVER_MS = 30 * 60_000; // total dancing for the `raver` achievemen
 
 export const SPEED_FACTOR = 1.6;  // coffee: tiles per second × this
 export const DRUNK_FACTOR = 0.8;  // a bit slower, a lot wobblier
+export const DRUNK_MISWALK = 0.25;       // chance a drunk walk ends one tile off from where you clicked
 export const DRUNK_MAX_LEVEL = 3;
 export const DRUNK_MAX_MS = 3 * 60_000;
 export const DRUNK_NAMES = ['Tipsy', 'Drunk', 'Wasted'] as const;

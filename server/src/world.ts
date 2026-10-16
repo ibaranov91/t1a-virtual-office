@@ -14,6 +14,7 @@ import {
 import { FOOD_ITEMS, LUNCH_MS, PLATE_PREFIX, picnicSeat, type Eating } from '../../shared/lunch';
 import { INSTRUMENTS, validNote } from '../../shared/instruments';
 import { phrase } from '../../shared/phrases';
+import { ALCOHOL_ITEMS } from '../../shared/drinks';
 import { ADMIN_HAT, ALL_HATS, BAT_HAT, BITE_MS, DANCE_ROOM, DRUNK_MAX_LEVEL, DRUNK_MAX_MS, DRUNK_NAMES, EFFECTS, HAT_NAMES, MAX_EFFECTS, RAVER_MS, drunkLevel, effectOf, hatItem, hatOf, walkMs } from '../../shared/effects';
 import { tracksFor } from '../../shared/music';
 import { Arcade } from './arcade';
@@ -736,7 +737,7 @@ export class World {
       else if (item) {
         if (current.use.kind !== 'take' || !current.use.items.some(i => i.id === item.id)) return;
         this.setHolding(u, item.id, o.id);
-        if (o.type === 'coffee_machine') this.addEffect(u, 'speed'); // a fresh cup: quick on your feet for a while
+        if (o.type === 'coffee_machine') this.addEffect(u, 'speed'); // TODO(drinks): the buff moves to the `drink` intent (shared/drinks.ts)
         this.refreshment(u, item.id);
       }
     }, Math.max(0, at - Date.now()) + (o.use.kind === 'arcade' || o.use.kind === 'table' || o.use.kind === 'retro' ? 0 : USE_MS[o.use.kind])));
@@ -1076,7 +1077,7 @@ export class World {
     if (u.bot) return;
     const drunk = effectOf(u.effects, 'drunk');
     const active = drunk && (drunk.until === undefined || drunk.until > now) ? drunk : undefined;
-    if (item === 'cocktail') {
+    if (ALCOHOL_ITEMS.includes(item)) {
       const level = Math.min(DRUNK_MAX_LEVEL, drunkLevel(active) + 1);
       const remaining = active?.until === undefined ? 0 : Math.max(0, active.until - now);
       this.addEffect(u, 'drunk', { ms: Math.min(DRUNK_MAX_MS, remaining + EFFECTS.drunk.ms!), data: { level } }, now);

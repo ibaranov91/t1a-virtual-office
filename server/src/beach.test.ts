@@ -198,7 +198,8 @@ test('bar pauses three seconds, takes a current bar item and goes straight to th
   w.setVacation(u, { until: Date.now() + 86400000 });
   const at = u.move!.startedAt + pathDuration(u.path!, u.move!.ms); tick(at - Date.now());
   tick(2999); assert.equal(u.holding, null); tick(1);
-  assert.ok(['cocktail', 'coconut', 'icecream'].includes(u.holding!));
+  const bar = map.objects.find(o => o.type === 'beach_bar')!;
+  assert.ok(bar.use?.kind === 'take' && bar.use.items.some(i => i.id === u.holding));
   assert.ok(map.vacation!.pierEnds.some(t => t.x === u.move?.to.x && t.y === u.move?.to.y));
 });
 
