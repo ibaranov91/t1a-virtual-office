@@ -215,7 +215,7 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
       if (use?.kind === 'clock') { setPick(null); return store.openClock(); }
       if (use?.kind === 'vacations') { setPick(null); return store.openVacations(); }
       if (use?.kind === 'meetings') { setPick(null); return store.openMeetings(); }
-      if (use?.kind === 'achievements') { setPick(null); return store.openAchievements(); }
+      if (use?.kind === 'achievements') { setPick(null); return store.openEmployeeBoard(); }
       if (use?.kind === 'tickets' && p) { setPick(null); return store.use(p.id); } // walks to the terminal; the server opens its screen on arrival
       if (use?.kind === 'presentation' && p) { setPick(null); return store.use(p.id); } // walks to the board; the server opens the panel on arrival
       if (use?.kind === 'room_start' && p) { setPick(null); return store.use(p.id); } // walks to the sign; the server sends room_open on arrival
@@ -286,6 +286,7 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
         {store.presentOpen && <PresentPanel key={`present:${store.presentOpen}`} store={store} id={store.presentOpen} />}
         {store.clockOpen && <ClockPanel store={store} />}
         {store.achievementsOpen && me && <AchievementsPanel store={store} me={me} assets={assets} backdrop={backdropClose(() => store.openAchievements(false))} />}
+        {store.employeeOpen && <EmployeePanel store={store} />}
         {showMeet && <MeetSetup store={store} onClose={() => setShowMeet(false)} />}
         {showAppearance && me && <AppearanceMenu key={`appearance:${me.id}`} look={me.look} name={me.name} assets={assets} firstTime={!me.lookSet} store={store}
           onSave={(look, name) => { store.setLook(look, name); setShowAppearance(false); }} onClose={() => setShowAppearance(false)} />}
@@ -315,7 +316,7 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
         {roomMenu && <RoomMenu key={`room:${roomMenu.id}`} store={store} engine={engine} at={roomMenu} compact={isCompact} onTv={setTv}
           onClose={() => setRoomMenu(null)} onAction={() => { setRoomMenu(null); setShowRooms(false); sidebarRef.current?.close(); }} />}
         {store.seat && <InstrumentPanel key={`seat:${store.seat}`} store={store} id={store.seat}
-          dialogOpen={!!(store.wellnessOpen || store.table || showAppearance || showMeet || store.calendarOpen || store.laterOpen || store.meetingsOpen || store.vacationsOpen || store.clockOpen || store.jukeboxOpen || store.libraryOpen || store.terminalOpen || !!me?.reading || store.achievementsOpen || store.presentOpen || store.roomOpen || store.chatWith || personMenu || roomMenu || profileOpener || pick)} />}
+          dialogOpen={!!(store.wellnessOpen || store.table || showAppearance || showMeet || store.calendarOpen || store.laterOpen || store.meetingsOpen || store.vacationsOpen || store.clockOpen || store.jukeboxOpen || store.libraryOpen || store.terminalOpen || !!me?.reading || store.achievementsOpen || store.employeeOpen || store.presentOpen || store.roomOpen || store.chatWith || personMenu || roomMenu || profileOpener || pick)} />}
         <Dock store={store} voice={voice} engine={engine} roomsOpen={showRooms} onRooms={() => setShowRooms(s => !s)} />
         {me && <Wellness key={`wellness:${me.id}`} store={store} userId={me.id} />}
       </div>
@@ -891,6 +892,27 @@ function HatSprite({ assets, style, scale = 2 }: { assets: Assets | null; style:
     if (f) ctx.drawImage(assets.world, f.x, f.y, f.w, f.h, Math.floor((c.width - f.w * scale) / 2), Math.floor((c.height - f.h * scale) / 2), f.w * scale, f.h * scale);
   }, [assets, name, scale]);
   return <canvas ref={ref} width={16 * scale} height={14 * scale} className="hat-sprite" aria-hidden="true" />;
+}
+
+/** The Lobby notice board: the latest images shared in the team Slack channel. */
+function EmployeePanel({ store }: { store: Store }) {
+  const close = () => store.closeEmployeeBoard();
+  return (
+    <div className="modal-backdrop" {...backdropClose(close)}>
+      <div className="meet-panel guided calendar-panel employee-panel" role="dialog" aria-label="Employee Of the Month">
+        <div className="rooms-head"><span>🖼️ Employee Of the Month</span><button type="button" className="ghost" aria-label="Close" onClick={close}><Icon name="close" /></button></div>
+        <p className="small muted">Employees of the month · latest pictures from <a className="employee-source-link" href="https://t1a.slack.com/archives/C05FHR09MMMM" target="_blank" rel="noreferrer">#cat_fridays_and_dog_saturdays</a></p>
+        {store.slackImagesLoading && <p className="muted">Loading images…</p>}
+        {store.slackImagesError && <div className="employee-error"><p>Couldn’t load images from Slack.</p><small>{store.slackImagesError}</small><button className="ghost" onClick={() => void store.loadSlackImages()}>Retry</button></div>}
+        {!store.slackImagesLoading && !store.slackImagesError && store.slackImages.length === 0 && <p className="muted">There are no images in this channel yet.</p>}
+        <div className="employee-gallery">
+          {store.slackImages.map(image => <figure key={image.id}>
+            <img src={image.url} alt={image.name} loading="lazy" />
+          </figure>)}
+        </div>
+      </div>
+    </div>
+  );
 }
 
 /** The board by the Meeting room: meetings on right now in their own rooms. Titles only for their attendees. */

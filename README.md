@@ -159,6 +159,7 @@ Everything is optional in dev. Instances read these from `/etc/deck-<name>.env`,
 | Variable | What it does |
 | --- | --- |
 | `DECK_PORT`, `DECK_HOST` | Where the server listens (8787, 0.0.0.0; dev uses 127.0.0.1) |
+| `SLACK_BOT_TOKEN`, `SLACK_CHANNEL_ID` | Server-side Slack token and channel for the four-image Employee Of the Month board |
 | `DECK_TOKEN`, `TOKEN_LOGIN`, `OPEN_LOGIN`, `EMAIL_LOGIN` | Name + token login (token `deck` by default); `OPEN_LOGIN=true`: any name, no token; `EMAIL_LOGIN=true`: any email, unconfirmed (the demo) |
 | `NETBIRD_AUTH`, `NETBIRD_TRUSTED_CIDR`, `NETBIRD_TRUSTED_PEER` | NetBird SSO: trust `X-NetBird-User` only from the proxy |
 | `DECK_ADMINS`, `DECK_SYSADMINS` | Office admins (edit mode, GM panel) and sysadmins (the Admin room), comma-separated emails |

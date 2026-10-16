@@ -577,6 +577,24 @@ button:focus-visible, summary:focus-visible, input[type="range"]:focus-visible {
   .ring-arc, .achievement-badge.got::after, .achievement-card:hover .achievement-badge.got::after, .achievement-focus, .toast.achievement { animation: none; }
 }
 
+.employee-panel { width: min(560px, calc(100% - 32px)); max-height: min(520px, calc(100% - 16px)); overflow: hidden; }
+.employee-panel > .small { margin: -2px 0 2px; }
+.employee-source-link { color: var(--accent); text-decoration: underline; text-decoration-color: #b8862c; text-underline-offset: 2px; }
+.employee-gallery { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; overflow: hidden; }
+.employee-gallery figure { position: relative; margin: 0; min-width: 0; aspect-ratio: 4 / 3; overflow: hidden; background: #211821; image-rendering: pixelated; }
+.employee-gallery figure::after { content: ''; position: absolute; inset: 0; z-index: 1; pointer-events: none; background-position: center; background-repeat: no-repeat; background-size: 100% 100%; }
+.employee-gallery figure:nth-child(1)::after { background-image: url('/assets/employee-frames/frame-1.png'); }
+.employee-gallery figure:nth-child(2)::after { background-image: url('/assets/employee-frames/frame-2.png'); }
+.employee-gallery figure:nth-child(3)::after { background-image: url('/assets/employee-frames/frame-3.png'); }
+.employee-gallery figure:nth-child(4)::after { background-image: url('/assets/employee-frames/frame-4.png'); }
+.employee-gallery img { position: absolute; z-index: 0; top: 10%; left: 7.5%; display: block; width: 85%; height: 80%; object-fit: cover; background: #161116; image-rendering: auto; }
+.employee-error { display: grid; gap: 6px; padding: 10px; border-radius: 6px; background: var(--panel2); }
+.employee-error p, .employee-error small { margin: 0; }
+@media (max-width: 560px), (max-height: 500px) {
+  .employee-panel.meet-panel.guided { top: auto; bottom: 0; left: 0; transform: none; width: 100%; max-height: calc(100% - 8px); border-radius: 14px 14px 0 0; border-width: 2px 0 0; padding-bottom: calc(12px + env(safe-area-inset-bottom)); }
+  .employee-gallery { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+}
+
 /* edit mode (office admins) */
 .hanger-btn.on { background: var(--accent); color: #2a1a10; }
 .edit-panel { position: absolute; top: 8px; left: 8px; bottom: 8px; width: 260px; max-width: calc(100% - 16px); overflow: auto; z-index: 7;
