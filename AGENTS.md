@@ -205,13 +205,16 @@ npm run typecheck    # run before every commit or deploy
   Drunk has bite: a drunk human's `move` lands a free tile beside the click (same room, no seat or doorway) with chance
   `DRUNK_MISWALK` × level, capped at 0.6 (`World.drunkAim`; `World.rng` is swappable for tests); the swapped `to` is what
   everyone gets in `move`. Chat from a drunk sender is drawn through `slur` (`client/src/slur.ts`, seeded by the message id,
-  display only). Achievements: `happy_hour` (first round), `closing_time` (level 3), `designated` (via `World.onGiven`, for B's `give`).
-- **Drinks** (`shared/drinks.ts`, in progress): the contract for drinking what you hold. `DRINKS` says per item what the sip does
-  (`speed` for coffee/tea, `World.refreshment` for the bar), how long it takes, whether it sips itself (coffee/tea after 60 s; alcohol
-  only on the `drink` intent) and whether it leaves an empty cup (`empty:<drink>` in hand, `emptyOf`/`emptyDrink`). An empty cup goes
-  on a table (`cup_put`) or slips to the floor after `EMPTY_DROP_MS` (`drop`, or by itself): `Creatures.addCup(..., { floor: true, by })`
-  accepts any tile and evicts the oldest cup past `MAX_CUPS`. `DRUNK_MISWALK` is the chance a drunk walk ends a tile off.
-  Buffs still come on take until the `drink` intent is wired (TODO(drinks) in `World.use`).
+  display only). Achievements: `happy_hour` (first round), `closing_time` (level 3), `designated` (handing a full alcoholic drink over: `give` → `World.onGiven`).
+- **Drinks** (`shared/drinks.ts`, lifecycle in `World.setHolding`/`drink`/`dropCup`): taking a drink gives nothing; drinking it does.
+  `DRINKS` says per item what the sip does (`speed` for coffee/tea, `World.refreshment` for the bar), how long it takes and whether it leaves
+  an empty cup. Drink is on your own wheel (`drink` intent → `holding` with `phase: 'drinking'` for `sipMs`, the client's `sipping`
+  flag raises the cup), and the buff lands when the sip ends. Coffee, tea, coconut and ice cream sip themselves after `autoSipMs`;
+  alcohol only on Drink (bots and offline beach walkers sip it after `BOT_SIP_MS`). Handing it over or dropping it cancels the sip. Cup
+  drinks leave `empty:<drink>` in hand (`emptyOf`/`emptyDrink`, never a Give): click a table (`cup_put`, the cup stored as the drink with
+  `by`), Drop, or wait `EMPTY_DROP_MS` (`EMPTY_DROP_DRUNK_MS` drunk) and it slips to the floor where you stand (`Creatures.addCup(...,
+  { floor: true, by })`, next tile if one's there; just put away in an instance or offline). Clicking your own cup with empty hands puts
+  it back in your hand (no `tidy`). Snacks and books still vanish after `HOLD_MS`. `DRUNK_MISWALK` is the chance a drunk walk ends a tile off.
   Biscuit walks to visible drunk humans and judges them on arrival, at most once every 30 seconds (`Creatures.judge`);
   the jokes live in `PHRASES.cat.judge`. He respects petting and cancels the lecture if they sober up first.
 

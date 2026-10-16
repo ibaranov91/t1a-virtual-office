@@ -1238,6 +1238,8 @@ test('effects: coffee makes you walk faster, timed the same on server and in the
   const machine = w.map.objects.find(o => o.type === 'coffee_machine')!;
   w.use(a.u, machine.id); tick(20_000);
   assert.equal(a.u.holding, 'coffee');
+  w.handle(a.u, { t: 'drink' }, a.socket); tick(3000);
+  assert.equal(a.u.holding, 'empty:coffee');
   const speed = a.u.effects.find(e => e.kind === 'speed')!;
   assert.ok(speed.until && speed.until > Date.now() && speed.until <= Date.now() + EFFECTS.speed.ms!);
   const ms = walkMs(a.u.effects);

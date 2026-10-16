@@ -22,7 +22,7 @@ function setup(t: TestContext, bot = false) {
   }
   const move = (to: Tile) => { w.handle(u, { t: 'move', to }, socket); return messages.filter(m => m.t === 'move').at(-1) as Extract<ServerMsg, { t: 'move' }>; };
   const drink = (n = 1) => { for (let i = 0; i < n; i++) w.addEffect(u, 'drunk', { ms: 60_000, data: { level: i + 1 } }); };
-  return { w, u, bar, messages, target: target!, move, drink };
+  return { w, u, bar, messages, socket, target: target!, move, drink };
 }
 
 test('a drunk human sometimes lands a tile off, and every client gets the swapped destination', t => {
@@ -51,8 +51,8 @@ test('bots never mis-walk', t => {
 });
 
 test('the bar hands out happy hour on the first round, closing time on the third, designated driver on a handed drink', t => {
-  const { w, u, bar } = setup(t);
-  const take = (item: string) => { w.use(u, bar.id, item); t.mock.timers.tick(1250); };
+  const { w, u, bar, socket } = setup(t);
+  const take = (item: string) => { w.use(u, bar.id, item); t.mock.timers.tick(1250); w.handle(u, { t: 'drink' }, socket); t.mock.timers.tick(2500); }; // take it, then drink it
   take('cocktail');
   assert.ok(u.achievements.happy_hour);
   assert.equal(u.achievements.closing_time, undefined);

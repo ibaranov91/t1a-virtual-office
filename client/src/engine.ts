@@ -6,6 +6,7 @@ import { adminOnly, applyEdit, FIXED_TYPES, SEAT_TYPES, findPath, pathTo, sample
 import { FOOD_ITEMS, picnicSeat } from '../../shared/lunch';
 import { DungeonView } from './dungeon';
 import { DANCE_ROOM, danceBeat, dancePhase } from '../../shared/effects';
+import { DRINKS, emptyDrink, isEmpty } from '../../shared/drinks';
 import { drawEffects, effectLook, effectSway } from './effects';
 import { CreatureLayer, creaturePose } from './creatures';
 import { lockedDoors, roomDoors, type RoomDoor } from './doors';
@@ -670,10 +671,10 @@ export class Engine {
     return seats[0] ?? { x: Math.max(o.x, Math.min(o.x + o.w - 1, x)), y: o.y };
   }
   /** Sprite of an object you can use under this point. */
-  /** Holding a coffee or tea over a free table tile in the office: that's where it can go. */
+  /** Holding a drink with a cup (full or empty) over a free table tile in the office: that's where it can go. */
   private cupTarget(t: Tile): Tile | null {
-    const me = this.store.users.get(this.store.me);
-    if (!me?.holding || !CUP_ITEMS.includes(me.holding) || me.instance || this.areaDown || !cupTableAt(MAP.objects, t)) return null;
+    const me = this.store.users.get(this.store.me), cup = emptyDrink(me?.holding) ?? me?.holding;
+    if (!me || !cup || !CUP_ITEMS.includes(cup) || me.instance || this.areaDown || !cupTableAt(MAP.objects, t)) return null;
     return this.store.cups.some(c => c.tile.x === t.x && c.tile.y === t.y) ? null : t;
   }
   /** Holding food over a chair at a picnic table: that's where lunch happens. */
@@ -1337,8 +1338,15 @@ export class Engine {
     const icon = u.holding && !carrying ? ITEM_ICON.get(u.holding) : undefined;
     if (icon) {
       const ih = seat ? ITEM_HAND.down : ITEM_HAND[p.dir] ?? ITEM_HAND.down;
+      // a sip: the cup goes up to the mouth and tips twice, with a little "sip" over the head
+      const sipT = u.sipping !== undefined ? (performance.now() - u.sipping) / (DRINKS[u.holding!]?.sipMs ?? 2500) : 1;
+      const sip = sipT >= 0 && sipT < 1 ? Math.sin(Math.PI * Math.min(1, sipT * 4, (1 - sipT) * 4) / 2) : 0;
+      const ix = x + dx + ih.dx + (8 - ih.dx) * 0.4 * sip, iy = baseY + ih.dy + bob + (p.walking ? swing : 0) - 5 * sip + (sip === 1 ? Math.round(Math.sin(sipT * Math.PI * 4)) : 0);
       ctx.fillStyle = '#000'; ctx.font = '7px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; // emoji take the fill alpha
-      ctx.fillText(icon, x + dx + ih.dx, baseY + ih.dy + bob + (p.walking ? swing : 0));
+      if (isEmpty(u.holding)) ctx.globalAlpha = 0.45; // an empty cup: dimmed
+      ctx.fillText(icon, ix, iy);
+      ctx.globalAlpha = 1;
+      if (sip) { ctx.font = 'bold 5px system-ui, sans-serif'; ctx.lineWidth = 2; ctx.strokeStyle = '#2a1e1a'; ctx.strokeText('sip', x - 2, top + 7); ctx.fillStyle = '#fff'; ctx.fillText('sip', x - 2, top + 7); }
       ctx.textAlign = 'start'; ctx.textBaseline = 'alphabetic';
     }
     if (u.reading && seat && this.f('reading_book')) this.blit(ctx, 'reading_book', Math.round(x + 2), Math.round(baseY - 16 + bob)); // holding up the book
