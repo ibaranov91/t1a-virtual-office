@@ -1358,13 +1358,12 @@ export class World {
     if (!inst || u.bot || u.presence === 'offline' || goingOut(u)) return;
     if (!on) {
       inst.talk.delete(u.id); inst.out.add(u.id); this.setWaiting(u, null);
-      if (u.callId === `room:${inst.id}`) { this.leaveCall(u); this.broadcast({ t: 'meetings', rooms: this.meetingRooms() }); }
+      if (u.callId === `room:${inst.id}`) this.leaveCall(u);
       return;
     }
     if (entering && inst.out.has(u.id)) return; // left the voice on purpose: coming back doesn't put them on air
     inst.out.delete(u.id); inst.talk.add(u.id);
     this.joinInstanceHall(u, inst);
-    if (!entering) this.broadcast({ t: 'meetings', rooms: this.meetingRooms() });
   }
   private instEligible(u: User, inst: Instance) {
     return !u.bot && !u.afk && u.presence !== 'offline' && !goingOut(u) && u.instance === inst.id && inst.talk.has(u.id) && !!this.sockets.get(u.id)?.size;
@@ -1457,6 +1456,7 @@ export class World {
         this.closeKnock(k, 'later', `Knock cancelled — ${u.name} walked into ${call.room.name}`);
     }
     for (const [id] of this.sockets) this.sendTo(id, { t: 'call', userId: u.id, callId: call.id, link: call.members.has(id) ? call.link : undefined });
+    if (call.instance) this.broadcast({ t: 'meetings', rooms: this.meetingRooms() }); // the board's voice list follows every join, whoever caused it
     if (!knockCall(call)) return;
     const humansThere = [...call.members].some(id => !this.users.get(id)?.bot);
     const ms = !u.bot ? 2 * 60 * 60_000 : humansThere ? 120_000 + Math.random() * 180_000 : 30_000 + Math.random() * 60_000;
@@ -1528,6 +1528,7 @@ export class World {
     u.callId = null;
     call?.members.delete(u.id);
     this.broadcast({ t: 'call', userId: u.id, callId: null });
+    if (call?.instance) this.broadcast({ t: 'meetings', rooms: this.meetingRooms() });
     if (!call || !this.calls.has(call.id)) return;
     if (call.room) this.maintainRoom(call, now);
     else if (call.members.size < 2) {

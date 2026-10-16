@@ -293,7 +293,11 @@ button:focus-visible, summary:focus-visible, input[type="range"]:focus-visible {
 .rooms li .unread { grid-column: 2 / -1; justify-self: end; }
 .unread-btn { background: #6a8ad0; color: #fff; }
 @media (hover: none) { .rooms li .person-more { opacity: 1; } }
-@media (max-width: 560px) { .call-chip { white-space: normal; } }
+@media (max-width: 560px) {
+  .call-chip { white-space: normal; }
+  .meeting-chip { flex-wrap: wrap; row-gap: 6px; } /* the title takes a row of its own; the buttons wrap beneath it */
+  .meeting-chip > span:first-child { flex: 1 0 100%; padding-right: 6px; }
+}
 /* desktop: chips keep out of the chat (left) and People (right) columns */
 @media (min-width: 561px) and (min-height: 501px) {
   .stage:has(aside.chat) .chips { left: 376px; }

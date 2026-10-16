@@ -1556,3 +1556,19 @@ test('room voice is a hall: the line fills as places free up, hands go up, leave
   w.handle(other.u, { t: 'rtc', to: last.u.id, signal: { kind: 'hello', inst: 'x' } }, other.socket);
   assert.equal(last.messages.filter(x => x.t === 'rtc').length, 0);
 });
+
+test('the board\'s voice list follows a room call even when the sweep, not a click, moves people (reload mid-call)', t => {
+  const { w, add, tick } = setup(t), host = add('Host'), kim = add('Kim'), watcher = add('Watcher');
+  w.meetings.poll = async () => {};
+  w.handle(host.u, { t: 'room_create', invite: [kim.u.id] }, host.socket);
+  const m = [...w.meetings.events.values()].find(e => e.adhoc)!;
+  w.handle(kim.u, { t: 'meeting_go', key: m.key }, kim.socket);
+  const voice = () => [...watcher.messages].reverse().find(x => x.t === 'meetings')?.rooms.find(r => r.id === m.instance)?.voice.length;
+  assert.equal(voice(), 2);
+  kim.close(); w.voiceTick(); // the old page is gone: dropped from the call
+  assert.equal(voice(), 1, 'someone leaving by the sweep shows on the board');
+  const again = w.connect(kim.u.id, () => {}); w.voiceTick(); tick(300); // the reloaded page: put back by the sweep
+  assert.equal(kim.u.callId, `room:${m.instance}`);
+  assert.equal(voice(), 2, 'and so does the rejoin');
+  void again;
+});
