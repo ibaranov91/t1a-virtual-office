@@ -8,8 +8,8 @@ import type { RetroCabinet } from '../../shared/protocol';
 import type { FrameBatch } from './retro/player';
 // WebSocket client + the client-side mirror of server state.
 import mapJson from '../../shared/tilemap.json';
-import { applyLayout, besideObject, doorwayTiles, isWalkable, objectById, pathTo, roomAt, sampleMove, stallDoor, stallOfCall, type Dir, type Room, type Tile, type TileMap } from '../../shared/map';
-import { FOOD_ITEMS } from '../../shared/lunch';
+import { applyLayout, besideObject, doorwayTiles, isWalkable, objectById, pathTo, roomAt, sampleMove, stallDoor, stallOfCall, tableOfCall, type Dir, type Room, type Tile, type TileMap } from '../../shared/map';
+import { FOOD_ITEMS, picnicSeat } from '../../shared/lunch';
 import { ACHIEVEMENTS, underground, DUNGEON_INSTANCE, MEETING_ROOM_ID, PLANT_STAGES, plantName, ROOM_VOICE_MAX, type JukeboxState, type JukeboxAction, type AgendaItem, type LayoutEdit, type CalEvent, type MeetingRoomInfo, type ChatMsg, type LiveDeck, presentScope, type ObjectState, type ToiletState, type ClientMsg, type LaterItem, type PublicUser, type Reaction, type RtcSignal, type ServerMsg, type Creature, type Cup, CUP_ITEMS, type LibraryState } from '../../shared/protocol';
 import { gameDef } from '../../shared/arcade/registry';
 import { emptyWeek } from '../../shared/arcade/weeks';
@@ -480,6 +480,11 @@ export class Store {
       const o = objectById(MAP, stall), r = o && roomAt(MAP, stallDoor(o).x, stallDoor(o).y);
       return r && { ...r, name: 'the stall' };
     }
+    const table = tableOfCall(u.callId);
+    if (table) { // a picnic table's own voice, for everyone eating & chatting there
+      const o = objectById(MAP, table), r = o && roomAt(MAP, o.x, o.y);
+      return r && { ...r, name: 'the lunch table' };
+    }
     return MAP.rooms.find(r => r.id === u.callId!.slice(5)) ?? (u.instance && u.callId === `room:${u.instance}` ? MAP.rooms.find(r => r.id === MEETING_ROOM_ID) : undefined); // a meeting room's own voice
   }
   sameRoomCall(u: ClientUser) {
@@ -500,6 +505,7 @@ export class Store {
     if (me?.callId && me.callId === u.callId) return 'Already talking';
     if (u.door === 'thinking' || u.door === 'leaving') return 'Heading out';
     const talking = !!u.callId && !u.callId.startsWith('room:'); // a direct talk: knock even when they stand in a hall or stall
+    if (tableOfCall(u.callId)) return 'Chatting at lunch — sit at their table and pick Eat & chat';
     if (!talking && (hall || room?.rules.voice === 'open')) return `In ${(hall ?? room)!.name} — just walk in`;
     if (mine) return `You're in ${mine.name} voice — step out to knock`;
     return room?.rules.knock === 'disabled' ? `${room.name}: ${room.rules.label}` : null;
@@ -509,6 +515,8 @@ export class Store {
     const me = this.users.get(this.me);
     if (!me?.callId || me.callId.startsWith('room:') || me.instance) return null;
     if (Object.values(this.toilets).some(t => t.in.includes(me.id))) return 'the stall';
+    const p = this.pose(me);
+    if (me.eating?.open && !p.walking && picnicSeat(MAP, p.tile)) return 'the lunch table';
     const r = this.roomOf(me);
     return r?.rules.voice === 'open' ? r.name : null;
   }

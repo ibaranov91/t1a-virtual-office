@@ -274,6 +274,10 @@ export const stallDoor = (o: MapObject): Tile => ({ x: o.x, y: o.y - 1 });
 export const STALL_VOICE = 'room:stall:';
 export const stallVoiceId = (objectId: string) => STALL_VOICE + objectId;
 export const stallOfCall = (callId?: string | null) => callId?.startsWith(STALL_VOICE) ? callId.slice(STALL_VOICE.length) : undefined;
+/** The same for a picnic table: everyone eating there who picked "Eat & chat". */
+export const TABLE_VOICE = 'room:table:';
+export const tableVoiceId = (objectId: string) => TABLE_VOICE + objectId;
+export const tableOfCall = (callId?: string | null) => callId?.startsWith(TABLE_VOICE) ? callId.slice(TABLE_VOICE.length) : undefined;
 /** Where the line for a stall stands: straight out from the door, first in line nearest. */
 export function stallLine(m: TileMap, o: MapObject, n: number): Spot[] {
   const door = stallDoor(o), out: Spot[] = [];
