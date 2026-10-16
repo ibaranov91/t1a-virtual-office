@@ -1215,7 +1215,7 @@ export class Engine {
     const key = `${u.name}|${isMe}`;
     let plate = this.nameplates.get(key);
     if (!plate) {
-      const label = u.name.split(/\s+/)[0].slice(0, 10);
+      const label = u.name.slice(0, 16);
       const w = textWidth(label) + 4;
       plate = document.createElement('canvas'); plate.width = w; plate.height = 8;
       const pc = plate.getContext('2d')!;
