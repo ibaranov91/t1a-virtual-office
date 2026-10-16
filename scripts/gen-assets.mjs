@@ -1683,7 +1683,7 @@ for (const axis of ['h', 'v']) { // a room door only admins open: the closed doo
   make('record_wall', 16, 16, t => { t.rect(2, 2, 12, 12, '#2e3640'); t.ellipse(8, 8, 5, 5, '#1a1e24'); t.ellipse(8, 8, 2, 2, '#b4534a'); t.px(8, 8, '#f4f0e6'); t.hline(5, 6, 2, '#56606c'); t.hline(9, 10, 2, '#56606c'); });
 }
 
-// ---------- Break Set: pads, cursors, cards, awards and the first versus games ----------
+// ---------- Break Set: pads, cursors, cards, awards and versus games ----------
 {
   const make = (name, w, h, draw) => { const t = new Img(w, h); draw(t); frames[`party_${name}`] = t.outline(); };
   const colors = ['#f08a80', '#80b8f0', '#a0d880', '#f2d060'];
@@ -1708,16 +1708,45 @@ for (const axis of ['h', 'v']) { // a room door only admins open: the closed doo
   make('star', 16, 16, t => { for (const [y, x, w] of [[2, 7, 2], [3, 6, 4], [4, 6, 4], [5, 3, 10], [6, 2, 12], [7, 4, 8], [8, 5, 6], [9, 4, 8], [10, 4, 3], [10, 9, 3], [11, 3, 3], [11, 10, 3]]) t.hline(x, y, w, '#f2d060'); t.px(7, 5, '#fff0a0'); });
   make('award', 12, 16, t => { t.rect(3, 2, 6, 6, '#f2d060'); t.hline(1, 3, 10, '#f2d060'); t.vline(1, 3, 4, '#b88a20'); t.vline(10, 3, 4, '#b88a20'); t.rect(5, 8, 2, 4, '#f2d060'); t.hline(2, 13, 8, '#b88a20'); });
   make('favourite', 16, 16, t => { t.hline(3, 3, 4, '#f08a80'); t.hline(9, 3, 4, '#f08a80'); for (const [y, x, w] of [[4, 2, 12], [5, 2, 12], [6, 2, 12], [7, 3, 10], [8, 4, 8], [9, 5, 6], [10, 6, 4], [11, 7, 2]]) t.hline(x, y, w, '#f08a80'); });
-  for (const game of ['crumble', 'crown', 'park', 'surprise']) make(`card_${game}`, 32, 32, t => {
+  make('quiver_stone', 16, 16, t => { t.rect(0,0,16,16,'#616980'); t.hline(0,0,16,'#9cacc0'); t.hline(0,7,16,'#3e4559'); t.hline(0,15,16,'#30384b'); t.vline(7,0,7,'#3e4559'); t.vline(3,8,7,'#3e4559'); });
+  make('bow', 8, 12, t => { t.vline(1,1,10,'#ead5a0'); t.vline(5,3,6,'#b87947'); t.px(3,1,'#d9a65f'); t.px(4,2,'#d9a65f'); t.px(4,9,'#d9a65f'); t.px(3,10,'#d9a65f'); t.hline(0,5,8,'#e5e2cd'); });
+  for (const stuck of [false,true]) make(stuck ? 'arrow_stuck' : 'arrow',10,4,t => { t.hline(1,2,8,stuck ? '#d5ba8f' : '#fff4e0'); t.px(7,1,'#b2c3d0'); t.px(7,3,'#b2c3d0'); t.px(1,1,'#f08a80'); t.px(0,0,'#f08a80'); });
+  make('quiver_spikes',16,8,t => { for (let x=0;x<16;x+=4) { t.px(x+2,0,'#e2c8cf'); t.hline(x+1,2,3,'#e2c8cf'); t.rect(x,4,4,4,'#b55368'); } });
+  make('run_window',16,24,t => { t.rect(1,1,14,22,'#253848'); t.rect(3,3,10,17,'#6b8097'); t.vline(7,3,17,'#33485b'); t.hline(3,10,10,'#33485b'); t.hline(3,4,4,'#aec8cf'); t.hline(0,22,16,'#92a0ab'); });
+  make('run_floor',16,16,t => { t.rect(0,0,16,16,'#5d6972'); t.hline(0,0,16,'#d2c69d'); t.hline(0,3,16,'#e7ba60'); t.hline(0,5,16,'#343f50'); t.rect(4,9,7,2,'#424d60'); });
+  make('run_dash',24,8,t => { for (const [x,y,w] of [[0,1,16],[5,3,19],[0,6,13]]) t.hline(x,y,w,'#bfe8df'); t.hline(14,4,8,'#f2d060'); });
+  make('volley_floor',16,16,t => { t.rect(0,0,16,16,'#b58c65'); t.hline(0,0,16,'#f4d5a1'); t.hline(0,2,16,'#dfb881'); t.vline(7,3,13,'#91704f'); t.hline(1,9,5,'#c79e74'); });
+  make('volley_net',4,16,t => { t.rect(0,0,4,16,'#cee1d7'); t.vline(1,0,16,'#344b50'); for (let y=2;y<16;y+=4) t.hline(0,y,4,'#344b50'); });
+  make('volley_ball',8,8,t => { t.ellipse(3.5,3.5,3.5,3.5,'#fff4e0'); t.vline(3,1,6,'#d99259'); t.hline(1,3,6,'#5f91bb'); t.px(2,1,'#fff'); });
+  make('volley_impact',16,16,t => { for (const [x,y] of [[2,2],[12,2],[1,8],[13,8],[3,12],[11,12]]) { t.rect(x,y,2,2,'#f2d060'); } t.hline(6,0,3,'#fff4e0'); });
+  colors.forEach((c,slot) => {
+    make(`trail_${slot}`,5,5,t => { t.rect(0,0,5,5,c); t.hline(1,2,3,'#fff4e0'); });
+    make(`bike_${slot}`,7,5,t => { t.rect(1,1,5,3,c); t.px(6,2,'#fff4e0'); t.px(1,0,'#a6c6cc'); t.px(1,4,'#a6c6cc'); t.hline(2,2,2,'#273446'); });
+  });
+  make('sky_cloud',24,8,t => { t.ellipse(7,4,6,3,'#aec8cf'); t.ellipse(14,3,5,3,'#c7dfe0'); t.ellipse(19,5,4,2,'#aec8cf'); });
+  for (const kind of ['normal','moving','breaking','spring']) make(`sky_${kind}`,24,kind === 'spring' ? 8 : 6,t => {
+    const c = { normal:'#91b77e', moving:'#80b8f0', breaking:'#dc9d7c', spring:'#f2d060' }[kind];
+    t.rect(0,0,24,5,c); t.hline(1,0,22,'#eef4d7'); t.hline(0,4,24,'#3d5961');
+    if (kind === 'moving') { t.hline(6,2,12,'#3d5961'); t.px(5,2,'#fff4e0'); t.px(18,2,'#fff4e0'); }
+    if (kind === 'breaking') { t.px(10,0,'#70564c'); t.px(11,1,'#70564c'); t.px(10,2,'#70564c'); t.px(9,3,'#70564c'); }
+    if (kind === 'spring') { t.hline(8,1,8,'#b55c74'); t.hline(9,3,6,'#b55c74'); t.hline(8,6,8,'#b55c74'); }
+  });
+  for (const game of ['crumble', 'crown', 'park', 'surprise', 'quiver', 'screenrun', 'volley', 'trails', 'skylanes']) make(`card_${game}`, 32, 32, t => {
     t.rect(1, 1, 30, 30, '#4f7772'); t.hline(2, 1, 28, '#a0d8b0');
     if (game === 'crumble') { t.blit(frames.party_crumble, 3, 4); t.blit(frames.party_crumble_crack_2, 13, 16); }
     if (game === 'crown') { t.blit(frames.party_stapler, 8, 10); t.blit(frames.party_star, 1, 1); }
     if (game === 'park') { t.blit(frames.park_key, 3, 9); t.blit(frames.park_door_open, 17, 0); }
+    if (game === 'quiver') { t.blit(frames.party_bow,8,9); t.blit(frames.party_arrow,14,13); t.blit(frames.party_quiver_spikes,8,23); }
+    if (game === 'screenrun') { t.blit(frames.party_run_window,3,3); t.blit(frames.party_run_dash,4,15); t.blit(frames.party_run_floor,15,25); }
+    if (game === 'volley') { t.blit(frames.party_volley_net,15,15); t.blit(frames.party_volley_ball,19,5); t.hline(3,27,26,'#f4d5a1'); }
+    if (game === 'trails') { t.rect(5,7,3,19,colors[0]); t.rect(7,23,14,3,colors[0]); t.blit(frames.party_bike_0,20,22); t.rect(17,5,3,11,colors[1]); t.blit(frames.party_bike_1,16,14); }
+    if (game === 'skylanes') { t.blit(frames.party_sky_cloud,4,3); t.blit(frames.party_sky_normal,2,23); t.blit(frames.party_sky_spring,7,12); }
     if (game === 'surprise') { t.hline(12, 7, 8, '#f2d060'); t.vline(19, 8, 6, '#f2d060'); t.hline(14, 14, 6, '#f2d060'); t.vline(14, 14, 4, '#f2d060'); t.rect(14, 22, 2, 2, '#f2d060'); }
   });
-  for (const control of ['move', 'jump', 'action']) make(`control_${control}`, 16, 16, t => {
+  for (const control of ['move', 'aim', 'jump', 'action']) make(`control_${control}`, 16, 16, t => {
     t.rect(1, 1, 14, 14, '#e8dcc8');
     if (control === 'move') { t.hline(3, 7, 10, '#355451'); t.vline(7, 3, 10, '#355451'); }
+    if (control === 'aim') { t.ellipse(7,7,4,4,'#5577a8'); t.ellipse(7,7,2,2,'#e8dcc8'); t.hline(3,7,9,'#355451'); t.vline(7,3,9,'#355451'); }
     if (control === 'jump') { t.vline(7, 4, 8, '#355451'); t.hline(5, 6, 5, '#355451'); t.px(6, 5, '#355451'); t.px(8, 5, '#355451'); }
     if (control === 'action') for (let i = 0; i < 7; i++) { t.px(4 + i, 4 + i, '#b4534a'); t.px(10 - i, 4 + i, '#b4534a'); }
   });

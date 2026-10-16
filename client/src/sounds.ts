@@ -133,6 +133,9 @@ export function playPark(kind: string) {
     jump: [260, 520], coin: [880, 1320], key: [660, 990, 1320], door: [220, 330, 440],
     button: [180, 240], stomp: [180, 100], death: [320, 200, 100], respawn: [330, 440, 660],
     vote: [660, 880], crack: [140, 90], tackle: [180, 320], crown: [880, 1175], steal: [440, 880, 1175],
+    arrow: [740, 370], arrowstick: [180, 120], pickup: [660, 990], heat: [523, 784, 1047],
+    rundash: [180, 520], shove: [180, 270], volleyhit: [420, 600], volleyspike: [260, 130], volleypoint: [523, 659, 880],
+    bikejump: [330, 660], bikeboost: [220, 440], bikecrash: [180, 90], skybounce: [390, 580], skyspring: [520, 1040], skybreak: [190, 110],
     title: [330, 660], scores: [523, 659], favourite: [660, 784], bonus: [784, 988, 1175], awards: [523, 659, 784, 1047],
     clear: [523, 659, 784, 1047], select: [440, 660], cheer: [520, 880],
   };
