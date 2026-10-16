@@ -12,6 +12,7 @@ import type { Assets, Frame } from './assets';
 import { drawText, textWidth } from './font';
 import { TRACK } from '../../shared/music';
 import { TOILET_CAPACITY, toiletFull, cupTableAt, CUP_ITEMS, underground, MEETING_ROOM_ID, PLANT_REVEAL, PLANT_STAGES, plantDead, plantName, type Cup, type LayoutEdit } from '../../shared/protocol';
+import { isCovered } from './native';
 import { ITEMS, MAP, type ClientUser, type Pose, type Store, type DungeonFx } from './net';
 
 const TS = MAP.tileSize;
@@ -857,11 +858,27 @@ export class Engine {
   private touched = () => { this.lastInput = performance.now(); };
   /** Cap the redraw rate: 60 fps while anything moves or the user is interacting (ProMotion would otherwise draw 120), 30 when the floor is still. */
   private skipFrame(ms: number) {
-    const busy = this.glide || this.editing || ms - this.lastInput < 1500 || [...this.store.users.values()].some(u => u.move && this.store.pose(u, this.store.now()).walking);
     const gap = ms - this.lastDraw;
-    if (gap < (busy ? 15 : 31)) return true;
+    if (isCovered()) { if (gap < 490) return true; } // the Mac app's view is behind other windows: ~2 fps
+    else if (gap < 15) return true;
+    else if (gap < 49) { // three tiers: 60 while busy, 30 while something small animates, 20 when the floor is still
+      const now = this.store.now(), users = [...this.store.users.values()];
+      const busy = this.glide || this.editing || ms - this.lastInput < 1500 || this.store.version !== this.drawnVersion
+        || users.some(u => { if (!u.move) return false; const p = this.store.pose(u, now); return p.walking && this.visible(u) && this.onScreen(p.x * TS - TS, p.y * TS - TS, 3 * TS, 3 * TS); });
+      if (!busy) {
+        if (gap < 31) return true;
+        const lively = this.store.reactions.length || this.store.dungeonFx.length || users.some(u => this.visible(u) && this.isSpeaking(u));
+        if (!lively) return true;
+      }
+    }
     this.lastDraw = ms;
     return false;
+  }
+  private drawnVersion = -1;
+  /** Visible world rect (a tile of margin): anything wholly outside it is not drawn. */
+  private vis = { x0: -1e9, y0: -1e9, x1: 1e9, y1: 1e9 };
+  private onScreen(x: number, y: number, w: number, h: number) {
+    const v = this.vis; return x < v.x1 && x + w > v.x0 && y < v.y1 && y + h > v.y0;
   }
   private frame = (ms: number) => {
     this.raf = requestAnimationFrame(this.frame);
@@ -897,6 +914,8 @@ export class Engine {
       this.cam.x += (target.x - this.cam.x) * k; this.cam.y += (target.y - this.cam.y) * k;
     }
     const camX = Math.round(this.cam.x * this.px) / this.px, camY = Math.round(this.cam.y * this.px) / this.px;
+    this.vis = { x0: camX - TS, y0: camY - TS, x1: camX + this.viewW + TS, y1: camY + this.viewH + TS };
+    this.drawnVersion = this.store.version;
 
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.fillStyle = '#1b1418'; ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
@@ -904,8 +923,12 @@ export class Engine {
     ctx.setTransform(this.px, 0, 0, this.px, -camX * this.px, -camY * this.px);
     ctx.save();
     ctx.beginPath(); ctx.rect(this.area.x * TS, this.area.y * TS, this.area.w * TS, this.area.h * TS); ctx.clip();
-    ctx.drawImage(this.staticLayer, this.area.x * TS, this.area.y * TS, this.area.w * TS, this.area.h * TS,
-      this.area.x * TS, this.area.y * TS, this.area.w * TS, this.area.h * TS);
+    {
+      const a = this.area, v = this.vis;
+      const sx = Math.max(a.x * TS, Math.floor(v.x0 / TS) * TS), sy = Math.max(a.y * TS, Math.floor(v.y0 / TS) * TS);
+      const ex = Math.min((a.x + a.w) * TS, Math.ceil(v.x1 / TS) * TS), ey = Math.min((a.y + a.h) * TS, Math.ceil(v.y1 / TS) * TS);
+      if (ex > sx && ey > sy) ctx.drawImage(this.staticLayer, sx, sy, ex - sx, ey - sy, sx, sy, ex - sx, ey - sy);
+    }
     if (this.areaDown) this.drawDungeon(ms); else { this.drawDanceFloor(ctx, poses); this.drawClockHands(ctx); }
 
     // hover tile + my destination marker
@@ -946,21 +969,27 @@ export class Engine {
       if (d.fx) return this.drawDungeonFx(d.fx, ms);
       if (d.u) {
         const fx = this.store.dungeonFx.find(f => f.user.id === d.u!.id && f.kind !== 'fall' && ms >= f.at && ms - f.at < 650 && (this.areaDown === (f.kind === 'land')));
-        return fx ? this.drawDungeonFx(fx, ms) : this.drawSprite(d.u, d.p!, ms);
+        return fx ? this.drawDungeonFx(fx, ms) : this.onScreen(d.p!.x * TS - TS, d.p!.y * TS - 2 * TS, 3 * TS, 4 * TS) ? this.drawSprite(d.u, d.p!, ms) : undefined;
       }
       if (d.door) { // open while someone stands in or right next to the doorway; a locked one stays shut for non-admins
-        const door = d.door, open = [...poses.values()].some(p => door.tiles.some(t => Math.abs(t.x - p.tile.x) + Math.abs(t.y - p.tile.y) <= 1));
+        const door = d.door;
+        if (!this.onScreen(door.x * TS - 4, door.y * TS - 4, door.w * TS + 8, door.h * TS + 8)) return;
+        const open = [...poses.values()].some(p => door.tiles.some(t => Math.abs(t.x - p.tile.x) + Math.abs(t.y - p.tile.y) <= 1));
         const locked = door.locked && !this.store.admin, age = ms - (this.deniedAt.get(door.room.id) ?? -1e9);
         const shake = locked && age < 450 ? Math.round(Math.sin(age / 22) * 2) : 0;
         const name = `door_${door.horizontal ? 'h' : 'v'}_${locked ? 'locked' : open ? 'open' : 'closed'}`, fr = this.f(name);
         return void (fr && this.blit(ctx, name, door.x * TS + (door.w * TS - fr.w) / 2 + shake, (door.y + door.h) * TS - fr.h));
       }
-      const p = d.plant!, pl = p.u.plant!, kinded = pl.kind && pl.stage >= PLANT_REVEAL;
+      const p = d.plant!, pl = p.u.plant!;
+      if (!this.onScreen(p.x - 16, p.y - 24, 32, 32)) return;
+      const kinded = pl.kind && pl.stage >= PLANT_REVEAL;
       this.blit(ctx, plantDead(pl, t) ? 'pot_dead' : kinded ? `pot_${pl.kind}_${pl.stage}` : `pot_${pl.stage}`, p.x - 6, p.y - 20);
     };
     let di = 0;
     for (const f of this.areaDown ? [] : this.furniture) {
       while (di < ds.length && ds[di].base <= f.base) drawD(ds[di++]);
+      const ff = this.f(f.o.type);
+      if (!this.onScreen(f.x - 2, f.y - 2, ff.w + 4, ff.h + 4)) continue;
       this.blit(ctx, f.o.type === 'arcade' && this.store.cabinets.some(c => c.cabinet === f.o.id) ? `arcade_on_${1 + Math.floor(ms / 320) % 2}` : f.o.use?.kind === 'toilet' ? this.toiletFrame(f.o.id)
         : f.o.type === 'bell' ? this.bellFrame(f.o.id, ms) : f.o.type === 'hat_rack' ? this.hatRackFrame(f.o, ms) : f.o.type === 'reading_table' && this.flickers(f.o, ms) ? 'reading_table_1'
         : f.o.type === 'server_rack' && Math.floor(ms / 500 + f.o.x * 3 + f.o.y) % 2 ? 'server_rack_1' : f.off && !this.isOn(f.o) ? `${f.o.type}_off` : f.o.type, f.x, f.y);
@@ -1014,7 +1043,7 @@ export class Engine {
     // overlays: nameplates + bubbles (never occluded)
     const sorted = users.slice().sort((a, b) => poses.get(a.id)!.y - poses.get(b.id)!.y);
     this.placedPlates = [];
-    for (const u of sorted) this.drawOverlay(u, poses.get(u.id)!, ms);
+    for (const u of sorted) { const p = poses.get(u.id)!; if (this.onScreen(p.x * TS - 2 * TS, p.y * TS - 3 * TS, 5 * TS, 5 * TS)) this.drawOverlay(u, p, ms); }
     this.drawReactions(poses, ms);
     if (!this.areaDown && !me?.instance) this.drawClub(ctx, ms);
     if (!this.areaDown) this.drawAmbient(ctx, camX, camY, ms);
