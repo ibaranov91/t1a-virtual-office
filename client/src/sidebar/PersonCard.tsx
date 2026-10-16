@@ -4,7 +4,7 @@ import type { Store } from '../net';
 import type { Engine } from '../engine';
 import type { Assets } from '../assets';
 import { prefs, savePrefs, subscribePrefs } from '../prefs';
-import { activityLine, place } from './model';
+import { splitStatus, activityLine, place } from './model';
 import { Avatar, useSpeaking } from './Avatar';
 import { useSurface } from './hooks';
 import { effectOf } from '../../../shared/effects';
@@ -18,6 +18,7 @@ export function PersonCard({ store, engine, assets, at, compact, onClose, onActi
   useEffect(() => subscribePrefs(() => tick(n => n + 1)), []);
   const u = store.users.get(at.id), me = store.users.get(store.me);
   if (!u) return null;
+  const statusEmoji = splitStatus(u.status ?? '').emoji;
   const mine = u.id === store.me, room = store.roomCallOf(u), activity = activityLine(store, u);
   const offline = u.presence === 'offline', away = u.door === 'thinking' || u.door === 'leaving';
   const knock = store.knockReason(u), dungeon = store.dungeonReason(u);
@@ -29,7 +30,7 @@ export function PersonCard({ store, engine, assets, at, compact, onClose, onActi
   return <div {...surface} className={`sb-card sb-surface${compact ? ' sb-surface-sheet' : ''}`} role="dialog" aria-label={u.name}>
     <header>{compact ? <button className="ghost" onClick={onClose}>← Back</button> : <button className="ghost" onClick={onClose} aria-label="Close person card"><Icon name="close" /></button>}
       <div className="sb-card-head"><Avatar assets={assets} user={u} size={48} ring={speaking.has(u.id)} />
-        <div><b>{u.name}</b><small>{{ online: 'Online', away: 'Away', in_call: 'In a call', offline: 'Offline' }[u.presence]} · {place(store, u)}</small>
+        <div><b>{u.name}{statusEmoji && <span className="sb-status-emoji">{statusEmoji}</span>}</b><small>{{ online: 'Online', away: 'Away', in_call: 'In a call', offline: 'Offline' }[u.presence]} · {place(store, u)}</small>
           {u.tz && <small>{new Intl.DateTimeFormat([], { timeZone: u.tz, hour: '2-digit', minute: '2-digit' }).format(new Date())} their time</small>}</div></div>
     </header>
     <div className="sb-surface-body">

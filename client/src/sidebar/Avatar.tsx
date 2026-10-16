@@ -14,7 +14,7 @@ export function Avatar({ assets, user, size, ring, dot = true }: { assets: Asset
       head = document.createElement('canvas'); head.width = head.height = 16;
       head.getContext('2d')!.drawImage(assets.sheet(user.look), 0, 0, 16, 16, 0, 0, 16, 16); heads.set(key, head);
     }
-    const ctx = ref.current.getContext('2d')!, n = 16 * Math.max(1, Math.floor(size / 16));
+    const ctx = ref.current.getContext('2d')!, n = 16 * Math.max(1, Math.floor((size === 80 ? 64 : size) / 16));
     ctx.imageSmoothingEnabled = false; ctx.clearRect(0, 0, size, size); ctx.drawImage(head, (size - n) / 2, (size - n) / 2, n, n);
   }, [assets, user.look, size]);
   return <span className={`sb-avatar${ring ? ' speaking' : ''}${size >= 40 ? ' large' : ''}`} style={{ width: size, height: size }}>

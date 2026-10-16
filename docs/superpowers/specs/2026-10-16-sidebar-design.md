@@ -246,10 +246,19 @@ mic and headphones `VoiceToggle` controls, and a red `disconnect` button for kno
 is their compact status, not a second floating chip. `voiceState` and `earshotLine` stay shared in the sidebar module.
 
 **Identity row**: one flex row, centered, `gap: 10px`. Your 40 px avatar (32 px crisp sprite head) has a 12 px presence
-dot; clicking it opens Online / Away / In a call (`presence-pop`, upward). Your name is 16 px, weight 800,
-`--text`, ellipsized; below it, while you're in voice, a green `🔊 In voice` (Discord's user panel), otherwise your
-status in 13 px `--muted`, or `Set a status`. No room name here. Name and status are one button opening `status-pop`
-upward: input with `maxLength=80`, Enter saves, Esc cancels, outside click saves, `Clear`.
+dot; clicking it opens Your profile popout. Your name is `--fs-lg`, weight `--fw-heavy`,
+`--text`, ellipsized; below it, while you're in voice, a green In voice, otherwise your status in
+`--fs-sm` muted, or Set a status. Name and status are one button opening the same profile popout.
+The rail's own avatar button still expands the sidebar.
+
+**Status editor** — the profile status bubble opens “Set a status” inside the profile, replacing its menu area until saved or cancelled. A 36 px emoji button toggles an eight-column picker of 40 emoji and
+“No emoji”; arrows move between emoji, Enter picks, and Escape closes the picker first. Picking returns focus to
+the text-only input. With empty draft text, eight presets (In a meeting, Commuting, Out sick, On vacation, Working
+remotely, Out for lunch, Heads down, Coffee break) fill the draft without saving. Save or Enter and outside
+pointerdown save the leading emoji plus text as one status string capped at 80 characters; Clear saves an empty
+string, and close or Escape cancels. The popover is `min(340px, calc(100vw - 16px))` wide. Lists and person-card
+headers show the emoji after the name; activity and bottom-card status lines show the text part only (In voice
+still takes priority). The compact pill keeps the full status order.
 
 On the right (`margin-left:auto`): mic split (`VoiceToggle` + input chevron), headphones split (`VoiceToggle` +
 output chevron), then settings. Buttons are 36×40, icons 24 px, chevrons 16 px wide, radius 8 px, hover `--panel2`.
@@ -259,6 +268,38 @@ card, moves focus inside on opening and back to its trigger on closing. Escape r
 
 **Scale**: Discord's sizes. Room rows are 36 px with 16 px names; person rows 38 px (46 px with a second line) with
 32 px avatars, 15 px names and 13 px second lines; group headers 13 px; the header tabs and search 36 px, 15 px.
+
+## Your profile popout
+
+Desktop (wide and narrow): clicking your avatar or name/status in the bottom card opens one profile,
+anchored 8px above the card, the same width, `max-height: calc(100vh - 80px)`, scrolling body and z-index 9.
+Compact: the top bar identity pill opens the same profile as `.sb-surface-sheet`, inside the stage,
+above the dock with safe-area insets and a scrolling body. An arrow-left Icon and “Back” close it.
+Escape and outside pointerdown close it; `useSurface` focuses its first control and returns focus to its
+opener on close. Opening and interaction are disabled while `overlayOpen(store)`.
+
+- Banner: 64px strip in `me.look.shirt`, rounded top corners `--radius-lg`.
+- Avatar: 80px with a 64px crisp head, overlapping the banner's bottom-left edge, 4px `--panel` ring,
+  16px presence dot. Beside it, a speech-bubble status button shows the full emoji and text, or muted italic
+  “+ Set a status”. It opens the existing Slack-style editor in place. Escape closes the emoji picker first,
+  then returns from the editor to the profile. Saving, clearing and cancelling return to the profile.
+- Name: `--fs-2xl`, heavy. Below: `--fs-sm` muted room (Hallway / In a meeting room as appropriate)
+  and local time when shared.
+- In voice card: only for knock calls outside instances or room voice. `--fs-sm` heavy title “In voice”,
+  room name or “Call with <names>”, full-width “Show me on the map” calling `engine.recenter()`.
+- Action card: 44px rows, `--fs-md`, 20px Icon left, chevron right. Edit look (`shirt`) opens AppearanceMenu;
+  Pockets (`backpack`) shows the item count and opens PocketsPanel; Achievements (`trophy`) opens
+  AchievementsPanel, with a dot and second line “your plant needs a status today” when `needsWater(me.plant)`.
+- Presence card: current colored dot and Online / Away / In a call label, chevron; expands in place to those
+  three choices, each calling `store.setPresence`.
+- Sign out card: `logout` Icon and `--danger` text, using the existing logout handler.
+
+Office owns the profile surface and panel callbacks, passing the opener callback through Sidebar → SelfPanel →
+IdentityPill and into the compact top bar. Panel actions close the profile and expanded narrow/compact sidebar
+before opening the existing panel. AppearanceMenu, PocketsPanel and AchievementsPanel stay unchanged;
+the automatic first-time appearance flow still opens when `!me.lookSet`.
+The top bar keeps brand, UnreadButton, LaterButton, Meet and Mac app in ⋯, and admin pencil / GM sparkles hangers.
+It has no trophy, pockets, appearance or Leave controls.
 
 ## Rail (collapsed)
 
@@ -358,7 +399,7 @@ many panels: keep it). `.stage.editing .canvas-wrap { left: 280px }` keeps worki
 
 Everything the old panel did, now in the new one: walk to a room, open a person's actions, unread badge opening the
 chat, game and instrument marks, meeting/door/underground/status lines, the special groups, Offline. The ⋯ menu keeps
-Meet, Mac app and Leave; the hangers (🏆, ✏️, ✨, 🎒, appearance) and `UnreadButton` stay in the top bar. The
+Meet and Mac app; admin edit and GM hangers, `UnreadButton` and `LaterButton` stay in the top bar. The
 action wheel, toasts, the remaining chips (meeting, live, now playing, dungeon, desk), the zoom cluster, the chat
 panel and every other panel are untouched.
 
