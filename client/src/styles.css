@@ -95,6 +95,8 @@ button.netbird small { font-weight: var(--fw-medium); font-size: var(--fs-sm); o
 .top-left { grid-column: 1; display: flex; align-items: center; gap: 8px; min-width: 0; }
 .top-right { grid-column: 3; display: flex; align-items: center; gap: 6px; }
 .hangers { display: flex; align-items: center; gap: 4px; }
+.pockets-count { font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
+.pockets-btn.on { background: var(--accent); color: var(--bg); }
 /* every control in the bar (and the zoom cluster) is the same pill */
 .chip { font-size: var(--fs-md); box-sizing: border-box; height: 30px; min-height: 0; padding: 0 10px; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
   background: var(--panel2); color: var(--text); border-radius: 6px; box-shadow: none; line-height: 1; white-space: nowrap; flex: none; }
