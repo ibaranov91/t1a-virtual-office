@@ -133,7 +133,7 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
   useEffect(() => { const s = new Soundscape(store); return () => s.destroy(); }, [store]);
   // Receive connections start before microphone permission settles.
   const [voice, setVoice] = useState<Voice | null>(null);
-  useEffect(() => syncNative(store), [store]);
+  useEffect(() => syncNative(store, voice), [store, voice]);
   useEffect(() => {
     let v: Voice | null = null, unsub = () => {}, cancelled = false;
     fetch('/api/config').then(r => r.json()).then(c => {

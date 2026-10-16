@@ -1,6 +1,8 @@
 // Bridge to the macOS menu bar app (macos/), which hosts this page in a WKWebView.
 // In a normal browser `webkit.messageHandlers.deck` doesn't exist and this is a no-op.
 import type { Store } from './net';
+import type { Voice } from './voice';
+import { prefs } from './prefs';
 
 type Handler = { postMessage(msg: unknown): void };
 const handler = (): Handler | undefined => (window as unknown as { webkit?: { messageHandlers?: { deck?: Handler } } }).webkit?.messageHandlers?.deck;
@@ -14,7 +16,7 @@ export const inNativeApp = () => !!handler();
 /** Mirror what the menu bar shows (knocks, call, mute/deafen, busy, unread messages) whenever it changes. The knock card's
  *  Later calls `window.__deckNative.reply`; accepting happens in the page so voice starts from a click.
  *  Clicking the icon with unread messages calls `__deckNative.openChat`. */
-export function syncNative(store: Store) {
+export function syncNative(store: Store, voice: Voice | null) {
   if (!handler()) return () => {};
   Object.assign(window, { __deckNative: {
     reply: (knockId: string, reply: 'accept' | 'later') => store.replyKnock(knockId, reply),
@@ -33,7 +35,9 @@ export function syncNative(store: Store) {
     const state = {
       type: 'state', connected: store.connected,
       inCall: !!me?.callId,
-      muted: !!me?.muted, deafened: !!me?.deafened, // shown on the icon while in a call
+      // the same states as the mic and speaker buttons (VoiceIcons in App.tsx)
+      mic: !store.connected || !store.voiceOwner ? 'off' : !me?.callId ? 'idle' : voice?.micError ? 'err' : (voice?.muted ?? true) ? 'muted' : 'live',
+      speaker: !store.connected || !store.voiceOwner ? 'off' : (voice?.deafened ?? prefs.deafened) ? 'deafened' : 'live',
       busy: me?.presence === 'away' || !!me?.callId, // quiet mode: icon only, no knock card
       knocks: store.toasts.filter(t => t.kind === 'knock_in').map(t => ({ id: t.knockId, text: t.text })),
       unread: [...store.unread].map(([id, count]) => ({ id, name: store.name(id), count })), // oldest first
