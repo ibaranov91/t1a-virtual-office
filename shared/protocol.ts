@@ -177,7 +177,7 @@ export const cupTableAt = <O extends { type: string; x: number; y: number; w: nu
   objects.find(o => CUP_TABLES.includes(o.type) && t.x >= o.x && t.x < o.x + o.w && t.y >= o.y && t.y < o.y + o.h);
 export type CreatureServerMsg =
   | { t: 'creatures'; creatures: Creature[] } // everyone, on connect and when one appears or leaves
-  | { t: 'creature'; creature: Creature }     // one of them set off, sat down, fell asleep…
+  | { t: 'creature'; creature: Creature; by?: string }     // one of them set off, sat down, fell asleep…
   | { t: 'cups'; cups: Cup[] };
 
 /** Quick reactions you can toss at someone; they float up over their head for everyone to see. */

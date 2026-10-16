@@ -64,7 +64,7 @@ export class Creatures {
   toPublic = (c: Live): Creature => ({ id: c.id, kind: c.kind, name: c.name, tile: c.tile, dir: c.dir, pose: c.pose, walk: c.walk, ...(c.hum ? { hum: true } : {}), ...(c.say ? { say: c.say } : {}) });
   all() { return [...this.list.values()].map(this.toPublic); }
   private announceAll() { this.host.broadcast({ t: 'creatures', creatures: this.all() }); }
-  private announce(c: Live) { this.host.broadcast({ t: 'creature', creature: this.toPublic(c) }); }
+  private announce(c: Live) { this.host.broadcast({ t: 'creature', creature: this.toPublic(c), by: c.pose === 'pet' ? c.follow?.userId : undefined }); }
   private announceCups() { this.host.broadcast({ t: 'cups', cups: this.cups }); }
 
   add(kind: CreatureKind, name: string, tile: Tile) {
@@ -140,8 +140,8 @@ export class Creatures {
   // ---------- petting and catching ----------
   /** A pat for the cat or dog: hearts for a moment, then it follows that person about for a minute. */
   petBy(c: Live, userId: string, now: number) {
-    this.settle(c, 'pet', PET_MS, now);
     c.follow = { userId, until: now + PET_FOLLOW_MS };
+    this.settle(c, 'pet', PET_MS, now);
     this.sayNow(c, phrase(c.kind === 'cat' ? 'cat' : 'dog', 'pet'), now);
   }
   /** A try at the hanging bat. 'missed': it darts off to another room. 'caught': it's gone for a while. null: not catchable now. */
