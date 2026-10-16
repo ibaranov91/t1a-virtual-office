@@ -654,3 +654,15 @@ button:focus-visible, summary:focus-visible, input[type="range"]:focus-visible {
   .lofi-tv { right: 8px; bottom: 64px; width: calc(100% - 16px); max-height: calc(100% - 76px); overflow-y: auto; }
   .lofi-tv-head button { min-width: 40px; min-height: 40px; }
 }
+
+/* Vacation uses the meeting board's compact bottom-sheet layout. */
+.vacation-person { flex: 1; min-width: 0; text-align: left; overflow-wrap: anywhere; }
+.vacation-person small { display: block; margin-top: 3px; }
+.vacation-dot { display: block; width: 8px; height: 8px; border-radius: 50%; flex: 0 0 8px; background: #7cc87c; }
+.vacation-dot.away { background: #e0b050; }
+.vacation-dot.in_call { background: #d86a5a; }
+.vacation-dot.offline { background: #666; }
+@media (max-width: 560px), (max-height: 500px) {
+  .vacation-panel.meet-panel.guided { top: auto; bottom: 0; left: 0; transform: none; width: 100%; max-height: calc(100% - 8px); border-radius: 14px 14px 0 0; border-width: 2px 0 0; padding-bottom: calc(12px + env(safe-area-inset-bottom)); }
+  .vacation-person { min-height: 44px; }
+}

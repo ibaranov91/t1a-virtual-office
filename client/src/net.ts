@@ -1,3 +1,4 @@
+import { onMap } from '../../shared/beach';
 // WebSocket client + the client-side mirror of server state.
 import mapJson from '../../shared/tilemap.json';
 import { applyLayout, besideObject, doorwayTiles, isWalkable, objectById, pathTo, roomAt, sampleMove, type Dir, type Tile, type TileMap } from '../../shared/map';
@@ -68,6 +69,7 @@ export class Store {
   agenda: AgendaItem[] = [];               // my calendar meetings now and soon
   meetingRooms: MeetingRoomInfo[] = [];    // meeting rooms in use (the board)
   meetingsOpen = false;
+  vacationsOpen = false;
   private headsUp = new Set<string>();     // meetings I've had a heads-up for
   build: string | undefined;  // the server's client build when this page loaded
   staleBuild = false;         // server now serves a newer build; reload when not in a call
@@ -190,7 +192,7 @@ export class Store {
     const distance = (t: Tile, p: Tile) => Math.abs(t.x - p.x) + Math.abs(t.y - p.y);
     const door = doors.slice().sort((a, b) => Math.min(...a.map(t => distance(t, pose))) - Math.min(...b.map(t => distance(t, pose))))[0];
     if (!door) return;
-    const occupied = new Set([...this.users.values()].filter(u => u.id !== me.id && u.presence !== 'offline' && u.instance === me.instance)
+    const occupied = new Set([...this.users.values()].filter(u => u.id !== me.id && onMap(u) && u.instance === me.instance)
       .map(u => { const t = u.move?.to ?? u.tile; return `${t.x},${t.y}`; }));
     const tiles: Tile[] = [], { x, y, w, h } = room.rect;
     for (let yy = y; yy < y + h; yy++) for (let xx = x; xx < x + w; xx++)
@@ -229,7 +231,7 @@ export class Store {
     if (this.dancing) return this.setEffect(this.me, 'dance', false);
     const o = floorId ? MAP.objects.find(o => o.id === floorId && o.use?.kind === 'dance') : undefined;
     if (o) {
-      const taken = new Set([...this.users.values()].filter(u => u.id !== this.me && u.presence !== 'offline' && !u.instance).map(u => `${u.tile.x},${u.tile.y}`));
+      const taken = new Set([...this.users.values()].filter(u => u.id !== this.me && onMap(u) && !u.instance).map(u => `${u.tile.x},${u.tile.y}`));
       const tiles: Tile[] = [];
       for (let y = o.y; y < o.y + o.h; y++) for (let x = o.x; x < o.x + o.w; x++) if (!taken.has(`${x},${y}`)) tiles.push({ x, y });
       const mine = tiles.find(t => t.x === me.tile.x && t.y === me.tile.y);
@@ -299,6 +301,8 @@ export class Store {
   laterDismiss(id: string) { this.send({ t: 'later_dismiss', id }); }
   laterClear() { this.send({ t: 'later_clear' }); this.laterOpen = false; this.emit(); }
   laterKnockBack(fromId: string) { this.requestKnock(fromId); this.laterOpen = false; this.emit(); } // knocking clears the entry on the server
+  openVacations() { this.vacationsOpen = true; this.emit(); }
+  closeVacations() { this.vacationsOpen = false; this.emit(); }
   openMeetings() { this.meetingsOpen = true; this.emit(); }
   openJukebox(id: string) { this.jukeboxOpen = id; this.emit(); }
   closeJukebox() { this.jukeboxOpen = null; this.emit(); }
@@ -317,7 +321,7 @@ export class Store {
     const o = MAP.objects.find(o => o.id === id && o.use?.kind === 'jukebox'), me = this.users.get(this.me);
     if (!o || !me || me.instance || !this.connected) return;
     const pose = this.pose(me), taken = new Set([...this.users.values()]
-      .filter(u => u.id !== me.id && u.presence !== 'offline' && !u.instance)
+      .filter(u => u.id !== me.id && onMap(u) && !u.instance)
       .flatMap(u => [u.tile, this.pose(u).tile].map(t => `${t.x},${t.y}`)));
     const tiles = besideObject(MAP, o).filter(t => !taken.has(`${t.x},${t.y}`));
     tiles.sort((a, b) => Math.hypot(a.x - pose.x, a.y - pose.y) - Math.hypot(b.x - pose.x, b.y - pose.y));

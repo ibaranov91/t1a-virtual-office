@@ -1,3 +1,5 @@
+import { onMap } from '../../shared/beach';
+import { VacationPanel, vacationPeople, vacationReturnLabel } from './Vacation';
 import { INSTRUMENTS, DRUM_PADS, VELOCITIES, VELOCITY_START, keyNote, noteName, type InstrumentKind } from '../../shared/instruments';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { loadAssets, type Assets } from './assets';
@@ -164,6 +166,7 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
       if (use?.kind === 'library') { setPick(null); return store.openLibrary(); }
       if (use?.kind === 'calendar') { setPick(null); return store.openCalendar(); }
       if (use?.kind === 'clock') { setPick(null); return store.openClock(); }
+      if (use?.kind === 'vacations') { setPick(null); return store.openVacations(); }
       if (use?.kind === 'meetings') { setPick(null); return store.openMeetings(); }
       if (use?.kind === 'achievements') { setPick(null); return store.openAchievements(); }
       if (use?.kind === 'presentation' && p) { setPick(null); return store.use(p.id); } // walks to the board; the server opens the panel on arrival
@@ -214,6 +217,7 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
         {pocketsOpen && me && <PocketsPanel store={store} me={me} assets={assets} onClose={() => setPocketsOpen(false)} />}
         {store.calendarOpen && <CalendarPanel store={store} />}
         {store.laterOpen && <LaterPanel store={store} />}
+        {store.vacationsOpen && <VacationPanel store={store} engine={engineRef.current} />}
         {store.meetingsOpen && <MeetingsPanel store={store} />}
         {store.libraryOpen && <LibraryPanel store={store} />}
         {me?.reading && <ReadingOverlay key={me.reading} store={store} articleId={me.reading} />}
@@ -244,7 +248,7 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
         </div>
         {personMenu && <PersonMenu key={personMenu.id} store={store} at={personMenu} onClose={() => setPersonMenu(null)} />}
         {store.seat && <InstrumentPanel key={store.seat} store={store} id={store.seat}
-          dialogOpen={!!(showAppearance || showMeet || store.pendingKnock || store.calendarOpen || store.laterOpen || store.meetingsOpen || store.clockOpen || store.jukeboxOpen || store.libraryOpen || !!me?.reading || store.achievementsOpen || store.presentOpen || store.roomOpen || store.chatWith || personMenu || pick)} />}
+          dialogOpen={!!(showAppearance || showMeet || store.pendingKnock || store.calendarOpen || store.laterOpen || store.meetingsOpen || store.vacationsOpen || store.clockOpen || store.jukeboxOpen || store.libraryOpen || !!me?.reading || store.achievementsOpen || store.presentOpen || store.roomOpen || store.chatWith || personMenu || pick)} />}
         <Dock store={store} voice={voice} engine={engine} roomsOpen={showRooms} onRooms={() => setShowRooms(s => !s)} />
       </div>
       </div>
@@ -499,11 +503,12 @@ function RoomList({ store, onPick, onRoom, onPerson, onClose }: {
     onClick={e => { const r = e.currentTarget.getBoundingClientRect(); e.stopPropagation(); onPerson({ id: u.id, x: r.left, y: r.bottom }); }}>⋯</button>;
   const byRoom = new Map<string, string[]>();
   for (const u of store.users.values()) {
-    if (u.presence === 'offline') continue;
+    if (u.presence === 'offline' || u.vacation) continue;
     const r = underground(u) ? 'underground' : u.instance ? 'meetings' : store.roomOf(u)?.id ?? 'hall'; // instances have their own groups
     byRoom.set(r, [...(byRoom.get(r) ?? []), u.id]);
   }
-  const offline = [...store.users.values()].filter(u => u.presence === 'offline');
+  const vacationers = vacationPeople(store.users.values());
+  const offline = [...store.users.values()].filter(u => u.presence === 'offline' && !u.vacation);
   return (
     <aside className="rooms">
       <div className="rooms-head"><span>People</span><button className="ghost" onClick={onClose}>×</button></div>
@@ -536,6 +541,14 @@ function RoomList({ store, onPick, onRoom, onPerson, onClose }: {
           </section>
         );
       })}
+      {vacationers.length > 0 && <section><h3>On vacation <small>{vacationers.length}</small></h3><ul>{vacationers.map(u =>
+        <li key={u.id} onContextMenu={e => menu(u, e)}>
+          <i style={{ background: PRESENCE_COLOR[u.presence] }} />
+          <button className={`ghost person-name${u.id === store.me ? ' me' : ''}`} onClick={() => onPick(u.id)}>{u.name}</button>
+          {more(u)}
+          {!!store.unread.get(u.id) && <b className="unread" title="Unread messages" onClick={() => store.openChat(u.id)}>💬 {store.unread.get(u.id)}</b>}
+          <em>{vacationReturnLabel(u.vacation)}</em>
+        </li>)}</ul></section>}
       {offline.length > 0 && <section><h3>Offline <small>{offline.length}</small></h3><ul>{offline.map(u => <li key={u.id} className="off" onContextMenu={e => menu(u, e)}><i style={{ background: PRESENCE_COLOR.offline }} /><span>{u.name}</span>{more(u)}</li>)}</ul></section>}
     </aside>
   );
@@ -1524,9 +1537,11 @@ function ActionWheel({ store, engine, pick, assets, onPerson, onClose }: { store
   let title = '', items: WheelItem[] = [];
   if (pick.kind === 'user') {
     const u = store.users.get(pick.id);
-    if (!u || u.presence === 'offline') return null;
+    if (!u || !onMap(u)) return null;
     title = isMe ? 'You' : u.name.split(' ')[0];
-    if (emoji) {
+    if (u.presence === 'offline') {
+      items = [{ icon: '💬', label: 'Message', onClick: act(() => store.openChat(u.id)) }];
+    } else if (emoji) {
       items = REACTIONS.map(e => ({ icon: e, label: '', onClick: act(() => store.react(u.id, e)) }));
       const held = isMe && me?.holding ? ITEMS.get(me.holding) : undefined;
       if (isMe && me?.eating) items.push({ icon: me.eating.open ? '🔕' : '💬', label: me.eating.open ? 'Quiet' : 'Chat', title: me.eating.open ? 'Go quiet: knocks go to Later' : 'Open to chat: anyone at the table can knock', onClick: act(() => store.lunchOpen(!me.eating!.open)) });
