@@ -312,13 +312,13 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
         {store.seat && <InstrumentPanel key={store.seat} store={store} id={store.seat}
           dialogOpen={!!(store.wellnessOpen || store.table || showAppearance || showMeet || store.calendarOpen || store.laterOpen || store.meetingsOpen || store.vacationsOpen || store.clockOpen || store.jukeboxOpen || store.libraryOpen || !!me?.reading || store.achievementsOpen || store.presentOpen || store.roomOpen || store.chatWith || personMenu || roomMenu || profileOpener || pick)} />}
         <Dock store={store} voice={voice} engine={engine} roomsOpen={showRooms} onRooms={() => setShowRooms(s => !s)} />
+        {me && <Wellness key={me.id} store={store} userId={me.id} />}
       </div>
       </div>
       </div>
       {store.table && assets && <Suspense fallback={null}><TableOverlay store={store} assets={assets} /></Suspense>}
       {store.retro && <RetroOverlay store={store} />}
       {store.arcadeOpen && assets && store.park && <ArcadeOverlay store={store} assets={assets} voice={voice} />}
-      {me && <Wellness key={me.id} store={store} userId={me.id} />}
     </div>
   );
 }

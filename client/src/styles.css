@@ -15,8 +15,9 @@
   color-scheme: dark;
 }
 
-/* Personal breaks: the same warm chrome as the office's existing object panels. */
-.wellness-layer { position: fixed; inset: 52px 0 0; z-index: 110; pointer-events: none; }
+/* Personal breaks: the same warm chrome as the office's existing object panels. Inside the stage (clear of the
+   sidebar), but above the fixed full-screen activities (no ancestor makes a stacking context). */
+.wellness-layer { position: absolute; inset: 0; z-index: 110; pointer-events: none; }
 .wellness-layer > * { pointer-events: auto; }
 .wellness-panel { position: absolute; top: 8px; right: 8px; z-index: 9; width: min(364px, calc(100% - 16px)); max-height: calc(100% - 16px); overflow: auto;
   padding: 16px; border: 2px solid var(--wood); border-radius: 10px; background: var(--panel); box-shadow: 0 8px 28px rgba(0,0,0,.4); }
@@ -55,6 +56,8 @@
   .wellness-panel { top: auto; bottom: 8px; padding: 12px; }
   .wellness-panel button, .wellness-alert button { min-height: 36px; }
   .wellness-countdown { font-size: var(--fs-2xl); }
+  .wellness-timer-chip { bottom: calc(76px + env(safe-area-inset-bottom)); } /* above the thumb dock */
+  .wellness-alert.floating { bottom: calc(114px + env(safe-area-inset-bottom)); max-height: calc(100% - 130px); }
 }
 * { box-sizing: border-box; }
 html, body, #root { margin: 0; height: 100%; }
