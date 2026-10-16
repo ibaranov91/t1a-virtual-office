@@ -14,7 +14,7 @@ import { LibraryPanel, ReadingOverlay } from './Library';
 import { ACHIEVEMENTS, underground, dayNumber, JUKEBOX_PER_PERSON, JUKEBOX_QUEUE_MAX, MAX_CHAT_LEN, MEET_LINK_RE, meetAs, normalizeMeetLink, kindName, PLANT_DIES_DAYS, PLANT_KINDS, PLANT_REVEAL, PLANT_STAGES, plantDead, plantName, REACTIONS, TOILET_CAPACITY, TOILET_SHELF_ITEM, TOILET_SHELF_MAX, TOILET_USE_MS, toiletFull, type JukeboxState, type Plant } from '../../shared/protocol';
 import { jukeboxPosition, TRACK, tracksFor } from '../../shared/music';
 import { ALL_HATS, DANCE_ROOM, EFFECTS, HAT_NAMES, effectOf, hatItem, hatOf } from '../../shared/effects';
-import { FIXED_TYPES, KEEP_TYPES, objectName, RUG_COLORS, RUG_MAX, RUG_MIN, RUG_PATTERNS, routes, rugFrame, seatAt } from '../../shared/map';
+import { FIXED_TYPES, KEEP_TYPES, objectName, RUG_COLORS, RUG_MAX, RUG_MIN, RUG_PATTERNS, SEAT_TYPES, routes, rugFrame, seatAt } from '../../shared/map';
 import { LUNCH_MS, picnicSeat } from '../../shared/lunch';
 
 // Dev server: sign in automatically as ?as=<name> (default "Dev"); each name keeps its own session,
@@ -725,7 +725,7 @@ function EditPanel({ store, engine, assets, onDone }: { store: Store; engine: En
   return (
     <div className="edit-panel">
       <div className="rooms-head"><span>Rearrange the office</span><button onClick={onDone}>Done</button></div>
-      <p className="hint">Drag furniture or rugs to move them. Arrows nudge, Delete removes, Esc lets go. Everyone sees changes right away.</p>
+      <p className="hint">Drag furniture or rugs to move them. Arrows nudge, R turns a chair, Delete removes, Esc lets go. Everyone sees changes right away.</p>
       {sel && <section className="edit-sel">
         <h3>{sel.type ? objectName(sel.type) : 'Rug'}</h3>
         {sel.color && <>
@@ -741,6 +741,7 @@ function EditPanel({ store, engine, assets, onDone }: { store: Store; engine: En
             <button onClick={() => resize(0, 1)} disabled={sel.h >= RUG_MAX} title="Longer (shift ↓)">↕+</button>
           </div>
         </>}
+        {sel.type && SEAT_TYPES.has(sel.type) && <button onClick={() => store.edit({ op: 'rotate', id: sel.id })} title="Turn (R)">⟳ Turn</button>}
         {sel.type && FIXED_TYPES.has(sel.type) ? <p className="hint">This one stays where it is.</p>
           : sel.type && KEEP_TYPES.has(sel.type) ? <p className="hint">The office needs this one: move it, but it stays.</p>
           : <button className="danger" onClick={() => store.edit({ op: 'remove', id: sel.id })}>Remove</button>}

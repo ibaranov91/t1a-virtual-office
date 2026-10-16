@@ -1,7 +1,7 @@
 import { INSTRUMENTS } from '../../shared/instruments';
 // The floor: one <canvas>, one requestAnimationFrame loop.
 // Order: static tilemap → y-sorted furniture + sprites → nameplates & bubbles → ambient tint → UI hints.
-import { adminOnly, applyEdit, FIXED_TYPES, findPath, pathTo, sampleMove, pathDuration, WALK_MS_PER_TILE, isWalkable, layoutProblem, objectById, objectName, roomAt, rugFrame, seatAt, withLayout, type MapObject, type Rect, type Rug, type Tile } from '../../shared/map';
+import { adminOnly, applyEdit, FIXED_TYPES, SEAT_TYPES, findPath, pathTo, sampleMove, pathDuration, WALK_MS_PER_TILE, isWalkable, layoutProblem, objectById, objectName, roomAt, rugFrame, seatAt, withLayout, type MapObject, type Rect, type Rug, type Tile } from '../../shared/map';
 import { FOOD_ITEMS, picnicSeat } from '../../shared/lunch';
 import { DungeonView } from './dungeon';
 import { danceBeat, dancePhase } from '../../shared/effects';
@@ -741,7 +741,7 @@ export class Engine {
     else return;
     e.preventDefault();
   };
-  /** Edit mode keys: arrows nudge (shift+arrows resize a rug), Delete removes, Esc lets go. */
+  /** Edit mode keys: arrows nudge (shift+arrows resize a rug), R turns a chair, Delete removes, Esc lets go. */
   private onEditKey(e: KeyboardEvent) {
     if (e.key === 'Escape' && (this.placing || this.editSel)) { if (this.placing) this.setPlacing(null); else this.select(null); return true; }
     const sel = this.editSel ? this.item(this.editSel) : undefined;
@@ -749,6 +749,7 @@ export class Engine {
     const step = ({ ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0] } as Record<string, [number, number]>)[e.key];
     if (step && e.shiftKey && sel.color) this.store.edit({ op: 'rug', id: sel.id, w: sel.w + step[0], h: sel.h + step[1] });
     else if (step) this.store.edit({ op: 'move', id: sel.id, x: sel.x + step[0], y: sel.y + step[1] });
+    else if ((e.key === 'r' || e.key === 'R') && !e.metaKey && !e.ctrlKey) { if (!SEAT_TYPES.has(sel.type ?? '')) return false; this.store.edit({ op: 'rotate', id: sel.id }); }
     else if (e.key === 'Delete' || e.key === 'Backspace') this.store.edit({ op: 'remove', id: sel.id });
     else return false;
     return true;
