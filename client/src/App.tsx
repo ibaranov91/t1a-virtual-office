@@ -499,7 +499,7 @@ function RoomList({ store, onPick, onRoom, onPerson, onClose }: {
         if ((r.id === 'hall' || r.id === 'meetings' || r.id === 'underground') && !ids.length) return null;
         return (
           <section key={r.id}>
-            <h3 onClick={MAP.rooms.some(m => m.id === r.id) ? () => onRoom(r.id) : undefined} title={MAP.rooms.some(m => m.id === r.id) ? `Walk to ${r.name}` : undefined}>{r.name} <small>{ids.length}{r.capacity ? `/${r.capacity}` : ''} · {subtitle}</small></h3>
+            <h3 onClick={MAP.rooms.some(m => m.id === r.id) ? () => onRoom(r.id) : undefined} title={MAP.rooms.some(m => m.id === r.id) ? `Walk to ${r.name}` : undefined}>{r.name} <small>{ids.length} · {subtitle}</small></h3>
             <ul>
               {ids.map(id => {
                 const u = store.users.get(id)!;
