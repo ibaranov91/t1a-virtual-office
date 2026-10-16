@@ -32,3 +32,15 @@ export function migrateLibrary(saved: Layout, base: Layout, m: TileMap): Layout 
     rugs: [...saved.rugs.filter(o => !touches(o)), ...structuredClone(base.rugs.filter(touches))],
   }, base);
 }
+
+/** Layouts saved before the Book Club existed have nothing in it: bring in its generated furniture and rug. */
+export function migrateBookClub(saved: Layout, base: Layout, m: TileMap): Layout {
+  const room = m.rooms.find(r => r.id === 'bookclub');
+  if (!room) return saved;
+  const r = room.rect, touches = (o: { x: number; y: number; w: number; h: number }) => o.x < r.x + r.w && o.x + o.w > r.x && o.y < r.y + r.h && o.y + o.h > r.y;
+  if (saved.objects.some(touches)) return saved;
+  return uniqueIds({
+    objects: [...saved.objects, ...structuredClone(base.objects.filter(touches))],
+    rugs: [...saved.rugs, ...structuredClone(base.rugs.filter(touches))],
+  }, base);
+}
