@@ -1639,7 +1639,11 @@ export class World {
         };
         u.lookSet = true;
         const name = typeof msg.name === 'string' ? msg.name.replace(/\s+/g, ' ').trim().slice(0, 24) : '';
-        if (name && name !== u.name && !(this.findByName(name) && this.findByName(name) !== u)) { u.name = name; u.nameSet = true; }
+        if (name && name !== u.name) {
+          const other = this.findByName(name);
+          if (other && other !== u) this.sendTo(u.id, { t: 'notice', text: `The name "${name}" is taken, so you keep ${u.name}` });
+          else { u.name = name; u.nameSet = true; }
+        }
         this.broadcast({ t: 'look', userId: u.id, look: u.look, lookSet: true, name: u.name });
         break;
       }
