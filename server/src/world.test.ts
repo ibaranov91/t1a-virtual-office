@@ -1109,6 +1109,16 @@ test('effects: admins find their cap in their pockets, put on once, and everyone
   assert.deepEqual(judge.u.effects, [{ kind: 'hat', data: { style: 'winged' } }], 'and replaces what is worn');
   w.handle(gm.u, gift(gm, judge.u, 'winged'), gm.socket);
   assert.deepEqual(judge.u.items, [hatItem('laurel'), hatItem('winged')], 'no duplicates');
+  // the GM looks into pockets; nobody else does
+  const looks = (who: typeof gm) => who.messages.filter(m => m.t === 'gm_items').length;
+  w.handle(a.u, { t: 'gm_items', targetId: judge.u.id }, a.socket);
+  assert.equal(looks(a), 0, 'only admins look');
+  w.handle(gm.u, { t: 'gm_items', targetId: 'nobody' }, gm.socket);
+  const before = looks(gm);
+  w.handle(gm.u, { t: 'gm_items', targetId: judge.u.id }, gm.socket);
+  assert.equal(looks(gm), before + 1);
+  assert.deepEqual(gm.messages.filter(m => m.t === 'gm_items').at(-1), { t: 'gm_items', targetId: judge.u.id, items: [hatItem('laurel'), hatItem('winged')] });
+  assert.ok(!JSON.stringify((w as any).toPublic(judge.u)).includes('hat:laurel'), 'pockets stay out of the public user');
   assert.deepEqual(gm.u.items, [hatItem(ADMIN_HAT)]);
   assert.deepEqual(gm.u.effects, [{ kind: 'hat', data: { style: ADMIN_HAT } }]);
   w.handle(judge.u, effect(judge.u.id, 'hat', false), judge.socket);
