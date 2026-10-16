@@ -158,6 +158,31 @@ export function playBell(dest: AudioNode = categoryOutput('effects')) {
   } catch { /* audio unavailable: stay silent */ }
 }
 
+/** A glass hitting the floor: a bright burst of filtered noise and a scatter of little tinkles, gone in under a second. */
+export function playShatter(dest: AudioNode = categoryOutput('effects')) {
+  try {
+    const c = audio(), at = c.currentTime + .01, len = Math.floor(c.sampleRate * .35);
+    const buf = c.createBuffer(1, len, c.sampleRate), d = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 3);
+    const noise = c.createBufferSource(), hp = c.createBiquadFilter(), g = c.createGain();
+    noise.buffer = buf; hp.type = 'highpass'; hp.frequency.value = 2600; g.gain.value = .22;
+    noise.connect(hp).connect(g).connect(dest); noise.start(at);
+    noise.onended = () => { noise.disconnect(); hp.disconnect(); g.disconnect(); };
+    for (let i = 0; i < 6; i++) tone(c, dest, at + .02 + i * .045 + Math.random() * .03, { hz: 3200 + Math.random() * 2600, level: .035, attack: .002, decay: .12 + Math.random() * .1 });
+  } catch { /* audio unavailable: stay silent */ }
+}
+
+/** A cup tipping over onto the floor: a dull ceramic clink and a soft thud. */
+export function playClink(dest: AudioNode = categoryOutput('effects')) {
+  try {
+    const c = audio(), at = c.currentTime + .01;
+    tone(c, dest, at, { hz: 2300, level: .06, attack: .002, decay: .16 });
+    tone(c, dest, at, { hz: 3450, level: .025, attack: .002, decay: .09 });
+    tone(c, dest, at + .07, { hz: 1900, level: .03, attack: .002, decay: .1 });
+    tone(c, dest, at, { hz: 180, to: 90, level: .08, attack: .003, decay: .12 });
+  } catch { /* audio unavailable: stay silent */ }
+}
+
 /** Short cabinet effects, all routed through the shared Effects mix and deafen control. */
 export function playPark(kind: string) {
   const notes: Record<string, number[]> = {

@@ -1484,6 +1484,51 @@ for (const open of [false, true]) {
     t.rect(0, 1, 4, 4, '#f4f0e8'); t.hline(0, 1, 4, c); t.px(4, 2, '#f4f0e8'); t.px(5, 3, '#f4f0e8'); t.px(4, 4, '#f4f0e8'); t.hline(0, 5, 4, '#c8c0b0');
     frames[`cup_${k}`] = t.outline();
   }
+  // empty glasses from the bar, the same 6 px tall: a coupe, a beer mug, a wine glass, each with a drop left in it
+  const GL = '#dff2f8', GLS = '#a8ccd8';
+  {
+    const t = new Img(7, 6);
+    t.hline(0, 1, 7, GL); t.hline(1, 2, 5, GL); t.hline(2, 2, 3, '#e8708a'); t.px(1, 1, '#ffffff');
+    t.hline(2, 3, 3, GLS); t.px(3, 4, GLS); t.hline(1, 5, 5, GL);
+    frames.cup_cocktail = t.outline();
+  }
+  {
+    const t = new Img(6, 6);
+    t.rect(0, 1, 4, 4, GL); t.hline(0, 1, 4, '#fff8e8'); t.hline(0, 4, 4, '#e0a838'); t.vline(0, 2, 2, '#ffffff');
+    t.px(4, 2, GLS); t.px(5, 3, GLS); t.px(4, 4, GLS); t.hline(0, 5, 4, GLS);
+    frames.cup_beer = t.outline();
+  }
+  {
+    const t = new Img(5, 6);
+    t.hline(0, 1, 5, GL); t.hline(0, 2, 5, GL); t.hline(1, 2, 3, '#8a2038'); t.hline(1, 3, 3, GLS); t.px(0, 1, '#ffffff');
+    t.px(2, 4, GLS); t.hline(1, 5, 3, GL);
+    frames.cup_wine = t.outline();
+  }
+  // on the floor: a cup on its side in a little spill, and a glass in pieces in a puddle (any drink from the bar).
+  // The spill goes on after the outline, so it stays a soft stain.
+  const spill = (t, cx, cy, rx, ry, rgba) => {
+    for (let y = 0; y < t.h; y++) for (let x = 0; x < t.w; x++) {
+      const dx = (x + 0.5 - cx) / rx, dy = (y + 0.5 - cy) / ry;
+      if (dx * dx + dy * dy <= 1 && !t.alpha(x, y)) t.px(x, y, rgba);
+    }
+  };
+  for (const [k, c] of [['coffee', [90, 52, 32, 170]], ['tea', [184, 138, 58, 160]]]) {
+    const t = new Img(10, 6);
+    t.rect(4, 1, 5, 3, '#f4f0e8'); t.hline(4, 3, 5, '#c8c0b0'); t.vline(4, 1, 3, '#d8d0c0'); t.px(4, 2, '#3a2a20'); // the mouth, facing the spill
+    t.px(6, 0, '#f4f0e8'); t.px(7, 0, '#f4f0e8'); // the handle, pointing up
+    t.outline();
+    spill(t, 3, 4.4, 3.2, 1.4, c);
+    frames[`floor_cup_${k}`] = t;
+  }
+  {
+    const t = new Img(11, 6);
+    t.rect(4, 2, 2, 2, GL); t.px(6, 3, GLS); // the base and a stub of stem
+    t.px(1, 3, GL); t.px(2, 2, GLS); t.px(8, 2, GL); t.px(9, 3, GL); t.px(9, 4, GLS); t.px(3, 5, GL); t.px(7, 5, GLS); // shards
+    t.outline('#5a6a78');
+    spill(t, 5.5, 3.6, 5.2, 2.1, [176, 96, 80, 160]);
+    for (const [x, y] of [[4, 2], [1, 3], [8, 2]]) t.px(x, y, '#ffffff'); // glints
+    frames.floor_glass = t;
+  }
 }
 
 // ---------- the dining terrace: picnic table, food cart, plates (no shared random calls: existing art stays unchanged) ----------
