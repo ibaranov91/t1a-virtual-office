@@ -6,7 +6,7 @@ import { FOOD_ITEMS, picnicSeat } from '../../shared/lunch';
 import { DungeonView } from './dungeon';
 import { danceBeat, dancePhase } from '../../shared/effects';
 import { drawEffects, effectLook, effectSway } from './effects';
-import { CreatureLayer } from './creatures';
+import { CreatureLayer, creaturePose } from './creatures';
 import { lockedDoors, roomDoors, type RoomDoor } from './doors';
 import type { Assets, Frame } from './assets';
 import { drawText, plateLines, textWidth } from './font';
@@ -868,25 +868,23 @@ export class Engine {
 
   // ---------- render ----------
   private touched = () => { this.lastInput = performance.now(); };
-  /** Cap the redraw rate: 60 fps while anything moves or the user is interacting (ProMotion would otherwise draw 120), 30 when the floor is still. */
+  /** Cap the redraw rate: 60 fps while anything moves or the user is interacting (ProMotion would otherwise draw 120), 30 when the floor is still (2 when covered). */
   private skipFrame(ms: number) {
     const gap = ms - this.lastDraw;
     if (isCovered()) { if (gap < 490) return true; } // the Mac app's view is behind other windows: ~2 fps
     else if (gap < 15) return true;
-    else if (gap < 49) { // three tiers: 60 while busy, 30 while something small animates, 20 when the floor is still
+    else if (gap < 49) { // 60 while busy, otherwise 30
       const now = this.store.now(), users = [...this.store.users.values()];
       const busy = this.glide || this.editing || ms - this.lastInput < 1500 || this.store.version !== this.drawnVersion || this.store.portalFx.some(f => ms - f.at < PORTAL_MS)
-        || users.some(u => { if (!u.move) return false; const p = this.store.pose(u, now); return p.walking && this.visible(u) && this.onScreen(p.x * TS - TS, p.y * TS - TS, 3 * TS, 3 * TS); });
-      if (!busy) {
-        if (gap < 31) return true;
-        const lively = this.store.reactions.length || this.store.dungeonFx.length || users.some(u => this.visible(u) && this.isSpeaking(u));
-        if (!lively) return true;
-      }
+        || users.some(u => { if (!u.move) return false; const p = this.store.pose(u, now); return p.walking && this.visible(u) && this.onScreen(p.x * TS - TS, p.y * TS - TS, 3 * TS, 3 * TS); })
+        || (!this.areaDown && !this.store.users.get(this.store.me)?.instance && [...this.store.creatures.values()].some(c => { if (!c.walk) return false; const p = creaturePose(c, now); return p.walking && this.onScreen(p.x * TS - TS, p.y * TS - TS, 3 * TS, 3 * TS); }));
+      if (!busy && gap < 31) return true;
     }
     this.lastDraw = ms;
     return false;
   }
   private drawnVersion = -1;
+  private lastFrameMs = 0;
   /** Visible world rect (a tile of margin): anything wholly outside it is not drawn. */
   private vis = { x0: -1e9, y0: -1e9, x1: 1e9, y1: 1e9 };
   private onScreen(x: number, y: number, w: number, h: number) {
@@ -895,6 +893,7 @@ export class Engine {
   private frame = (ms: number) => {
     this.raf = requestAnimationFrame(this.frame);
     if (document.hidden || this.skipFrame(ms)) return;
+    const prevMs = this.lastFrameMs; this.lastFrameMs = ms;
     if (this.layoutSeen !== this.store.layoutVersion) this.refreshLayout();
     this.syncArea(); this.keyboardStep();
     const ctx = this.ctx, t = this.store.now();
@@ -929,7 +928,7 @@ export class Engine {
       const target = me.instance && !this.areaDown // a meeting's room: keep the room in the middle
         ? this.clampCam((MEETING.x + MEETING.w / 2) * TS - this.viewW / 2, (MEETING.y + MEETING.h / 2) * TS - this.viewH / 2)
         : this.clampCam(p.x * TS + 8 - this.viewW / 2, p.y * TS - this.viewH / 2);
-      const k = this.snapped ? 0.12 : 1; this.snapped = true;
+      const dt = Math.min(100, ms - prevMs), k = this.snapped ? 1 - Math.pow(0.88, dt / 16.7) : 1; this.snapped = true; // 0.12 per 60 fps frame, whatever the frame rate
       this.cam.x += (target.x - this.cam.x) * k; this.cam.y += (target.y - this.cam.y) * k;
     }
     const camX = Math.round(this.cam.x * this.px) / this.px, camY = Math.round(this.cam.y * this.px) / this.px;
