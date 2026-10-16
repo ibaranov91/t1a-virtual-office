@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import {
-  adminOnly, applyEdit, stallDoor, stallLine, applyLayout, besideObject, playSpots, dirBetween, doorwayTiles, KEEP_TYPES, migrateEastWing, layoutProblem, objectName, voiceRooms, findPath, isWalkable, pathDuration, pathTo, roomAt, routes, sampleMove, seatAt, uniqueIds, withLayout, WALK_MS_PER_TILE,
+  adminOnly, applyEdit, stallDoor, stallLine, stallVoiceId, applyLayout, besideObject, playSpots, dirBetween, doorwayTiles, KEEP_TYPES, migrateEastWing, layoutProblem, objectName, voiceRooms, findPath, isWalkable, pathDuration, pathTo, roomAt, routes, sampleMove, seatAt, uniqueIds, withLayout, WALK_MS_PER_TILE,
   type MapObject, type Dir, type Layout, type Room, type Spot, type TileMap, type Tile,
 } from '../../shared/map';
 import {
@@ -47,7 +47,7 @@ export interface User extends PublicUser {
   afk?: boolean;
 }
 
-interface Call { id: string; members: Set<string>; link?: string; fallback: boolean; room?: Room; instance?: string } // room: open-voice hall; instance: set when the hall is a meeting room's own (id `room:<instance>`, room = the Meeting room)
+interface Call { id: string; members: Set<string>; link?: string; fallback: boolean; room?: Room; instance?: string; stall?: string } // room: open-voice hall; instance: set when the hall is a meeting room's own (id `room:<instance>`, room = the Meeting room); stall: a toilet stall's own (id `room:stall:<object>`, room = the stall's room)
 const knockCall = (c?: Call) => !!c && !c.room;
 interface Instance { id: string; end: number; members: Set<string>; talk: Set<string>; out: Set<string>; meet?: string; meetBusy?: boolean } // talk: on the room's voice (private rooms: everyone, calendar meetings: who opted in); out: left it on purpose; meet: the room's shared Meet link
 
@@ -108,6 +108,7 @@ export class World {
   private pendingSeat = new Map<string, { objectId: string; socket: string; spot: Spot; timer: NodeJS.Timeout }>();
   private noteBuckets = new Map<string, { tokens: number; at: number }>();
   private seatChanges = new Map<string, number[]>();
+  private lofiListeners = new Map<string, Set<string>>();
   private jukeboxes = new Map<string, Jukebox>();
   library = new Library();
   private readPlans = new Map<string, { articleId: string; seat: Tile; seq: number }>(); // on the way to a reading desk
@@ -248,6 +249,7 @@ export class World {
     return { socket, close: () => {
       this.listeners.delete(listener);
       const set = this.sockets.get(userId)!; if (!set.delete(socket)) return;
+      this.setLofiListening(u, socket, false);
       if (this.pendingSeat.get(userId)?.socket === socket) this.cancelSeatWalk(userId);
       for (const [id, seat] of this.seats) if (seat.socket === socket) this.endSeat(id);
       if (this.owners.get(userId) === socket) this.setOwner(userId, [...set.keys()].at(-1));
@@ -1481,6 +1483,7 @@ export class World {
     return roomAt(this.map, t.x, t.y)?.id === room.id || doorwayTiles(this.map, room).some(g => g.some(p => p.x === t.x && p.y === t.y));
   }
   private maintainRoom(call: Call, now = Date.now()) {
+    if (call.stall) { if (!call.members.size) this.calls.delete(call.id); return; } // never more inside than voice holds: no line
     for (const [id, roomId] of this.waiting) {
       if (roomId !== (call.instance ?? call.room!.id)) continue;
       const u = this.users.get(id);
@@ -1491,9 +1494,23 @@ export class World {
     }
     if (!call.members.size) this.calls.delete(call.id);
   }
+  private canListenToLofi(u: User, now = Date.now()) {
+    const tile = this.position(u, now).tile;
+    return !u.bot && !u.instance && !goingOut(u) && u.presence !== 'offline' && !u.deafened && roomAt(this.map, tile.x, tile.y)?.id === 'music';
+  }
+  private setLofiListening(u: User, socket: string, on: boolean) {
+    const pages = this.lofiListeners.get(u.id) ?? new Set<string>();
+    if (on && this.canListenToLofi(u)) pages.add(socket); else pages.delete(socket);
+    if (pages.size) this.lofiListeners.set(u.id, pages); else this.lofiListeners.delete(u.id);
+    const next = pages.size ? 'lofi' : null;
+    if ((u.listening ?? null) !== next) { u.listening = next; this.broadcast({ t: 'listening', userId: u.id, on: !!next }); }
+  }
   voiceTick(now = Date.now()) {
     const rooms = voiceRooms(this.map);
     for (const u of this.users.values()) {
+      if (u.listening && !this.canListenToLofi(u, now)) {
+        this.lofiListeners.delete(u.id); u.listening = null; this.broadcast({ t: 'listening', userId: u.id, on: false });
+      }
       if (u.bot || u.afk || u.presence === 'offline' || goingOut(u) || !this.sockets.get(u.id)?.size) { this.setWaiting(u, null); if (u.instance) { const c = this.calls.get(u.callId ?? ''); if (c?.instance) this.leaveCall(u, now); } continue; }
       const t = this.position(u, now).tile;
       const inside = rooms.find(r => t.x >= r.rect.x && t.x < r.rect.x + r.rect.w && t.y >= r.rect.y && t.y < r.rect.y + r.rect.h);
@@ -1505,7 +1522,9 @@ export class World {
         continue;
       }
       if (call?.instance) this.leaveCall(u, now);
-      else if (call && knockCall(call)) {
+      const stall = this.toilets.inside(u.id);
+      if (stall) { this.setWaiting(u, null); this.joinStall(u, stall); continue; }
+      if (call && knockCall(call)) {
         this.setWaiting(u, null);
         if (!inside) continue;
         for (const id of call.members) if (id !== u.id) this.sendTo(id, { t: 'call_moved', userId: u.id, roomId: inside.id });
@@ -1527,6 +1546,16 @@ export class World {
       if (!hall) hall = { id, members: new Set(), fallback: false, room };
       this.calls.set(id, hall); this.joinCall(u, hall);
     }
+  }
+  /** Behind a stall's door: everyone inside talks, one call per stall. Going in leaves any other call. */
+  private joinStall(u: User, stall: string) {
+    const id = stallVoiceId(stall);
+    if (u.callId === id) return;
+    const o = this.map.objects.find(o => o.id === stall), room = o && roomAt(this.map, o.x, o.y - 1);
+    if (!room) return;
+    let hall = this.calls.get(id);
+    if (!hall) this.calls.set(id, hall = { id, members: new Set(), fallback: false, room: { ...room, name: 'the stall' }, stall });
+    this.joinCall(u, hall);
   }
   callFull(u: User) { const c = u.callId ? this.calls.get(u.callId) : undefined; return knockCall(c) && c!.members.size >= MAX_CALL_SIZE; }
   leaveCall(u: User, now = Date.now()) {
@@ -1847,6 +1876,7 @@ export class World {
     }
     if (['rtc', 'speaking', 'mute', 'deafen', 'hand'].includes(msg.t) && this.owners.get(u.id) !== socket) return;
     switch (msg.t) {
+      case 'listening': this.setLofiListening(u, socket, msg.on === true); break;
       case 'instrument': this.instrument(u, msg, socket); break;
       case 'note': this.note(u, msg, socket); break;
       case 'move': {
@@ -2088,7 +2118,7 @@ export class World {
       const tile = this.inDungeon(d.tile) ? this.dungeonExit(false) : isWalkable(this.map, d.tile.x, d.tile.y) || seatAt(this.map, d.tile.x, d.tile.y) ? d.tile : { ...this.map.spawn };
       const legacy = lookFor(d.name);
       const look = { ...legacy, ...d.look, eyes: d.look?.eyes ?? legacy.eyes, shoes: d.look?.shoes ?? legacy.shoes, top: d.look?.top ?? 0, bottom: d.look?.bottom ?? 0, glasses: d.look?.glasses ?? 0, hat: d.look?.hat ?? 0, beard: d.look?.beard ?? 0, mustache: d.look?.mustache ?? 0, glassesColor: d.look?.glassesColor ?? legacy.glassesColor, hatColor: d.look?.hatColor ?? legacy.hatColor };
-      this.users.set(d.id, { ...d, look, lookSet: d.lookSet ?? false, homeDesk: d.homeDesk ?? null, plant: d.plant ?? null, bloomed: d.bloomed ?? [], achievements: d.achievements ?? {}, items: Array.isArray(d.items) ? d.items.filter((i: unknown): i is string => typeof i === 'string') : [], effects: (d.effects ?? []).filter(e => Object.prototype.hasOwnProperty.call(EFFECTS, e.kind) && e.until === undefined), tile, move: null, path: null, emote: null, door: null, callId: null, deafened: false, hand: false, muted: false, following: null, holding: null, meeting: null, reading: null, instance: null, game: null, table: null, presence: d.bot ? d.presence : 'offline' });
+      this.users.set(d.id, { ...d, look, lookSet: d.lookSet ?? false, homeDesk: d.homeDesk ?? null, plant: d.plant ?? null, bloomed: d.bloomed ?? [], achievements: d.achievements ?? {}, items: Array.isArray(d.items) ? d.items.filter((i: unknown): i is string => typeof i === 'string') : [], effects: (d.effects ?? []).filter(e => Object.prototype.hasOwnProperty.call(EFFECTS, e.kind) && e.until === undefined), tile, move: null, path: null, emote: null, door: null, callId: null, deafened: false, hand: false, muted: false, following: null, holding: null, meeting: null, reading: null, listening: null, instance: null, game: null, table: null, presence: d.bot ? d.presence : 'offline' });
       // back within WALK_HOME_AFTER_MS of the restart (a reconnect takes seconds): their spot, not their desk
       const u = this.users.get(d.id)!;
       if (d.resume && !d.bot && tile === d.tile) { u.lastSpot = { ...tile }; u.offlineAt = now; u.resume = true; } else u.resume = undefined;

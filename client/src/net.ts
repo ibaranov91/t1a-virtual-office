@@ -2,7 +2,7 @@ import { TABLE_GAMES, type TableView, type TableGameId } from '../../shared/tabl
 import { playTable } from './sounds';
 // WebSocket client + the client-side mirror of server state.
 import mapJson from '../../shared/tilemap.json';
-import { applyLayout, besideObject, doorwayTiles, isWalkable, objectById, pathTo, roomAt, sampleMove, type Dir, type Tile, type TileMap } from '../../shared/map';
+import { applyLayout, besideObject, doorwayTiles, isWalkable, objectById, pathTo, roomAt, sampleMove, stallDoor, stallOfCall, type Dir, type Room, type Tile, type TileMap } from '../../shared/map';
 import { FOOD_ITEMS } from '../../shared/lunch';
 import { ACHIEVEMENTS, underground, DUNGEON_INSTANCE, MEETING_ROOM_ID, PLANT_STAGES, plantName, ROOM_VOICE_MAX, type JukeboxState, type JukeboxAction, type AgendaItem, type LayoutEdit, type CalEvent, type MeetingRoomInfo, type ChatMsg, type LiveDeck, presentScope, type ObjectState, type ToiletState, type ClientMsg, type LaterItem, type PublicUser, type Reaction, type RtcSignal, type ServerMsg, type Creature, type Cup, CUP_ITEMS, type LibraryState } from '../../shared/protocol';
 import { gameDef } from '../../shared/arcade/registry';
@@ -325,6 +325,7 @@ export class Store {
   laterClear() { this.send({ t: 'later_clear' }); this.laterOpen = false; this.emit(); }
   laterKnockBack(fromId: string) { this.requestKnock(fromId); this.laterOpen = false; this.emit(); } // knocking clears the entry on the server
   openMeetings() { this.meetingsOpen = true; this.emit(); }
+  setLofiListening(on: boolean) { this.send({ t: 'listening', on }); }
   openJukebox(id: string) { this.jukeboxOpen = id; this.emit(); }
   closeJukebox() { this.jukeboxOpen = null; this.emit(); }
   jukeboxAction(id: string, action: JukeboxAction) {
@@ -447,8 +448,13 @@ export class Store {
   }
   openLink(use: { label: string; url: string }) { this.linkOpen = use; this.emit(); }
   closeLink() { this.linkOpen = null; this.emit(); }
-  roomCallOf(u?: ClientUser) {
+  roomCallOf(u?: ClientUser): Room | undefined {
     if (!u?.callId?.startsWith('room:')) return undefined;
+    const stall = stallOfCall(u.callId);
+    if (stall) { // a stall's own voice: its room, named for the stall
+      const o = objectById(MAP, stall), r = o && roomAt(MAP, stallDoor(o).x, stallDoor(o).y);
+      return r && { ...r, name: 'the stall' };
+    }
     return MAP.rooms.find(r => r.id === u.callId!.slice(5)) ?? (u.instance && u.callId === `room:${u.instance}` ? MAP.rooms.find(r => r.id === MEETING_ROOM_ID) : undefined); // a meeting room's own voice
   }
   sameRoomCall(u: ClientUser) {
@@ -626,6 +632,7 @@ export class Store {
       case 'instrument': this.setInstruments({ ...this.instruments, [msg.id]: msg.player }); break;
       case 'seat': this.seat = msg.id; break;
       case 'note': this.soundscape?.receiveNote(msg.id, msg.by, msg.note, msg.on, msg.vel, msg.preset, msg.at); return;
+      case 'listening': { const u = this.users.get(msg.userId); if (u) u.listening = msg.on ? 'lofi' : null; break; }
       case 'jukebox': if (this.jukeboxReady) this.jukebox = { ...this.jukebox, [msg.id]: msg.state }; break;
       case 'object': this.objects = { ...this.objects, [msg.id]: { on: msg.on } }; break;
       case 'room_open': this.roomOpen = true; break;
