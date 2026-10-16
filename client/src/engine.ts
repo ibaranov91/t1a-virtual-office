@@ -1055,8 +1055,8 @@ export class Engine {
     const goable = me && !me.instance && this.hoverObject?.use?.kind !== 'meetings'
       ? this.store.agenda.find(a => a.start - 10 * 60_000 <= this.store.now() && a.end > this.store.now()) : undefined;
     if (goable) for (const o of this.boards) {
-      const title = goable.title.length > 22 ? `${goable.title.slice(0, 21)}…` : goable.title;
-      this.drawLabel(`📅 ${title} · click to go`, (o.x + 0.5) * TS, o.y * TS - 6 - Math.round((Math.sin(ms / 220) + 1)), camX, camY);
+      const title = goable.title.length > 16 ? `${goable.title.slice(0, 15)}…` : goable.title;
+      this.drawLabel(`📅 ${title} · go`, (o.x + 0.5) * TS, o.y * TS - 4 - Math.round((Math.sin(ms / 220) + 1)), camX, camY, 1, false, 10); // a small nudge: the heads-up toast says the rest
     }
 
     ctx.restore();
@@ -1534,16 +1534,16 @@ export class Engine {
     this.drawLabel('Grab a hat? 🎩', (rack.x + rack.w / 2) * TS, rack.y * TS - 8 - Math.round((Math.sin(ms / 220) + 1)), camX, camY, age > 4000 ? 5 - age / 1000 : 1, true);
   }
 
-  private drawLabel(text: string, wx: number, wy: number, camX: number, camY: number, alpha = 1, accent = false) {
+  private drawLabel(text: string, wx: number, wy: number, camX: number, camY: number, alpha = 1, accent = false, size = 12) {
     const ctx = this.ctx, dpr = window.devicePixelRatio || 1;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.font = '600 12px ui-rounded, system-ui, sans-serif';
-    const w = ctx.measureText(text).width + 14;
-    const sx = ((wx - camX) * this.px) / dpr - w / 2, sy = ((wy - camY) * this.px) / dpr - 26;
+    ctx.font = `600 ${size}px ui-rounded, system-ui, sans-serif`;
+    const w = ctx.measureText(text).width + size * 1.17, h = Math.round(size * 1.83);
+    const sx = ((wx - camX) * this.px) / dpr - w / 2, sy = ((wy - camY) * this.px) / dpr - h - 4;
     ctx.globalAlpha = alpha;
-    ctx.fillStyle = accent ? 'rgba(90,50,20,0.96)' : 'rgba(33,22,26,0.94)'; ctx.strokeStyle = accent ? '#f2b45a' : '#8a5a3c'; ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.roundRect(sx, sy, w, 22, 6); ctx.fill(); ctx.stroke();
-    ctx.fillStyle = accent ? '#ffe08a' : '#ffe9c4'; ctx.fillText(text, sx + 7, sy + 15);
+    ctx.fillStyle = accent ? 'rgba(90,50,20,0.96)' : 'rgba(33,22,26,0.94)'; ctx.strokeStyle = accent ? '#f2b45a' : '#8a5a3c'; ctx.lineWidth = size < 12 ? 1.5 : 2;
+    ctx.beginPath(); ctx.roundRect(sx, sy, w, h, size < 12 ? 5 : 6); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = accent ? '#ffe08a' : '#ffe9c4'; ctx.fillText(text, sx + size * 0.58, sy + h * 0.68);
     ctx.globalAlpha = 1;
   }
 
