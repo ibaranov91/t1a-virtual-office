@@ -5,7 +5,7 @@ import { ITEMS, type ClientUser, type Store } from './net';
 import { Icon } from './Icon';
 import { Avatar } from './sidebar/Avatar';
 import { useMedia } from './sidebar/hooks';
-import { hoverCard } from './sidebar/model';
+import { bannerStyle, hoverCard } from './sidebar/model';
 
 type Snapshot = { id: string; user: ClientUser; speaking: boolean; content: ReturnType<typeof hoverCard> };
 export const HoverCard = memo(function HoverCard({ store, engine, assets, compact }: {
@@ -62,6 +62,7 @@ export const HoverCard = memo(function HoverCard({ store, engine, assets, compac
   const c = snapshot?.content;
   return <div ref={ref} className="hover-card-anchor" data-id={snapshot?.id} aria-hidden="true">
     {snapshot && c && <div className="hover-card" key={snapshot.id}>
+      <div className="hover-card-banner" style={{ background: bannerStyle(snapshot.user.banner, snapshot.user.look) }} />{/* the same banner as their card: one family */}
       <div className="hover-card-header">
         <Avatar assets={assets} user={snapshot.user} size={32} ring={snapshot.speaking} />
         <div className="hover-card-name"><strong>{c.name}</strong>{c.emoji && <span>{c.emoji}</span>}{c.you && <small>{c.you}</small>}</div>
