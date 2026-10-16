@@ -124,6 +124,12 @@ RestartSec=3
 [Install]
 WantedBy=multi-user.target
 UNIT
+# snapshot the state before the new code loads it (server/src/index.ts keeps daily copies there too); keep the last 10
+if [ -f $APP/data/state.json ]; then
+  sudo -u deck mkdir -p $APP/data/backups
+  sudo -u deck cp -p $APP/data/state.json $APP/data/backups/state-predeploy-\$(date -u +%Y%m%dT%H%M%SZ).json
+  ls -1 $APP/data/backups/state-predeploy-*.json | head -n -10 | xargs -r sudo rm -f
+fi
 sudo systemctl daemon-reload
 sudo systemctl enable $SVC >/dev/null 2>&1
 sudo systemctl restart $SVC

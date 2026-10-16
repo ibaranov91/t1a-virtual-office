@@ -20,6 +20,9 @@ Hackathon project: favor small, working, demo-able steps.
 - `shared/`: code and data used by both sides. `map.ts` (A* pathfinding, rooms, seats), `protocol.ts`
   (every WebSocket message), `tilemap.json` (generated, don't hand-edit).
 - `server/src/`: Node + `ws`, one process, state in memory, saved to `data/state.json` every 30 s.
+  A file that fails to load is moved to `data/state.json.bad-<time>` (never overwritten) and the server starts empty;
+  `data/backups/` keeps one copy a day (last 7) plus deploy.sh's `state-predeploy-*` (last 10). The dump has a
+  `version` (`STATE_VERSION` in `world.ts`): new migrations key on it.
   `world.ts` holds users, moves, knocks, calls, desks and the door. `bots.ts` holds dev bots. `index.ts` does
   REST, login, static files and WebSocket.
 - `client/src/`: React only for chrome (`App.tsx`). The floor is one `<canvas>` (`engine.ts`).
