@@ -847,6 +847,8 @@ button:focus-visible, summary:focus-visible, input[type="range"]:focus-visible {
 .retro-header > div { flex: 1; min-width: 0; }
 .retro-header h1 { font-size: 16px; margin: 0 0 4px; }
 .retro-header span { color: var(--muted); font-size: 12px; }
+.retro-header > .retro-volume { flex: 0 1 180px; min-width: 120px; }
+.retro-mute { flex: none; min-width: 32px; padding: 4px 6px; font-size: 16px; line-height: 1; }
 .retro-area { overflow: auto; place-items: safe center; }
 .retro-bezel { border-width: 8px; border-radius: 8px; line-height: 0; box-shadow: 0 2px 0 #100e14; }
 .retro-bezel canvas { display: block; image-rendering: pixelated; }
@@ -871,6 +873,7 @@ button:focus-visible, summary:focus-visible, input[type="range"]:focus-visible {
 .retro-boards section { margin-top: 18px; }
 @media (max-width: 560px), (max-height: 500px) {
   .retro-header h1 { font-size: 13px; }
+  .retro-header > .retro-volume { flex-basis: 120px; min-width: 96px; }
   .retro-header { gap: 4px; }
   .retro-legend { padding: 4px 8px; }
 }

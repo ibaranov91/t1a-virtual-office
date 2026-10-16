@@ -4,9 +4,10 @@ interface Prefs {
   mix: Record<Category, number>;
   jukeboxVolumes: Record<string, number>;
   volumes: Record<string, number>; localMuted: Record<string, true>;
+  retroVolume: number; retroMuted: boolean; // the retro cabinets' game sound, for me
 }
 const KEY = 'deck.voice';
-const defaults = (): Prefs => ({ deafened: false, mode: 'voice', mix: { voice: 1, music: 1, effects: 1 }, jukeboxVolumes: {}, volumes: {}, localMuted: {} });
+const defaults = (): Prefs => ({ deafened: false, mode: 'voice', mix: { voice: 1, music: 1, effects: 1 }, jukeboxVolumes: {}, volumes: {}, localMuted: {}, retroVolume: .5, retroMuted: false });
 function load(): Prefs {
   const p = defaults();
   try {
@@ -22,6 +23,8 @@ function load(): Prefs {
     for (const [id, n] of Object.entries(v.volumes ?? {}))
       if (!id.startsWith('obj:') && typeof n === 'number' && Number.isFinite(n)) p.volumes[id] = Math.max(0, Math.min(2, n));
     for (const [id, on] of Object.entries(v.localMuted ?? {})) if (!id.startsWith('obj:') && on === true) p.localMuted[id] = true;
+    if (typeof v.retroVolume === 'number' && Number.isFinite(v.retroVolume)) p.retroVolume = Math.max(0, Math.min(1, v.retroVolume));
+    p.retroMuted = v.retroMuted === true;
   } catch { /* defaults */ }
   return p;
 }
