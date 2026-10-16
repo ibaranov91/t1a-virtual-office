@@ -8,7 +8,7 @@ import { currentPlay } from './jukeboxSync';
 import { JukeboxPlayer } from './jukeboxPlayer';
 import { MAP, type Store } from './net';
 import { prefs, subscribePrefs, volumeFor, type Category } from './prefs';
-import { playDoorOpen, playDoorClose, playBell } from './sounds';
+import { playDoorOpen, playDoorClose, playBell, playCoffeeBrew } from './sounds';
 import { roomDoors, type RoomDoor } from './doors';
 
 type Level = { id: string; gain: number; pan: number; send: number };
@@ -49,6 +49,7 @@ export class Soundscape {
   private layoutSeen = -1;
   private instance: string | null | undefined;
   doorSounds = { open: 0, close: 0 };
+  coffeeSounds = 0;
   private timer: number;
   private unsub: () => void;
   private unsubPrefs: () => void;
@@ -289,6 +290,14 @@ export class Soundscape {
     g.connect(p).connect(categoryOutput('effects'));
     playBell(g);
     window.setTimeout(() => { g.disconnect(); p.disconnect(); }, 1500);
+  }
+  /** A coffee was brewed: the brewer and whoever stands in the machine's room (sealed rooms) hear it, panned like the doors. */
+  coffeeBrew(o: MapObject, by: string) {
+    const me = this.store.users.get(this.store.me); if (!me || me.instance || !this.store.connected) return;
+    const pose = this.store.pose(me), room = roomAt(MAP, o.x, o.y);
+    if (by !== me.id && (!room || roomAt(MAP, pose.tile.x, pose.tile.y)?.id !== room.id)) return;
+    playCoffeeBrew(Math.max(-.35, Math.min(.35, (o.x + o.w / 2 - (pose.x + .5)) / 10)));
+    this.coffeeSounds++;
   }
   resetCrossings(userId?: string) { if (userId) this.previous.delete(userId); else this.previous.clear(); }
   private crossings() {
