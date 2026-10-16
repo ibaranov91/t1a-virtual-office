@@ -190,7 +190,7 @@ export interface CalEvent { id: string; title: string; start: string; end: strin
 /** A calendar meeting with other people, now or within the hour. Sent only to its attendees (the title is theirs). */
 export interface AgendaItem { key: string; instance: string; title: string; start: number; end: number; link?: string; left?: boolean; adhoc?: boolean; from?: string } // adhoc: a private room someone started (from: host's name); left: I left it for good (not busy, no heads-up)
 /** A meeting room in use, for everyone: who's in it and until when, no title. */
-export interface MeetingRoomInfo { id: string; until: number; members: string[] }
+export interface MeetingRoomInfo { id: string; until: number; members: string[]; voice: string[] } // voice: who is on the room's voice call (at most MAX_CALL_SIZE; the rest get Meet)
 /** Meeting rooms are copies of this room on the map. */
 export const MEETING_ROOM_ID = 'meeting';
 
@@ -301,6 +301,7 @@ export type ServerMsg =
   | { t: 'rtc'; from: string; signal: RtcSignal }
   | { t: 'speaking'; userId: string; on: boolean }
   | { t: 'mute'; userId: string; muted: boolean }
+  | { t: 'room_meet'; instance: string; link: string | null } // the Meet room of the meeting room I'm in (only to its members; null: none yet / left)
   | { t: 'to_meet'; fromId: string } // someone in your call opened its Meet room; come along
   | { t: 'follow'; userId: string; targetId: string | null }
   | { t: 'eating'; userId: string; eating: Eating | null }
@@ -361,6 +362,8 @@ export type ClientMsg =
   | { t: 'meeting_leave' }           // back to the office (still in the meeting: busy, knocks go to Later)
   | { t: 'room_create'; title?: string; invite: string[] } // start a private room in a copy of the Meeting room; invite = user ids
   | { t: 'room_invite'; userIds: string[] } // add people to the private room I'm in
+  | { t: 'room_voice'; on: boolean } // join / leave the voice call of the meeting room I'm in (ad-hoc rooms join on entry, calendar meetings are opt-in)
+  | { t: 'room_meet' } // 'Use Meet' in an ad-hoc room: make (or re-send) its Meet link for everyone in it
   | { t: 'meeting_out'; key: string } // leave the meeting for good: not busy any more, knocks come through again
   | { t: 'google_disconnect' }
   | { t: 'claim_desk' }   // the seat you're sitting on becomes your home desk
