@@ -35,6 +35,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
   var state = DeckState()
   let card = KnockCard()
   let updater = Updater()
+  let wellness = WellnessNotifications()
   var updateButton: NSButton!
   var windowRoot = NSView() // the window's content: the web view, with the menu bar note on top
   var note: NSView?
@@ -64,6 +65,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
   }
 
   func applicationDidFinishLaunching(_ note: Notification) {
+    wellness.onPermission = { [weak self] status in self?.js("window.__deckNative?.wellnessPermission(\(json(status)))") }
+    wellness.isInFront = { [weak self] in
+      guard let self, self.pageOK else { return false }
+      return self.popover?.isShown == true || (NSApp.isActive && (self.window?.isVisible == true || self.desk?.isVisible == true))
+    }
+    wellness.onOpen = { [weak self] kind in
+      guard let self else { return }
+      self.showWindow()
+      if !kind.isEmpty { self.js("window.__deckNative?.openWellness(\(json(kind)))") }
+    }
+    NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
+      self?.wellness.refreshPermission()
+    }
     NotificationCenter.default.addObserver(forName: NSWindow.didChangeOcclusionStateNotification, object: nil, queue: .main) { [weak self] n in
       if (n.object as? NSWindow) === self?.web.window { self?.updateCovered() }
     }
@@ -338,12 +352,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
     if arranging { if popover.isShown { popover.performClose(nil) }; desk.makeKeyAndOrderFront(nil); NSApp.activate() }
   }
   @objc func togglePop() { popOnKnock.toggle() }
-  @objc func pickInstance(_ sender: NSMenuItem) { if let u = sender.representedObject as? String { url = u; load() } }
+  @objc func pickInstance(_ sender: NSMenuItem) { if let u = sender.representedObject as? String { wellness.clear(); url = u; load() } }
   @objc func customInstance() {
     let a = NSAlert(); a.messageText = "Deck URL"; a.addButton(withTitle: "Open"); a.addButton(withTitle: "Cancel")
     let f = NSTextField(frame: NSRect(x: 0, y: 0, width: 320, height: 24)); f.stringValue = url; a.accessoryView = f
     NSApp.activate()
-    if a.runModal() == .alertFirstButtonReturn, URL(string: f.stringValue)?.scheme?.hasPrefix("http") == true { url = f.stringValue; load() }
+    if a.runModal() == .alertFirstButtonReturn, URL(string: f.stringValue)?.scheme?.hasPrefix("http") == true { wellness.clear(); url = f.stringValue; load() }
   }
   @objc func reloadClicked() { if pageOK { web.reload() } else { retryLoad() } } // nothing to reload after a failed first load
   @objc func openInBrowser() { if let u = URL(string: url) { NSWorkspace.shared.open(u) } }
@@ -407,6 +421,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
 
   func userContentController(_ c: WKUserContentController, didReceive message: WKScriptMessage) {
     guard let m = message.body as? [String: Any] else { return }
+    // Only the main page may control personal notifications, never a subframe or another origin.
+    if (m["type"] as? String)?.hasPrefix("wellness") == true {
+      guard message.frameInfo.isMainFrame, let page = web.url, let configured = URL(string: url),
+            page.scheme == configured.scheme, page.host == configured.host, page.port == configured.port else { return }
+      switch m["type"] as? String {
+      case "wellness": wellness.sync(m)
+      case "wellnessPermission": wellness.requestPermission()
+      case "wellnessSettings":
+        if let settings = URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension") { NSWorkspace.shared.open(settings) }
+      default: break
+      }
+      return
+    }
     if m["type"] as? String == "macApp" { updater.offer(m); return updateIfIdle() }
     guard m["type"] as? String == "state" else { return }
     let old = state

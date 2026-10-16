@@ -75,6 +75,7 @@ extension AppDelegate {
   // MARK: page load lifecycle (WKNavigationDelegate)
 
   func webView(_ w: WKWebView, didStartProvisionalNavigation n: WKNavigation!) {
+    wellness.pageLoading()
     loadTimeout?.invalidate()
     loadTimeout = Timer.scheduledTimer(withTimeInterval: 20, repeats: false) { [weak self] _ in
       guard let self, w.isLoading else { return }
@@ -104,6 +105,7 @@ extension AppDelegate {
   /// WebKit's content process died (memory pressure, a GPU reset, a long sleep): the view goes blank. Reload,
   /// and if it keeps dying, back off like a failed load.
   func webViewWebContentProcessDidTerminate(_ w: WKWebView) {
+    wellness.pageLoading()
     NSLog("The Deck: web content process terminated")
     pageOK = false; state = DeckState(); renderIcon()
     if let last = lastCrash, Date().timeIntervalSince(last) < 30 { loadFailed("The page stopped unexpectedly.") }
@@ -121,6 +123,7 @@ extension AppDelegate {
   // MARK: offline card and retries
 
   func loadFailed(_ why: String) {
+    wellness.pageLoading()
     loadTimeout?.invalidate()
     pageOK = false; loadError = why
     state = DeckState() // the page is gone: no stale knocks, call or unread on the icon
