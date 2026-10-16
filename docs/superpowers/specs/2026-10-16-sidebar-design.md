@@ -68,8 +68,8 @@ UI copy stays English like the rest of the app (strings below are exact).
     bottom:0; z-index:8`, a right border and shadow) and Esc, the « button or a pointerdown on the stage closes it
     back to the rail. The narrow expanded state is never persisted.
   - `wide` = everything else: the panel is in flow; collapsed means the rail.
-- **Width**: 264 px default, drag the 6 px handle on the panel's right edge (pointer capture), clamped 220–380,
-  double-click the handle resets to 264. Saved on pointerup.
+- **Width**: 340 px default, drag the 6 px handle on the panel's right edge (pointer capture), clamped 260–400,
+  double-click the handle resets to 340. Saved on pointerup. A saved 264 (the first default) counts as unset.
 - **Persistence**: `localStorage['deck.sidebar']` = `{ width: number, collapsed: boolean, view: 'rooms' | 'people',
   closed: string[] }` (`closed` = collapsed group ids, default `['offline']`). Every read and write in try/catch;
   bad or missing values fall back to defaults.
@@ -225,16 +225,17 @@ behavior as `PersonMenu`. `role="dialog"`, `aria-label="<name>"`.
 `border-radius: 12px`, `background: var(--bg)`, `border: 1px solid var(--line)`,
 `box-shadow: 0 -2px 12px rgba(0,0,0,.25)`. Nothing wraps. The rail keeps its compact controls, without a card.
 
-**Voice section** — compact status above the identity row, separated by a 1 px `--line` divider, only when there is
-something to say (first match):
+**Voice section** — Discord's "Voice Connected" panel, above the identity row, separated by a 1 px `--line` divider,
+only when there is something to say (first match):
 1. `store.connected && !store.voiceOwner` → `Voice is on in another tab` + button `Use voice here` (`store.claimVoice()`).
-2. a knock call (`me.callId && !me.instance && !store.roomCallOf(me) && store.voiceOwner`) → first line
-   `Voice connected` in `--accent2` with a small `volume` signal icon; second line muted
-   `with <names> · <voiceState>`. On the right, `Move to Meet` when there is a Meet link, then a red `disconnect`
-   icon button, `Leave call` (`store.endCall()`).
-3. room voice (today's `RoomVoiceChip` condition) → first line `Voice connected` in green, or `Muted` / `Deafened` /
-   `Listen-only` in `--danger`; second line muted `<room name> · here: <first names or nobody yet>`.
-   No mute or leave button here: the identity row controls the mic, and walking out leaves room voice.
+2. a knock call (`me.callId && !me.instance && !store.roomCallOf(me) && store.voiceOwner`) → a 40 px tile with the
+   green `signal` icon, `Voice Connected` (16 px, `--accent2`; `Connecting…` in `--accent` while peers connect) over
+   `Call with <names>`, and a grey filled handset `Disconnect` (`store.endCall()`, red on hover). Below, a row of wide
+   buttons: `Move to Meet` when there is a Meet link.
+3. room voice (today's `RoomVoiceChip` condition) → the same tile and `Voice Connected` over
+   `<room name> · here: <first names or nobody yet>`; `Disconnect` is `store.leaveRoom()` (the server takes you out of
+   the room's voice and walks you out, the way open rooms work). Below, a wide `Raise hand` / `Lower hand` button.
+   Mute stays on the mic button in the identity row, as in Discord.
 4. `store.voiceWait` naming an office room → `Waiting for a spot in <room> voice`.
 
 Both lines ellipsize; `title` keeps the full text, plus `earshotLine(store)` for room voice.
@@ -245,15 +246,19 @@ mic and headphones `VoiceToggle` controls, and a red `disconnect` button for kno
 is their compact status, not a second floating chip. `voiceState` and `earshotLine` stay shared in the sidebar module.
 
 **Identity row**: one flex row, centered, `gap: 10px`. Your 40 px avatar (32 px crisp sprite head) has a 12 px presence
-dot; clicking it opens Online / Away / In a call (`presence-pop`, upward). Your name is 15 px, weight 800,
-`--text`, ellipsized; the status below is 12 px `--muted`, ellipsized, or `Set a status`. No room name here.
-Name and status are one button opening `status-pop` upward: input with `maxLength=80`, Enter saves, Esc cancels,
-outside click saves, `Clear`.
+dot; clicking it opens Online / Away / In a call (`presence-pop`, upward). Your name is 16 px, weight 800,
+`--text`, ellipsized; below it, while you're in voice, a green `🔊 In voice` (Discord's user panel), otherwise your
+status in 13 px `--muted`, or `Set a status`. No room name here. Name and status are one button opening `status-pop`
+upward: input with `maxLength=80`, Enter saves, Esc cancels, outside click saves, `Clear`.
 
 On the right (`margin-left:auto`): mic split (`VoiceToggle` + input chevron), headphones split (`VoiceToggle` +
-output chevron), hand only in a room call, then settings. Buttons are 36×36, icons 22 px, radius 8 px, hover
-`--panel2`. One voice popover has input / output / settings / claim views, opens upward and right-aligned to the
+output chevron), then settings. Buttons are 36×40, icons 24 px, chevrons 16 px wide, radius 8 px, hover `--panel2`.
+The chevrons hide when the card is narrower than 290 px (a container query). The hand is not here: it sits in the
+voice section. One voice popover has input / output / settings / claim views, opens upward and right-aligned to the
 card, moves focus inside on opening and back to its trigger on closing. Escape respects `overlayOpen(store)`.
+
+**Scale**: Discord's sizes. Room rows are 36 px with 16 px names; person rows 38 px (46 px with a second line) with
+32 px avatars, 15 px names and 13 px second lines; group headers 13 px; the header tabs and search 36 px, 15 px.
 
 ## Rail (collapsed)
 

@@ -31,7 +31,7 @@ export function earshotLine(store: Store) {
 const PRESENCES = [['online', 'Online'], ['away', 'Away'], ['in_call', 'In a call']] as const;
 
 /** You, as one pill: presence dot (opens a presence menu), name, room (earshot tooltip) and status (opens the status popover). */
-export function IdentityPill({ store, roomName, assets }: { store: Store; roomName?: string; assets?: Assets | null }) {
+export function IdentityPill({ store, roomName, assets, inVoice }: { store: Store; roomName?: string; assets?: Assets | null; inVoice?: boolean }) {
   const me = store.users.get(store.me);
   const [open, setOpen] = useState<'status' | 'presence' | null>(null);
   const [draft, setDraft] = useState<string | null>(null);
@@ -62,7 +62,8 @@ export function IdentityPill({ store, roomName, assets }: { store: Store; roomNa
         onClick={() => (open === 'status' ? close(true) : setOpen('status'))}>
         <b title={me.name}>{me.name}</b>
         <span className="id-room" title={earshotLine(store)}>· {roomName ? `in ${roomName}` : 'in the hallway'}</span>
-        <span className={`id-status${text ? '' : ' muted'}`} title={text ? `${text} · click to change` : 'Set a status (waters your plant)'}>{assets === undefined ? '· ' : ''}{(assets === undefined ? shown : text) || 'Set a status'}</span>
+        {inVoice ? <span className="id-status in-voice" title={text ? `In voice · ${text}` : 'In voice'}><Icon name="volume" />In voice</span>
+          : <span className={`id-status${text ? '' : ' muted'}`} title={text ? `${text} · click to change` : 'Set a status (waters your plant)'}>{assets === undefined ? '· ' : ''}{(assets === undefined ? shown : text) || 'Set a status'}</span>}
       </button>
     </div>
     {open === 'presence' && <div className="presence-pop" role="menu" aria-label="Presence">
@@ -202,27 +203,28 @@ export function SelfPanel({ store, voice, assets }: { store: Store; voice: Voice
   const who = others.length ? others.map(u => u.name.split(' ')[0]).join(', ') : 'nobody yet';
   const line = me?.callId && !room ? `with ${store.names(store.callPeers(me))} · ${state}` : room ? `${room.name} · here: ${who}` : '';
   const elsewhere = store.connected && !store.voiceOwner, knockCall = !!me?.callId && !room && store.voiceOwner;
+  const connecting = state === 'connecting…';
+  // Discord's "Voice Connected" panel: a status tile, where you are, Disconnect; the room's extras on a row below
+  const connected = (where: string, title: string, leave: () => void, leaveLabel: string, extras: React.ReactNode) => <>
+    <div className="sb-voice-top">
+      <span className={`sb-voice-tile${connecting ? ' connecting' : ''}`}><Icon name="signal" /></span>
+      <div className="sb-voice-text" title={title}><strong className={connecting ? 'connecting' : ''}>{connecting ? 'Connecting…' : 'Voice Connected'}</strong><small>{where}</small></div>
+      <IconButton icon="disconnect" label={leaveLabel} title={leaveLabel} className="sb-disconnect" onClick={leave} />
+    </div>
+    {extras && <div className="sb-voice-actions">{extras}</div>}
+  </>;
   let section: React.ReactNode = null; // MeetingChip owns a meeting room's voice, so nothing here inside one
   if (me?.instance) section = null;
-  else if (elsewhere) section = <>
+  else if (elsewhere) section = <div className="sb-voice-top">
     <span className="sb-voice-text" title="Voice is on in another tab">Voice is on in another tab</span><button onClick={() => store.claimVoice()}>Use voice here</button>
-  </>;
-  else if (knockCall) section = <>
-    <div className="sb-voice-text"><strong title="Voice connected"><Icon name="volume" />Voice connected</strong><small title={line}>{line}</small></div>
-    {meet && <ExternalLink href={meetAs(meet, store.meetAccount)} onOpen={() => store.moveToMeet()}>Move to Meet</ExternalLink>}
-    <IconButton icon="disconnect" label="Leave call" className="end" onClick={() => store.endCall()} />
-  </>;
-  else if (roomVoice) section = <>
-    <div className="sb-voice-text" title={earshotLine(store)}>
-      <strong className={roomState === 'Voice connected' ? '' : 'sb-danger'}><Icon name="volume" />{roomState}</strong><small>{line}</small>
-    </div>
-    <IconButton icon="hand" label={me?.hand ? 'Lower hand' : 'Raise hand'} aria-pressed={!!me?.hand}
-      className="vbtn chip" data-state={me?.hand ? 'active' : 'ready'} onClick={() => store.setHand(!me?.hand)} />
-    <IconButton icon="disconnect" label={`Leave ${room!.name}`} title={`Leave ${room!.name}: stop talking and step out`} className="end" onClick={() => store.leaveRoom()} />
-  </>;
-  else if (waitRoom) section = <span className="sb-voice-text" title={`Waiting for a spot in ${waitRoom.name} voice`}>Waiting for a spot in {waitRoom.name} voice</span>;
+  </div>;
+  else if (knockCall) section = connected(`Call with ${store.names(store.callPeers(me!))}`, line, () => store.endCall(), 'Disconnect',
+    meet && <ExternalLink className="sb-voice-action" href={meetAs(meet, store.meetAccount)} onOpen={() => store.moveToMeet()}><Icon name="monitor" />Move to Meet</ExternalLink>);
+  else if (roomVoice) section = connected(`${room!.name} · here: ${who}`, earshotLine(store), () => store.leaveRoom(), `Disconnect: leave ${room!.name}`,
+    <button className={`sb-voice-action${me?.hand ? ' on' : ''}`} aria-pressed={!!me?.hand} onClick={() => store.setHand(!me?.hand)}><Icon name="hand" />{me?.hand ? 'Lower hand' : 'Raise hand'}</button>);
+  else if (waitRoom) section = <div className="sb-voice-top"><span className="sb-voice-text" title={`Waiting for a spot in ${waitRoom.name} voice`}>Waiting for a spot in {waitRoom.name} voice</span></div>;
   return <div className="sb-self sb-up">
     {section && <div className="sb-voice" role="status">{section}</div>}
-    <div className="sb-identity"><IdentityPill store={store} assets={assets} /><VoiceIcons store={store} voice={voice} hand={false} /></div>
+    <div className="sb-identity"><IdentityPill store={store} assets={assets} inVoice={knockCall || roomVoice} /><VoiceIcons store={store} voice={voice} hand={false} /></div>
   </div>;
 }

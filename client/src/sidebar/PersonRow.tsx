@@ -22,7 +22,7 @@ export function PersonRow({ store, user: u, assets, speaking, people, onPerson, 
   return <div className={`sb-person${offline ? ' off' : ''}${showLine ? ' two-lines' : ''}`}>
     <button className={`sb-person-main${u.id === store.me ? ' me' : ''}`} onClick={e => open(e.currentTarget)}
       onContextMenu={e => { e.preventDefault(); open(e.currentTarget); }} aria-haspopup="dialog">
-      {!offline && <Avatar assets={assets} user={u} size={22} ring={speaking.has(u.id)} />}
+      {!offline && <Avatar assets={assets} user={u} size={32} ring={speaking.has(u.id)} />}
       <span className="sb-person-text"><span>{u.name}{!offline && u.id === store.me ? ' (you)' : ''}</span>
         {showLine && <small>{line}</small>}</span>
     </button>

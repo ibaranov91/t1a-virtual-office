@@ -15,7 +15,7 @@ import type { PersonAnchor } from './PersonCard';
 import type { RoomAnchor } from './RoomMenu';
 export type { PersonAnchor } from './PersonCard';
 type Settings = { width: number; collapsed: boolean; view: 'rooms' | 'people'; closed: string[] };
-const WIDTH = 300; // fits the bottom card's name beside mic, headphones and settings
+const WIDTH = 340; // fits the bottom card's name beside mic, headphones and settings
 const defaults = (): Settings => ({ width: WIDTH, collapsed: false, view: 'rooms', closed: ['offline'] });
 const clamp = (n: number) => Math.max(260, Math.min(400, n));
 function load(): Settings {

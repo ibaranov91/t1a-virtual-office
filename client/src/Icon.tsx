@@ -10,8 +10,9 @@ const paths = {
   settings: 'm10 3-.6 2.2-1.7 1-2.2-.6-2 3.4 1.6 1.6v2L3.5 14.2l2 3.4 2.2-.6 1.7 1L10 21h4l.6-3 1.7-1 2.2.6 2-3.4-1.6-1.6v-2l1.6-1.6-2-3.4-2.2.6-1.7-1L14 3h-4ZM15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z',
   hand: 'M8 12V5a1.5 1.5 0 0 1 3 0v6M11 5a1.5 1.5 0 0 1 3 0v6M14 7a1.5 1.5 0 0 1 3 0v5M8 12l-2-2a1.5 1.5 0 0 0-2 2l4 6c1 2 3 3 5 3a6 6 0 0 0 6-6v-3a1 1 0 0 0-2 0',
   swap: 'M3 7h17l-4-4M21 17H4l4 4',
-  disconnect: 'M3 15v-4c5-5 13-5 18 0v4h-5v-4a13 13 0 0 0-8 0v4H3Z',
+  disconnect: 'M2.5 15.5c5.2-5.3 13.8-5.3 19 0l-2.6 2.6-3.6-1.6v-3.2a11.5 11.5 0 0 0-6.6 0v3.2l-3.6 1.6-2.6-2.6Z',
   close: 'm6 6 12 12M6 18 18 6',
+  signal: 'M5 19h.01M5 14a5 5 0 0 1 5 5M5 9a10 10 0 0 1 10 10M5 4a15 15 0 0 1 15 15',
   more: 'M5 11v2M12 11v2M19 11v2',
   'chevron-down': 'm6 9 6 6 6-6',
   'chevron-up': 'm6 15 6-6 6 6',
@@ -63,7 +64,7 @@ export type IconName = keyof typeof paths;
 /** Shared 24px geometry for controls; game art and reactions keep their own assets. */
 export function Icon({ name, off = false }: { name: IconName; off?: boolean }) {
   return <svg className="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
-    <path d={paths[name]} />{off && <path className="icon-slash" d="M3 3l18 18" />}
+    <path d={paths[name]} fill={name === 'disconnect' ? 'currentColor' : undefined} />{/* the handset reads as one solid shape, like Discord's */}{off && <path className="icon-slash" d="M3 3l18 18" />}
   </svg>;
 }
 
