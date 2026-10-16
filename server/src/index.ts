@@ -47,8 +47,8 @@ world.present = new Presenter(new DeckStore(DECKS_DIR), map, {
   toScope: (scope, msg, except) => world.toScope(scope, msg, except),
   name: id => world.users.get(id)?.name ?? 'Someone',
 });
-// Expired decks go at startup and hourly. TODO: call `world.present.sweep()` once Presenter has it (it also stops live shows of swept decks).
-const sweepDecks = () => world.present!.store.sweep().catch(e => console.warn('deck sweep failed:', e));
+// Expired decks go at startup and hourly (and any live show of one comes down).
+const sweepDecks = () => world.present!.sweep().catch(e => console.warn('deck sweep failed:', e));
 void sweepDecks();
 setInterval(sweepDecks, 3600_000).unref();
 const sessions = new Map<string, string>(); // session id -> user id
