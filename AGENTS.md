@@ -131,7 +131,9 @@ npm run typecheck    # run before every commit or deploy
   and roll back with `shared/arcade/runner.ts`, and screens between rounds are epochs without inputs. Later arrivals watch
   from the balcony (cheers, predictions, crowd favourite). The **game table** (`server/src/table.ts`, rules in
   `shared/table/`) is turn-based and server-authoritative: chess (`chess.js`), Russian draughts, dominoes, Last Card;
-  each player only ever receives their own hand. `npm test` covers the sims, the delayed-transport orchestration
+  each player only ever receives their own hand. Its screen (`client/src/table/`: `Board.tsx` is the chess.com-style
+  board that turns toward black, `art.tsx` the vector pieces, tiles and cards, `model.ts` the tested helpers) follows
+  `docs/superpowers/specs/2026-10-16-game-table-ui-design.md`. `npm test` covers the sims, the delayed-transport orchestration
   harness and the table rules; `scripts/park-replay.mjs` replays Deck Park solutions. Spec:
   `docs/superpowers/specs/2026-10-16-arcade-party-pack-design.md`.
 - **Retro cabinets** (`server/src/retro.ts`, `shared/retro/`, `client/src/retro/`, `use.kind: 'retro'`): two Game Boy
