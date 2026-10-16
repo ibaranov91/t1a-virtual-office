@@ -421,7 +421,7 @@ function TopBar({ store, assets, voice, roomName, onToggleMeet, onProfile, editi
         <button className="chip ghost more-btn" aria-label="More" aria-expanded={more} onClick={() => setMore(m => !m)}><Icon name="more" /></button>
         <div className={`top-more${more ? ' open' : ''}`} onClick={e => { if (!(e.target as HTMLElement).closest('.mac-app')) setMore(false); }}>
           <button onClick={onToggleMeet} className={`chip meet-btn${store.meetLink === '' && !store.google ? ' unset' : ''}`}
-            title={store.google ? `Google connected: ${store.google}` : store.meetLink ? `Your Meet room: ${store.meetLink}` : 'Set up Google Meet'}><Icon name="monitor" />Meet</button>
+            title={store.google ? `Google connected: ${store.google}` : store.meetLink ? `Your Meet room: ${store.meetLink}` : 'Set up Google Meet'} aria-label="Meet"><Icon name="monitor" /><span className="meet-label">Meet</span></button>
           <MacAppButton />
         </div>
         <div className="hangers">
@@ -1035,7 +1035,7 @@ function Dock({ store, voice, engine, roomsOpen, onRooms }: { store: Store; voic
       <button className={z?.overview ? 'on' : ''} aria-pressed={!!z?.overview} onClick={() => engine?.toggleOverview()}>
         <Icon name="map" /><small>{z?.overview ? 'Back' : 'Floor'}</small></button>
       <button onClick={() => engine?.recenter()}><Icon name="locate" /><small>Me</small></button>
-      <button onClick={() => (chatWith ? store.openChat(chatWith) : onRooms())} title={chatWith ? undefined : 'Pick someone in People to message'}>
+      <button onClick={() => (chatWith ? store.openChat(chatWith) : !roomsOpen && onRooms())} title={chatWith ? undefined : 'Pick someone in People to message'}>
         <Icon name="message" />{total > 0 && <b className="badge">{total}</b>}<small>Chat</small></button>
       {store.later.length > 0 && <button onClick={() => store.openLater()} title="Knocks you missed"><Icon name="bell" /><b className="badge">{store.later.length}</b><small>Later</small></button>}
       <VoiceIcons store={store} voice={voice} dock />

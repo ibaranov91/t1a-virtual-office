@@ -154,7 +154,7 @@ export function VoiceIcons({ store, voice, dock, rail, hand = true }: { store: S
       {!rail && options('input')}
     </div>
     <div className="voice-split"><VoiceToggle kind="headphones" voice={voice} disabled={!owner} savedDeafened={prefs.deafened} caption={dock} />{!rail && options('output')}</div>
-    {hand && (dock || room) && <IconButton icon="hand" label={me?.hand ? 'Lower hand' : 'Raise hand'} title={elsewhere ? away : !room ? 'Raise your hand in a room call' : me?.hand ? 'Lower hand' : 'Raise hand'}
+    {hand && room && <IconButton icon="hand" label={me?.hand ? 'Lower hand' : 'Raise hand'} title={elsewhere ? away : !room ? 'Raise your hand in a room call' : me?.hand ? 'Lower hand' : 'Raise hand'}
       className="vbtn chip" data-state={me?.hand && room ? 'active' : 'ready'} disabled={!owner || !room} aria-pressed={!!me?.hand && !!room}
       onClick={() => store.setHand(!me?.hand)}>{dock && <small>Hand</small>}</IconButton>}
     <IconButton icon="settings" label="Voice settings" className="vbtn chip" data-state="ready" disabled={elsewhere}
