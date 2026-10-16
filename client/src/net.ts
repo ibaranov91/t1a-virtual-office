@@ -381,10 +381,15 @@ export class Store {
   closeClock() { this.clockOpen = false; this.emit(); }
   linkOpen: { label: string; url: string } | null = null;
   presentation: LiveDeck | null = null; // slides on a screen right now
+  roomMeetLink: { instance: string; link: string } | null = null; // the Meet room of the meeting room I'm in (members only)
   roomOpen = false;                     // the private-room popup (start one, or invite into mine)
   openRoom(on: boolean) { this.roomOpen = on; this.emit(); }
   createRoom(invite: string[], title?: string) { this.send({ t: 'room_create', title: title?.trim() || undefined, invite }); this.roomOpen = false; this.emit(); }
   inviteToRoom(userIds: string[]) { this.send({ t: 'room_invite', userIds }); this.roomOpen = false; this.emit(); }
+  roomVoice(on: boolean) { this.send({ t: 'room_voice', on }); }
+  useRoomMeet() { this.send({ t: 'room_meet' }); }
+  /** Is my voice on this meeting room's call? */
+  get inRoomVoice() { const me = this.users.get(this.me); return !!me?.instance && me.callId === `inst:${me.instance}`; }
   /** An ad-hoc private room I'm standing in (the agenda item whose instance is mine). */
   get myAdhoc() { const a = this.myMeeting; return a?.adhoc ? a : null; }
   /** Can I take this person into a private room right now? */
@@ -707,9 +712,10 @@ export class Store {
           if (u.callId !== msg.callId) { u.speaking = false; u.hand = false; }
           u.callId = msg.callId;
         }
-        if (msg.userId === this.me) this.callLink = msg.callId && !msg.callId.startsWith('room:') ? msg.link ?? this.callLink : null;
+        if (msg.userId === this.me) this.callLink = msg.callId && !msg.callId.startsWith('room:') && !msg.callId.startsWith('inst:') ? msg.link ?? this.callLink : null;
         break;
       }
+      case 'room_meet': this.roomMeetLink = msg.link ? { instance: msg.instance, link: msg.link } : null; break;
       case 'voice_owner': this.voiceOwner = msg.owner; break;
       case 'voice_wait': {
         const was = this.voiceWait; this.voiceWait = msg.roomId;
