@@ -538,6 +538,13 @@ for (const n of [1, 2]) {
   frames.screen = t.outline();
 }
 {
+  const t = new Img(16, 16); // "start private room" sign: a little wooden door on a brass plate
+  t.rect(2, 2, 12, 12, '#b08a4a'); t.rect(3, 3, 10, 10, '#f2e8d4');
+  t.rect(5, 5, 6, 8, '#6a4a2e'); t.rect(6, 6, 4, 6, '#8c6240'); t.px(9, 9, '#f0c040');
+  t.px(4, 4, '#c8b080'); t.px(11, 4, '#c8b080');
+  frames.room_start = t.outline();
+}
+{
   const t = new Img(16, 16); // exit door (sits on the short wall face) with a green EXIT sign
   t.rect(2, 0, 12, 16, '#6a3c22');
   t.rect(3, 4, 10, 12, '#9c5f30'); t.vline(3, 4, 12, '#b97a45'); t.vline(8, 5, 11, '#7d4a26');

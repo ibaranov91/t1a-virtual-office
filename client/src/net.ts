@@ -359,7 +359,7 @@ export class Store {
       if (a.left || this.headsUp.has(a.key) || now < a.start - 60_000 || now >= a.end || a.instance === mine) continue;
       this.headsUp.add(a.key);
       const soon = a.start > now ? `starts at ${this.clock(a.start)}` : 'is on now';
-      this.toast({ kind: 'meeting', meetingKey: a.key, link: a.link, text: `📅 ${a.title} ${soon}`, hint: 'Go: step into its room with the others', expires: a.end - now });
+      this.toast({ kind: 'meeting', meetingKey: a.key, link: a.link, text: a.adhoc ? `🔒 ${a.title}` : `📅 ${a.title} ${soon}`, hint: a.adhoc && a.from ? `${a.from.split(' ')[0]} invited you: step into the private room` : 'Go: step into its room with the others', expires: a.end - now });
       playKnock();
     }
   }
@@ -381,6 +381,22 @@ export class Store {
   closeClock() { this.clockOpen = false; this.emit(); }
   linkOpen: { label: string; url: string } | null = null;
   presentation: LiveDeck | null = null; // slides on a screen right now
+  roomMeetLink: { instance: string; link: string } | null = null; // the Meet room of the meeting room I'm in (members only)
+  roomOpen = false;                     // the private-room popup (start one, or invite into mine)
+  openRoom(on: boolean) { this.roomOpen = on; this.emit(); }
+  createRoom(invite: string[], title?: string) { this.send({ t: 'room_create', title: title?.trim() || undefined, invite }); this.roomOpen = false; this.emit(); }
+  inviteToRoom(userIds: string[]) { this.send({ t: 'room_invite', userIds }); this.roomOpen = false; this.emit(); }
+  roomVoice(on: boolean) { this.send({ t: 'room_voice', on }); }
+  useRoomMeet() { this.send({ t: 'room_meet' }); }
+  /** Is my voice on this meeting room's call? */
+  get inRoomVoice() { const me = this.users.get(this.me); return !!me?.instance && me.callId === `room:${me.instance}`; }
+  /** An ad-hoc private room I'm standing in (the agenda item whose instance is mine). */
+  get myAdhoc() { const a = this.myMeeting; return a?.adhoc ? a : null; }
+  /** Can I take this person into a private room right now? */
+  roomReason(u: ClientUser) {
+    const me = this.users.get(this.me);
+    return u.bot || u.presence === 'offline' ? 'Not around' : me?.instance || u.instance || underground(u) || (me && underground(me)) ? 'Not from a meeting or the dungeon' : null;
+  }
   presentOpen: string | null = null;    // the screen whose upload panel is open
   slidesHidden = true;                  // not watching: viewers sit down and say Watch (or use the Live chip)
   openPresent(id: string | null) { this.presentOpen = id; this.emit(); }
@@ -566,6 +582,7 @@ export class Store {
       case 'note': this.soundscape?.receiveNote(msg.id, msg.by, msg.note, msg.on, msg.vel, msg.preset, msg.at); return;
       case 'jukebox': if (this.jukeboxReady) this.jukebox = { ...this.jukebox, [msg.id]: msg.state }; break;
       case 'object': this.objects = { ...this.objects, [msg.id]: { on: msg.on } }; break;
+      case 'room_open': this.roomOpen = true; break;
       case 'present_open': this.presentOpen = msg.objectId; break;
       case 'bell': {
         const me = this.users.get(this.me), by = this.users.get(msg.userId);
@@ -701,6 +718,7 @@ export class Store {
         if (msg.userId === this.me) this.callLink = msg.callId && !msg.callId.startsWith('room:') ? msg.link ?? this.callLink : null;
         break;
       }
+      case 'room_meet': this.roomMeetLink = msg.link ? { instance: msg.instance, link: msg.link } : null; break;
       case 'voice_owner': this.voiceOwner = msg.owner; break;
       case 'voice_wait': {
         const was = this.voiceWait; this.voiceWait = msg.roomId;
