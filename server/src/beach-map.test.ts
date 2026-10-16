@@ -44,11 +44,25 @@ test('every fixed vacation destination is walkable and reachable from spawn', ()
   for (let y = 49; y <= 51; y++) for (let x = 0; x < map.width; x++) assert.equal(map.tiles[map.layers.walls[y][x]], 'sea');
 });
 
+test('the mountain has walkable terraces joined by stairs, with no shortcuts through cliff faces', () => {
+  for (const [x, y] of [[12, 35], [12, 36], [12, 38], [12, 39], [12, 41], [17, 42]])
+    assert.ok(isWalkable(map, x, y), `terrace ${x},${y}`);
+  for (const [x, y] of [[12, 37], [12, 40], [24, 39], [22, 36]])
+    assert.equal(isWalkable(map, x, y), false, `cliff ${x},${y}`);
+  const route = findPath(map, map.vacation!.trailFoot, map.vacation!.summit);
+  for (const [x, y] of [[22, 40], [8, 37]])
+    assert.ok(route.some(t => t.x === x && t.y === y), `stairs ${x},${y}`);
+  for (const t of route) assert.ok(isWalkable(map, t.x, t.y));
+  // The grass alongside the massif is part of the playable valley too.
+  for (const [x, y] of [[1, 34], [1, 43], [24, 34]])
+    assert.ok(findPath(map, map.spawn, { x, y }).length, `valley ${x},${y}`);
+});
+
 import { terrainAt, inWing } from '../../shared/beach';
 import { inRect, layoutProblem, migrateBeach, pathTo, seatAt, withLayout, type Layout } from '../../shared/map';
 
 test('terrain helpers classify each family and restrict the wing to its room rectangles', () => {
-  for (const [name, expected] of [['sand_0', 'sand'], ['sand_wet_2', 'sand'], ['water_shallow_1', 'shallow'], ['water_deep_2', 'deep'], ['trail_1', 'trail'], ['snow_0', 'snow'], ['pier', 'pier']] as const) {
+  for (const [name, expected] of [['sand_0', 'sand'], ['sand_wet_2', 'sand'], ['water_shallow_1', 'shallow'], ['water_deep_2', 'deep'], ['trail_mtn_12_39', 'trail'], ['trail_mtn_8_37', 'trail'], ['snow_0', 'snow'], ['pier', 'pier']] as const) {
     const y = map.layers.floor.findIndex(row => row.some(i => map.tiles[i] === name));
     assert.ok(y >= 0, name);
     const x = map.layers.floor[y].findIndex(i => map.tiles[i] === name);

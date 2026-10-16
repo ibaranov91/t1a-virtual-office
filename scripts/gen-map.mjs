@@ -2,6 +2,7 @@
 // Layers are 2D arrays of indices into `tiles` (atlas frame names); 0 = nothing.
 // Run: npm run gen (it needs tsx, for the shared layout code)
 import { writeFileSync } from 'node:fs';
+import { mountainFloor } from './mountain-terrain.mjs';
 import { applyLayout, besideObject, findPath, isWalkable, layoutProblem, roomAt } from '../shared/map.ts';
 
 const W = 85, BUILDING_H = 34, OFFICE_H = 52; // x 75-83: the Book Club, east of the Library (solid wall above it); x 65-73: the Admin room over Berghain, added beside the Music room and the Arcade
@@ -181,17 +182,13 @@ for (let y = BUILDING_H; y < OFFICE_H; y++) for (let x = 0; x < W; x++) {
   else if (x <= 24 && y <= 43) setWall(x, y, y === 43 || x === 24 ? 'cliff' : 'rock');
 }
 const carve = (x, y, family) => { walls[y][x] = 0; floor[y][x] = tid(`${family}_${hash(x, y) % 2}`); };
-// One narrow switchback; the rock between its legs prevents shortcuts to the plateau.
-for (let x = 22; x <= 24; x++) carve(x, 41, 'trail');
-for (let y = 38; y <= 41; y++) carve(22, y, 'trail');
-for (let x = 8; x <= 22; x++) carve(x, 38, 'trail');
-for (let y = 36; y <= 38; y++) carve(8, y, 'trail');
-for (let x = 8; x <= 17; x++) carve(x, 36, 'trail');
-for (let y = 34; y <= 35; y++) for (let x = 16; x <= 18; x++) carve(x, y, 'snow');
-// Small walkable slope ledges, off the trail, for pines.
-for (const x of [4, 10, 16, 20]) { walls[43][x] = 0; floor[43][x] = tid(`trail_${hash(x, 43) % 2}`); }
-for (let y = 34; y <= 43; y++) for (let x = 1; x <= 24; x++)
-  if (walls[y][x]) setWall(x, y, `mtn_${x}_${y}`);
+// Three walkable shelves; the cliff rows can only be crossed at their stairs.
+for (let y = 34; y <= 43; y++) for (let x = 1; x <= 24; x++) {
+  const surface = mountainFloor(x, y);
+  if (surface === 'snow') carve(x, y, 'snow');
+  else if (surface) { walls[y][x] = 0; floor[y][x] = tid(`${surface === 'valley' ? 'grass' : 'trail'}_mtn_${x}_${y}`); }
+  else setWall(x, y, `mtn_${x}_${y}`);
+}
 for (let y = 43; y <= 48; y++) for (const x of [62, 63]) floor[y][x] = tid('pier');
 const vacation = { gate: { x: 50, y: 34 }, trailFoot: { x: 24, y: 41 }, summit: { x: 17, y: 34 },
   pierEnds: [{ x: 62, y: 48 }, { x: 63, y: 48 }],

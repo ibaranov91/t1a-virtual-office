@@ -4,6 +4,7 @@
 // Run: node scripts/gen-assets.mjs
 import { writeFileSync } from 'node:fs';
 import { deflateSync } from 'node:zlib';
+import { mountainFloor, mountainLevel } from './mountain-terrain.mjs';
 
 // ---------- tiny RGBA canvas ----------
 const hex = (h) => {
@@ -2067,92 +2068,62 @@ for (const [game, accent] of [['tobu', '#cf82ae'], ['lobster', '#bd524a']]) {
     t.vline(10, 3, 10, '#d4e2d9'); t.px(9, 2, '#d4e2d9'); t.rect(9, 12, 2, 2, '#c86756'); t.px(10, 14, '#eee8cc'); t.rect(2, 12, 2, 3, '#725b45');
   });
 
-  // Match gen-map's massif and its switchback, summit and pine ledge carves.
-  // Assets also run alone, so this must not depend on the generated tilemap.
-  const mountainOpen = (x, y) =>
-    (y === 41 && x >= 22 && x <= 24) || (x === 22 && y >= 38 && y <= 41) ||
-    (y === 38 && x >= 8 && x <= 22) || (x === 8 && y >= 36 && y <= 38) ||
-    (y === 36 && x >= 8 && x <= 17) || (y >= 34 && y <= 35 && x >= 16 && x <= 18) ||
-    (y === 43 && [4, 10, 16, 20].includes(x));
-  const mountain = (x, y) => x >= 1 && x <= 24 && y >= 34 && y <= 43 && !mountainOpen(x, y);
-  const mountainWalkable = (x, y) => x >= 1 && x <= 83 && y >= 34 && y <= 44 && !mountain(x, y);
-  const mix = (a, b, t) => a + (b - a) * t;
-  const noise = (x, y, seed) => {
-    const ix = Math.floor(x), iy = Math.floor(y), fx = x - ix, fy = y - iy;
-    const sx = fx * fx * (3 - 2 * fx), sy = fy * fy * (3 - 2 * fy);
-    // Avalanche the local hash before interpolation: neighbouring lattice points are independent.
-    const sample = (x, y) => {
-      let h = grain(x, y, seed);
-      h = Math.imul(h ^ h >>> 16, 0x7feb352d);
-      h = Math.imul(h ^ h >>> 15, 0x846ca68b);
-      return ((h ^ h >>> 16) >>> 0) / 4294967295;
-    };
-    return mix(mix(sample(ix, iy), sample(ix + 1, iy), sx),
-      mix(sample(ix, iy + 1), sample(ix + 1, iy + 1), sx), sy);
-  };
-  const stone = ['#4b525b', '#676e73', '#8d938e', '#aeb2a6', '#c9cbbf'];
-  // Small alpine silhouettes, back to front. World coordinates keep the peaks
-  // continuous across tiles; the existing switchback still carves through them.
-  const peaks = [
-    [62, 547, 62, 78], [162, 545, 54, 62], [231, 546, 46, 47], [339, 548, 62, 64],
-    [49, 618, 40, 70], [109, 629, 49, 68], [201, 626, 58, 72],
-    [291, 625, 57, 73], [367, 634, 43, 64],
-  ];
-  const mountainPixel = (px, py) => {
-    const x = Math.floor(px / 16), y = Math.floor(py / 16), j = py - y * 16;
-    let color = noise(px / 26, py / 19, 71) > 0.55 ? '#7c8979' : '#718071';
-    let onPeak = false;
-    for (const [cx, top, width, height] of peaks) {
-      const dy = py - top, z = dy / height;
-      if (z < 0 || z > 1) continue;
-      const left = cx - Math.floor(dy * width / height);
-      const right = cx + Math.floor(dy * width * 0.78 / height);
-      if (px < left || px > right) continue;
-      onPeak = true;
-      const crest = cx + Math.floor(dy * 0.12) + Math.floor(dy / 13) % 2;
-      const lit = px <= crest, across = (px - left) / Math.max(1, right - left);
-      color = lit ? stone[3] : stone[1];
-      // Long, angular ribs descend from each summit instead of mottled noise.
-      if (lit && across < 0.22) color = stone[2];
-      if (!lit && across > 0.82) color = stone[0];
-      const rib = cx + Math.floor(dy * (lit ? -0.34 : 0.38));
-      if (Math.abs(px - rib) < 1 + Math.floor(z * 2)) color = lit ? stone[2] : stone[0];
-      if (px === crest || (lit && px === crest - 1)) color = stone[4];
-      // A broken snow line and shaded right face make even tiny peaks legible.
-      const snowline = 0.22 + 0.055 * Math.sin((px - cx) * 0.48) + (lit ? 0.035 : -0.015);
-      if (z < snowline) color = lit ? '#f1f5ef' : '#b6cbd2';
-      if (px === left || px === right) color = z < 0.17 ? '#d7e3df' : stone[0];
-      if (z > 0.88 && grain(px, py, 293) % 9 === 0) color = stone[2];
-    }
-    if (mountainWalkable(x, y + 1)) {
-      const rim = 9 + Math.floor(noise(px / 9, (y + 1) * 16 / 20, 419) * 3);
-      if (j === rim - 1) color = stone[4];
-      if (j >= rim) {
-        const flute = noise(px / 3, py / 42, 521);
-        color = stone[flute < 0.30 || j === 15 ? 0 : flute > 0.64 && j < rim + 3 ? 2 : 1];
+  // Top-down terraces: the horizontal surfaces are actual walkable map tiles.
+  // Cliff faces occupy the separating rows, with stair tiles cut into them.
+  const tops = ['#93a673', '#acb18b', '#c0bea5'];
+  const faces = ['#88775d', '#968569', '#a5967c'];
+  for (let y = 34; y <= 43; y++) for (let x = 1; x <= 24; x++) {
+    const surface = mountainFloor(x, y), level = mountainLevel(y) - 1;
+    if (surface === 'snow') continue;
+    make(surface === 'valley' ? `grass_mtn_${x}_${y}` : surface ? `trail_mtn_${x}_${y}` : `mtn_${x}_${y}`, 16, 16, t => {
+      const above = mountainFloor(x, y - 1), below = mountainFloor(x, y + 1);
+      const left = mountainFloor(x - 1, y), right = mountainFloor(x + 1, y);
+      const front = !surface && above;
+      for (let j = 0; j < 16; j++) for (let i = 0; i < 16; i++) {
+        const px = x * 16 + i, py = y * 16 + j, h = grain(px, py, 131);
+        let color = tops[level];
+        if (surface === 'valley') {
+          color = '#768d5c';
+          if (h % 17 === 0) color = '#8da76a';
+          if (h % 37 === 0) color = '#637b4f';
+        } else if (surface === 'stairs') {
+          // Six shallow treads, recessed between two stone cheeks.
+          color = j % 3 === 0 ? '#d3d1b1' : j % 3 === 1 ? '#a6ab8b' : '#626f60';
+          if (i < 2 || i > 13) color = i < 2 ? '#c0c4a5' : '#596757';
+        } else if (surface) {
+          if (h % 47 === 0) color = '#c7c8aa';
+          if (h % 71 === 0) color = '#7c886e';
+          // Short, horizontal mineral seams keep the top distinct from the face.
+          if ((py + Math.floor(px / 21) * 3) % 19 === 0 && px % 21 < 5) color = '#929c7f';
+          if (!below && j > 13) color = j === 14 ? '#d0cfad' : '#6e7b62';
+          if ((!left && i === 0) || (!right && i === 15)) color = '#d0cfad';
+          if (level === 0 && h % 37 === 0) color = '#a6b37a';
+        } else {
+          // Continuous strata and vertical fissures form solid, climbable terrain.
+          const seam = (py + Math.floor(px / 29) * 3) % 13;
+          color = faces[level];
+          if (seam === 0 && px % 29 < 18) color = '#b1a084';
+          if (seam === 1 && px % 29 < 17) color = '#74664f';
+          const crack = (px + Math.floor(py / 4)) % 31;
+          if (crack < 2 && py % 19 < 11) color = '#6c604c';
+          if (crack === 2 && py % 19 < 10) color = '#b4a58b';
+          if (front) {
+            const lip = 1 + grain(Math.floor(px / 3), y, 23) % 3;
+            if (j < lip) color = j === 0 ? '#d0cfad' : '#a1ac7d';
+            if (j > 12) color = j === 15 ? '#514c3c' : '#6e624b';
+          }
+          // The uphill side of a shelf is darkened where it meets the rock.
+          if (below && j > 13) color = '#4f604b';
+          if (level === 0 && j > 10 && h % 13 === 0) color = '#849d60';
+        }
+        t.px(i, j, color);
       }
-    }
-    if (mountainWalkable(x, y - 1) && j < 3) {
-      const pebble = noise(px / 2, py / 2, 617);
-      if (pebble > 0.58) color = j === 0 ? stone[3] : stone[1];
-    }
-    if (y >= 41) {
-      const moss = noise(px / 13, py / 7, 733), tuft = noise(px / 2, py / 4, 811);
-      if (moss > 0.59 && tuft > 0.48 && (!onPeak || j > 12))
-        color = tuft > 0.65 ? '#8fae67' : '#6f8f55';
-      // Sparse low boulders, anchored to a world-space lattice, can cross frame boundaries.
-      const bx = Math.floor(px / 29), by = Math.floor(py / 19);
-      if (grain(bx, by, 907) % 5 === 0) {
-        const dx = px - (bx * 29 + 14), dy = py - (by * 19 + 10);
-        if (dx * dx / 36 + dy * dy / 16 < 1) color = stone[dy > 1 ? 0 : dx + dy < -1 ? 4 : 2];
+      // A few embedded stones, never large pictorial mountain silhouettes.
+      if (surface === 'terrace' && grain(x, y, 97) % 5 === 0) {
+        t.hline(5, 8, 4, '#7d8b6e'); t.hline(6, 7, 3, '#d0cfb1');
       }
-    }
-    return color;
-  };
-  for (let y = 34; y <= 43; y++) for (let x = 1; x <= 24; x++) if (mountain(x, y))
-    make(`mtn_${x}_${y}`, 16, 16, t => {
-      for (let j = 0; j < 16; j++) for (let i = 0; i < 16; i++) t.px(i, j, mountainPixel(x * 16 + i, y * 16 + j));
     }, false);
+  }
 }
 
 // ---------- pack world atlas (shelf packer) ----------

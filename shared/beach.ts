@@ -7,7 +7,7 @@ export function terrainAt(map: TileMap, x: number, y: number): 'sand' | 'shallow
   if (/^sand_(?:wet_)?[0-2]$/.test(name)) return 'sand';
   if (/^water_shallow_[0-2]$/.test(name)) return 'shallow';
   if (/^water_deep_[0-2]$/.test(name)) return 'deep';
-  if (/^trail_[0-1]$/.test(name)) return 'trail';
+  if (/^trail_(?:[0-1]|mtn_\d+_\d+)$/.test(name)) return 'trail';
   if (/^snow_[0-1]$/.test(name)) return 'snow';
   return name === 'pier' ? 'pier' : null;
 }
