@@ -1295,6 +1295,32 @@ export class World {
     this.broadcast({ t: 'meetings', rooms: this.meetingRooms() });
     this.meetings.rejoin(u, key); // Go after leaving for good: in the meeting again
   }
+  /** Valid invitees: existing humans other than the sender, deduped, at most 29. */
+  private inviteList(u: User, ids: unknown): string[] {
+    if (!Array.isArray(ids)) return [];
+    const out = new Set<string>();
+    for (const id of ids) { const o = typeof id === 'string' ? this.users.get(id) : undefined; if (o && !o.bot && o.id !== u.id) out.add(o.id); }
+    return [...out].slice(0, 29);
+  }
+  private canHost(u: User) { return !u.bot && u.presence !== 'offline' && !goingOut(u) && !underground(u); }
+  /** Start a private room (a Meeting-room copy for the invited) and step the host in. */
+  roomCreate(u: User, title: unknown, invite: unknown) {
+    if (!this.canHost(u)) return;
+    const name = (typeof title === 'string' ? title.trim().slice(0, 40) : '') || 'Private room';
+    const m = this.meetings.createAdhoc(u, name, new Set(this.inviteList(u, invite)));
+    this.enterMeeting(u, m.key);
+    if (u.instance !== m.instance) { this.meetings.events.delete(m.key); return; } // no free spot: nothing started
+    this.meetings.notify(m);
+  }
+  /** Add people to the private room the sender is in. */
+  roomInvite(u: User, ids: unknown) {
+    const m = this.meetings.adhocOf(u);
+    if (!m?.adhoc || !this.canHost(u)) return;
+    const add = this.inviteList(u, ids).filter(id => !m.adhoc!.invited.has(id)).slice(0, Math.max(0, 30 - m.adhoc.invited.size));
+    if (!add.length) return;
+    for (const id of add) m.adhoc.invited.add(id);
+    this.meetings.notify(m);
+  }
   /** Back to where they were in the office (or the Lobby if someone's there now). */
   leaveMeeting(u: User, announce = true) {
     if (!u.instance || underground(u)) return;
@@ -1734,6 +1760,8 @@ export class World {
         this.sendTo(u.id, { t: 'google_auth', calendar, url: authUrl(u.id, u.google?.email ?? u.email, calendar ? [CALENDAR_SCOPE] : []) });
         break;
       }
+      case 'room_create': this.roomCreate(u, msg.title, msg.invite); break;
+      case 'room_invite': this.roomInvite(u, msg.userIds); break;
       case 'meeting_go': this.enterMeeting(u, String(msg.key)); break;
       case 'meeting_leave': if (u.instance && !underground(u)) this.leaveMeeting(u); break;
       case 'dungeon_leave': this.leaveDungeon(u, 'gave_up'); break;
