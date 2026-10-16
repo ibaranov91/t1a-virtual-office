@@ -72,6 +72,8 @@ controls and hang-up hover. Do not color a settings title orange.
 
 ## Surfaces
 
+Hover card: the mini profile over a person on the floor (DOM, pointer-events none, never covers the sprite, hidden on touch).
+
 Achievements: the trophy modal (summary ring, plant hero, unlocked/locked card grid, rarity) and the Xbox-style unlock toast; new achievements need only an entry in ACHIEVEMENTS (and a progress rule in client/src/achievements.ts if they have a goal).
 
 Your profile popout: the one place to manage yourself (look, pockets, achievements,

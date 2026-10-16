@@ -5,7 +5,8 @@ import { ProfilePopout } from './sidebar/ProfilePopout';
 import { Sidebar } from './sidebar/Sidebar';
 import { PersonCard, type PersonAnchor } from './sidebar/PersonCard';
 import { RoomMenu, type RoomAnchor } from './sidebar/RoomMenu';
-import { PRESENCE_COLOR } from './sidebar/model';
+import { HoverCard } from './HoverCard';
+import { PRESENCE_COLOR, offsetOf } from './sidebar/model';
 import { COMPACT, overlayOpen, useMedia } from './sidebar/hooks';
 import { IdentityPill, VoiceIcons, CallChip, RoomVoiceChip, voiceState } from './sidebar/SelfPanel';
 import { RetroOverlay } from './retro/RetroOverlay';
@@ -254,6 +255,7 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
           onRoom={at => { setPersonMenu(null); setRoomMenu(at); }} onProfile={openProfile} surfaceOpen={!!(personMenu || roomMenu || profileOpener)} />}
       <div className={`stage${editing && store.admin && !down && engine ? ' editing' : ''}`}>
         <div className="canvas-wrap"><canvas ref={canvasRef} /></div>
+        {engine && <HoverCard store={store} engine={engine} assets={assets} compact={isCompact} />}
         {engine && <ZoomCluster engine={engine} />}
         {!assets && <div className="loading">{assetsFailed ? 'The office didn\'t load. Reload the page to try again.' : 'Unlocking the door…'}</div>}
         {!store.connected && assets && <div className="loading small">Reconnecting…</div>}
@@ -949,12 +951,6 @@ function ClockPanel({ store }: { store: Store }) {
     </div>
   );
 }
-/** Minutes by which `tz` is ahead of `base` right now. */
-function offsetOf(tz: string, base: string, at: Date) {
-  const wall = (z: string) => { const p = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: z, hourCycle: 'h23', year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric' }).formatToParts(at).map(x => [x.type, +x.value])); return Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute) / 60_000; };
-  return wall(tz) - wall(base);
-}
-
 /** The vault door: where the team's vault lives, and a link that opens it in a new tab. */
 function LinkPanel({ store }: { store: Store }) {
   const { label, url } = store.linkOpen!;

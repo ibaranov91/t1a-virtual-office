@@ -1,6 +1,7 @@
-import type { ClientUser } from '../net';
+import type { ClientUser, Store } from '../net';
 import { roomAt, stallOfCall, tableOfCall, type Room, type TileMap, type MapObject, type ObjectUse } from '../../../shared/map';
 import { OFFICE_SCOPE, underground, type JukeboxState, type LiveDeck } from '../../../shared/protocol';
+import { EFFECTS, effectName } from '../../../shared/effects';
 import { INSTRUMENTS } from '../../../shared/instruments';
 import mapJson from '../../../shared/tilemap.json';
 import { TRACK } from '../../../shared/music';
@@ -60,6 +61,52 @@ export function activityLine(view: View, u: ClientUser) {
     : u.presence === 'away' ? 'away' : '';
   const status = splitStatus(u.status ?? '').text;
   return line ? `${line}${status ? ` · ${status}` : ''}` : status;
+}
+/** Minutes by which `tz` is ahead of `base` at a particular instant. Shared with ClockPanel. */
+export function offsetOf(tz: string, base: string, at: Date) {
+  const wall = (z: string) => { const p = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: z, hourCycle: 'h23', year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric' }).formatToParts(at).map(x => [x.type, +x.value])); return Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute) / 60_000; };
+  return wall(tz) - wall(base);
+}
+export interface HoverContext {
+  now: number; zone: string; speaking: boolean; wheelOpen?: boolean;
+  tableDescription: Store['tableDescription']; gameDescription: Store['gameDescription'];
+  articleTitle(id: string): string | undefined;
+  items: ReadonlyMap<string, { icon: string; label: string }>;
+}
+/** The floor's mini profile. All time and scene data are inputs so its copy is deterministic. */
+export function hoverCard(view: View, u: ClientUser, ctx: HoverContext) {
+  const mine = u.id === view.me, me = view.users.get(view.me), room = view.roomOf(u), voice = view.roomCallOf(u);
+  const live = !u.vacation && (!!voice || !!u.callId || ctx.speaking);
+  let presence = u.vacation ? `on vacation until ${vacationReturnLabel(u.vacation).replace(/^back /, '')}`
+    : voice ? `in ${voice.name} voice`
+    : u.callId ? `talking with ${view.names(view.callPeers(u))}`
+    : u.door ? { thinking: 'packing up…', leaving: 'heading out', arriving: 'just arrived' }[u.door]
+    : underground(u) ? 'somewhere underground' : u.instance ? 'in a meeting room'
+    : u.meeting ? `in a meeting until ${view.clock(u.meeting)}`
+    : u.eating ? `having lunch${u.eating.open ? ' · open to talk' : ''}`
+    : u.presence === 'away' ? 'away' : u.presence === 'offline' ? 'offline' : 'around';
+  if (room && voice?.name !== room.name) presence += ` · ${room.name}`;
+  const { emoji, text: status } = splitStatus(u.status ?? ''), pills: string[] = [];
+  if (u.table) pills.push(ctx.tableDescription(u.table.objectId, u.id));
+  if (u.game) pills.push(ctx.gameDescription(u.game.cabinet, u.id));
+  if (u.reading) pills.push(`reading ${ctx.articleTitle(u.reading) ?? 'an article'}`);
+  const following = u.following && view.users.get(u.following);
+  if (following) pills.push(`following ${following.name.split(' ')[0]}`);
+  const item = u.holding && ctx.items.get(u.holding);
+  if (item) pills.push(`holding ${item.icon} ${item.label}`);
+  for (const e of u.effects ?? []) if (e.kind !== 'hat' && (e.until === undefined || e.until > ctx.now)) {
+    pills.push(`${EFFECTS[e.kind]?.icon ?? ''} ${effectName(e)}${e.until === undefined ? '' : ` · ${Math.ceil((e.until - ctx.now) / 1000)}s`}`.trim());
+  }
+  let localTime = '';
+  if (u.tz && !mine) {
+    const now = new Date(ctx.now), offset = offsetOf(u.tz, me?.tz ?? ctx.zone, now);
+    const time = new Intl.DateTimeFormat('en-US', { timeZone: u.tz, hour: 'numeric', minute: '2-digit' }).format(now);
+    localTime = `${time} · ${u.tz.split('/').pop()!.replace(/_/g, ' ')} · ${offset ? `${Math.abs(offset) / 60}h ${offset > 0 ? 'ahead' : 'behind'}` : 'same time'}`;
+  }
+  const footer = ctx.wheelOpen ? '' : mine ? 'Click to react' : u.presence === 'offline' ? 'Click to message'
+    : u.callId && u.callId === me?.callId ? 'Click for volume & more'
+    : room?.rules.knock === 'disabled' ? `${room.name}: no knocking · click for more` : 'Click to knock, message or follow';
+  return { name: u.name, emoji, you: mine ? '(you)' : '', presence, live, status, pills, localTime, footer };
 }
 export type ChannelRoom = { room: Room; people: ClientUser[]; count: number; subtitle: string };
 export type ChannelGroup = { id: string; label: string; hint: string; count: number; rooms: ChannelRoom[]; people: ClientUser[] };

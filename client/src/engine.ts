@@ -1,12 +1,11 @@
 import { onMap, terrainAt } from '../../shared/beach';
-import { vacationReturnLabel } from './Vacation';
 import { INSTRUMENTS } from '../../shared/instruments';
 // The floor: one <canvas>, one requestAnimationFrame loop.
 // Order: static tilemap → y-sorted furniture + sprites → nameplates & bubbles → ambient tint → UI hints.
 import { adminOnly, applyEdit, FIXED_TYPES, SEAT_TYPES, findPath, pathTo, sampleMove, pathDuration, WALK_MS_PER_TILE, isWalkable, layoutProblem, objectById, objectName, roomAt, rugFrame, seatAt, withLayout, type MapObject, type Rect, type Rug, type Tile } from '../../shared/map';
 import { FOOD_ITEMS, picnicSeat } from '../../shared/lunch';
 import { DungeonView } from './dungeon';
-import { DANCE_ROOM, EFFECTS, danceBeat, dancePhase, effectName } from '../../shared/effects';
+import { DANCE_ROOM, danceBeat, dancePhase } from '../../shared/effects';
 import { drawEffects, effectLook, effectSway } from './effects';
 import { CreatureLayer, creaturePose } from './creatures';
 import { lockedDoors, roomDoors, type RoomDoor } from './doors';
@@ -29,12 +28,6 @@ const portalStage = (age: number) => ({
 });
 /** 3x5 pixel digits for the world clocks, one row per number (bit 4 is the left column). */
 const DIGITS = [[7, 5, 5, 5, 7], [2, 6, 2, 2, 7], [7, 1, 7, 4, 7], [7, 1, 7, 1, 7], [5, 5, 7, 1, 1], [7, 4, 7, 1, 7], [7, 4, 7, 5, 7], [7, 1, 1, 1, 1], [7, 5, 7, 5, 7], [7, 5, 7, 1, 7]];
-/** "🕒 14:35 · Warsaw", plus "tomorrow"/"yesterday" when their date isn't mine. */
-function localTime(tz: string) {
-  const now = new Date(), day = (z?: string) => new Intl.DateTimeFormat('en-CA', { timeZone: z }).format(now), theirs = day(tz), mine = day();
-  const time = new Intl.DateTimeFormat([], { timeZone: tz, hour: '2-digit', minute: '2-digit' }).format(now);
-  return `🕒 ${time}${theirs === mine ? '' : theirs > mine ? ' tomorrow' : ' yesterday'} · ${tz.split('/').pop()!.replace(/_/g, ' ')}`;
-}
 const zoneFmt = new Map<string, Intl.DateTimeFormat>();
 /** Hour and minute on the wall in an IANA zone, right now. */
 function zoneHM(tz: string) {
@@ -101,7 +94,7 @@ export class Engine {
   private cam = { x: 0, y: 0 };
   private manualCam = false;
   private viewW = 0; private viewH = 0;
-  private hoverUser: string | null = null;
+  hoverUser: string | null = null;
   private hoverObject: MapObject | null = null;
   private interactive: MapObject[];
   private boards: MapObject[]; // meetings boards: a badge when meetings are on
@@ -500,7 +493,7 @@ export class Engine {
   /** Zoomed all the way out and the floor is smaller than a comfortable size: room tags show. */
   get overview() { return this.targetPx === this.minPx && this.minPx < this.defaultPx(); }
   /** So small that a tap zooms in rather than walking you somewhere. */
-  private get tapZooms() { return this.overview && this.minPx / this.dpr < 1.5; }
+  get tapZooms() { return this.overview && this.minPx / this.dpr < 1.5; }
   get zoom() { return { scale: this.targetPx / this.dpr, overview: this.overview, canIn: this.targetPx < this.maxPx, canOut: this.targetPx > this.minPx }; }
   zoomIn() { this.zoomTo(this.targetPx + this.step()); }
   zoomOut() { this.zoomTo(this.targetPx - this.step()); }
@@ -1145,8 +1138,7 @@ export class Engine {
 
     ctx.restore();
     // hover tooltip in screen space
-    if (this.tapZooms || this.editing) { /* overview: room tags only; edit mode: its own labels */ }
-    else if (this.hoverUser) this.drawTooltip(this.hoverUser, poses, camX, camY);
+    if (this.tapZooms || this.editing || this.hoverUser) { /* person hover is DOM; overview/edit mode have their own labels */ }
     else if (this.hoverObject && !this.selected) {
       const o = this.hoverObject, fr = this.f(o.type)!;
       const jukebox = this.store.jukebox[o.id], track = jukebox && TRACK.get(jukebox.track);
@@ -1767,45 +1759,5 @@ export class Engine {
     ctx.beginPath(); ctx.roundRect(sx, sy, w, h, size < 12 ? 5 : 6); ctx.fill(); ctx.stroke();
     ctx.fillStyle = accent ? '#ffe08a' : '#ffe9c4'; ctx.fillText(text, sx + size * 0.58, sy + h * 0.68);
     ctx.globalAlpha = 1;
-  }
-
-  private drawTooltip(id: string, poses: Map<string, Pose>, camX: number, camY: number) {
-    const u = this.store.users.get(id), p = poses.get(id);
-    if (!u || !p) return;
-    const ctx = this.ctx;
-    const dpr = window.devicePixelRatio || 1;
-    const room = roomAt(MAP, p.tile.x, p.tile.y);
-    const voiceRoom = this.store.roomCallOf(u);
-    const presence = u.vacation ? `on vacation · ${vacationReturnLabel(u.vacation)}` : voiceRoom ? `in ${voiceRoom.name} voice` : u.door === 'thinking' ? 'packing up…' : u.door === 'leaving' ? 'heading out' : u.door === 'arriving' ? 'just arrived'
-      : underground(u) ? 'somewhere underground' : u.instance ? 'in the meeting' : u.meeting ? `in a meeting until ${this.store.clock(u.meeting)}`
-      : u.eating ? `eating ${ITEMS.get(u.eating.item)?.label.toLowerCase() ?? 'lunch'}${u.eating.open ? ' · open to talk' : ''}` : u.callId ? `talking with ${this.store.names(this.store.callPeers(u))}` : u.presence === 'in_call' ? 'in a call' : u.presence === 'away' ? 'away' : room?.rules.occupantLabel ?? 'around';
-    const lines = [`${u.name}${u.id === this.store.me ? ' (you)' : ''} · ${presence}`];
-    if (u.table) lines.push(this.store.tableDescription(u.table.objectId, u.id));
-    if (u.game) lines.push(this.store.gameDescription(u.game.cabinet, u.id));
-    if (u.status) lines.push(`“${u.status}”`);
-    if (u.tz && u.id !== this.store.me) lines.push(localTime(u.tz));
-    const extra = [u.following && `following ${this.store.name(u.following).split(' ')[0]}`, u.holding && ITEM_ICON.get(u.holding)].filter(Boolean).join(' · ');
-    if (extra) lines.push(extra);
-    const now = this.store.now();
-    for (const e of u.effects ?? []) if (e.kind !== 'hat' && (e.until === undefined || e.until > now)) {
-      const left = e.until === undefined ? '' : ` · ${Math.ceil((e.until - now) / 1000)}s`;
-      lines.push(`${EFFECTS[e.kind]?.icon ?? ''} ${effectName(e)}${left}`);
-    }
-    if (u.reading) lines.push(`📖 reading ${this.store.library.articles.find(a => a.id === u.reading)?.title ?? 'an article'}`);
-    if (this.selected?.id !== id) lines.push(u.id === this.store.me ? 'click to react'
-      : u.presence === 'offline' ? 'click to message' : this.store.sameRoomCall(u) ? 'click for volume & more' : room?.rules.knock === 'disabled' ? `${room.name}: no knocking · click for more` : 'click for actions');
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.font = '600 12px ui-rounded, system-ui, sans-serif';
-    const w = Math.max(...lines.map(l => ctx.measureText(l).width)) + 16, lh = 16, hgt = lines.length * lh + 10;
-    const sx = ((p.x * TS + 8 - camX) * this.px) / dpr, sy = ((p.y * TS + TS - 40 - camY) * this.px) / dpr;
-    const cssW = this.canvas.width / dpr;
-    const bx = Math.max(6, Math.min(cssW - w - 6, sx - w / 2)), by = Math.max(6, sy - hgt);
-    ctx.fillStyle = 'rgba(33,22,26,0.94)'; ctx.strokeStyle = '#8a5a3c'; ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.roundRect(bx, by, w, hgt, 6); ctx.fill(); ctx.stroke();
-    lines.forEach((l, i) => {
-      ctx.fillStyle = i === 0 ? '#ffe9c4' : i === 1 && u.status ? '#d8c8b0' : '#a89080';
-      if (i > 0) ctx.font = i === 1 && u.status ? 'italic 12px system-ui, sans-serif' : '11px system-ui, sans-serif';
-      ctx.fillText(l, bx + 8, by + 17 + i * lh);
-    });
   }
 }
