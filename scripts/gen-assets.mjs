@@ -1220,6 +1220,18 @@ for (const open of [false, true]) {
     t.vline(1, 2, 9, '#5a0e1a'); t.vline(12, 2, 9, '#5a0e1a');
     frames.cape = t.outline('#140c10');
   }
+  { // the Odyssey hats transform their wearer (client/src/effects.ts): Hermes' wings, Apollo's falling laurel, the warrior's cloak
+    const WH = '#f4f4f8', WS = '#c8ccd8';
+    const wing = rows => { const t = new Img(9, 9); for (const [x, y, w] of rows) { t.hline(x, y, w, WH); t.px(x, y, WS); } return t.outline(); };
+    for (const [n, rows] of [[1, [[5, 0, 3], [3, 1, 5], [2, 2, 6], [1, 3, 7], [1, 4, 6], [0, 5, 6], [0, 6, 4], [1, 7, 2]]], [2, [[1, 1, 2], [0, 2, 4], [0, 3, 6], [1, 4, 6], [1, 5, 7], [2, 6, 6], [3, 7, 5], [5, 8, 3]]]]) {
+      const img = wing(rows); frames[`wing_r_${n}`] = img; frames[`wing_l_${n}`] = img.mirror(); // flapping up, then down
+    }
+    { const t = new Img(6, 4); for (const [x, y, w] of [[2, 0, 3], [0, 1, 6], [1, 2, 4], [3, 3, 2]]) t.hline(x, y, w, WH); t.hline(1, 2, 3, WS); const img = t.outline(); frames.wing_foot_r = img; frames.wing_foot_l = img.mirror(); }
+    { const t = new Img(3, 5); t.vline(1, 0, 5, WH); t.px(0, 2, WH); t.px(2, 3, WS); frames.feather = t; }
+    { const t = new Img(3, 3); t.px(1, 0, '#f8e070'); t.hline(0, 1, 3, '#e8b830'); t.px(1, 2, '#a87a1c'); frames.leaf = t; }
+    { const t = new Img(14, 13); for (let y = 0; y < 13; y++) { const half = 5 + (y > 6 ? 1 : 0) + (y > 10 ? 1 : 0); t.hline(7 - half, y, half * 2, y < 2 ? '#e8b830' : '#c83a3a'); }
+      t.vline(1, 2, 9, '#8a2a2a'); t.vline(12, 2, 9, '#8a2a2a'); t.hline(2, 12, 10, '#e8b830'); frames.cloak = t.outline('#4a1010'); }
+  }
 }
 
 // ---------- creatures (cat, dog, bat, the cleaner, a ghost) and cups left on tables; no shared random calls ----------

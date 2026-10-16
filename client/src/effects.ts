@@ -14,7 +14,7 @@ export interface FxCtx {
 }
 interface FxDraw {
   look?(look: Look, e: Effect): Look;
-  sway?(ms: number, seed: number, p: Pose): { dx: number; rot: number };
+  sway?(ms: number, seed: number, p: Pose, e: Effect): { dx: number; rot: number; dy?: number };
   back?(c: FxCtx): void;
   front?(c: FxCtx): void;
 }
@@ -56,13 +56,17 @@ export const EFFECT_DRAW: Record<string, FxDraw> = {
     },
   },
   hat: {
-    look: l => ({ ...l, hat: 0 }), // instead of the everyday cap or bowler
+    look: (l, e) => ({ ...l, hat: 0, ...ODYSSEY[String(e.data?.style)]?.look }), // instead of the everyday cap or bowler; the Odyssey hats also dress you
+    sway: (ms, _seed, p, e) => String(e.data?.style) === 'winged' ? { dx: 0, rot: 0, dy: p.walking ? -4 : -3 + Math.round(Math.sin(ms / 380)) } : { dx: 0, rot: 0 }, // Hermes hovers
+    back(c) { ODYSSEY[String(c.e.data?.style)]?.back?.(c); },
     front(c) {
       const style = String(c.e.data?.style ?? 'top'), name = `hat_${style}`;
       if (!c.has(name)) return;
       const h = HAT_H[style] ?? 10;
+      ODYSSEY[style]?.beforeHat?.(c);
       c.blit(name, c.x, c.top + 4 - h);
-      if ((SPECIAL_HATS as readonly string[]).includes(style)) for (let i = 0; i < 4; i++) { // a ring of twinkles around the hat
+      ODYSSEY[style]?.front?.(c);
+      if (style === 'judge' || style === 'laurel') for (let i = 0; i < 4; i++) { // a ring of twinkles around the hat
         const k = ((c.ms / 1600 + i / 4) % 1) * Math.PI * 2;
         c.ctx.globalAlpha = 0.6 + 0.4 * Math.sin(c.ms / 150 + i);
         c.blit(`sparkle_${flip(c.ms, 220, i)}`, c.x + 6 + Math.round(Math.cos(k) * 10), c.top - 4 - h / 2 + Math.round(Math.sin(k) * 5));
@@ -114,6 +118,58 @@ export const EFFECT_DRAW: Record<string, FxDraw> = {
     front(c) { unicorns(c, false); },
   },
 };
+/** The Odyssey hats change the whole character: clothes, a layer behind them, a layer in front, and a hover (winged, in sway above). */
+const ODYSSEY: Record<string, { look: Partial<Look>; back?(c: FxCtx): void; beforeHat?(c: FxCtx): void; front?(c: FxCtx): void }> = {
+  laurel: { // Apollo: a white toga and gold sandals, a pulsing golden glow, laurel leaves drifting down
+    look: { shirt: '#f4eddc', pants: '#e8d8b0', shoes: '#c8a030' },
+    back(c) {
+      const { ctx } = c, pulse = 0.3 + 0.1 * Math.sin(c.ms / 260);
+      const g = ctx.createRadialGradient(c.x + 8, c.top + 8, 2, c.x + 8, c.top + 8, 17);
+      g.addColorStop(0, `rgba(255,228,120,${pulse})`); g.addColorStop(1, 'rgba(255,200,60,0)');
+      ctx.fillStyle = g; ctx.fillRect(c.x - 10, c.top - 10, 36, 38);
+    },
+    front(c) { falling(c, () => 'leaf', 5, 2600, 9, 22); },
+  },
+  winged: { // Hermes: a light-blue chiton, big flapping wings on the back (in front when facing away) and winged sandals, feathers falling
+    look: { shirt: '#d8ecf8', pants: '#9ac0e0', shoes: '#f4f4f8' },
+    back(c) { if (c.p.dir !== 'up') wings(c); },
+    beforeHat(c) { // winged sandals, and the wings over the back when facing away
+      c.blit('wing_foot_l', c.x - 1, c.baseY - 5); c.blit('wing_foot_r', c.x + 11, c.baseY - 5);
+      if (c.p.dir === 'up') wings(c);
+      falling(c, () => 'feather', 3, 3000, 9, 20);
+    },
+  },
+  crested: { // the warrior: bronze armour and a crimson cloak that flutters when walking, dust at the heels, a gleam on the helmet
+    look: { shirt: '#b8843c', pants: '#7a2a2a', shoes: '#5a3a20' },
+    back(c) { if (c.p.dir !== 'up') cloak(c); },
+    beforeHat(c) {
+      if (c.p.dir === 'up') cloak(c);
+      if (c.p.walking) for (let i = 0; i < 3; i++) { // dust kicked up behind each step
+        const k = ((c.ms + i * 130) % 400) / 400, [dx, dy] = ({ left: [1, 0], right: [-1, 0], up: [0, 1], down: [0, -1] } as Record<string, number[]>)[c.p.dir] ?? [0, 0];
+        c.ctx.fillStyle = `rgba(190,170,140,${0.6 * (1 - k)})`; c.ctx.fillRect(c.x + 7 + dx * (3 + k * 6) - i, c.baseY - 2 - k * 3 + dy * k * 4, 2, 2);
+      }
+    },
+    front(c) { if (c.ms % 2600 < 260) c.blit(`sparkle_${flip(c.ms, 130)}`, c.x + 3, c.top - 6); },
+  },
+};
+function wings(c: FxCtx) { // flapping fast while walking, slowly when still
+  const n = c.p.walking ? flip(c.ms, 110) : flip(c.ms, 520), up = c.p.dir === 'up';
+  c.blit(`wing_l_${n}`, c.x - 4, c.top + 5 + (up ? 1 : 0)); c.blit(`wing_r_${n}`, c.x + 11, c.top + 5 + (up ? 1 : 0));
+}
+function cloak(c: FxCtx) {
+  const dx = c.p.dir === 'left' ? 2 : c.p.dir === 'right' ? -2 : 0, flutter = c.p.walking ? Math.round(Math.sin(c.ms / 90)) : 0;
+  c.blit('cloak', c.x + 1 + dx + flutter, c.top + 10);
+}
+/** Particles drifting down from the head and swaying, each looping every `period` ms. */
+function falling(c: FxCtx, frame: (i: number) => string, n: number, period: number, spread: number, height: number) {
+  const { ctx } = c;
+  for (let i = 0; i < n; i++) {
+    const k = ((c.ms + c.seed * 131 + i * period / n) % period) / period;
+    ctx.globalAlpha = Math.min(1, (1 - k) * 2, k * 6);
+    c.blit(frame(i), c.x + 8 + Math.round(Math.sin(i * 2.4 + k * 6) * spread) - 1, c.top - 2 + Math.round(k * height));
+  }
+  ctx.globalAlpha = 1;
+}
 const HAT_H: Record<string, number> = { top: 11, party: 12, wizard: 14, cowboy: 8, crown: 8, judge: 13, laurel: 7, winged: 10, crested: 10 };
 
 function unicorns(c: FxCtx, behind: boolean) {
@@ -139,9 +195,9 @@ export function effectLook(look: Look, effects: readonly Effect[] | undefined): 
   return l;
 }
 export function effectSway(effects: readonly Effect[] | undefined, ms: number, seed: number, p: Pose) {
-  let dx = 0, rot = 0;
-  for (const e of effects ?? []) { const s = EFFECT_DRAW[e.kind]?.sway?.(ms, seed, p); if (s) { dx += s.dx; rot += s.rot; } }
-  return { dx, rot };
+  let dx = 0, rot = 0, dy = 0;
+  for (const e of effects ?? []) { const s = EFFECT_DRAW[e.kind]?.sway?.(ms, seed, p, e); if (s) { dx += s.dx; rot += s.rot; dy += s.dy ?? 0; } }
+  return { dx, rot, dy };
 }
 export function drawEffects(layer: 'back' | 'front', base: Omit<FxCtx, 'e'>, effects: readonly Effect[] | undefined) {
   for (const e of effects ?? []) EFFECT_DRAW[e.kind]?.[layer]?.({ ...base, e });

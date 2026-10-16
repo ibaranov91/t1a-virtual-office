@@ -1064,7 +1064,7 @@ export class Engine {
     // effects: a sway for the whole figure, then layers behind and in front of the body (see effects.ts)
     const fx = u.effects?.length ? u.effects : null, seed = hash(u.id);
     const sway = fx ? effectSway(fx, ms, seed, p) : null;
-    if (sway && (sway.dx || sway.rot)) { ctx.save(); ctx.translate(x + 8 + sway.dx, baseY); ctx.rotate(sway.rot); ctx.translate(-x - 8, -baseY); }
+    if (sway && (sway.dx || sway.rot || sway.dy)) { ctx.save(); ctx.translate(x + 8 + sway.dx, baseY + sway.dy); ctx.rotate(sway.rot); ctx.translate(-x - 8, -baseY); }
     const top = baseY - c.frameH + bob + walkBob - 1 + (seat ? 2 : 0);
     const fxCtx = fx && { ctx, x, top, baseY, ms, seed, p, blit: (n: string, bx: number, by: number) => this.blit(ctx, n, Math.round(bx), Math.round(by)), has: (n: string) => !!this.f(n) };
     if (fxCtx) drawEffects('back', fxCtx, fx);
@@ -1074,7 +1074,7 @@ export class Engine {
     if (carrying && !hand.behind) drawBag();
     ctx.globalAlpha = 1;
     if (fxCtx) drawEffects('front', fxCtx, fx);
-    if (sway && (sway.dx || sway.rot)) ctx.restore();
+    if (sway && (sway.dx || sway.rot || sway.dy)) ctx.restore();
     const icon = u.holding && !carrying ? ITEM_ICON.get(u.holding) : undefined;
     if (icon) {
       const ih = seat ? ITEM_HAND.down : ITEM_HAND[p.dir] ?? ITEM_HAND.down;
