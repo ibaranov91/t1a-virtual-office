@@ -2,10 +2,11 @@ export type Category = 'voice' | 'music' | 'effects';
 interface Prefs {
   deafened: boolean; mode: 'voice' | 'ptt';
   mix: Record<Category, number>;
+  jukeboxVolumes: Record<string, number>;
   volumes: Record<string, number>; localMuted: Record<string, true>;
 }
 const KEY = 'deck.voice';
-const defaults = (): Prefs => ({ deafened: false, mode: 'voice', mix: { voice: 1, music: 1, effects: 1 }, volumes: {}, localMuted: {} });
+const defaults = (): Prefs => ({ deafened: false, mode: 'voice', mix: { voice: 1, music: 1, effects: 1 }, jukeboxVolumes: {}, volumes: {}, localMuted: {} });
 function load(): Prefs {
   const p = defaults();
   try {
@@ -16,6 +17,8 @@ function load(): Prefs {
       const n = v.mix?.[id];
       if (typeof n === 'number' && Number.isFinite(n)) p.mix[id] = Math.max(0, Math.min(1, n));
     }
+    for (const [id, n] of Object.entries(v.jukeboxVolumes ?? {}))
+      if (typeof n === 'number' && Number.isFinite(n)) p.jukeboxVolumes[id] = Math.max(0, Math.min(1, n));
     for (const [id, n] of Object.entries(v.volumes ?? {}))
       if (!id.startsWith('obj:') && typeof n === 'number' && Number.isFinite(n)) p.volumes[id] = Math.max(0, Math.min(2, n));
     for (const [id, on] of Object.entries(v.localMuted ?? {})) if (!id.startsWith('obj:') && on === true) p.localMuted[id] = true;

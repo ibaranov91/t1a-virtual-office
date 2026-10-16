@@ -51,7 +51,7 @@ const knockCall = (c?: Call) => !!c && !c.room;
 interface Instance { id: string; end: number; members: Set<string>; talk: Set<string>; out: Set<string>; meet?: string; meetBusy?: boolean } // talk: on the room's voice (private rooms: everyone, calendar meetings: who opted in); out: left it on purpose; meet: the room's shared Meet link
 
 // data/state.json format; bump it with a migration in load that checks data.version
-export const STATE_VERSION = 1;
+export const STATE_VERSION = 2;
 const WALK_HOME_AFTER_MS = 5 * 60_000; // back within this: return to where you were, else your home desk
 
 const SKINS = ['#f8dcc0', '#f2c79b', '#e2ad7f', '#c98d5e', '#a46a43', '#7c4f32'];
@@ -2040,6 +2040,13 @@ export class World {
     // saved in the radio days: the radio goes (withNewFixtures then brings in the jukebox)
     // ... and the Meeting room's whiteboard: the screen is its one board now (withNewFixtures then reshapes the screen into its spot)
     if (data.layout) data.layout = { ...data.layout, objects: data.layout.objects.filter(o => o.type !== 'radio' && o.type !== 'whiteboard') };
+    // The Music TV replaces the right window, keeping all other saved furniture in place.
+    if (version < 2 && data.layout) {
+      const objects = data.layout.objects.filter(o => !(o.type === 'window' && o.x === 60 && o.y === 1));
+      const ivySpace = !objects.some(o => o.x <= 63 && o.x + o.w > 63 && o.y <= 2 && o.y + o.h > 2);
+      data.layout = { ...data.layout, objects: objects.flatMap(o =>
+        o.type === 'wall_ivy' && o.x === 62 && o.y === 2 ? ivySpace ? [{ ...o, x: 63 }] : [] : [o]) };
+    }
     if (data.layout) { // an admin rearranged the office; if it no longer fits the generated floor, start over from that
       const covers = (o: { x: number; y: number; w: number; h: number }) => this.map.dungeon &&
         [this.map.dungeon.hole, this.map.dungeon.hatch].some(t => t.x >= o.x && t.x < o.x + o.w && t.y >= o.y && t.y < o.y + o.h);
