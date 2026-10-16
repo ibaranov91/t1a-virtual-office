@@ -275,17 +275,17 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
         {store.meetingsOpen && <MeetingsPanel store={store} />}
         {store.libraryOpen && <LibraryPanel store={store} />}
         {store.terminalOpen && <TerminalPanel store={store} />}
-        {me?.reading && <ReadingOverlay key={me.reading} store={store} articleId={me.reading} />}
+        {me?.reading && <ReadingOverlay key={`reading:${me.reading}`} store={store} articleId={me.reading} />}
         {tv && <LofiTV store={store} id={tv} onClose={() => setTv(null)} />}
-        {store.jukeboxOpen && <JukeboxPanel key={store.jukeboxOpen} store={store} id={store.jukeboxOpen} />}
+        {store.jukeboxOpen && <JukeboxPanel key={`jukebox:${store.jukeboxOpen}`} store={store} id={store.jukeboxOpen} />}
         {store.recordsOpen && <RecordsPopover store={store} />}
         {store.linkOpen && <LinkPanel store={store} />}
         {store.roomOpen && <RoomPopup store={store} />}
-        {store.presentOpen && <PresentPanel key={store.presentOpen} store={store} id={store.presentOpen} />}
+        {store.presentOpen && <PresentPanel key={`present:${store.presentOpen}`} store={store} id={store.presentOpen} />}
         {store.clockOpen && <ClockPanel store={store} />}
         {store.achievementsOpen && me && <AchievementsPanel store={store} me={me} assets={assets} backdrop={backdropClose(() => store.openAchievements(false))} />}
         {showMeet && <MeetSetup store={store} onClose={() => setShowMeet(false)} />}
-        {showAppearance && me && <AppearanceMenu key={me.id} look={me.look} name={me.name} assets={assets} firstTime={!me.lookSet} store={store}
+        {showAppearance && me && <AppearanceMenu key={`appearance:${me.id}`} look={me.look} name={me.name} assets={assets} firstTime={!me.lookSet} store={store}
           onSave={(look, name) => { store.setLook(look, name); setShowAppearance(false); }} onClose={() => setShowAppearance(false)} />}
         <div className="chips">
           <MeetingChip store={store} voice={voice} />
@@ -307,15 +307,15 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
           onAppearance={() => profileAction(() => setShowAppearance(true))}
           onPockets={() => profileAction(() => { setPocketsOpen(true); setGmOpen(false); })}
           onAchievements={() => profileAction(() => store.openAchievements(true))} onLogout={onLogout} />}
-        {personMenu && <PersonCard key={personMenu.id} store={store} engine={engine} assets={assets} at={personMenu} compact={isCompact}
+        {personMenu && <PersonCard key={`person:${personMenu.id}`} store={store} engine={engine} assets={assets} at={personMenu} compact={isCompact}
           onClose={() => setPersonMenu(null)} onAction={() => { setPersonMenu(null); setShowRooms(false); sidebarRef.current?.close(); }}
           onAppearance={() => setShowAppearance(s => me?.lookSet ? !s : true)} />}
-        {roomMenu && <RoomMenu key={roomMenu.id} store={store} engine={engine} at={roomMenu} compact={isCompact} onTv={setTv}
+        {roomMenu && <RoomMenu key={`room:${roomMenu.id}`} store={store} engine={engine} at={roomMenu} compact={isCompact} onTv={setTv}
           onClose={() => setRoomMenu(null)} onAction={() => { setRoomMenu(null); setShowRooms(false); sidebarRef.current?.close(); }} />}
-        {store.seat && <InstrumentPanel key={store.seat} store={store} id={store.seat}
+        {store.seat && <InstrumentPanel key={`seat:${store.seat}`} store={store} id={store.seat}
           dialogOpen={!!(store.wellnessOpen || store.table || showAppearance || showMeet || store.calendarOpen || store.laterOpen || store.meetingsOpen || store.vacationsOpen || store.clockOpen || store.jukeboxOpen || store.libraryOpen || store.terminalOpen || !!me?.reading || store.achievementsOpen || store.presentOpen || store.roomOpen || store.chatWith || personMenu || roomMenu || profileOpener || pick)} />}
         <Dock store={store} voice={voice} engine={engine} roomsOpen={showRooms} onRooms={() => setShowRooms(s => !s)} />
-        {me && <Wellness key={me.id} store={store} userId={me.id} />}
+        {me && <Wellness key={`wellness:${me.id}`} store={store} userId={me.id} />}
       </div>
       </div>
       </div>
