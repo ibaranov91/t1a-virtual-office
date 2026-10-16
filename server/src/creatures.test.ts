@@ -5,6 +5,7 @@ import { BAT_RESPAWN_MS, CLEAN_MS, STALL_CLEAN_MS, CUP_LINGER_MS, CUP_TTL_MS, PE
 import { World } from './world';
 import { isWalkable, stallDoor, type TileMap, type Tile } from '../../shared/map';
 import { MAX_CUPS, type ServerMsg } from '../../shared/protocol';
+import { PHRASES } from '../../shared/phrases';
 
 const map: TileMap = JSON.parse(readFileSync(new URL('../../shared/tilemap.json', import.meta.url), 'utf8'));
 const tables = map.objects.filter(o => ['table_big', 'table_round', 'table_long', 'desk'].includes(o.type));
@@ -15,6 +16,52 @@ function setup() {
   const c = new Creatures({ map: () => map, broadcast: m => sent.push(m), people: () => [] });
   return { c, sent };
 }
+
+test('the cat walks to a drunk visitor, sits facing them and judges only after arriving', (t: TestContext) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'setInterval', 'Date'], now: 100_000 });
+  const w = new World(structuredClone(map)), u = w.addUser('Tipsy guest', false, { x: 34, y: 8 });
+  u.presence = 'online'; w.connect(u.id, () => {}); w.addEffect(u, 'drunk');
+  const cat = w.creatures.add('cat', 'Biscuit', { x: 30, y: 8 });
+  cat.pose = 'nap'; cat.until = Date.now() + 90_000;
+  w.creatures.tick(Date.now());
+  assert.ok(cat.walk, 'even a nap cannot hide a drunk visitor from this cat');
+  assert.equal(cat.say, undefined, 'no lecture across the room');
+  const end = cat.walk!.path.at(-1)!;
+  assert.equal(Math.abs(end.x - u.tile.x) + Math.abs(end.y - u.tile.y), 1);
+  for (const tile of cat.walk!.path) assert.ok(isWalkable(w.map, tile.x, tile.y));
+  const arrival = cat.walk!.startedAt + (cat.walk!.path.length - 1) * cat.walk!.ms;
+  w.creatures.tick(arrival);
+  assert.equal(cat.pose, 'sit'); assert.equal(cat.walk, null);
+  assert.ok((PHRASES.cat as Record<string, readonly string[]>).judge?.includes(cat.say!));
+  const line = cat.say;
+  w.creatures.tick(arrival + 1000); assert.equal(cat.say, line, 'the line stays readable');
+  w.creatures.tick(arrival + 6000); assert.equal(cat.say, undefined, 'cooldown prevents another lecture');
+});
+
+test('the cat cancels its lecture if the visitor sobers up before it arrives', (t: TestContext) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'setInterval', 'Date'], now: 100_000 });
+  const w = new World(structuredClone(map)), u = w.addUser('Guest', false, { x: 34, y: 8 });
+  u.presence = 'online'; w.addEffect(u, 'drunk');
+  const cat = w.creatures.add('cat', 'Biscuit', { x: 30, y: 8 });
+  w.creatures.tick(Date.now()); assert.ok(cat.walk);
+  const arrival = cat.until;
+  w.removeEffect(u, 'drunk'); w.creatures.tick(arrival);
+  assert.equal(cat.say, undefined);
+});
+
+test('the cat ignores offline, hidden, bot and already expired drunk effects', (t: TestContext) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'setInterval', 'Date'], now: 100_000 });
+  const w = new World(structuredClone(map)), cat = w.creatures.add('cat', 'Biscuit', { x: 30, y: 8 });
+  cat.pose = 'nap'; cat.until = Date.now() + 90_000;
+  for (const kind of ['offline', 'hidden', 'bot', 'expired']) {
+    const u = w.addUser(kind, kind === 'bot', { x: 34, y: 8 });
+    u.presence = kind === 'offline' ? 'offline' : 'online';
+    if (kind === 'hidden') u.instance = 'private';
+    w.addEffect(u, 'drunk', {}, kind === 'expired' ? Date.now() - 60_001 : Date.now());
+  }
+  w.creatures.tick(Date.now());
+  assert.equal(cat.walk, null); assert.equal(cat.pose, 'nap'); assert.equal(cat.say, undefined);
+});
 
 test('cups only go on tables, one per tile, and never more than MAX_CUPS', () => {
   const { c } = setup();

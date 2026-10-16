@@ -95,11 +95,20 @@ export class CreatureLayer {
   private say(text: string, cx: number, y: number) {
     const ctx = this.ctx();
     ctx.save(); ctx.font = '5px system-ui, sans-serif'; ctx.textBaseline = 'middle';
-    const w = Math.ceil(ctx.measureText(text).width) + 6, h = 9, x = Math.round(cx - w / 2), top = y - h - 2;
+    const matrix = ctx.getTransform(), left = -matrix.e / matrix.a, right = (ctx.canvas.width - matrix.e) / matrix.a;
+    const maxWidth = Math.min(100, right - left - 10), lines: string[] = [];
+    for (const word of text.split(' ')) {
+      const last = lines.length - 1, next = last < 0 ? word : `${lines[last]} ${word}`;
+      if (last < 0 || ctx.measureText(next).width > maxWidth) lines.push(word);
+      else lines[last] = next;
+    }
+    const w = Math.ceil(Math.max(...lines.map(line => ctx.measureText(line).width))) + 6, h = lines.length * 7 + 2;
+    const x = Math.round(Math.max(left + 2, Math.min(right - w - 2, cx - w / 2))), top = y - h - 2;
     ctx.fillStyle = '#fff8ec'; ctx.strokeStyle = '#2a1a22'; ctx.lineWidth = 1;
     ctx.beginPath(); ctx.roundRect(x, top, w, h, 2); ctx.fill(); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(cx - 2, top + h); ctx.lineTo(cx, top + h + 3); ctx.lineTo(cx + 2, top + h); ctx.fillStyle = '#fff8ec'; ctx.fill();
-    ctx.fillStyle = '#2a1a22'; ctx.textAlign = 'center'; ctx.fillText(text, cx, top + h / 2 + 0.5);
+    ctx.fillStyle = '#2a1a22'; ctx.textAlign = 'center';
+    lines.forEach((line, i) => ctx.fillText(line, x + w / 2, top + 5 + i * 7));
     ctx.restore();
   }
   private frameFor(c: Creature, p: CreaturePose, ms: number) {

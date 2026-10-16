@@ -6,7 +6,7 @@ import { INSTRUMENTS } from '../../shared/instruments';
 import { adminOnly, applyEdit, FIXED_TYPES, SEAT_TYPES, findPath, pathTo, sampleMove, pathDuration, WALK_MS_PER_TILE, isWalkable, layoutProblem, objectById, objectName, roomAt, rugFrame, seatAt, withLayout, type MapObject, type Rect, type Rug, type Tile } from '../../shared/map';
 import { FOOD_ITEMS, picnicSeat } from '../../shared/lunch';
 import { DungeonView } from './dungeon';
-import { DANCE_ROOM, danceBeat, dancePhase } from '../../shared/effects';
+import { DANCE_ROOM, EFFECTS, danceBeat, dancePhase, effectName } from '../../shared/effects';
 import { drawEffects, effectLook, effectSway } from './effects';
 import { CreatureLayer, creaturePose } from './creatures';
 import { lockedDoors, roomDoors, type RoomDoor } from './doors';
@@ -1786,6 +1786,11 @@ export class Engine {
     if (u.tz && u.id !== this.store.me) lines.push(localTime(u.tz));
     const extra = [u.following && `following ${this.store.name(u.following).split(' ')[0]}`, u.holding && ITEM_ICON.get(u.holding)].filter(Boolean).join(' · ');
     if (extra) lines.push(extra);
+    const now = this.store.now();
+    for (const e of u.effects ?? []) if (e.kind !== 'hat' && (e.until === undefined || e.until > now)) {
+      const left = e.until === undefined ? '' : ` · ${Math.ceil((e.until - now) / 1000)}s`;
+      lines.push(`${EFFECTS[e.kind]?.icon ?? ''} ${effectName(e)}${left}`);
+    }
     if (u.reading) lines.push(`📖 reading ${this.store.library.articles.find(a => a.id === u.reading)?.title ?? 'an article'}`);
     if (this.selected?.id !== id) lines.push(u.id === this.store.me ? 'click to react'
       : u.presence === 'offline' ? 'click to message' : this.store.sameRoomCall(u) ? 'click for volume & more' : room?.rules.knock === 'disabled' ? `${room.name}: no knocking · click for more` : 'click for actions');

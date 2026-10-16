@@ -9,6 +9,10 @@ export const PHRASES = {
   cat: {
     idle: ['Mrrp.', 'Meow.', 'This keyboard is warm.', 'I was here first.', 'Feed me. Again.', 'Prrrr.', 'The red dot was a lie.', 'Stare contest. You lose.'],
     pet: ['Prrrrrr.', 'Acceptable.', 'Mrow~', 'Five more minutes.', 'Don\'t stop.'], // just been petted
+    judge: ['Your blood type is now mojito.', 'I saw you petting that palm.', 'Purr my last email: drink water.',
+      'Strong spirits. Weak pathfinding.', 'Meow. HR would like a word.', 'You smell like a retrospective.',
+      'A stand-up? You can barely stand.', 'That coconut is your new manager.', 'I judge. You hydrate.',
+      'Nine lives. Zero hangovers. Learn.'], // sitting beside a drunk person
   },
   dog: {
     idle: ['Woof!', 'Ball? Ball? BALL?', 'Who\'s a good boy? Me.', 'Something smells like lunch.', 'Sniff sniff.', 'Walk? Walk!', 'I heard the fridge.', 'Wag wag wag.'],

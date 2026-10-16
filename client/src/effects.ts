@@ -3,7 +3,7 @@
 // back: drawn before the body (auras, capes); front: after it (hats, particles, critters).
 import type { Effect, Look } from '../../shared/protocol';
 import type { Pose } from './net';
-import { SPECIAL_HATS, danceBeat, dancePhase } from '../../shared/effects';
+import { SPECIAL_HATS, danceBeat, dancePhase, drunkLevel } from '../../shared/effects';
 
 export interface FxCtx {
   ctx: CanvasRenderingContext2D;
@@ -141,11 +141,41 @@ export const EFFECT_DRAW: Record<string, FxDraw> = {
     },
   },
   drunk: {
-    sway: (ms, seed, p) => {
+    sway: (ms, seed, p, e) => {
+      const strength = 1 + (drunkLevel(e) - 1) * 0.45;
       const s = Math.sin((ms + seed * 53) / (p.walking ? 160 : 420));
-      return { dx: Math.round(s * (p.walking ? 2 : 1)), rot: s * (p.walking ? 0.16 : 0.1) };
+      return { dx: Math.round(s * (p.walking ? 2 : 1) * strength), rot: s * (p.walking ? 0.16 : 0.1) * strength };
     },
-    front(c) { rising(c, () => 'sparkle_2', 2, 1600, 5, 8); }, // seeing stars
+    front(c) {
+      const level = drunkLevel(c.e);
+      rising(c, () => 'sparkle_2', level + 1, 1600, 5 + level * 2, 8 + level * 3);
+      if (c.p.dir === 'up') return;
+      c.ctx.fillStyle = '#e98882'; // rosy cheeks
+      c.ctx.fillRect(c.x + (c.p.dir === 'right' ? 11 : 4), c.top + 10, 2, 1);
+      if (c.p.dir === 'down') c.ctx.fillRect(c.x + 10, c.top + 10, 2, 1);
+    },
+  },
+  refreshed: {
+    front(c) {
+      for (let i = 0; i < 3; i++) {
+        const k = ((c.ms + c.seed * 73 + i * 700) % 2100) / 2100;
+        c.ctx.globalAlpha = 1 - k; c.ctx.fillStyle = '#91e8c5';
+        c.ctx.fillRect(c.x + 3 + i * 5, c.baseY - 8 - Math.round(k * 18), 1, 2);
+      }
+      c.ctx.globalAlpha = 1;
+    },
+  },
+  chilled: {
+    front(c) {
+      c.ctx.fillStyle = '#c6f3ff';
+      for (let i = 0; i < 4; i++) {
+        const k = ((c.ms + c.seed * 97 + i * 600) % 2400) / 2400;
+        const x = c.x + 2 + i * 4 + Math.round(Math.sin(k * 6 + i) * 2), y = c.top - 5 + Math.round(k * 26);
+        c.ctx.globalAlpha = Math.min(1, (1 - k) * 2);
+        c.ctx.fillRect(x - 1, y, 3, 1); c.ctx.fillRect(x, y - 1, 1, 3);
+      }
+      c.ctx.globalAlpha = 1;
+    },
   },
   unicorns: { // three little rainbow unicorns trotting in a ring around them
     back(c) { unicorns(c, true); },
