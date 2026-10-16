@@ -35,7 +35,7 @@ function within(from: Tile, targets: Tile[], n: number) {
 type PlayingVoice = { by: string; note: number; voice: SynthVoice; at: number };
 type Instrument = { kind: InstrumentKind; voices: PlayingVoice[]; held: Map<string, { by: string; until: number }>; lastNoteAt: number; lastActivity: number; analyser?: AnalyserNode };
 interface Source {
-  kind: 'voice' | 'jukebox' | 'instrument'; jukebox?: Jukebox; instrument?: Instrument; duck?: number; modelGain?: number;
+  kind: 'voice' | 'jukebox' | 'instrument' | 'retro'; jukebox?: Jukebox; instrument?: Instrument; duck?: number; modelGain?: number;
   input: AudioNode; low: BiquadFilterNode; dry: GainNode; pan: StereoPannerNode; send: GainNode;
   bus: ConvolverNode | null; category: 'voice' | 'music'; clipGain: number; tile?: Tile;
   level: Level;
@@ -173,7 +173,16 @@ export class Soundscape {
     }
     return this.buses.get(key)!.input;
   }
+  retroInput(cabinet: string): AudioNode | null { this.emitters(); return this.sources.get(`retro:${cabinet}`)?.input ?? null; }
   private emitters() {
+    for (const [id, s] of this.sources) if (s.kind === 'retro') {
+      const o = MAP.objects.find(o => `retro:${o.id}` === id && o.use?.kind === 'retro');
+      if (!o || this.store.retro?.cabinet !== o.id) this.remove(id);
+      else s.tile = { x: o.x, y: o.y };
+    }
+    const cabinet = this.store.retro?.cabinet;
+    const retro = MAP.objects.find(o => o.id === cabinet && o.use?.kind === 'retro');
+    if (retro && !this.sources.has(`retro:${retro.id}`)) this.add(`retro:${retro.id}`, 'retro', audio().createGain(), .6, { x: retro.x, y: retro.y });
     // the jukebox can be moved (edit mode): follow it, and drop one that's gone
     for (const [id, s] of this.sources) if (s.kind === 'jukebox' || s.kind === 'instrument') {
       const o = MAP.objects.find(o => `obj:${o.id}` === id && o.use?.kind === s.kind);

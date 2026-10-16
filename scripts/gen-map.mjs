@@ -554,6 +554,12 @@ rooms.find(r => r.id === 'bookclub').stand.push({ x: 82, y: 29, dir: 'left' });
 // the Meeting room's "start private room" sign, beside the screen on the top wall (last, so every earlier id stays put)
 obj('room_start', 24, 2, 1, 1, { wall: true, use: { kind: 'room_start', label: 'start private room' } });
 
+// Retro cabinets appended last: all existing object ids stay stable.
+const firstRetro = objects.length;
+obj('retro_tobu', 62, 13, 1, 2, { use: { kind: 'retro', label: 'Tobu Tobu Girl', game: 'tobu' } });
+obj('retro_lobster', 63, 13, 1, 2, { use: { kind: 'retro', label: 'Shock Lobster', game: 'lobster' } });
+for (const { id: _i, x: _x, y: _y, ...t } of objects.slice(firstRetro)) catalog[t.type] ??= t;
+
 // ---------- vacation: props appended after all existing objects ----------
 const firstVacation = objects.length;
 // Check against the complete building furniture before opening the closest free garden pair.
@@ -594,7 +600,7 @@ for (const t of [vacation.gate, vacation.trailFoot, vacation.summit, ...vacation
   if (!isWalkable(map, t.x, t.y) || !findPath(map, map.spawn, t).length) throw new Error(`unreachable vacation destination ${t.x},${t.y}`);
 const problem = layoutProblem(map);
 if (problem) throw new Error(problem);
-for (const o of objects) if (o.use?.kind === 'arcade' && !besideObject(map, o).some(t => findPath(map, map.spawn, t).length)) throw new Error(`unreachable cabinet ${o.id}`);
+for (const o of objects) if ((o.use?.kind === 'arcade' || o.use?.kind === 'retro') && !besideObject(map, o).some(t => findPath(map, map.spawn, t).length)) throw new Error(`unreachable cabinet ${o.id}`);
 for (const x of [58, 59]) if (!findPath(map, map.spawn, { x, y: 11 }).length) throw new Error('Music door is unreachable');
 const admin = rooms.find(r => r.id === 'admin').rect;
 if (!findPath(map, map.spawn, { x: admin.x + 7, y: admin.y + 7 }).length) throw new Error('Admin room is unreachable');
