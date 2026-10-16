@@ -1308,8 +1308,8 @@ function ActionWheel({ store, engine, pick, assets, onPerson, onClose }: { store
   }
   if (!at) return null;
   // buttons ring the sprite without covering it, at any zoom; the whole wheel stays on screen
-  // A 128px chord clears the full 96 × 76px circle-and-label footprint (and exceeds 64px).
-  const spacing = items.some(it => it.label) ? 128 : 64; // labelled circles need room for their pills; bare emoji only for the circles
+  // Labels sit below the 52px circles: allow their height and a gap without doubling the ring.
+  const spacing = items.some(it => it.label) ? 88 : 64;
   const spacingRadius = items.length > 1 ? spacing / (2 * Math.sin(Math.PI / items.length)) : 0;
   const R = Math.max(items.length <= 2 ? 46 : items.length <= 4 ? 56 : 66, at.r + 54, spacingRadius);
   const x = Math.round(Math.min(Math.max(at.x, R + 50), window.innerWidth - R - 50));
