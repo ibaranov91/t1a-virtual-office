@@ -102,3 +102,19 @@ export function roomThings(map: TileMap, room: Room): (MapObject & { use: ThingU
     seen.add(key); return true;
   });
 }
+
+/** CSS shorthand keeps pixel patterns identical in previews and profile strips. */
+export function bannerStyle(banner: import('../../../shared/protocol').Banner | null | undefined, look: Pick<import('../../../shared/protocol').Look, 'shirt'>): string {
+  if (!banner) return look.shirt;
+  if (banner.kind === 'image') return `url(${JSON.stringify(banner.url)}) center / cover`;
+  if (banner.kind === 'color') return banner.color;
+  const c = banner.color, d = `color-mix(in srgb, ${c} 70%, black)`;
+  switch (banner.pattern) {
+    case 'stripes': return `repeating-linear-gradient(45deg, ${d} 0 4px, transparent 4px 8px) 0 0 / 16px 16px ${c}`;
+    case 'checks': return `repeating-conic-gradient(${d} 0 25%, transparent 0 50%) 0 0 / calc(8px * 2) calc(8px * 2) ${c}`;
+    case 'diamond': return `linear-gradient(45deg, ${d} 25%, transparent 25% 75%, ${d} 75%) 0 0 / 16px 16px, linear-gradient(-45deg, ${d} 25%, transparent 25% 75%, ${d} 75%) 0 0 / 16px 16px ${c}`;
+    case 'dots': return `radial-gradient(circle, ${d} 0 3px, transparent 3px) 0 0 / 12px 12px ${c}`;
+    case 'zigzag': return `linear-gradient(135deg, ${d} 25%, transparent 25%) -8px 0 / 16px 16px, linear-gradient(225deg, ${d} 25%, transparent 25%) -8px 0 / 16px 16px, linear-gradient(315deg, ${d} 25%, transparent 25%) 0 0 / 16px 16px, linear-gradient(45deg, ${d} 25%, transparent 25%) 0 0 / 16px 16px ${c}`;
+    case 'plaid': return `repeating-linear-gradient(0deg, ${d} 0 4px, transparent 4px 16px) 0 0 / 16px 16px, repeating-linear-gradient(90deg, ${d} 0 4px, transparent 4px 16px) 0 0 / 16px 16px ${c}`;
+  }
+}

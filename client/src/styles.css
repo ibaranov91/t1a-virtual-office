@@ -1053,3 +1053,30 @@ button:focus-visible, summary:focus-visible, input[type="range"]:focus-visible {
 @media (max-width: 560px), (max-height: 500px) {
   .sb-profile.sb-surface-sheet { max-height: calc(100% - 84px - env(safe-area-inset-bottom)); }
 }
+
+/* Profile banners share the profile surface and its normal type tokens. */
+.sb-profile-banner { position: relative; }
+.sb-banner-edit { position: absolute; top: 4px; right: 4px; z-index: 1; background: var(--panel); color: var(--text); }
+.sb-banner-editor { display: grid; gap: 10px; min-width: 0; font-size: var(--fs-md); }
+.sb-banner-tabs { display: flex; gap: 4px; }
+.sb-banner-tabs > button { flex: 1; min-width: 0; padding: 6px; }
+.sb-banner-tabs > [aria-selected="true"] { background: var(--panel2); color: var(--accent); }
+.sb-banner-options { display: grid; gap: 10px; min-width: 0; }
+.sb-banner-options small { color: var(--muted); font-size: var(--fs-sm); }
+.sb-banner-patterns { display: grid; grid-template-columns: repeat(auto-fit, minmax(64px, 1fr)); gap: 6px; }
+.sb-banner-patterns > button { display: grid; justify-content: center; gap: 4px; padding: 4px 0; }
+.sb-banner-patterns > button > span { width: 64px; height: 32px; border-radius: var(--radius-sm); }
+.sb-banner-patterns > [aria-pressed="true"] { outline: 2px solid var(--accent); }
+.sb-banner-swatches { flex-wrap: wrap; }
+.sb-banner-swatches > button { width: var(--control-h); height: var(--control-h); }
+.sb-banner-custom { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.sb-banner-custom input { width: 48px; height: var(--control-h); padding: 2px; }
+.sb-banner-image-preview { width: 100%; aspect-ratio: 680 / 240; border-radius: var(--radius-sm); }
+.sb-banner-error { color: var(--danger); font-size: var(--fs-sm); }
+.sb-banner-editor > footer { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px; }
+.sb-banner-editor > footer button { padding: 6px 8px; }
+.sb-person-banner { height: 48px; flex: none; border-radius: var(--radius-md) var(--radius-md) 0 0; }
+.sb-card-head > .sb-avatar { margin-top: -22px; flex: none; border: 3px solid var(--panel); box-sizing: content-box; }
+.sb-person-banner { position: relative; }
+.sb-person-banner > button { position: absolute; top: 4px; right: 4px; background: var(--panel); color: var(--text); }
+.sb-card-head { align-items: flex-start; }

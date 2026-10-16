@@ -51,6 +51,7 @@ export default defineConfig({
     proxy: {
       '/api': { target: `http://${api}`, xfwd: true }, // x-forwarded-host: the Mac install command names this origin
       '/ws': { target: `ws://${api}`, ws: true },
+      '/banners': { target: `http://${api}` }, // uploaded profile banners, served by the server
     },
   },
 });

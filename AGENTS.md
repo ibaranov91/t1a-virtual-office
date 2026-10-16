@@ -104,6 +104,12 @@ npm run typecheck    # run before every commit or deploy
   call state live in its bottom strip (`SelfPanel`). It collapses to a rail; under 900 px wide it starts as the rail and
   opens over the floor; on `COMPACT` it is a bottom sheet from the dock. Grouping and second-line logic are pure and
   tested in `client/src/sidebar.test.ts`. `speaking` is scene-only, so rings come from `useSpeaking` polling.
+- **Profile banners:** public `User.banner` (color, pixel pattern or image), persisted in `state.json`; absent/null uses
+  the shirt color. `banner` intents allow validated colors/patterns/reset, at most once per 2 s; images only via
+  session-authenticated `POST /api/banner` (`x-deck-session`), at most once per 10 s, 1 MB maximum, PNG/JPEG/WEBP magic
+  bytes and header dimensions 300–1600 × 100–800 px. The client center-crops to 680 × 240 and re-encodes WEBP/JPEG to
+  strip metadata. Files live at `data/banners/<userId>-<hash12>.<ext>`; replacement/reset deletes the previous image.
+  `/banners/<file>` serves only validated filenames, with public immutable caching and `nosniff`.
 - **Jukebox** (Music room, `server/src/jukebox.ts`): CC0 tracks only (license checked on the source page; add one
   with a line in `scripts/music.json` + `npm run gen:music`, which writes content-hashed files and `shared/music.json`).
   Playback is server state timed by the server clock; anyone standing in the room queues, pauses and skips (controls

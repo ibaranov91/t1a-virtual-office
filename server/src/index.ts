@@ -1,3 +1,4 @@
+import { BannerStore, BannerError, BANNER_MAX_BYTES } from './banners';
 import { createServer, type IncomingMessage } from 'node:http';
 import { copyFileSync, createReadStream, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { mkdir, rename, writeFile } from 'node:fs/promises';
@@ -51,6 +52,7 @@ for (const game of retroRoms) {
   catch { /* Retro logs the missing ROM once and marks its cabinet broken. */ }
 }
 const world = new World(map, { roms, wasm: readFileSync(new URL('../../client/public/retro/binjgb.wasm', import.meta.url)) });
+world.banners = new BannerStore(fileURLToPath(new URL('banners/', DATA)));
 const DECKS_DIR = fileURLToPath(new URL('decks/', DATA));
 world.present = new Presenter(new DeckStore(DECKS_DIR), map, {
   scopeOf: id => world.presentScopeOf(id),
@@ -280,6 +282,32 @@ async function route(req: IncomingMessage, res: import('node:http').ServerRespon
       world.setGoogle(user, link);
       return page(`Connected as ${link.email}`, 'Calls you start now get their own Meet room. You can close this tab.');
     } catch (e) { return page('Not connected', (e as Error).message); }
+  }
+  if ((req.method === 'GET' || req.method === 'HEAD') && req.url?.startsWith('/banners/')) {
+    return world.banners!.serve(req.url.slice(9), req, res);
+  }
+  if (req.method === 'POST' && req.url === '/api/banner') {
+    const userId = sessions.get(String(req.headers['x-deck-session'] ?? ''));
+    const user = userId && world.users.get(userId);
+    if (!user) return json(res, 401, { error: 'sign in first' });
+    try { world.beginBannerUpload(user.id); }
+    catch (e) { return json(res, (e as BannerError).code, { error: (e as Error).message }); }
+    const chunks: Buffer[] = []; let size = 0, tooBig = false;
+    req.on('data', (chunk: Buffer) => {
+      size += chunk.length;
+      if (size > BANNER_MAX_BYTES) { tooBig = true; chunks.length = 0; }
+      else if (!tooBig) chunks.push(chunk);
+    });
+    req.on('end', () => {
+      if (tooBig) return json(res, 413, { error: 'Image must be at most 1 MB.' });
+      try { const banner = world.uploadBanner(user, Buffer.concat(chunks)); json(res, 200, { ok: true, banner }); }
+      catch (e) {
+        if (e instanceof BannerError) return json(res, e.code, { error: e.message });
+        console.warn('banner upload failed:', e);
+        json(res, 500, { error: 'Upload failed.' });
+      }
+    });
+    return;
   }
   // ---------- presentation mode ----------
   const present = world.present!, store = present.store;

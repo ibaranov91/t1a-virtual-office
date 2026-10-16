@@ -139,3 +139,17 @@ test('activityLine shows status text without repeating its leading emoji', () =>
   u.presence = 'away';
   assert.equal(activityLine(v, u), 'away');
 });
+
+test('banner backgrounds cover defaults, colors, each pixel pattern and images', async () => {
+  const { bannerStyle } = await import('./sidebar/model');
+  const { BANNER_PATTERNS } = await import('../../shared/protocol');
+  const look = user('banner').look;
+  assert.equal(bannerStyle(undefined, look), look.shirt);
+  assert.equal(bannerStyle(null, look), look.shirt);
+  assert.equal(bannerStyle({ kind: 'color', color: '#123456' }, look), '#123456');
+  const backgrounds = BANNER_PATTERNS.map(pattern => bannerStyle({ kind: 'pattern', pattern, color: '#123456' }, look));
+  assert.equal(new Set(backgrounds).size, 6);
+  for (const background of backgrounds) { assert.match(background, /gradient\(/); assert.match(background, /color-mix\(in srgb, #123456 70%, black\)/); }
+  assert.match(backgrounds[0], /45deg/); assert.match(backgrounds[1], /8px/); assert.match(backgrounds[3], /3px.*12px/);
+  assert.equal(bannerStyle({ kind: 'image', url: '/banners/test.png' }, look), 'url("/banners/test.png") center / cover');
+});

@@ -148,8 +148,12 @@ export const LOOK_COLORS = {
 /** A buff, debuff or hat on a person (see shared/effects.ts). until: when it wears off (ms); absent = until removed. */
 export interface Effect { kind: string; until?: number; data?: Record<string, unknown> }
 
+export const BANNER_PATTERNS = ['stripes', 'checks', 'diamond', 'dots', 'zigzag', 'plaid'] as const;
+export type Banner = { kind: 'color'; color: string } | { kind: 'pattern'; pattern: (typeof BANNER_PATTERNS)[number]; color: string } | { kind: 'image'; url: string };
+
 export interface PublicUser {
   id: string; name: string; look: Look;
+  banner?: Banner | null;
   lookSet: boolean;
   tile: Tile; dir: Dir; move: Move | null;
   presence: Presence; status: string; emote: Emote; bot: boolean; door: Door;
@@ -280,6 +284,7 @@ export interface DecksReply { decks: DeckInfo[]; used: number; limit: number }
 
 // server -> client
 export type ServerMsg =
+  | { t: 'banner'; userId: string; banner: Banner | null }
   | { t: 'listening'; userId: string; on: boolean }
   | { t: 'table'; view: TableView | null } // private: owner socket only
   | { t: 'table_status'; userId: string; table: TableStatus | null }
@@ -362,6 +367,7 @@ export type ServerMsg =
 
 // client -> server
 export type ClientMsg =
+  | { t: 'banner'; banner: Banner | null }
   | { t: 'listening'; on: boolean }
   | { t: 'table_pick'; game: TableGameId; invite?: string[]; rematch?: boolean } // host invitations, or a rematch proposal
   | { t: 'table_start' } // invited sitter: Join; host: Start

@@ -1,10 +1,10 @@
-import { Icon } from '../Icon';
+import { IconButton } from '../Icon';
 import { useEffect, useState } from 'react';
 import type { Store } from '../net';
 import type { Engine } from '../engine';
 import type { Assets } from '../assets';
 import { prefs, savePrefs, subscribePrefs } from '../prefs';
-import { splitStatus, activityLine, place } from './model';
+import { bannerStyle, splitStatus, activityLine, place } from './model';
 import { Avatar, useSpeaking } from './Avatar';
 import { useSurface } from './hooks';
 import { effectOf } from '../../../shared/effects';
@@ -29,7 +29,10 @@ export function PersonCard({ store, engine, assets, at, compact, onClose, onActi
   const reason = knock || walk || follow;
   const act = (fn: () => void) => { onAction(); fn(); };
   return <div {...surface} className={`sb-card sb-surface${compact ? ' sb-surface-sheet' : ''}`} role="dialog" aria-label={u.name}>
-    <header>{compact ? <button className="ghost" onClick={onClose}>← Back</button> : <button className="ghost" onClick={onClose} aria-label="Close person card"><Icon name="close" /></button>}
+    <div className="sb-person-banner" style={{ background: bannerStyle(u.banner, u.look) }}>
+      <IconButton className="ghost" icon={compact ? 'arrow-left' : 'close'} label={compact ? 'Back' : 'Close person card'} onClick={onClose} />
+    </div>
+    <header>
       <div className="sb-card-head"><Avatar assets={assets} user={u} size={48} ring={speaking.has(u.id)} />
         <div><b>{u.name}{statusEmoji && <span className="sb-status-emoji">{statusEmoji}</span>}</b><small>{{ online: 'Online', away: 'Away', in_call: 'In a call', offline: 'Offline' }[u.presence]} · {place(store, u)}</small>
           {u.tz && <small>{new Intl.DateTimeFormat([], { timeZone: u.tz, hour: '2-digit', minute: '2-digit' }).format(new Date())} their time</small>}</div></div>
