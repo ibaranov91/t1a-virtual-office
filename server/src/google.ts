@@ -126,6 +126,7 @@ interface GEvent {
   id?: string; iCalUID?: string; status?: string; eventType?: string; transparency?: string; summary?: string; htmlLink?: string;
   hangoutLink?: string; location?: string; conferenceData?: { entryPoints?: { entryPointType?: string; uri?: string }[] };
   start?: { dateTime?: string; date?: string }; end?: { dateTime?: string; date?: string };
+  creator?: { email?: string };
   attendees?: { email?: string; self?: boolean; resource?: boolean; responseStatus?: string }[];
 }
 /** A meeting with other people as one calendar sees it. key is the same in every attendee's calendar. */
@@ -175,12 +176,44 @@ export const listAbsences = async (tokenOwnerId: string, link: GoogleLink, calen
     if (!r.ok) throw Object.assign(new Error(`calendar: ${r.status} ${j.error?.message ?? ''}`), { status: r.status });
     timeZone = j.timeZone ?? timeZone;
     for (const e of j.items ?? []) {
-      if (e.status === 'cancelled' || e.attendees?.some(a => a.self && a.responseStatus === 'declined')) continue;
+      if (e.status === 'cancelled' || e.attendees?.some(a => a.self && a.responseStatus === 'declined') || /business\s*trip|travel/i.test(e.summary ?? '')) continue;
       const allDay = !!e.start?.date && !!e.end?.date;
-      if (e.eventType !== 'outOfOffice' && !(own && (e.eventType === 'default' || e.eventType === undefined) && allDay && /отпуск|vacation|holiday|\bpto\b|\booo\b|out of office|urlop|відпустк|day off/i.test(e.summary ?? ''))) continue;
+      if (e.eventType !== 'outOfOffice' && !(own && (e.eventType === 'default' || e.eventType === undefined) && allDay && /отпуск|vacation|holiday|\bpto\b|\booo\b|out of office|urlop|відпустк|time\s*off|day[\s-]*off/i.test(e.summary ?? ''))) continue;
       const start = allDay ? zonedTime(e.start!.date!, timeZone) : Date.parse(e.start?.dateTime ?? '');
       const end = allDay ? zonedTime(e.end!.date!, timeZone) : Date.parse(e.end?.dateTime ?? '');
       if (Number.isFinite(start) && Number.isFinite(end) && end > start) items.push({ start, end, ...(allDay ? { allDay: { endDate: e.end!.date! } } : {}) });
+    }
+    if (!j.nextPageToken) break;
+    q.set('pageToken', j.nextPageToken);
+  }
+  return { timeZone, items };
+};
+
+export interface TeamAbsence { who: { emails: string[]; name: string }; start: number | string; end: number | string }
+/** Team titles are used only for filtering and extracting the person's name. */
+export const listTeamAbsences = async (tokenOwnerId: string, link: GoogleLink, calendarId: string): Promise<{ timeZone: string; items: TeamAbsence[] }> => {
+  const now = Date.now(), q = new URLSearchParams({
+    singleEvents: 'true', timeMin: new Date(now - 86400000).toISOString(), timeMax: new Date(now + 30 * 86400000).toISOString(), maxResults: '250',
+    fields: 'nextPageToken,timeZone,items(status,summary,start,end,creator(email),attendees(email))',
+  });
+  const items: TeamAbsence[] = [];
+  let timeZone = 'UTC';
+  for (let page = 0; page < 5; page++) {
+    const r = await fetch(`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events?${q}`, { headers: { authorization: `Bearer ${await token(tokenOwnerId, link)}` } });
+    const j = await r.json().catch(() => ({})) as { timeZone?: string; nextPageToken?: string; items?: GEvent[]; error?: { message?: string } };
+    if (!r.ok) throw Object.assign(new Error(`calendar: ${r.status}`), { status: r.status });
+    timeZone = j.timeZone ?? timeZone;
+    for (const e of j.items ?? []) {
+      const summary = e.summary ?? '';
+      if (e.status === 'cancelled' || !/time\s*off|vacation|day[\s-]*off|holiday|\bpto\b|отпуск|urlop|відпустк/i.test(summary) || /business\s*trip|travel/i.test(summary)) continue;
+      const allDay = !!e.start?.date && !!e.end?.date;
+      const start = allDay ? e.start!.date! : Date.parse(e.start?.dateTime ?? '');
+      const end = allDay ? e.end!.date! : Date.parse(e.end?.dateTime ?? '');
+      if (!Number.isFinite(typeof start === 'string' ? Date.parse(start) : start) || !Number.isFinite(typeof end === 'string' ? Date.parse(end) : end) || end <= start) continue;
+      const creator = e.creator?.email?.toLowerCase();
+      const emails = (e.attendees ?? []).flatMap(a => a.email ? [a.email.toLowerCase()] : []);
+      if (creator && creator !== 't1a.api@t1a.com' && creator !== calendarId.toLowerCase()) emails.push(creator);
+      items.push({ who: { emails, name: summary.split(' - ')[0].trim() }, start, end });
     }
     if (!j.nextPageToken) break;
     q.set('pageToken', j.nextPageToken);
