@@ -20,20 +20,39 @@ Object.assign(globalThis, {
 });
 const { Store, MAP } = await import('./net');
 const { Engine } = await import('./engine');
+const { frames } = JSON.parse(readFileSync(new URL('../public/assets/atlas.json', import.meta.url), 'utf8'));
+const drawSigns = (ctx: unknown) => (Engine.prototype as any).drawOpenVoiceSigns.call({ assets: { atlas: { frames } } }, ctx);
 test('open voice signs stay visible clear of furniture and interactive wall objects', () => {
   const signs: { x: number; y: number; w: number; h: number }[] = [];
   let x = 0, y = 0;
   const ctx = { save() {}, restore() {}, translate(a: number, b: number) { x = a; y = b; }, fillRect() {},
     strokeRect(a: number, b: number, w: number, h: number) { signs.push({ x: x + a, y: y + b, w, h }); } };
-  (Engine.prototype as any).drawOpenVoiceSigns(ctx);
+  drawSigns(ctx);
   assert.equal(signs.length, MAP.rooms.filter(r => r.rules.voice === 'open').length);
-  const { frames } = JSON.parse(readFileSync(new URL('../public/assets/atlas.json', import.meta.url), 'utf8'));
   for (const s of signs) for (const o of MAP.objects.filter(o => !o.wall || o.use)) {
     const f = frames[o.type]; if (!f) continue;
     const ox = o.x * MAP.tileSize + (o.w * MAP.tileSize - f.w) / 2;
     const oy = o.wall ? o.y * MAP.tileSize : (o.y + o.h) * MAP.tileSize - f.h;
     assert.ok(s.x + s.w <= ox || s.x >= ox + f.w || s.y + s.h <= oy || s.y >= oy + f.h, `sign overlaps ${o.type} at ${o.x},${o.y}`);
   }
+});
+test('every room gets a sign when switched to Voice and loses it when switched back', () => {
+  const previous = MAP.rooms.map(r => ({ ...r.rules }));
+  const signs: number[] = [];
+  const ctx = { save() {}, restore() {}, translate() {}, fillRect() {}, strokeRect() { signs.push(1); } };
+  try {
+    for (const room of MAP.rooms) room.rules = { knock: 'allow' };
+    for (const room of MAP.rooms) {
+      signs.length = 0;
+      room.rules.voice = 'open';
+      drawSigns(ctx);
+      assert.equal(signs.length, 1, `${room.name} must get its OPEN VOICE sign`);
+      delete room.rules.voice;
+      signs.length = 0;
+      drawSigns(ctx);
+      assert.equal(signs.length, 0, `${room.name} must lose its sign`);
+    }
+  } finally { MAP.rooms.forEach((r, i) => { r.rules = previous[i]; }); }
 });
 type ClientUser = import('./net').ClientUser;
 const receive = (store: InstanceType<typeof Store>, msg: ServerMsg) => (store as any).onMessage(msg);

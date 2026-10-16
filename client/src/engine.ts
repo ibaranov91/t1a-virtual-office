@@ -9,6 +9,7 @@ import { DANCE_ROOM, danceBeat, dancePhase } from '../../shared/effects';
 import { drawEffects, effectLook, effectSway } from './effects';
 import { CreatureLayer, creaturePose } from './creatures';
 import { lockedDoors, roomDoors, type RoomDoor } from './doors';
+import { voiceSignPositions } from './roomSigns';
 import { dance, discos, drawDisco, evening, type DanceStep, type Disco } from './disco';
 import type { Assets, Frame } from './assets';
 import { drawText, plateLines, textWidth } from './font';
@@ -363,14 +364,9 @@ export class Engine {
     this.drawOpenVoiceSigns(ctx);
     return c;
   }
-  /** Permanent neon wall signs, baked once with the interior; only rooms with open voice get one. */
+  /** Neon signs are rebuilt with the interior whenever room rules or furniture change. */
   private drawOpenVoiceSigns(ctx: CanvasRenderingContext2D) {
-    // Clear wall sections beside the windows, TV and doorways (art pixels, relative to each room).
-    const mounts: Record<string, [number, number]> = { coffee: [112, 128], music: [0, 128], arcade: [0, 160], bookclub: [32, 110] };
-    for (const r of MAP.rooms) {
-      const mount = mounts[r.id];
-      if (r.rules.voice !== 'open' || !mount) continue;
-      const x = r.rect.x * TS + mount[0], y = r.rect.y * TS + mount[1];
+    for (const { x, y } of voiceSignPositions(MAP, this.assets.atlas.frames)) {
       ctx.save();
       ctx.translate(x, y);
       ctx.fillStyle = '#111c29'; ctx.fillRect(0, 0, 64, 23);
