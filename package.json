@@ -7,7 +7,7 @@
     "client"
   ],
   "scripts": {
-    "test": "DECK_ADMINS=ivan.baranov@t1a.com,varvara.tikhonova@t1a.com,andrii.butko@t1a.com DECK_SYSADMINS=ivan.baranov@t1a.com node --import tsx --test server/src/*.test.ts client/src/*.test.ts",
+    "test": "DECK_ADMINS=ivan.baranov@t1a.com,varvara.tikhonova@t1a.com,andrii.butko@t1a.com DECK_SYSADMINS=ivan.baranov@t1a.com node --import tsx --test server/src/*.test.ts client/src/*.test.ts shared/table/*.test.ts",
     "gen": "node --import tsx scripts/gen-map.mjs && node --import tsx scripts/map-atlas.mjs && node scripts/gen-assets.mjs",
     "where": "node --import tsx scripts/where.mjs",
     "dev": "concurrently -k -n server,client -c yellow,cyan \"npm run dev -w server\" \"npm run dev -w client\"",
@@ -18,5 +18,8 @@
   "devDependencies": {
     "concurrently": "^9.1.0",
     "typescript": "^5.6.3"
+  },
+  "dependencies": {
+    "chess.js": "1.4.0"
   }
 }

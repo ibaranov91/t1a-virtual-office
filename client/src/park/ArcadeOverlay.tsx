@@ -1,3 +1,4 @@
+import { TABLE_GAMES, type TableGameId } from '../../../shared/table/types';
 import { useEffect, useRef, useState } from 'react';
 import type { Assets } from '../assets';
 import type { Store } from '../net';
@@ -6,6 +7,11 @@ import type { Voice } from '../voice';
 import { ParkInput } from './input';
 import { CHEERS, parkTime, renderPark } from './render';
 import { LEVELS } from '../../../shared/park/levels';
+import { gameDef } from '../../../shared/arcade/registry';
+import { ranked, weeklyTotal } from '../../../shared/arcade/weeks';
+import { crewName } from '../../../shared/arcade/names';
+import type { VoteOptions } from '../../../shared/arcade/vote';
+import type { GameId } from '../../../shared/arcade/types';
 
 const COMPACT = '(max-width: 560px), (max-height: 500px)';
 
@@ -15,8 +21,15 @@ export function ArcadeOverlay({ store, assets, voice }: { store: Store; assets: 
   const [menu, setMenu] = useState(false), [scale, setScale] = useState(1);
   const [touch, setTouch] = useState(() => navigator.maxTouchPoints > 0 || matchMedia(COMPACT).matches);
   const [, update] = useState(0);
+  const [editingCrew, setEditingCrew] = useState(false), [draft, setDraft] = useState('');
+  const [prediction, setPrediction] = useState(''), [favourite, setFavourite] = useState('');
   const loop = store.park!, runner = loop.runner, session = runner.session;
   const spectator = runner.slot === undefined;
+  const view = session?.view, hub = view?.kind === 'sim' && view.game === 'hub' && !session?.set;
+  const vote = view?.kind === 'sim' && view.game === 'vote' ? view.opts as VoteOptions : null;
+  const favouriteScreen = view?.kind === 'screen' && view.screen === 'favourite' ? view : null;
+  const canPredict = !!session?.set && spectator && !session.set.players.some(p => p.userId === store.me);
+  useEffect(() => { setPrediction(''); setFavourite(''); setEditingCrew(false); }, [session?.epoch]);
   const toggleMenu = () => {
     menuRef.current = !menuRef.current; setMenu(menuRef.current);
     input.current?.refresh(); runner.setLocalBits(0);
@@ -33,7 +46,7 @@ export function ArcadeOverlay({ store, assets, voice }: { store: Store; assets: 
     const ro = new ResizeObserver(() => {
       const r = area.current?.getBoundingClientRect(); if (!r) return;
       const fit = Math.min(Math.max(0, r.width - 16) / 320, Math.max(0, r.height - 16) / 216);
-      setScale(fit >= 1 ? Math.floor(fit) : Math.max(.01, fit));
+      setScale(Math.max(1, Math.floor(fit)));
     });
     if (area.current) ro.observe(area.current);
     return () => ro.disconnect();
@@ -50,7 +63,7 @@ export function ArcadeOverlay({ store, assets, voice }: { store: Store; assets: 
     const stop = loop.start(() => controls.sample(), () => {
       renderPark(ctx, assets, runner, store);
       // The spectator's epoch changes 150 ms after receipt; React follows the presented session.
-      const s = runner.session, next = `${s?.epoch}:${s?.phase}:${runner.slot}:${s?.players.length}`;
+      const s = runner.session, next = `${s?.epoch}:${s?.view.kind}:${runner.slot}:${s?.players.length}:${s?.crew.name}:${s?.view.kind === 'screen' ? JSON.stringify(s.view.data.votes) : ''}:${Math.floor(runner.serverNow / 250)}`;
       if (next !== last) { last = next; update(n => n + 1); }
     });
     return () => { stop(); controls.destroy(); input.current = null; };
@@ -58,16 +71,17 @@ export function ArcadeOverlay({ store, assets, voice }: { store: Store; assets: 
   const leave = () => store.gameLeave();
   const command = (op: 'lobby' | 'restart') => { store.gameMenu(op); toggleMenu(); root.current?.focus(); };
   const owner = store.connected && store.voiceOwner;
-  return <div ref={root} className="park-overlay" role="dialog" aria-modal="true" aria-label="Deck Park" tabIndex={-1}
+  return <div ref={root} className="park-overlay" role="dialog" aria-modal="true" aria-label="Arcade" tabIndex={-1}
     onKeyDown={e => {
       if (e.key !== 'Tab') return;
-      const buttons = [...(root.current?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)') ?? [])];
+      const buttons = [...(root.current?.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled)') ?? [])];
       const first = buttons[0], last = buttons[buttons.length - 1];
       if (e.shiftKey && (document.activeElement === first || document.activeElement === root.current)) { e.preventDefault(); last?.focus(); }
       else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first?.focus(); }
     }}>
     <header className="park-header">
-      <h1>DECK PARK</h1>
+      <div className="party-heading"><h1>{session?.set ? `BREAK SET · ${session.set.mode === '2v2' ? 'RED / BLUE' : 'FFA'}` : 'ARCADE'}</h1>
+        <span>{session?.crew.name}{session?.set?.mode === '2v2' ? ` · ${session.set.players.find(p => p.userId === store.me)?.team === 0 ? 'Red' : session.set.players.find(p => p.userId === store.me)?.team === 1 ? 'Blue' : 'Red / Blue'}` : ''}</span>{hub && !spectator && <button className="ghost" aria-label="Edit crew name" onClick={() => { setDraft(session?.crew.name ?? ''); setEditingCrew(true); }}>✏</button>}</div>
       <button disabled={!owner || !voice} aria-pressed={voice?.muted ?? true} aria-label={voice?.muted ? 'Unmute microphone' : 'Mute microphone'}
         className={voice?.muted ? 'muted-btn' : 'ghost'} title={voice?.micError ?? (voice?.mode === 'ptt' ? 'Push to talk: hold Space' : 'Microphone')}
         onClick={() => voice?.toggleMute()}>{voice?.muted ? '🔇' : '🎙'}</button>
@@ -77,25 +91,36 @@ export function ArcadeOverlay({ store, assets, voice }: { store: Store; assets: 
       <button className="ghost park-leave" aria-label="Leave game" title="Leave the game (Esc for the menu)" onClick={leave}>✕ Leave</button>
     </header>
     <div className="park-area" ref={area} onPointerDown={e => { if (e.target === e.currentTarget || e.target === canvas.current) root.current?.focus(); }}>
-      <div className="park-cabinet"><canvas ref={canvas} width={320} height={216} style={{ width: 320 * scale, height: 216 * scale }} aria-label="Deck Park game. Move with arrows or A/D. Jump with Up, W, Z or Space." /></div>
+      <div className="park-cabinet"><canvas ref={canvas} width={320} height={216} style={{ width: 320 * scale, height: 216 * scale }} aria-label="Arcade game. Move with arrows or WASD. Jump: Space, Z or J. Action: X, K or Shift." /></div>
       {!store.connected && <div className="park-connection" role="status">Reconnecting…</div>}
       {menu && <div className="park-menu-backdrop"><div className="park-menu" role="group" aria-label="Game menu">
-        <b>Paused controls</b>
-        <button onClick={toggleMenu}>Resume</button>
-        {!spectator && session?.phase === 'level' && <>
+        <b>{session?.set ? 'Break Set' : 'Paused controls'}</b>
+        {!session?.set && <button onClick={toggleMenu}>Resume</button>}
+        {!spectator && !session?.set && view?.kind === 'sim' && view.game === 'park' && <>
           <button disabled={!store.connected} onClick={() => command('lobby')}>Back to lobby</button>
           <button disabled={!store.connected} onClick={() => command('restart')}>Restart level</button>
         </>}
-        {spectator && session?.phase === 'lobby' && session.players.length < 4 &&
+        {spectator && hub && session && session.players.length < 4 &&
           <button disabled={!store.connected} onClick={() => { store.gamePlay(); toggleMenu(); root.current?.focus(); }}>Play</button>}
         <button onClick={leave}>Leave</button>
       </div></div>}
     </div>
+    {editingCrew && hub && <form className="party-crew-edit" onSubmit={e => { e.preventDefault(); if (crewName(draft)) { store.crewName(draft); setEditingCrew(false); root.current?.focus(); } }}>
+      <label>Crew name<input autoFocus maxLength={40} value={draft} onChange={e => setDraft(e.target.value)} onKeyDown={e => { if (e.key === 'Escape') { e.stopPropagation(); setEditingCrew(false); root.current?.focus(); } }} /></label>
+      <button disabled={!owner || !crewName(draft)}>Save</button><button type="button" className="ghost" onClick={() => { setEditingCrew(false); root.current?.focus(); }}>Cancel</button>
+      {!crewName(draft) && <small role="status">Use 1–20 letters, digits, spaces or -'!&.</small>}
+    </form>}
+    {canPredict && vote && runner.serverNow < vote.closesAt && <div className="party-voters" role="group" aria-label="Predict the round winner">
+      <span>Predict the winner</span>{session?.players.map(p => <button key={p.userId} disabled={!owner} aria-pressed={prediction === p.userId} onClick={() => { setPrediction(p.userId); store.gamePredict(p.userId); }}>{store.name(p.userId)}</button>)}
+    </div>}
+    {favouriteScreen?.data.voters?.includes(store.me) && runner.serverNow < favouriteScreen.until && <div className="party-voters" role="group" aria-label="Vote for crowd favourite">
+      <span>Your favourite · +1</span>{favouriteScreen.data.candidates?.map(id => <button key={id} disabled={!owner} aria-pressed={favourite === id} onClick={() => { setFavourite(id); store.gameFavourite(id); }}>{store.name(id)} · {favouriteScreen.data.votes?.[id] ?? 0}</button>)}
+    </div>}
     {spectator ? <div className="park-cheers" aria-label="Cheer">
       {CHEERS.map((emoji, kind) => <button key={emoji} disabled={!store.connected || menu} aria-label={`${['Applause', 'Fire', 'Laugh'][kind]} (key ${kind + 1})`}
         onClick={() => store.gameCheer(kind as 0 | 1 | 2)}>{emoji} <small>{kind + 1}</small></button>)}
     </div> : touch && <div className="park-touch" aria-label="Touch game controls">
-      {([['◀', 1, 'Move left'], ['▶', 2, 'Move right'], ['⤒', 4, 'Jump']] as const).map(([label, bits, name]) => <button key={bits} aria-label={name} disabled={menu}
+      {([['◀', 1, 'Move left'], ['▶', 2, 'Move right'], ['▲', 4, 'Move up'], ['▼', 8, 'Move down'], ['Jump', 16, 'Jump'], ['Action', 32, 'Action']] as const).map(([label, bits, name]) => <button key={bits} aria-label={name} disabled={menu}
         onContextMenu={e => e.preventDefault()} onPointerDown={e => {
           e.preventDefault(); root.current?.focus(); e.currentTarget.setPointerCapture(e.pointerId); input.current?.touch(e.pointerId, bits);
         }} onPointerUp={e => input.current?.touch(e.pointerId, 0)} onPointerCancel={e => input.current?.touch(e.pointerId, 0)}
@@ -105,22 +130,37 @@ export function ArcadeOverlay({ store, assets, voice }: { store: Store; assets: 
 }
 
 export function RecordsPopover({ store }: { store: Store }) {
-  const ref = useRef<HTMLDivElement>(null);
+  const ref = useRef<HTMLDivElement>(null), [tab, setTab] = useState('This week');
+  const tabs = ['This week', 'Champions', 'Oracle', 'Table', 'Deck Park', 'Hall of Fame'];
   useEffect(() => { const previous = document.activeElement; ref.current?.focus(); return () => { if (previous instanceof HTMLElement && previous.isConnected) previous.focus(); }; }, []);
-  const close = () => store.openRecords(false);
+  const close = () => store.openRecords(false), boards = store.arcadeBoards;
+  const names = (id: string) => boards.week.players[id]?.name ?? store.name(id);
+  const ranking = (values: Record<string, number>, label: string) => Object.keys(values).length ? <table><caption className="sr-only">{label}</caption><thead><tr><th>Rank</th><th>Player</th><th>{label}</th></tr></thead><tbody>{ranked(values).map(r => <tr key={r.userId}><td>{r.rank}</td><td>{names(r.userId)}</td><td>{r.value}</td></tr>)}</tbody></table> : <p className="muted">No scores yet.</p>;
   return <div className="modal-backdrop" onClick={e => { if (e.target === e.currentTarget) close(); }}>
-    <div ref={ref} tabIndex={-1} className="meet-panel guided park-records" role="dialog" aria-modal="true" aria-label="Deck Park records"
-      onKeyDown={e => { if (store.gameOpen) return; if (e.key === 'Escape') { e.stopPropagation(); close(); } if (e.key === 'Tab') { e.preventDefault(); ref.current?.querySelector('button')?.focus(); } }}>
-      <div className="rooms-head"><span>Deck Park records</span><button className="ghost" onClick={close} aria-label="Close records">×</button></div>
-      <div className="park-records-scroll"><table>
-        <caption className="sr-only">Best runs by level and team size</caption>
-        <thead><tr><th scope="col">Level</th>{[1, 2, 3, 4].map(n => <th key={n} scope="col">{n} {n === 1 ? 'player' : 'players'}</th>)}</tr></thead>
-        <tbody>{LEVELS.slice(1).map(level => <tr key={level.id}><th scope="row">{level.id}. {level.name}</th>
-          {([1, 2, 3, 4] as const).map(team => {
-            const r = store.arcadeRecords[level.id]?.[team];
-            return <td key={team}>{r ? <><b>{parkTime(r.frames)}</b><span>{r.coins} coins</span><small>{r.names.join(', ')}</small></> : <span className="park-no-record">No record yet</span>}</td>;
-          })}</tr>)}</tbody>
-      </table></div>
+    <div ref={ref} tabIndex={-1} className="meet-panel guided park-records" role="dialog" aria-modal="true" aria-label="Arcade boards"
+      onKeyDown={e => {
+        if (store.gameOpen) return;
+        if (e.key === 'Escape') { e.stopPropagation(); close(); }
+        if (e.key === 'Tab') {
+          const buttons = [...ref.current!.querySelectorAll<HTMLButtonElement>('button')], first = buttons[0], last = buttons.at(-1);
+          if (e.shiftKey && (document.activeElement === first || document.activeElement === ref.current)) { e.preventDefault(); last?.focus(); }
+          else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+        }
+      }}>
+      <div className="rooms-head"><span>Arcade boards</span><button className="ghost" onClick={close} aria-label="Close boards">×</button></div>
+      <nav className="party-tabs" aria-label="Arcade boards">{tabs.map(name => <button key={name} aria-pressed={tab === name} onClick={() => setTab(name)}>{name}</button>)}</nav>
+      <div className="park-records-scroll">
+        {tab === 'This week' && <><p>Week of {boards.week.key || '…'} · Europe/Warsaw · best 10 sets</p>{ranking(Object.fromEntries(Object.entries(boards.week.players).map(([id, p]) => [id, weeklyTotal(p)])), 'Points')}</>}
+        {tab === 'Oracle' && ranking(boards.week.oracle, 'Correct predictions')}
+        {tab === 'Table' && <>{(Object.entries(TABLE_GAMES) as [TableGameId, string][]).map(([id, name]) => <section key={id}><h3>{name}</h3>{ranking(boards.week.table[id] ?? {}, 'Wins')}</section>)}</>}
+        {tab === 'Champions' && <>{Object.keys(boards.week.champions).length ? Object.entries(boards.week.champions).map(([id, wins]) => <section key={id}><h3>King of {gameDef(id as GameId).name}</h3>{ranking(wins, 'Round wins')}</section>) : <p className="muted">Finish a Break Set to crown a champion.</p>}</>}
+        {tab === 'Hall of Fame' && (boards.hall.length ? <table><thead><tr><th>Week</th><th>Champion</th><th>Points</th></tr></thead><tbody>{boards.hall.slice().reverse().map(r => <tr key={`${r.week}:${r.userId}`}><td>{r.week}</td><td>{r.name}</td><td>{r.points}</td></tr>)}</tbody></table> : <p className="muted">Weekly champions will appear here.</p>)}
+        {tab === 'Deck Park' && <table><caption className="sr-only">Best co-op runs by level and team size</caption>
+          <thead><tr><th scope="col">Level</th>{[1, 2, 3, 4].map(n => <th key={n} scope="col">{n} {n === 1 ? 'player' : 'players'}</th>)}</tr></thead>
+          <tbody>{LEVELS.slice(1).map(level => <tr key={level.id}><th scope="row">{level.id}. {level.name}</th>
+            {([1, 2, 3, 4] as const).map(team => { const r = store.arcadeRecords[level.id]?.[team]; return <td key={team}>{r ? <><b>{parkTime(r.frames)}</b><span>{r.coins} coins</span>{r.crew && <span>{r.crew}</span>}<small>{r.names.join(', ')}</small></> : <span className="park-no-record">No record yet</span>}</td>; })}</tr>)}</tbody>
+        </table>}
+      </div>
     </div>
   </div>;
 }

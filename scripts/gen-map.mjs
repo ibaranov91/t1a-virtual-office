@@ -358,6 +358,8 @@ for (const tx of [29, 34]) {
 }
 obj('food_cart', 32, 31, 2, 1, { use: FOOD });
 
+obj('game_table', 58, 17, 2, 1, { use: { kind: 'table', label: 'Game table' } });
+
 // ---- standing spots (seats follow the furniture: applyLayout in shared/map.ts) ----
 for (const r of rooms) r.stand = [];
 const stand = (id, list) => rooms.find(r => r.id === id).stand.push(...list.map(([x, y, dir]) => ({ x, y, dir })));

@@ -1,9 +1,12 @@
 import { test, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { Arcade } from './arcade';
+import { Arcade, type Session } from './arcade';
 import { World } from './world';
 import { Runner } from '../../shared/park/runner';
+import type { ParkGameState } from '../../shared/arcade/games/park';
+import { HUB_LEVEL, type HubState } from '../../shared/arcade/hub';
+type ParkTestState = ParkGameState & HubState;
 import { LEVELS } from '../../shared/park/levels';
 import { SOLUTIONS } from '../../shared/park/solutions';
 import { hashState, PLAYER_H, TILE } from '../../shared/park/sim';
@@ -36,7 +39,7 @@ function worldSetup(t: TestContext) {
 }
 test('arcade sessions: four players, spectators, lobby promotion, slot reuse, membership event order and empty close', () => {
   const { a, add, messages } = setup(), players = ['a', 'b', 'c', 'd'].map(id => add(id)), spectator = add('e');
-  const s = a.session(players[0])!;
+  const s = a.session<ParkTestState>(players[0])!;
   assert.deepEqual(s.players.map(p => p.slot), [0, 1, 2, 3]); assert.deepEqual(s.spectators, ['e']);
   assert.equal(spectator.game?.role, 'spectator');
   const bMessages = messages.get('b')!;
@@ -54,8 +57,8 @@ test('arcade sessions: four players, spectators, lobby promotion, slot reuse, me
   const bot: Gamer = { id: 'bot', name: 'Bot', game: null, bot: true }; a.join(bot, 'one'); assert.equal(a.sessions.size, 0);
 });
 test('arcade epochs: global ids, countdown, sync, stale commands, player-only level menus and reset', () => {
-  const { a, add, tick, now, messages } = setup(), u = add('a'), other = add('b', 'two'), s = a.session(u)!;
-  assert.notEqual(s.epoch, a.session(other)!.epoch);
+  const { a, add, tick, now, messages } = setup(), u = add('a'), other = add('b', 'two'), s = a.session<ParkTestState>(u)!;
+  assert.notEqual(s.epoch, a.session<ParkTestState>(other)!.epoch);
   const old = s.epoch; a.startEpoch(s, 3, now() + 3000);
   const watcher = add('watch'); assert.equal(watcher.game?.role, 'spectator');
   a.handle(watcher, { t: 'game_play', epoch: s.epoch }); assert.equal(watcher.game?.role, 'spectator');
@@ -70,16 +73,16 @@ test('arcade epochs: global ids, countdown, sync, stale commands, player-only le
   const epoch = s.epoch; a.handle(u, { t: 'game_menu', epoch, op: 'restart' });
   assert.ok(s.epoch > epoch); assert.equal(s.startAt, now() + 3000); assert.equal(s.sim.frame, 0);
   a.handle(u, { t: 'game_menu', epoch: s.epoch, op: 'lobby' }); assert.equal(s.phase, 'lobby'); assert.equal(s.sim.selected, 3);
-  a.join(u, 'two'); assert.equal(a.sessions.has('one'), false); assert.equal(a.session(u), a.session(other));
+  a.join(u, 'two'); assert.equal(a.sessions.has('one'), false); assert.equal(a.session<ParkTestState>(u), a.session<ParkTestState>(other));
 });
 test('arcade sequencing: every safe input echoed, late and far-ahead frames clamped, reset purges, seq private', () => {
-  const { a, add, tick, now, messages } = setup(), u = add('a'), v = add('b'), s = a.session(u)!;
+  const { a, add, tick, now, messages } = setup(), u = add('a'), v = add('b'), s = a.session<ParkTestState>(u)!;
   tick(now() + 1000);
   for (const frame of [-50, s.sim.frame + 10, -1, 999999]) a.handle(u, { t: 'game_input', epoch: s.epoch, seq: frame, frame, bits: 15 });
   const own = messages.get('a')!.filter((m): m is Extract<ServerMsg, { t: 'game_event' }> => m.t === 'game_event' && m.seq !== undefined);
   assert.equal(own.length, 4);
   assert.deepEqual(own.map(m => m.ev[0]), [s.sim.frame, s.sim.frame + 10, s.sim.frame + 10, s.sim.frame + 10]);
-  assert.ok(own.every(m => m.ev[3] === 7));
+  assert.ok(own.every(m => m.ev[3] === 15));
   assert.ok(messages.get('b')!.filter(m => m.t === 'game_event').every(m => m.seq === undefined));
   const count = s.events.length;
   for (const patch of [{ frame: NaN }, { frame: 1.5 }, { seq: Infinity }, { bits: '2' }, { epoch: s.epoch - 1 }])
@@ -90,31 +93,31 @@ test('arcade sequencing: every safe input echoed, late and far-ahead frames clam
   assert.deepEqual(s.events.at(-1), [s.sim.frame, 0, 0, 2]);
   a.leave(u); const before = s.events.length;
   a.handle(u, { t: 'game_input', epoch: s.epoch, seq: 11, frame: 500, bits: 2 }); assert.equal(s.events.length, before);
-  assert.equal(a.session(v), s);
+  assert.equal(a.session<ParkTestState>(v), s);
 });
 test('arcade tick: exact single-step lobby transition, all crossed checks, terminal clear then four-second lobby', () => {
-  const { a, add, tick, now, messages } = setup(), u = add('a'), s = a.session(u)!;
+  const { a, add, tick, now, messages } = setup(), u = add('a'), s = a.session<ParkTestState>(u)!;
   tick(now() + 10000);
   assert.deepEqual(messages.get('a')!.filter(m => m.t === 'game_check').map(m => m.frame), Array.from({ length: 9 }, (_, i) => (i + 1) * 60));
-  const lobby = LEVELS[0].lobby!, p = s.sim.players[0];
+  const lobby = HUB_LEVEL.lobby!, p = s.sim.players[0];
   p.x = lobby.start.x * TILE; p.y = lobby.start.y * TILE - PLAYER_H; p.vx = p.vy = p.bits = 0; p.grounded = true;
   s.sim.startHold = 59;
   const epoch = s.epoch; tick(now() + 500);
   assert.ok(s.epoch > epoch); assert.equal(s.level, 1); assert.equal(s.sim.frame, 0); assert.equal(s.startAt, now() + 3000);
   // Inject a terminal state to isolate session transitions from the separately tested physics.
   tick(s.startAt + 100); s.sim.cleared = true; s.sim.clearedAt = s.sim.frame - 1;
-  const levelEpoch = s.epoch; tick(now() + 100); assert.equal(s.phase, 'clear'); assert.equal(s.epoch, levelEpoch);
-  const frame = s.sim.frame; tick(now() + 3999); assert.equal(s.phase, 'clear'); assert.ok(s.sim.frame > frame);
+  const levelEpoch = s.epoch; tick(now() + 100); assert.equal(s.phase, 'clear'); assert.ok(s.epoch > levelEpoch); assert.equal(s.screen?.screen, 'scores');
+  const frame = s.sim.frame; tick(now() + 3999); assert.equal(s.phase, 'clear'); assert.equal(s.sim.frame, frame);
   tick(now() + 1); assert.equal(s.phase, 'lobby'); assert.equal(s.sim.selected, 2);
 });
 test('arcade records: real clear stores once per team size, time/coin ties, roster changes disqualify, persistence', () => {
-  const h = setup(), u = h.add('a'), s = h.a.session(u)!;
+  const h = setup(), u = h.add('a'), s = h.a.session<ParkTestState>(u)!;
   h.a.startEpoch(s, 1, h.now());
   for (const [frame, slot, bits] of SOLUTIONS[1][1].inputs) { s.events.push([frame, slot, 0, bits]); }
   h.tick(h.now() + 20000); assert.equal(s.phase, 'clear'); assert.equal(s.clear?.record, true);
   const record = structuredClone(h.a.records[1][1]!);
   assert.deepEqual(record.names, ['A']); assert.equal(record.frames, s.sim.clearedAt);
-  const writes = () => h.broadcasts.filter(m => m.t === 'arcade_records').length;
+  const writes = () => h.broadcasts.filter(m => m.t === 'arcade_boards').length;
   const count = writes(); h.tick(h.now() + 100); assert.equal(writes(), count);
   const finish = (frames: number, coins: number, rosterChanged = false) => {
     h.a.startEpoch(s, 1, h.now()); s.rosterChanged = rosterChanged;
@@ -198,12 +201,15 @@ test('arcade world: meeting entry, layout step-aside and final door flow leave',
 test('arcade world: owner-only commands and game delivery, handover resets queued input, disconnect and reconnect', t => {
   const { w, add, tick } = worldSetup(t), a = add('A'), b = add('B'), cabinet = cabinets[0].id;
   w.arcade.join(a.u, cabinet); w.arcade.join(b.u, cabinet);
-  const s = w.arcade.session(a.u)!, secondMessages: ServerMsg[] = [];
+  const s = w.arcade.session<ParkTestState>(a.u)!, secondMessages: ServerMsg[] = [];
   w.handle(a.u, { t: 'game_input', epoch: s.epoch, seq: 1, frame: 50, bits: 2 }, a.socket);
   const second = w.connect(a.u.id, m => secondMessages.push(structuredClone(m)));
   assert.ok(a.messages.some(m => m.t === 'game_session' && m.reason === 'elsewhere'));
   assert.ok(secondMessages.some(m => m.t === 'game_session' && m.session?.epoch === s.epoch));
   assert.equal(s.events.some(e => e[1] === 0 && e[2] === 0), false);
+  const oldCrew = s.crew.name;
+  w.handle(a.u, { t: 'crew_name', name: 'Old tab' }, a.socket); assert.equal(s.crew.name, oldCrew);
+  w.handle(a.u, { t: 'crew_name', name: 'Owner crew' }, second.socket); assert.equal(s.crew.name, 'Owner crew');
   a.messages.length = secondMessages.length = 0;
   w.handle(a.u, { t: 'game_input', epoch: s.epoch, seq: 2, frame: 0, bits: 2 }, a.socket);
   w.handle(a.u, { t: 'game_leave' }, a.socket); assert.ok(a.u.game);
@@ -218,7 +224,7 @@ test('arcade world: owner-only commands and game delivery, handover resets queue
   tick(1000); assert.equal(s.sim.players[0].bits, 0); assert.ok(a.u.game);
   const reconnectMessages: ServerMsg[] = [], reconnect = w.connect(a.u.id, m => reconnectMessages.push(structuredClone(m)));
   assert.ok(reconnectMessages.some(m => m.t === 'game_session' && m.session?.epoch === s.epoch));
-  for (const type of ['arcade', 'arcade_records', 'game_status']) assert.ok(reconnectMessages.some(m => m.t === type));
+  for (const type of ['arcade', 'arcade_boards', 'game_status']) assert.ok(reconnectMessages.some(m => m.t === type));
   w.handle(a.u, { t: 'game_input', epoch: s.epoch, seq: 4, frame: s.sim.frame, bits: 2 }, reconnect.socket);
   tick(100); assert.equal(s.sim.players[0].bits, 2);
 });
@@ -293,7 +299,7 @@ for (const [level, team] of [[1, 2], [3, 3], [6, 2]] as const) test(`arcade netc
   const rand = () => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed; };
   const now = () => 100000 + frame * 1000 / 60;
   const users = new Map<string, Gamer>();
-  type Peer = { u: Gamer; runner: Runner; up: Wire<ClientMsg>; down: Wire<ParkIncoming>; active: boolean; stalled: boolean };
+  type Peer = { u: Gamer; runner: Runner<ParkTestState>; up: Wire<ClientMsg>; down: Wire<ParkIncoming>; active: boolean; stalled: boolean };
   const peers = new Map<string, Peer>(), wires: { flush(): void; size: number }[] = [];
   const sent = new Map<string, number>();
   let retimed = 0, resets = 0, countdownInputs = 0, syncRequests = 0;
@@ -311,10 +317,10 @@ for (const [level, team] of [[1, 2], [3, 3], [6, 2]] as const) test(`arcade netc
     const u: Gamer = existing ?? { id, name: id, bot: false, game: null }; users.set(id, u);
     const peer = { u, active: true, stalled: false } as Peer;
     peer.up = new Wire(() => frame, () => rand() % 9, msg => { if (peer.active) arcade.handle(u, msg); });
-    peer.runner = new Runner({ userId: id, now, transport: { send(msg) {
+    peer.runner = new Runner<ParkTestState>({ userId: id, now, transport: { send(msg) {
       if (msg.t === 'game_input') {
         sent.set(`${id}:${msg.seq}`, msg.frame);
-        if (now() < arcade.session(u)!.startAt) countdownInputs++;
+        if (now() < arcade.session<ParkTestState>(u)!.startAt) countdownInputs++;
       } else syncRequests++;
       peer.up.send(msg);
     } } });
@@ -324,7 +330,7 @@ for (const [level, team] of [[1, 2], [3, 3], [6, 2]] as const) test(`arcade netc
     return peer;
   };
   const initial = Array.from({ length: team }, (_, i) => connect(`p${i}`));
-  const s = arcade.session(initial[0].u)!; arcade.startEpoch(s, level, now() + 3000);
+  const s = arcade.session<ParkTestState>(initial[0].u)!; arcade.startEpoch(s, level, now() + 3000);
   const pump = (tickServer = true) => {
     for (const wire of wires) wire.flush();
     if (tickServer) arcade.tick(now());
@@ -369,7 +375,7 @@ for (const [level, team] of [[1, 2], [3, 3], [6, 2]] as const) test(`arcade netc
 
 test('arcade lobby EXIT door: the server lets the player go, and the last one out closes the session', () => {
   const { a, add, tick, now } = setup(), x = add('x'), y = add('y');
-  const s = a.sessions.get('one')!, exit = LEVELS[0].lobby!.exit;
+  const s = a.sessions.get('one')! as Session<ParkTestState>, exit = LEVELS[0].lobby!.exit;
   tick(now() + 500);
   Object.assign(s.sim.players[0], { x: (exit.x * 16 + 3) * 16, y: (exit.y + exit.h) * TILE - PLAYER_H, vx: 0, vy: 0 });
   tick(now() + 1000);
