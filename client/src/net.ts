@@ -127,6 +127,8 @@ export class Store {
   private ws: WebSocket | null = null;
   private toastSeq = 0;
   private closed = false;
+  private retries = 0;     // failed reconnects in a row
+  private retryTimer = 0;
 
   constructor(private session: string, private onUnauthorized: () => void) {}
 
@@ -142,15 +144,35 @@ export class Store {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
     const ws = new WebSocket(`${proto}://${location.host}/ws?session=${encodeURIComponent(this.session)}`);
     this.ws = ws;
-    ws.onopen = () => { this.connected = true; this.emit(); };
+    ws.onopen = () => { this.connected = true; this.retries = 0; this.emit(); };
     ws.onmessage = (e) => this.onMessage(JSON.parse(e.data));
     ws.onclose = (e) => {
       this.stopClock(); this.retroClient.socketLost(); this.retroCabinets = []; this.clearInstruments(); this.park?.runner.setLocalBits(0); this.cabinets = []; this.connected = false; this.voiceOwner = false; this.jukebox = {}; this.jukeboxReady = false; this.soundscape?.resetCrossings(); this.emit();
       if (e.code === 4001) return this.onUnauthorized();
-      if (!this.closed) setTimeout(() => this.connect(), 1500);
+      if (this.closed) return;
+      // Backoff with jitter, so ~30 clients don't all hit a restarting server at once: 1.5 s, 3 s, 6 s… up to 15 s.
+      const delay = Math.min(15_000, 1500 * 2 ** this.retries) * (0.75 + Math.random() / 2);
+      if (++this.retries % 5 === 0) void this.checkSignIn();
+      clearTimeout(this.retryTimer);
+      this.retryTimer = window.setTimeout(() => this.connect(), delay);
     };
   }
-  close() { this.closed = true; this.stopClock(); this.retroClient.destroy(); this.retroCabinets = []; this.clearInstruments(); this.park?.runner.setLocalBits(0); this.cabinets = []; this.connected = false; this.voiceOwner = false; this.jukebox = {}; this.jukeboxReady = false; this.soundscape?.resetCrossings(); this.emit(); this.ws?.close(); }
+  /** Reconnect now (network back, Mac woke up): skips the rest of the backoff. */
+  reconnectNow = () => {
+    if (this.closed || this.connected || this.ws?.readyState === WebSocket.CONNECTING) return;
+    clearTimeout(this.retryTimer); this.retries = 0; this.connect();
+  };
+  /** The socket keeps failing but the network may be fine: after NetBird reconnects, its proxy often wants a fresh
+   *  sign-in (a redirect, a 401 PIN page or an HTML login), which a WebSocket can't follow. Then reload to get it.
+   *  A network error or a 5xx (server restarting) just means keep waiting. */
+  private async checkSignIn() {
+    try {
+      const r = await fetch('/api/config', { cache: 'no-store', redirect: 'manual' });
+      const html = r.ok && !(r.headers.get('content-type') ?? '').includes('json');
+      if (!this.connected && (r.type === 'opaqueredirect' || r.status === 401 || r.status === 403 || html)) location.reload();
+    } catch { /* offline: keep retrying */ }
+  }
+  close() { this.closed = true; clearTimeout(this.retryTimer); this.stopClock(); this.retroClient.destroy(); this.retroCabinets = []; this.clearInstruments(); this.park?.runner.setLocalBits(0); this.cabinets = []; this.connected = false; this.voiceOwner = false; this.jukebox = {}; this.jukeboxReady = false; this.soundscape?.resetCrossings(); this.emit(); this.ws?.close(); }
   send(msg: ClientMsg) { if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(msg)); }
   /** NTP-style clock sync (clockSync.ts): a burst of pings on connect, then one every 20 s to follow drift. Everything timed by
    *  the server (walks, notes, the jukebox) runs on now(), so listeners on slow links hear the jukebox where others do. */

@@ -22,6 +22,7 @@ export function syncNative(store: Store, voice: Voice | null) {
     reply: (knockId: string, reply: 'accept' | 'later') => store.replyKnock(knockId, reply),
     openChat: (withId: string) => store.openChat(withId),
     setCovered: (c: boolean) => { covered = !!c; },
+    wake: () => store.reconnectNow(), // the app saw the network come back or the Mac wake up
   } });
   // The app compares this with its own build and updates itself. Asked on every (re)connect: a deploy
   // that only changes the Mac app restarts the server without reloading this page.

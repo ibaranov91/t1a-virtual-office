@@ -167,7 +167,11 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
   const [gmOpen, setGmOpen] = useState(false);
   const [pocketsOpen, setPocketsOpen] = useState(false);
 
-  useEffect(() => { store.connect(); return () => store.close(); }, [store]);
+  useEffect(() => {
+    store.connect();
+    window.addEventListener('online', store.reconnectNow);
+    return () => { window.removeEventListener('online', store.reconnectNow); store.close(); };
+  }, [store]);
   useEffect(() => { const s = new Soundscape(store); return () => s.destroy(); }, [store]);
   // Receive connections start before microphone permission settles.
   const [voice, setVoice] = useState<Voice | null>(null);
