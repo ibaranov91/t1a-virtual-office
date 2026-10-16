@@ -1,6 +1,6 @@
 # Retro cabinets: Game Boy homebrew in the Arcade — design
 
-Owner: Andrii Butko · 2026-10-16 · status: v2, after one Codex spec review · builds on
+Owner: Andrii Butko · 2026-10-16 · status: v3, after two Codex spec reviews · builds on
 `2026-10-16-arcade-party-pack-design.md` (Arcade boards popover, weeks) and `2026-10-15-sound-v3-design.md` (sealed
 rooms). Branch `andr/retro-cabinet`, cut from `andr/arcade-party` step 1 (`e6c4630`).
 
@@ -137,7 +137,7 @@ interface Cabinet { id: string; game: RetroGameId; watchers: string[]; broken: b
   session: Session | null }
 interface Session { runId: string; sync: number; player: string; gb: Gb; upto: number; bits: number;
   credit: number; creditAt: number; probe: unknown; lastResultFrame: number; lastWriteFrame: number;
-  extDirty: boolean; extCopiedAt: number; lastChangeAt: number; startAt: number }
+  extDirty: boolean; lastChangeAt: number; startAt: number }
 ```
 
 - **Joining**: clicking a retro cabinet goes through `world.use` exactly like `arcade` — the same stand-spot choice
@@ -164,13 +164,25 @@ interface Session { runId: string; sync: number; player: string; gb: Gb; upto: n
   "At the Tobu Tobu Girl cabinet" (a watcher of a vacant cabinet).
 - **Owner tab**: only the user's owner socket plays or watches (messages from other sockets are ignored, like
   `game_*`). `world.setOwner` calls `retro.handover(u)`: the old tab gets `retro_session null` (reason `elsewhere`)
-  and stops stepping; the server keeps its emulator and buttons as they are (no neutral event); the new owner tab gets
-  a fresh view with a snapshot and `sync + 1` (section 5). On every connect, a user with no retro membership gets an
-  explicit `retro_session null`, so an overlay left over from before a server restart closes.
-- **Leaving as the player**: the session ends: settle, copy the cartridge (section 6), destroy the `Gb`; the cabinet is
-  vacant.
-- **Idle and cap**: a session ends by itself after 10 minutes without a button change (reason `idle`: both games'
+  and stops. If `u` is the cabinet's **player**, the server keeps its emulator and buttons as they are (no neutral
+  event), sets `sync + 1` and sends the new owner tab a `playing` view with a snapshot (section 5). If `u` is a
+  **watcher**, nothing changes for the session: the new tab gets the cabinet's current view (`vacant`, `starting` or
+  `playing` with a snapshot and the current `sync`).
+- **Connect**: a reconnecting member gets their cabinet's current view as above (a player gets `sync + 1`); a user
+  with no retro membership gets an explicit `retro_session null`, so an overlay left over from before a server
+  restart closes.
+- **Disconnect** (client side): when the socket drops, the player's loop stops stepping and the overlay shows
+  "Reconnecting…"; it only continues from the view the server sends after the reconnect.
+- **Resync on request**: `retro_resync` (from a member's owner socket) re-sends the cabinet's current view without
+  walking or touching membership; for the player it is a resync (`sync + 1`). The overlay's **Retry** after a load
+  failure uses it.
+- **A session ends** when the player leaves, after 10 minutes without a button change (reason `idle`: both games'
   pause and game-over screens wait forever) or after 2 hours of frames (430 000, reason `cap`, "Time for a break").
+  Always the same steps: settle (results confirmed while settling are committed and sent), copy the cartridge
+  (section 6), destroy the `Gb`. Then the player gets `retro_session null` with the reason (their overlay shows a
+  notice for `idle`/`cap` and closes; their status clears; on `idle`/`cap` they stay where they are), and every
+  watcher gets the `vacant` view. A watcher's client first plays out the frames and results it already has (up to the
+  last confirmed `upto`), then shows the vacant screen.
 - Cabinet summaries for the office: `retro_cabinets { cabinets: RetroCabinet[] }` with
   `RetroCabinet = { cabinet: string; game: RetroGameId; player: string | null; watchers: number; broken?: true }`,
   broadcast on change and sent on connect.
@@ -189,6 +201,7 @@ export interface ProbeResult { track: string; score: number; time?: number }
 export interface Probe {
   start(): unknown;                                          // fresh probe state for a session
   step(state: unknown, read: Reader): ProbeResult | null;     // after each frame; fires once per run by construction
+  pending(state: unknown, read: Reader): boolean;              // a run is ending and its result may still come
   settle: { press: number; maxFrames: number };              // section 6
 }
 ```
@@ -220,7 +233,8 @@ value = Σ (byte & $7F)·10^(7−i); any other byte value is invalid.
   screen, 191 saved).
 - **Tracks**: the game keeps a separate high score per speed, so the board does too: Slow / Medium / Fast (points).
 - **Saving quirk**: this ROM writes its save at battle start and when the Game Over panel is closed, not at defeat.
-  `settle = { press: Start, maxFrames: 60 }`: leaving on the Game Over panel still saves that run's pearls.
+  `pending` = "ending" (Game Over shown, score not yet read); `settle = { press: Start, maxFrames: 60 }`: leaving on
+  the Game Over panel still saves that run's pearls. A battle abandoned mid-run is not pending: no settle, no result.
 - The Game Over and pause screens wait forever for input (hence the idle rule in section 3).
 
 ### Tobu Tobu Girl Deluxe
@@ -235,14 +249,23 @@ The ROM runs in Game Boy Color mode (binjgb picks it from the header). Addresses
 | `$C0B3` `elapsed_time` (u16 LE) | seconds in this level/run |
 | `$C0B5` `kills` (u16 LE) | stomps |
 | `$C0B7` `wave` (u16 LE) | Heaven wave, 0-based |
+| `$FF40` LCDC | `& $A0` = `$A0` while the screen and window are on (off while the pause menu loads) |
 
-- **Rule**: arm on any frame with `gamestate`=4 and `scene_state`=0. While armed, fire when `scene_state` is non-zero
-  and has the same value on two consecutive frames (one game-loop pass can write "dead" and then "portal"; the second
-  sample absorbs it; `gamestate` may already be 3 on a quit). Then disarm until the next arm. At the firing frame:
-  - `scene_state`=2 and `level` 1–4 → a cleared level: `{ track: plains|clouds|space|dream, score, time: elapsed_time }`;
-  - `scene_state`=1 and `level`=5 → the Heaven run is over: `{ track: heaven, score: wave + 1, time: elapsed_time }`;
-  - anything else (a death in levels 1–4 — the game restarts the level itself —, a Heaven wave cleared, a quit) → no
-    result.
+- **Rule** (compares each frame with the previous one; the probe state keeps the previous frame's values and a death
+  latch):
+  - **level cleared**: `gamestate` goes 4 → 6 (win screen) or 4 → 10 (the ending, after Space) with `level` 1–4 →
+    `{ track: plains|clouds|space|dream, score, time: elapsed_time }`. This is the frame the game writes its
+    high-score table (~310 frames after the portal, ~212 on Space), and only a real clear gets there;
+  - **Heaven over**: `gamestate`=4, `level`=5, `scene_state`=1 and LCDC `& $A0` = `$A0` on two consecutive frames →
+    `{ track: heaven, score: wave + 1, time: elapsed_time }`, once; the latch clears when `scene_state` ≠ 1;
+  - no result for: the same death condition on levels 1–4 (the game restarts the level by itself), a quit (4 → 3), a
+    Heaven wave cleared (`scene_state`=2 on level 5), leaving Heaven's RETRY screen (4 → 6 with `level`=5).
+  - Why not "scene_state changed": the game runs its pause check after the death and portal checks in the same pass,
+    so Start pressed on the exact death or portal frame opens the pause menu while `scene_state` still reads 1 or 2;
+    Resume then cancels the death or the clear, Quit writes 3. A `scene_state` rule then reports phantom clears,
+    phantom Heaven scores and double clears (reproduced in the second probe); this rule gets all four cases right
+    because a clear is only confirmed by `gamestate` leaving 4, and the pause menu turns the LCD/window off while a
+    real death keeps them on for 48 frames.
 - **Score**: the game's own formula is `3 × (level_max_time − elapsed) + kills` with `level_max_time` = 56, 56, 64, 64,
   kept in **one byte**, so a clear slower than `level_max_time` wraps (60 s on Plains → 254, the best possible score).
   Our boards use the intended value without the wrap: `3 × max(0, level_max_time − elapsed_time) + kills`. It equals the
@@ -250,12 +273,17 @@ The ROM runs in Game Boy Color mode (binjgb picks it from the header). Addresses
   game's own screen shows the wrapped number. Heaven's score is the wave count shown on its RETRY screen.
 - **Tracks**: Plains, Clouds, Space, Dream (points) and Heaven (waves), each with time as the tiebreak (shorter wins).
   Levels unlock as in the game: the player's cartridge remembers them.
-- **Saving**: the game writes its high-score table — which is also how it remembers unlocked levels — 309 frames after
-  the portal on Plains and Clouds, 213 on Space, and over two frames ~50 after a Heaven death (6112 and 6113 in the
-  fixture). `settle = { press: 0, maxFrames: 400 }` covers someone leaving in between.
-- Verified with real inputs and no memory pokes: Plains 21 s / 10 stomps → 115, Clouds 38 s / 17 → 71, Space 51 s / 22
-  → 61, Heaven 4 waves cleared then death → 5 (each from the previous run's save); a time-out, a fall and a pause-quit
-  each produce no result. Dream isn't verified (the probe bot ran out of time there); it follows the same rule.
+- **Saving**: the game writes its high-score table — which is also how it remembers unlocked levels — on the clear's
+  result frame, and over two frames ~50 after a Heaven death (6112 and 6113 in the fixture).
+  `pending` = `gamestate`=4, `level` 1–4 and `scene_state`=2 (the portal is touched; the clear is confirmed ~310 frames
+  later), so leaving during the portal animation still counts the clear and saves the unlock:
+  `settle = { press: 0, maxFrames: 400 }`. If the portal frame opened the pause menu, neutral frames keep it paused,
+  the clear is never confirmed and nothing is committed — as in the game.
+- Verified with real inputs and no memory pokes (first probe's logs, this rule): Plains 21 s / 10 stomps → 115 at frame
+  2681, Clouds 38 s / 17 → 71 at 3745, Space 51 s / 22 → 61 at 4466, Heaven 4 waves cleared then death → 5 waves,
+  57 s, at 6063 (each from the previous run's save; the second probe's bot also cleared Plains for 127). Time-outs,
+  falls, pause-quits and Start on the death/portal frame (Resume and Quit) were checked in the second probe. Clouds to
+  Dream clears by real play are only covered by these logs and memory-poke tests; Dream follows the same rule.
 
 ## 5. Protocol and lockstep
 
@@ -263,6 +291,7 @@ The ROM runs in Game Boy Color mode (binjgb picks it from the header). Addresses
 // ClientMsg
 | { t: 'retro_frames'; runId: string; sync: number; from: number; upto: number; changes: [frame: number, bits: number][] }
 | { t: 'retro_leave' }
+| { t: 'retro_resync' }                                     // re-send my cabinet's view (section 3)
 // ServerMsg
 | { t: 'retro_session'; view: RetroView | null; reason?: 'elsewhere' | 'ended' | 'idle' | 'cap' | 'broken' }
 | { t: 'retro_frames'; runId: string; from: number; upto: number; changes: [number, number][] }   // to watchers
@@ -296,12 +325,15 @@ type RetroView =
 - **Pause**: the overlay menu, a hidden tab or a blurred window stops stepping (and silences the game). Nothing is sent
   in between; the game simply continues from the same frame afterwards (both games also have their own pause on
   Start).
-- **Server validation**: the sender is the session's player on the owner socket; `runId` matches; `sync` equals the
-  session's; `from` equals the session's `upto`; `upto − from` is 1–300; `changes` sorted, unique, frames in
-  `[from, upto)`, at most 300, bits integers 0–255; and the **frame budget** allows it: `credit` grows at `GB_FPS` of
-  server time, capped at 300 frames (5 s), and each batch spends `upto − from`. A batch with an old `sync` is ignored;
-  **any other failure resyncs** the player: `sync += 1` and a fresh `playing` view with a snapshot (they lose at most
-  the unconfirmed fraction of a second). Nothing is ever dropped silently while the stream continues.
+- **Server validation**, in this order:
+  1. **Ignored** (no reply): the sender isn't the session's player on their owner socket, `runId` isn't the
+     session's, or `sync` is older than the session's.
+  2. **Resync** (the current player's current stream, but the batch can't be applied): `from` ≠ the session's `upto`;
+     `upto − from` not 1–300; `changes` not sorted/unique, outside `[from, upto)`, more than 300, or bits not integers
+     0–255; or the **frame budget** doesn't allow it (`credit` grows at `GB_FPS` of server time, capped at 300 frames =
+     5 s; each batch spends `upto − from`). The server sets `sync += 1` and sends the player a fresh `playing` view with
+     a snapshot; they lose at most the unconfirmed fraction of a second. Nothing is dropped silently while a stream
+     continues.
 - **Server stepping**: for an accepted batch the server steps its `Gb` from `from` to `upto`, applying each change at
   its frame and running the probe after every frame (section 4); then it relays the batch to the watchers, then sends
   any results (with the frame they fired on), then handles the cartridge copy (section 6).
@@ -316,7 +348,7 @@ type RetroView =
   frame. Watchers never send frames.
 - **Client loading**: while its `Gb` is being created or restored, the client queues `retro_frames` for the current
   `runId` and drops those for any other; the overlay shows "Inserting cartridge…" with Leave available. A creation or
-  restore failure shows "The game didn't load" with Leave and retry (re-sends `use`).
+  restore failure shows "The game didn't load" with Leave and **Retry** (`retro_resync`).
 - **Dev hook**: `window.__retro = { player, watcher, hash(), frame }` in dev builds only, for the browser check.
 
 ## 6. Your cartridge (saves)
@@ -325,16 +357,18 @@ type RetroView =
   games → ~11 KB each; 60 cartridges ≈ 640 KB).
 - The save is always the **server's** emulator cartridge RAM, never data from a client.
 - **Dirty latch**: after every server step where `gb.takeExtWrite()` is true: `extDirty = true`,
-  `lastWriteFrame = frame`. While `extDirty`, the cartridge is copied into `saves` (and the world marked dirty for the
-  30 s state save) once at least 1 s has passed since the last copy — checked after each batch and in the 50 ms tick —
-  and always when the session ends, at shutdown and before `destroy()`. Copying clears `extDirty`.
+  `lastWriteFrame = frame`. After each accepted batch and at the end of a session (after settling), a dirty cartridge
+  is copied into `saves` and the world marked dirty for the 30 s state save; copying clears `extDirty`. (Two cabinets
+  copying 8 KB per 100 ms batch is nothing; no throttle.)
 - **Settle**: both games save a moment *after* the result (Tobu after its portal animation, Shock Lobster only when its
-  Game Over panel is closed), and a write can span two frames (Tobu's Heaven table: 6112 and 6113). So when a session
-  ends for any reason, the server settles if a result is still unsaved (`lastResultFrame > lastWriteFrame`) or a write
-  happened in the last two frames: it keeps stepping its emulator — the first frame with the game's `settle.press`
-  (only when a result is unsaved), then frames with no buttons — until no result is unsaved **and** two consecutive
-  frames passed without a write, or `settle.maxFrames` pass. Then it copies the cartridge one last time. Nobody sees
-  these frames; no results are committed from them.
+  Game Over panel is closed), Tobu confirms a clear only ~310 frames after the portal, and a write can span two frames
+  (Tobu's Heaven table: 6112 and 6113). So when a session ends for any reason, the server settles if the probe is
+  `pending`, a result is still unsaved (`lastResultFrame > lastWriteFrame`) or a write happened in the last two frames:
+  it keeps stepping its emulator — the first frame with the game's `settle.press` when a result is unsaved, all others
+  with no buttons, the probe running as usual — until the probe isn't pending, no result is unsaved **and** two
+  consecutive frames passed without a write, or `settle.maxFrames` pass. Results the probe confirms meanwhile are
+  committed like any other (only the game's own confirmation counts; settle frames never press anything that could
+  score). Then the cartridge is copied one last time. Nobody sees these frames.
 - A new player's first session starts with a blank cartridge (`save: null`).
 - Both games have their own save reset (Shock Lobster: "Reset Save" in the loadout details; Tobu: Down+Select+B on the
   title screen). An admin can drop a save from `state.json` by hand.
@@ -366,8 +400,10 @@ interface RetroResult { game: RetroGameId; track: string; score: number; time?: 
 ## 8. The overlay
 
 `client/src/retro/RetroOverlay.tsx`, open while `store.retro` holds a view (you play or watch); built on the same
-modal shell, focus handling and `COMPACT` rules as `ArcadeOverlay`. `store.gameOpen` is true while either overlay is
-open, so the office chrome is inert and office keys are suppressed exactly as for Deck Park.
+modal shell, focus handling and `COMPACT` rules as `ArcadeOverlay`. Each overlay mounts from its own state: the
+existing flag that `game_session` sets and clears becomes `store.arcadeOpen` (it mounts `ArcadeOverlay`, and
+`game_session null` clears only it), `RetroOverlay` mounts from `store.retro`, and `store.gameOpen` becomes a getter
+(`arcadeOpen || !!retro`) used everywhere it is used today (inert office chrome, suppressed office keys).
 
 - **Layout**: header — game title, "Playing" or "Watching Ivan", Menu, Leave. Centre — a dark bezel with the 160×144
   canvas at the largest whole-number scale that fits (at least 1×; `image-rendering: pixelated`). Under it — the game's
@@ -381,8 +417,9 @@ open, so the office chrome is inert and office keys are suppressed exactly as fo
 - **Menu**: Resume · Controls · Credits & licences · Leave. The game is paused while the menu is open.
 - **States**: `starting` and loading — "Inserting cartridge…"; `vacant` (watchers) — "Ivan left · the cabinet is free"
   with **Play**; `playing` as a watcher — the same screen without controls, header "Watching Ivan · Tobu Tobu Girl";
-  load failure — "The game didn't load" with retry and Leave; session ended (`idle`, `cap`, `broken`) — a notice, then
-  the overlay closes.
+  load failure — "The game didn't load" with **Retry** and Leave; disconnected — "Reconnecting…" (the game is
+  paused); the player's session ended by `idle`/`cap` — a notice, then the overlay closes (watchers go to the vacant
+  screen instead, section 3).
 - **Credits & licences** screen: for each game its title, authors, licence with a link, source repository, where the
   ROM came from; plus binjgb (MIT). Texts in section 9.
 
@@ -432,19 +469,25 @@ open, so the office chrome is inert and office keys are suppressed exactly as fo
   settle at `upto`.
   - Shock Lobster `lobster/verify-inputlog.json`: 3721 frames from a blank cartridge, five runs at medium speed scoring
     132, 141, 175, 231, 490;
-  - Tobu `tobu/runs/`: `l1.json` from a blank cartridge (Plains 115, 21 s) → `after-l1.bin` → `l2.json` (Clouds 71,
-    38 s) → `after-l2.bin` → `l3c.json` (Space 61, 51 s) → `after-l3.bin` → `h.json` (Heaven 5 waves, 57 s; the
-    cartridge write spans frames 6112–6113).
+  - Tobu `tobu/runs/` (per-frame button logs): `l1.json` from a blank cartridge (Plains 115, 21 s, frame 2681) →
+    `after-l1.bin` → `l2.json` (Clouds 71, 38 s, frame 3745) → `after-l2.bin` → `l3c.json` (Space 61, 51 s, frame
+    4466) → `after-l3.bin` → `h.json` (Heaven 5 waves, 57 s, frame 6063; the cartridge write spans frames 6112–6113);
+  - Tobu pause edge cases from the second probe (`edge-pause-death.mjs`, `edge-pause-portal.mjs` and the Heaven
+    pause-on-death run): Start on the death or portal frame, then Resume or Quit → the expected single result or none.
 - `server/src/retro.test.ts` (Node, `node --import tsx --test`, silent):
   - each fixture: results (frames, tracks, scores, times), final hash and `ext` match; each probe fires exactly once
     per run;
   - Heaven regression: a session ending at frame 6112 still saves the Heaven score after settle (two-frame write);
+  - portal regression: a Plains session ending at frame 2400 (portal touched, clear not yet confirmed) commits the
+    clear (115) during settle and saves the unlock; with Start pressed on the portal frame it commits nothing;
   - 44.1 vs 48 kHz → same hash; snapshot mid-run + restore at the other rate → same continuation; 200 snapshot/restore
     cycles on one `Gb` without running out of memory; audio buffers copied on flag 2 are complete;
   - `Retro` with fake transport: join (free/busy/starting/crowded/out of order), reservation and cancelled async
     creation, watchers kept across a vacancy and attached to the next session, one activity at a time, owner handover
-    (`sync + 1`, explicit first change), batch validation (old sync ignored; gap, overlap, unsorted, too many, over
-    budget, wrong runId, non-player → resync), watcher relay order (frames before results), results committed once
+    of the player (`sync + 1`, explicit first change) and of a watcher (sync unchanged; vacant and starting views),
+    `retro_resync`, batch validation (non-player, other socket, wrong runId, old sync → ignored and no snapshot sent;
+    gap, overlap, unsorted, too many, over budget → resync), watcher relay order (frames before results), session
+    endings (players get null + reason, watchers get vacant), results committed once
     and boards updated (best-only, tiebreaks), week rollover broadcast, dirty latch + settle + copy on leave, idle and
     cap endings, `shutdown()` settles and copies, `load()` skipping bad records without throwing, `dump()`/`load()`
     round trip.
