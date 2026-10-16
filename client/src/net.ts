@@ -118,7 +118,6 @@ export class Store {
   uiVersion = 0;  // bumps only when React chrome has something new to show
   admin = false;      // may rearrange the office (and is a GM: may put effects on anyone)
   sysadmin = false;   // may also walk into the Admin room
-  halloweenWorld = false;
   portalFx: PortalFx[] = [];
   items: string[] = []; // my inventory (what the bouncer sold me)
   layoutVersion = 0;  // bumps whenever the furniture changes; the engine redraws the floor
@@ -326,7 +325,6 @@ export class Store {
   teleport(targetId: string) { this.send({ t: 'teleport', targetId }); }
   rename(targetId: string, name: string) { this.send({ t: 'rename', targetId, name }); }
   giftHat(targetId: string, style: string) { this.send({ t: 'gift_hat', targetId, style }); }
-  setHalloweenWorld(halloween: boolean) { this.send({ t: 'theme', halloween }); }
   setEffect(targetId: string, kind: string, on: boolean, style?: string) { this.send({ t: 'effect', targetId, kind, on, style }); }
   setPresence(presence: 'online' | 'away' | 'in_call') { this.send({ t: 'presence', presence }); }
   setMeetLink(link: string) { this.send({ t: 'meet_link', link }); }
@@ -594,9 +592,6 @@ export class Store {
       case 'retro_result': this.retroClient.receiveResult(msg); return;
       case 'retro_cabinets': this.retroCabinets = msg.cabinets; break;
       case 'retro_boards': this.retroBoards = msg.boards; break;
-      case 'theme':
-        this.halloweenWorld = msg.halloween;
-        break;
       case 'game_session':
         if (msg.session) { this.arcadeOpen = true; this.gameCheers.clear(); }
         else {

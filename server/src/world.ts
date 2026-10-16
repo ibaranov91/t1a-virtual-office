@@ -168,7 +168,6 @@ export class World {
   build?: string; // sent in hello so open pages reload after a deploy
   private baseLayout: Layout;     // as generated, for Reset
   private layoutEdited = false;   // saved only once someone has changed it
-  halloweenWorld = false;
   private editSeq = 0;
   constructor(public map: TileMap, retroFiles: Pick<ConstructorParameters<typeof Retro>[0], 'roms' | 'wasm'> = { roms: {}, wasm: new Uint8Array() }) {
     this.retro = new Retro({ ...retroFiles, now: () => Date.now(), send: (id, msg) => this.sendOwner(id, msg),
@@ -238,7 +237,6 @@ export class World {
     if (!u.plant && !u.bot) { u.plant = this.newPlant(u, dayNumber(Date.now()) - 1); this.plantChanged(u); } // a pot on your desk from day one; today's status already grows it
     if (u.presence === 'offline') this.comeIn(u);
     send({ t: 'layout', layout: this.layout() }); // before anyone's walk, which every client paths on this floor
-    send({ t: 'theme', halloween: this.halloweenWorld });
     send(this.snapshot());
     send(this.me(u));
     if (!u.bot) send({ t: 'later', items: this.laterList.get(userId) ?? [] });
@@ -1036,11 +1034,6 @@ export class World {
     const wearing = u.effects.find(e => e.kind === 'hat')?.data?.style, item = hatItem(ADMIN_HAT), has = u.items.includes(item), should = this.isAdmin(u);
     if (should && !has) { u.items = [...u.items, item]; if (!wearing) this.addEffect(u, 'hat', { data: { style: ADMIN_HAT } }); this.sendTo(u.id, this.me(u)); }
     if (!should && has) { u.items = u.items.filter(i => i !== item); if (wearing === ADMIN_HAT) this.removeEffect(u, 'hat'); this.sendTo(u.id, this.me(u)); }
-  }
-  private setTheme(u: User, halloween: unknown) {
-    if (!this.isAdmin(u) || typeof halloween !== 'boolean' || this.halloweenWorld === halloween) return;
-    this.halloweenWorld = halloween;
-    this.broadcast({ t: 'theme', halloween });
   }
   // ---------- renaming people (admins) ----------
   /** An admin renames a person (someone took another's name). Names stay unique, and can't be a plain-name admin entry (that would make them an admin on name logins). */
@@ -1989,7 +1982,6 @@ export class World {
       case 'teleport': this.teleport(u, String(msg.targetId)); break;
       case 'rename': this.rename(u, msg); break;
       case 'gift_hat': this.giftHat(u, msg); break;
-      case 'theme': this.setTheme(u, msg.halloween); break;
       case 'tz': {
         const tz = isTimeZone(msg.tz) ? msg.tz : undefined;
         if (tz === u.tz || (msg.tz != null && !tz)) break;
@@ -2150,7 +2142,6 @@ export class World {
   dump() {
     return {
       version: STATE_VERSION,
-      halloweenWorld: this.halloweenWorld,
       users: [...this.users.values()].map(u => {
         return { id: u.id, name: u.name, nameSet: u.nameSet, email: u.email, meetLink: u.meetLink, google: u.google, vacation: u.vacation, homeDesk: u.homeDesk, look: u.look, lookSet: u.lookSet, tile: underground(u) ? this.dungeonExit(false) : u.tile, dir: u.dir, status: u.status, presence: u.presence, bot: u.bot, plant: u.plant, bloomed: u.bloomed, achievements: u.achievements, effects: u.effects.filter(e => e.until === undefined), items: u.items, danced: u.danced,
           resume: (!u.bot && u.presence !== 'offline' && !goingOut(u) && !u.instance && !this.toilets.inside(u.id)) || undefined }; // meetings and stalls don't survive a restart
@@ -2168,7 +2159,6 @@ export class World {
   load(data: ReturnType<World['dump']>) {
     // files from before versioning have none (0); new migrations should key on this, not on the content
     const version = data.version ?? 0;
-    this.halloweenWorld = data.halloweenWorld === true;
     if (version > STATE_VERSION) console.warn(`state.json is version ${version}, newer than this build (${STATE_VERSION}); unknown fields are dropped on the next save`);
     // saved in the radio days: the radio goes (withNewFixtures then brings in the jukebox)
     // ... and the Meeting room's whiteboard: the screen is its one board now (withNewFixtures then reshapes the screen into its spot)

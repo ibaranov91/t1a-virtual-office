@@ -173,7 +173,6 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
     return () => { cancelled = true; unsub(); v?.destroy(); };
   }, [store]);
   useEffect(() => { loadAssets().then(setAssets); }, []);
-  useEffect(() => { assets?.setWorld(store.halloweenWorld); }, [assets, store.halloweenWorld]);
   useEffect(() => {
     if (!assets || !canvasRef.current) return;
     const e = new Engine(canvasRef.current, store, assets);
@@ -836,10 +835,6 @@ function GmPanel({ store, picked, assets, onClose }: { store: Store; picked: str
         {people.map(p => <option value={p.id} key={p.id}>{p.id === store.me ? `${p.name} (you)` : p.name}</option>)}
       </select></label>
       <p className="hint">Click someone on the floor to aim at them.</p>
-      <h3>World map</h3>
-      <label className="look-select">Theme<select value={store.halloweenWorld ? 'halloween' : 'normal'} onChange={e => store.setHalloweenWorld(e.target.value === 'halloween')}>
-        <option value="normal">Normal</option><option value="halloween">Halloween</option>
-      </select></label>
       {u.id !== store.me && <button className="ghost reset" onClick={() => store.teleport(u.id)}><Icon name="portal" /> Teleport to {u.name.split(' ')[0]}</button>}
       {!u.bot && <form className="rug-size" onSubmit={e => { e.preventDefault(); const v = renaming.trim(); if (v && v !== u.name) { store.rename(u.id, v); setRenaming(''); } }}>
         <input value={renaming} maxLength={24} onChange={e => setRenaming(e.target.value)} placeholder={`Rename ${u.name}`} aria-label={`New name for ${u.name}`} />

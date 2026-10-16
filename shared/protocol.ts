@@ -288,7 +288,6 @@ export type ServerMsg =
   // the furniture and rugs: on connect, and to everyone after each admin edit. by: who made it; added: a new thing's id
   | { t: 'layout'; layout: Layout; by?: string; added?: string }
   | { t: 'hello'; you: string; serverTime: number; build?: string } // build: the client bundle the server serves (absent in dev)
-  | { t: 'theme'; halloween: boolean } // the world atlas selected by an office admin
   | { t: 'pong'; id: number; serverTime: number } // the answer to a clock ping, only to the socket that sent it
   | { t: 'state'; users: PublicUser[]; objects: Record<string, ObjectState>; toilets?: Record<string, ToiletState>; jukebox?: Record<string, JukeboxState>; instruments?: Record<string, string | null>; serverTime: number }
   | { t: 'move'; userId: string; from: Tile; to: Tile; startedAt: number; path?: Tile[]; face?: Dir; ms?: number } // ms: per tile, absent = WALK_MS_PER_TILE
@@ -433,7 +432,6 @@ export type ClientMsg =
   | { t: 'teleport'; targetId: string } // office admins only: step through a portal to stand beside someone
   | { t: 'rename'; targetId: string; name: string } // office admins only: give someone another name (if theirs was taken)
   | { t: 'gift_hat'; targetId: string; style: string } // office admins only: put a hat in someone's pockets and on their head
-  | { t: 'theme'; halloween: boolean } // office admins only: select the world atlas for everyone
   | { t: 'effect'; targetId: string; kind: string; on: boolean; style?: string }
   | { t: 'present_slide'; slide: number } // presenter only
   | { t: 'present_share'; objectId: string } // beside the screen: start sharing my screen (a busy screen answers with a `notice`)
