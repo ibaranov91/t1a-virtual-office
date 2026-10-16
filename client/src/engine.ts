@@ -1303,6 +1303,16 @@ export class Engine {
       ctx.restore();
     }
 
+    if (u.listening === 'lofi') {
+      const w = 51, bx = x + 8 - Math.floor(w / 2), by = baseY - 55;
+      ctx.fillStyle = '#513b36'; ctx.fillRect(bx - 1, by - 1, w + 2, 17);
+      ctx.fillStyle = '#281f26'; ctx.fillRect(bx, by, w, 15);
+      drawText(ctx, 'LISTENING TO', bx + 4, by + 2, '#d9bfa4');
+      ctx.fillStyle = '#e33a47'; ctx.fillRect(bx + 3, by + 8, 8, 5);
+      ctx.fillStyle = '#fff4e0'; ctx.fillRect(bx + 6, by + 9, 1, 3); ctx.fillRect(bx + 7, by + 10, 1, 1);
+      drawText(ctx, 'LOFI GIRL', bx + 13, by + 8, '#fff4e0');
+    }
+
     // emote bubble with a 2-frame pop
     const kind = this.bubbleFor(u, p);
     const st = this.bubbleState.get(u.id);

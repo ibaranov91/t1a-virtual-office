@@ -146,6 +146,7 @@ export interface PublicUser {
   muted: boolean;        // mic muted in that call
   following: string | null; // walks along with this person
   holding: string | null;   // a UseItem id (coffee, snack…) in hand for a while
+  listening?: 'lofi' | null; // an audible Lofi TV in one of this person's open pages; never persisted
   reading: string | null;   // library article id they're reading at a reading desk; knocks go to Later
   eating?: Eating;          // having lunch at a picnic table (see shared/lunch.ts)
   meeting: number | null;   // in a calendar meeting until then (ms); knocks go to Later
@@ -262,6 +263,7 @@ export interface DecksReply { decks: DeckInfo[]; used: number; limit: number }
 
 // server -> client
 export type ServerMsg =
+  | { t: 'listening'; userId: string; on: boolean }
   | ParkIncoming
   | CreatureServerMsg
   | { t: 'game_status'; userId: string; game: PublicUser['game'] }
@@ -334,6 +336,7 @@ export type ServerMsg =
 
 // client -> server
 export type ClientMsg =
+  | { t: 'listening'; on: boolean }
   | ParkOutgoing
   | { t: 'lunch'; tile: Tile; open: boolean } // eat the food you're holding in this picnic chair; open: knocks from the table are welcome
   | { t: 'lunch_open'; open: boolean }       // change that while eating

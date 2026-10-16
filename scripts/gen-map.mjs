@@ -293,7 +293,7 @@ obj('plant', 40, 22, 1, 1);
 obj('lamp', 40, 16, 1, 1, LAMP);
 // Music room (after the east wing, same reason): windows, tables with stools, sofas along the bottom
 obj('window', 55, 1, 2, 2, { wall: true });
-obj('lofi_tv', 59, 1, 4, 2, { wall: true, use: { kind: 'youtube', label: 'Lofi Girl · YouTube Live', videoId: 'rFZHOHl-L8A', room: 'music' } });
+obj('lofi_tv', 59, 1, 4, 2, { wall: true, use: { kind: 'youtube', label: 'Lofi Girl · YouTube Live', room: 'music' } });
 obj('plant', 54, 3, 1, 1);
 obj('plant', 63, 3, 1, 1);
 // Six replacements for the tables/stools: keep every later object id stable.
