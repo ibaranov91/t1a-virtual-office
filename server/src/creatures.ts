@@ -1,6 +1,7 @@
 // Office animals and helpers: a cat and a dog that wander, sit by people and nap; a bat in October; and the cleaner,
 // who takes away the cups people leave on tables. They are not users: their own `creatures` message, never knocked on,
 // never counted. Cups are server state, saved with the rest.
+import { terrainAt } from '../../shared/beach';
 import { dirBetween, findPath, isWalkable, roomAt, type Tile, type TileMap } from '../../shared/map';
 import { isPlate, LUNCH_MS, MAX_PLATES } from '../../shared/lunch';
 import { phrase, type Speaker } from '../../shared/phrases';
@@ -19,6 +20,8 @@ export const BAT_COOLDOWN_MS = 1000;
 export const BAT_RESPAWN_MS = 10 * 60_000; // after a catch
 export const SAY_MS = 5000;                // a phrase stays up this long
 export const CAT_JUDGE_COOLDOWN_MS = 30_000;
+export const PAW_MS = 2400;                // the cat dabs at the water…
+export const SHAKE_MS = 1600;              // …the dog comes out of it and shakes off
 const TALKERS: Partial<Record<CreatureKind, Speaker>> = { cleaner: 'cleaner', cat: 'cat', dog: 'dog' }; // who has lines in shared/phrases.ts
 const SPEED: Record<CreatureKind, number> = { cat: 320, dog: 230, bat: 150, cleaner: 300 };
 
@@ -45,6 +48,18 @@ const pick = <T>(xs: T[]) => xs[Math.floor(Math.random() * xs.length)];
 const N4: Tile[] = [{ x: 0, y: -1 }, { x: 1, y: 0 }, { x: 0, y: 1 }, { x: -1, y: 0 }];
 const inOctober = (d: Date) => d.getMonth() === 9;
 
+export const wetAt = (m: TileMap, t: Tile) => { const k = terrainAt(m, t.x, t.y); return k === 'shallow' || k === 'deep' ? k : null; };
+/** The cat never sets foot in water; the dog paddles in the shallows but stays in its depth. */
+export const tooWet = (kind: CreatureKind, m: TileMap, t: Tile) => kind === 'cat' ? !!wetAt(m, t) : kind === 'dog' && wetAt(m, t) === 'deep';
+const grounds = new WeakMap<TileMap, Partial<Record<CreatureKind, TileMap>>>();
+/** The map as this creature's paws see it: water it won't go in is a wall (a new layout is a new map, so a new copy). */
+export function groundFor(m: TileMap, kind: CreatureKind): TileMap {
+  if (kind !== 'cat' && kind !== 'dog') return m;
+  let byKind = grounds.get(m);
+  if (!byKind) grounds.set(m, byKind = {});
+  return byKind[kind] ??= { ...m, layers: { ...m.layers, walkable: m.layers.walkable.map((row, y) => row.map((v, x) => v === 1 && tooWet(kind, m, { x, y }) ? 0 : v)) } };
+}
+
 /** A straight-ish flight: across, then up or down. Bats don't care about walls or chairs. */
 export function flightPath(from: Tile, to: Tile): Tile[] {
   const out = [{ ...from }];
@@ -64,6 +79,7 @@ export class Creatures {
   constructor(private host: CreatureHost) {}
 
   get map() { return this.host.map(); }
+  private ground(c: Live) { return groundFor(this.map, c.kind); }
   toPublic = (c: Live): Creature => ({ id: c.id, kind: c.kind, name: c.name, tile: c.tile, dir: c.dir, pose: c.pose, walk: c.walk, ...(c.hum ? { hum: true } : {}), ...(c.say ? { say: c.say } : {}) });
   all() { return [...this.list.values()].map(this.toPublic); }
   private announceAll() { this.host.broadcast({ t: 'creatures', creatures: this.all() }); }
@@ -78,7 +94,7 @@ export class Creatures {
   remove(id: string) { if (this.list.delete(id)) this.announceAll(); }
 
   /** Walk (or fly) somewhere; on arrival take up `then`. False if there's no way there. */
-  go(c: Live, to: Tile, now: number, then?: Live['then'], path = c.kind === 'bat' ? flightPath(c.tile, to) : findPath(this.map, c.tile, to)) {
+  go(c: Live, to: Tile, now: number, then?: Live['then'], path = c.kind === 'bat' ? flightPath(c.tile, to) : findPath(this.ground(c), c.tile, to)) {
     if (!path.length) return false;
     const ms = SPEED[c.kind];
     c.walk = path.length > 1 ? { path, startedAt: now, ms } : null;
@@ -105,7 +121,7 @@ export class Creatures {
     return null;
   }
   /** Walkable tiles touching this tile, from where you can reach across to it. */
-  beside(t: Tile) { return N4.map(d => ({ x: t.x + d.x, y: t.y + d.y })).filter(p => isWalkable(this.map, p.x, p.y)); }
+  beside(t: Tile, m = this.map) { return N4.map(d => ({ x: t.x + d.x, y: t.y + d.y })).filter(p => isWalkable(m, p.x, p.y)); }
   addCup(t: Tile, item: string, now: number): Cup | string {
     const problem = this.cupProblem(t, item);
     if (problem) return problem;
@@ -130,12 +146,19 @@ export class Creatures {
       if (now < c.until) continue;
       if (c.then) { // just arrived
         const gone = c.cleaning && !this.stillDirty(c.cleaning);
-        if (!gone) { this.settle(c, c.then.pose, c.then.ms, now); continue; }
+        if (!gone) {
+          const pose = c.then.pose;
+          this.settle(c, pose, c.then.ms, now);
+          if (pose === 'shake') this.sayNow(c, phrase('dog', 'shake'), now);
+          continue;
+        }
         c.then = undefined; c.walk = null; c.cleaning = undefined; // someone beat her to it
       }
       if (c.kind === 'cleaner') this.cleaner(c, now);
       else if (c.kind === 'bat') this.flutter(c, now);
+      else if (c.pose === 'paw') this.backOff(c, now);
       else if (c.follow && this.followPerson(c, now)) continue;
+      else if (c.kind === 'dog' && wetAt(this.map, c.tile)) this.wadeOut(c, now);
       else this.wander(c, now);
     }
   }
@@ -158,8 +181,8 @@ export class Creatures {
         this.sayNow(c, phrase('cat', 'judge'), now);
         return true;
       }
-      const paths = this.beside(target.tile).filter(p => !taken.has(`${p.x},${p.y}`))
-        .map(p => ({ spot: p, path: findPath(this.map, c.tile, p) })).filter(p => p.path.length)
+      const paths = this.beside(target.tile, this.ground(c)).filter(p => !taken.has(`${p.x},${p.y}`))
+        .map(p => ({ spot: p, path: findPath(this.ground(c), c.tile, p) })).filter(p => p.path.length)
         .sort((a, b) => a.path.length - b.path.length);
       const plan = paths[0];
       if (plan) { c.judging = target.id; return this.go(c, plan.spot, now, undefined, plan.path); }
@@ -194,7 +217,7 @@ export class Creatures {
     if (!at) { c.follow = undefined; return false; }
     if (Math.max(Math.abs(c.tile.x - at.x), Math.abs(c.tile.y - at.y)) <= 1) { this.settle(c, 'sit', 1500, now); return true; }
     const taken = new Set(this.host.people().map(p => `${p.x},${p.y}`));
-    const spots = this.beside(at).filter(p => !taken.has(`${p.x},${p.y}`));
+    const spots = this.beside(at, this.ground(c)).filter(p => !taken.has(`${p.x},${p.y}`));
     if (spots.length && this.go(c, pick(spots), now, { pose: 'sit', ms: 1500 })) return true;
     c.follow = undefined; return false;
   }
@@ -204,17 +227,48 @@ export class Creatures {
     const people = this.host.people(), r = Math.random(), dog = c.kind === 'dog';
     if (people.length && r < (dog ? 0.55 : 0.35)) {
       const near = pick(people), taken = new Set(people.map(p => `${p.x},${p.y}`));
-      const spots = this.beside(near).filter(p => !taken.has(`${p.x},${p.y}`));
+      const spots = this.beside(near, this.ground(c)).filter(p => !taken.has(`${p.x},${p.y}`));
       if (spots.length && this.go(c, pick(spots), now, { pose: 'sit', ms: rand(12_000, 35_000) })) return;
     }
     if (r < (dog ? 0.85 : 0.65)) {
       const room = pick(this.map.rooms.filter(r => r.id !== 'meeting'));
       for (let i = 0; i < 12; i++) {
         const x = room.rect.x + Math.floor(Math.random() * room.rect.w), y = room.rect.y + Math.floor(Math.random() * room.rect.h);
-        if (isWalkable(this.map, x, y) && this.go(c, { x, y }, now, { pose: 'idle', ms: rand(2000, 8000) })) return;
+        if (c.kind === 'cat' && wetAt(this.map, { x, y })) { if (this.testWater(c, { x, y }, now)) return; continue; }
+        if (isWalkable(this.ground(c), x, y) && this.go(c, { x, y }, now, { pose: 'idle', ms: rand(2000, 8000) })) return;
       }
     }
     this.settle(c, 'nap', dog ? rand(20_000, 50_000) : rand(30_000, 90_000), now);
+  }
+  /** The first dry, walkable tile up the shore from a tile in the water (the sea lies south), and the water below it. */
+  private shore(c: Live, t: Tile) {
+    const m = this.ground(c);
+    for (let y = t.y - 1; y >= 0; y--) {
+      if (!wetAt(this.map, { x: t.x, y })) return isWalkable(m, t.x, y) && wetAt(this.map, { x: t.x, y: y + 1 }) ? { x: t.x, y } : null;
+    }
+    return null;
+  }
+  /** The cat fancied a spot in the water: it goes to the edge instead and dabs at it with a paw. */
+  private testWater(c: Live, t: Tile, now: number) {
+    const edge = this.shore(c, t);
+    if (!edge || !this.go(c, edge, now, { pose: 'paw', ms: PAW_MS })) return false;
+    c.dir = 'down'; return true;
+  }
+  /** …and thinks better of it: a few steps back up the beach, a word about it, a sit. */
+  private backOff(c: Live, now: number) {
+    this.sayNow(c, phrase('cat', 'water'), now);
+    const m = this.ground(c);
+    for (let d = 4; d >= 1; d--) {
+      const to = { x: c.tile.x, y: c.tile.y - d };
+      if (isWalkable(m, to.x, to.y) && this.go(c, to, now, { pose: 'sit', ms: rand(4000, 9000) })) return;
+    }
+    this.settle(c, 'sit', rand(4000, 9000), now);
+  }
+  /** The dog has had its paddle: out onto the sand, then a good shake. */
+  private wadeOut(c: Live, now: number) {
+    const edge = this.shore(c, c.tile);
+    if (edge && this.go(c, edge, now, { pose: 'shake', ms: SHAKE_MS })) return;
+    this.wander(c, now);
   }
 
   /** The bat: dart along the top row of a room, hang there a while. */

@@ -1,5 +1,6 @@
 // The office animals, the cleaner, the cups on tables, and the ghost of Mazurkevich. The engine merges these into its
 // y-sorted pass; this file only knows how to place and draw them.
+import { terrainAt } from '../../shared/beach';
 import { sampleMove, WALK_MS_PER_TILE, type Dir, type Rect } from '../../shared/map';
 import { isPlate, LUNCH_MS, plateFood } from '../../shared/lunch';
 import { CUP_ITEMS, cupTableAt, type Creature, type Cup } from '../../shared/protocol';
@@ -10,7 +11,7 @@ import { MAP, type Store } from './net';
 
 const TS = MAP.tileSize;
 const KIND_NAME: Record<Creature['kind'], string> = { cat: 'the office cat', dog: 'the office dog', bat: 'an October bat 🦇', cleaner: 'cleaning up' };
-const POSE_NAME: Record<Creature['pose'], string> = { idle: '', sit: 'keeping someone company', nap: 'napping', clean: 'wiping a table', hang: 'hanging about', pet: 'being petted' };
+const POSE_NAME: Record<Creature['pose'], string> = { idle: '', sit: 'keeping someone company', nap: 'napping', clean: 'wiping a table', hang: 'hanging about', pet: 'being petted', paw: 'testing the water', shake: 'shaking off' };
 
 export interface Placed { base: number; draw: () => void }
 interface CreaturePose { x: number; y: number; dir: Dir; walking: boolean }
@@ -83,6 +84,26 @@ export class CreatureLayer {
     ctx.fillStyle = 'rgba(40,20,25,0.25)';
     ctx.beginPath(); ctx.ellipse(cx, bottom - 1.5, rx, 1.6, 0, 0, Math.PI * 2); ctx.fill();
   }
+  /** Where a dog paddles: a wavy waterline across it and a ring spreading out. */
+  private ripple(cx: number, lineY: number, ms: number) {
+    const ctx = this.ctx();
+    ctx.save(); ctx.lineWidth = 0.6; ctx.strokeStyle = 'rgba(220,250,248,0.7)'; ctx.beginPath();
+    for (let i = -6; i <= 6; i += 2) { const y = lineY + Math.sin(i / 2 + ms / 400) * 0.6; if (i === -6) ctx.moveTo(cx + i, y); else ctx.lineTo(cx + i, y); }
+    ctx.stroke();
+    const ph = (ms / 1400) % 1;
+    ctx.globalAlpha = 0.5 * (1 - ph); ctx.beginPath(); ctx.ellipse(cx, lineY + 1, 6 + ph * 4, 1.5 + ph * 2, 0, 0, Math.PI * 2); ctx.stroke();
+    ctx.restore();
+  }
+  /** Droplets flung off a shaking dog. */
+  private spray(cx: number, bottom: number, ms: number) {
+    const ctx = this.ctx();
+    ctx.fillStyle = '#5aaed8';
+    for (let i = 0; i < 6; i++) {
+      const ph = (ms / 500 + i / 6) % 1, a = (i / 6) * Math.PI * 2 + 0.4;
+      ctx.globalAlpha = 1 - ph * 0.7; ctx.fillRect(Math.round(cx + Math.cos(a) * (4 + ph * 7)), Math.round(bottom - 7 + Math.sin(a) * (3 + ph * 5) + ph * ph * 4), 1, 1);
+    }
+    ctx.globalAlpha = 1;
+  }
   /** A ♪ that bobs and sways over the head, drawn in code. */
   private note(cx: number, y: number, ms: number) {
     const ctx = this.ctx(), ph = (ms / 900) % 1;
@@ -115,6 +136,7 @@ export class CreatureLayer {
     const step = Math.floor(ms / (c.kind === 'dog' ? 120 : 160)) % 2;
     if (c.kind === 'bat') return p.walking ? `bat_fly_${Math.floor(ms / 90) % 2}` : 'bat_hang';
     if (c.kind === 'cleaner') return c.pose === 'clean' && !p.walking ? `cleaner_clean_${Math.floor(ms / 260) % 2}` : p.walking ? `cleaner_${step}` : 'cleaner_0';
+    if (c.kind === 'cat' && c.pose === 'paw' && !p.walking) return `cat_paw_${Math.floor(ms / 380) % 2}`;
     return p.walking ? `${c.kind}_walk_${step}` : c.pose === 'nap' ? `${c.kind}_nap` : c.pose === 'sit' || c.pose === 'pet' || c.pose === 'idle' && c.kind === 'cat' ? `${c.kind}_sit` : `${c.kind}_walk_0`;
   }
   private left(c: Creature, dir: Dir) {
@@ -155,10 +177,22 @@ export class CreatureLayer {
     for (const c of this.store.creatures.values()) {
       if (c.kind === 'bat') continue; // flies over everything: drawn on top
       const p = creaturePose(c, t), cx = p.x * TS + 8, bottom = p.y * TS + TS;
+      const wet = c.kind === 'dog' && ['shallow', 'deep'].includes(terrainAt(MAP, Math.round(p.x), Math.round(p.y)) ?? '');
       out.push({ base: bottom, draw: () => {
-        const left = this.left(c, p.dir);
-        this.shadow(cx, bottom, c.kind === 'cleaner' ? 5 : 4.5);
-        this.drawFrame(this.frameFor(c, p, ms), cx, bottom - (c.kind === 'cleaner' ? 1 : 0), left);
+        const left = this.left(c, p.dir), ctx = this.ctx();
+        if (wet) { // paddling: legs and belly under the waterline, the head bobbing
+          const line = bottom - 5;
+          ctx.save(); ctx.beginPath(); ctx.rect(cx - 12, line - 24, 24, 24); ctx.clip();
+          this.drawFrame(p.walking ? 'dog_walk_0' : 'dog_sit', cx, bottom + Math.round(Math.sin(ms / 300)), left);
+          ctx.restore(); this.ripple(cx, line, ms);
+        } else if (c.pose === 'shake' && !p.walking) {
+          this.shadow(cx, bottom, 4.5);
+          this.drawFrame('dog_walk_0', cx + (Math.floor(ms / 50) % 2 ? 1 : -1), bottom, left);
+          this.spray(cx, bottom, ms);
+        } else {
+          this.shadow(cx, bottom, c.kind === 'cleaner' ? 5 : 4.5);
+          this.drawFrame(this.frameFor(c, p, ms), cx, bottom - (c.kind === 'cleaner' ? 1 : 0), left);
+        }
         if (c.hum) this.note(cx, bottom - 27, ms);
         if (c.say) this.say(c.say, cx, bottom - 31);
         if (c.pose === 'pet' && !p.walking) for (let i = 0; i < 3; i++) { // hearts drifting up

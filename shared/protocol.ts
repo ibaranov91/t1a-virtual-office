@@ -197,7 +197,7 @@ export interface PublicUser {
 /** Office animals and helpers. Not people: never in the user list, never knock, never counted.
  *  ms: milliseconds per tile of the current walk (they amble, fly or drift at their own pace). */
 export type CreatureKind = 'cat' | 'dog' | 'bat' | 'cleaner';
-export type CreaturePose = 'idle' | 'sit' | 'nap' | 'clean' | 'hang' | 'pet';
+export type CreaturePose = 'idle' | 'sit' | 'nap' | 'clean' | 'hang' | 'pet' | 'paw' | 'shake';
 export interface Creature {
   id: string; kind: CreatureKind; name: string;
   tile: Tile; dir: Dir; pose: CreaturePose;
