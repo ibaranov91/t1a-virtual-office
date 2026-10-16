@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { drawText, textWidth } from './font';
 import { MAP, type Store } from './net';
+import { PdfError, renderPdf } from './pdfSlides';
 import { seatAt } from '../../shared/map';
 import { PRESENT_AWAY_MS, PRESENT_MAX_BYTES, PRESENT_MAX_SLIDES, slideUrl, type DeckInfo } from '../../shared/protocol';
 
@@ -18,7 +19,8 @@ export function PixelText({ text, scale = 3, color = '#fff', shadow = '#1a0f2e',
   return <canvas ref={ref} className={`pixel-text${className ? ` ${className}` : ''}`} width={w * scale} height={h * scale} role="img" aria-label={text} />;
 }
 
-const readBase64 = (f: File) => new Promise<string>((ok, fail) => {
+const isPdf = (f: File) => f.type === 'application/pdf' || /\.pdf$/i.test(f.name);
+const readBase64 = (f: Blob) => new Promise<string>((ok, fail) => {
   const r = new FileReader();
   r.onload = () => ok(String(r.result).replace(/^data:[^,]*,/, '')); r.onerror = () => fail(r.error);
   r.readAsDataURL(f);
@@ -30,6 +32,7 @@ export function PresentPanel({ store, id }: { store: Store; id: string }) {
   const [title, setTitle] = useState('');
   const [files, setFiles] = useState<File[]>([]);
   const [busy, setBusy] = useState(false);
+  const [progress, setProgress] = useState('');
   const [err, setErr] = useState<string | null>(null);
   const [decks, setDecks] = useState<DeckInfo[] | null>(null);
   const live = store.presentation, mine = live?.presenter === store.me;
@@ -49,10 +52,17 @@ export function PresentPanel({ store, id }: { store: Store; id: string }) {
   const upload = async () => {
     const size = files.reduce((n, f) => n + f.size, 0);
     if (size > PRESENT_MAX_BYTES) return setErr(`Too big: ${Math.round(PRESENT_MAX_BYTES / 1024 / 1024)} MB at most.`);
-    if (files.length > PRESENT_MAX_SLIDES) return setErr(`At most ${PRESENT_MAX_SLIDES} slides.`);
     const sorted = [...files].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
-    setBusy(true);
-    const data = await Promise.all(sorted.map(readBase64)).catch(() => null);
+    setBusy(true); setErr(null);
+    let slides: Blob[] = sorted;
+    if (sorted.length === 1 && isPdf(sorted[0])) { // pages become images here, so any server can show them
+      try { slides = await renderPdf(sorted[0], PRESENT_MAX_SLIDES, (n, total) => setProgress(`Rendering page ${n}/${total}…`)); }
+      catch (e) { setProgress(''); setBusy(false); return setErr(e instanceof PdfError ? e.message : 'Couldn\'t read that PDF.'); }
+      setProgress('');
+      if (slides.reduce((n, b) => n + b.size, 0) > PRESENT_MAX_BYTES) { setBusy(false); return setErr(`Those pages come to more than ${Math.round(PRESENT_MAX_BYTES / 1024 / 1024)} MB. Use a shorter PDF.`); }
+    }
+    if (slides.length > PRESENT_MAX_SLIDES) { setBusy(false); return setErr(`At most ${PRESENT_MAX_SLIDES} slides.`); }
+    const data = await Promise.all(slides.map(readBase64)).catch(() => null);
     if (!data) { setBusy(false); return setErr('Couldn\'t read those files.'); }
     await call('/api/present/upload', { title: title || sorted[0].name.replace(/\.[^.]+$/, ''), files: data });
   };
@@ -73,7 +83,7 @@ export function PresentPanel({ store, id }: { store: Store; id: string }) {
           <label className="present-file">Slides <input type="file" multiple accept="image/png,image/jpeg,application/pdf,.pdf" onChange={e => setFiles([...(e.target.files ?? [])])} /></label>
           {files.length > 0 && <span className="small muted">{files.length} file{files.length > 1 ? 's' : ''} · {(files.reduce((n, f) => n + f.size, 0) / 1024 / 1024).toFixed(1)} MB</span>}
           {err && <p className="err">{err}</p>}
-          <div className="row"><button type="submit" disabled={!pinOk || !files.length || busy}>{busy ? 'Uploading…' : 'Upload & present'}</button></div>
+          <div className="row"><button type="submit" disabled={!pinOk || !files.length || busy}>{busy ? (progress || 'Uploading…') : 'Upload & present'}</button></div>
         </form>
         {!!decks?.length && <div className="present-decks">
           <span className="small muted">Shown before{pinOk ? '' : ' (enter the PIN first)'}</span>
