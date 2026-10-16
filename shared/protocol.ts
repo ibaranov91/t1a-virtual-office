@@ -161,6 +161,8 @@ export interface Creature {
   id: string; kind: CreatureKind; name: string;
   tile: Tile; dir: Dir; pose: CreaturePose;
   walk: { path: Tile[]; startedAt: number; ms: number } | null;
+  hum?: boolean; // the cleaner hums while she roams (a ♪ over her head)
+  say?: string;  // and now and then says something short (a speech bubble for a few seconds)
 }
 /** A cup someone left on a table; the cleaner takes it away. */
 export interface Cup { id: string; tile: Tile; item: string; at: number }
