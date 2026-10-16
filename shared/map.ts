@@ -1,3 +1,4 @@
+import type { RetroGameId } from './retro/games';
 import type { InstrumentKind } from './instruments';
 import type { LayoutEdit } from './protocol';
 
@@ -27,6 +28,7 @@ export type ObjectUse = { kind: 'take'; items: UseItem[] } | { kind: 'toggle'; l
   | { kind: 'jukebox'; label: string; genres?: string[] } // genres: play only these (the club's DJ booth); without it, everything but the club-only genres
   | { kind: 'dance'; label: string } // Berghain's dance floor: step on and dance
   | { kind: 'library'; label: string } // the Library's shelf: publish and pick articles; reading happens at its reading tables
+  | { kind: 'retro'; label: string; game: RetroGameId }
   | { kind: 'arcade'; label: string; game: 'park' } | { kind: 'records'; label: string }
   | { kind: 'meetings'; label: string } // the board by the Meeting room: which calendar meetings are on
   | { kind: 'achievements'; label: string } // the Lobby notice board: your plant and your badges
@@ -49,6 +51,7 @@ export const USE_KINDS = {
   dealer: { wheel: true, use: true },
   bell: { use: true },
   arcade: { use: true, reach: true },
+  retro: { use: true, reach: true },
   instrument: { reach: true },
   library: { reach: true },
   calendar: {}, jukebox: {}, dance: {}, records: {}, meetings: {}, achievements: {}, clock: {}, link: {},
@@ -374,11 +377,11 @@ export function layoutProblem(m: TileMap, checkDungeonReach = true): string | nu
 }
 
 /** What to call an object type in the UI: "big table", not table_big. */
-export const objectName = (type: string) => ({ table_long: 'long table', table_big: 'big table', table_round: 'round table', plant_shelf: 'plant shelf',
+export const objectName = (type: string) => ({ retro_tobu: 'Tobu Tobu Girl', retro_lobster: 'Shock Lobster', table_long: 'long table', table_big: 'big table', table_round: 'round table', plant_shelf: 'plant shelf',
   painting_small: 'small painting', coffee_machine: 'coffee machine', meetings_board: 'meetings board', noticeboard: 'notice board', table_picnic: 'picnic table', food_cart: 'food cart', exit_door: 'exit door', server_rack: 'server rack', dj_booth: 'DJ booth', neon_sign: 'neon sign', bookshelf_tall: 'tall bookshelf' } as Record<string, string>)[type] ?? type.replace(/_/g, ' ');
 
 /** Types that are one of a kind (the way out, the coffee machine…): they can be moved but not removed. */
-export const KEEP_TYPES = new Set(['exit_door', 'coffee_machine', 'fridge', 'jukebox', 'arcade', 'records', 'meetings_board', 'noticeboard', 'clock_nyc', 'clock_berlin', 'clock_moscow', 'safe', 'keyboard', 'drum_kit', 'bass_amp', 'screen', 'toilet', 'bouncer', 'hat_rack', 'bell', 'food_cart', 'dj_booth']);;
+export const KEEP_TYPES = new Set(['exit_door', 'coffee_machine', 'fridge', 'jukebox', 'arcade', 'retro_tobu', 'retro_lobster', 'records', 'meetings_board', 'noticeboard', 'clock_nyc', 'clock_berlin', 'clock_moscow', 'safe', 'keyboard', 'drum_kit', 'bass_amp', 'screen', 'toilet', 'bouncer', 'hat_rack', 'bell', 'food_cart', 'dj_booth']);;
 /** Types that stay exactly where they are. */
 export const FIXED_TYPES = new Set(['exit_door']);
 export const RUG_MIN = 2, RUG_MAX = 24;

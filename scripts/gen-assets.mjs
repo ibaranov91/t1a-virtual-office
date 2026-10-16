@@ -1723,6 +1723,22 @@ for (const axis of ['h', 'v']) { // a room door only admins open: the closed doo
   });
 }
 
+// ---------- retro cabinets ----------
+for (const [game, accent] of [['tobu', '#cf82ae'], ['lobster', '#bd524a']]) {
+  for (const on of [false, true]) {
+    const t = new Img(16, 32);
+    t.rect(2, 1, 12, 29, '#9b9b9a'); t.hline(3, 1, 10, '#e2dfd3');
+    t.rect(3, 3, 10, 4, accent); t.hline(4, 4, 8, '#f1dfcc');
+    t.rect(3, 9, 10, 11, '#464b48'); t.rect(4, 10, 8, 8, on ? '#b6d772' : '#667453');
+    if (game === 'tobu') { t.rect(7, 12, 2, 4, on ? '#e3f8a0' : '#8c9a6a'); t.rect(5, 15, 6, 1, '#576750'); }
+    else { t.rect(6, 12, 4, 4, on ? '#c9654e' : '#80664c'); t.rect(4, 11, 2, 3, accent); t.rect(10, 11, 2, 3, accent); }
+    t.rect(3, 22, 10, 3, '#c8c7bc'); t.rect(5, 21, 1, 3, '#434641'); t.rect(4, 22, 3, 1, '#434641');
+    t.rect(10, 22, 2, 1, accent); t.rect(6, 28, 4, 1, '#50534f');
+    t.rect(2, 30, 3, 1, OUT); t.rect(11, 30, 3, 1, OUT);
+    frames[`retro_${game}${on ? '_on' : ''}`] = t.outline();
+  }
+}
+
 // ---------- pack world atlas (shelf packer) ----------
 const names = Object.keys(frames).sort((a, b) => frames[b].h - frames[a].h || frames[b].w - frames[a].w);
 const AW = 256; let x = 0, y = 0, rowH = 0; const rects = {};

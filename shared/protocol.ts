@@ -1,3 +1,6 @@
+import type { RetroView, RetroCabinet, RetroBoards, RetroResult } from './retro/types';
+export type { RetroView, RetroCabinet, RetroBoards, RetroResult, RetroBoard, RetroEntry } from './retro/types';
+export type { RetroGameId } from './retro/games';
 import type { GameRole, ArcadeIncoming, ArcadeOutgoing, ArcadeBoards } from './arcade/types';
 export { PARK_FPS, PARK_INPUT_DELAY, PARK_SERVER_LAG, PARK_SPECTATOR_DELAY, PARK_MAX_PLAYERS } from './arcade/types';
 export type { GameRole, GameEvent, GameMember, GameClear, PublicSession, ParkRecord, ParkRecords, CabinetSummary, ArcadeBoards } from './arcade/types';
@@ -229,6 +232,12 @@ export const slideUrl = (d: DeckInfo, i: number) => `/api/present/${d.id}/${i + 
 
 // server -> client
 export type ServerMsg =
+  | { t: 'retro_session'; view: RetroView | null; reason?: 'elsewhere' | 'ended' | 'idle' | 'cap' | 'broken' }
+  | { t: 'retro_frames'; runId: string; from: number; upto: number; changes: [number, number][] }
+  | { t: 'retro_result'; runId: string; frame: number; result: RetroResult }
+  | { t: 'retro_cabinets'; cabinets: RetroCabinet[] }
+  | { t: 'retro_boards'; boards: RetroBoards } // retro cabinets
+
   | ArcadeIncoming
   | CreatureServerMsg
   | { t: 'game_status'; userId: string; game: PublicUser['game'] }
@@ -295,6 +304,10 @@ export type ServerMsg =
 
 // client -> server
 export type ClientMsg =
+  | { t: 'retro_frames'; runId: string; sync: number; from: number; upto: number; changes: [frame: number, bits: number][] }
+  | { t: 'retro_leave' }
+  | { t: 'retro_resync' } // retro cabinets
+
   | { t: 'crew_name'; name: string }
   | { t: 'game_predict'; epoch: number; userId: string }
   | { t: 'game_favourite'; epoch: number; userId: string }

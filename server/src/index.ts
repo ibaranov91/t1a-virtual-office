@@ -38,7 +38,13 @@ const DATA = new URL('../../data/', import.meta.url);
 const STATE_FILE = new URL('state.json', DATA);
 
 const map: TileMap = JSON.parse(readFileSync(new URL('../../shared/tilemap.json', import.meta.url), 'utf8'));
-const world = new World(map);
+const retroRoms: import('../../shared/retro/games').RetroGameId[] = ['tobu', 'lobster'];
+const roms: Partial<Record<import('../../shared/retro/games').RetroGameId, Uint8Array>> = {};
+for (const game of retroRoms) {
+  try { roms[game] = readFileSync(new URL(`../../client/public/retro/${game === 'tobu' ? 'tobudx.gb' : 'shocklobster.gb'}`, import.meta.url)); }
+  catch { /* Retro logs the missing ROM once and marks its cabinet broken. */ }
+}
+const world = new World(map, { roms, wasm: readFileSync(new URL('../../vendor/binjgb/binjgb.wasm', import.meta.url)) });
 const DECKS_DIR = fileURLToPath(new URL('decks/', DATA));
 world.present = new Presenter(DECKS_DIR, map, msg => world.broadcast(msg), (id, obj, settled) => world.isBeside(id, obj, settled));
 const sessions = new Map<string, string>(); // session id -> user id
@@ -99,7 +105,7 @@ const saveAsync = async () => {
   finally { saving = false; }
 };
 setInterval(() => void saveAsync(), 30_000);
-for (const sig of ['SIGINT', 'SIGTERM'] as const) process.on(sig, () => { save(); process.exit(0); });
+for (const sig of ['SIGINT', 'SIGTERM'] as const) process.on(sig, () => { world.retro.shutdown(); save(); process.exit(0); });
 
 // Bots are opt-in (BOTS=1): npm run dev and the test instances set it, prod doesn't have it at all.
 if (process.env.BOTS && process.env.BOTS !== '0') startBots(world, Number(process.env.BOT_COUNT ?? 4));

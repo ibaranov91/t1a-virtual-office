@@ -115,9 +115,10 @@ and the server normalizes again before applying, so both sides step the same bit
 ## 2. Cabinets in the Arcade
 
 - Two new objects in `scripts/gen-map.mjs`, appended at the end (object ids stay stable), on the Arcade's top wall
-  either side of the Music doorway, in line with the three Deck Park cabinets: type `retro_tobu` at (57,13) and type
-  `retro_lobster` at (60,13), each 1×2, `use: { kind: 'retro', label: 'Tobu Tobu Girl' | 'Shock Lobster', game }`.
-  The doorway column (58–59) stays clear; `gen-map.mjs`'s "unreachable cabinet" check covers `retro` too.
+  right of the Deck Park cabinets, under the records board: type `retro_tobu` at (62,13) and type `retro_lobster` at
+  (63,13), each 1×2 with 16×32 art, `use: { kind: 'retro', label: 'Tobu Tobu Girl' | 'Shock Lobster', game }`. The
+  Music approach (57–60 × 13–15) stays clear, as the Arcade's existing map tests require; `gen-map.mjs`'s
+  "unreachable cabinet" check covers `retro` too.
 - `ObjectUse += { kind: 'retro'; label: string; game: RetroGameId }`; `USE_KINDS.retro = { use: true, reach: true }`;
   both types go into `KEEP_TYPES` so `withNewFixtures` brings them into saved layouts and edit mode can't delete them.
   Admins can still move them (also to another room); sound follows the cabinet (section 10).
