@@ -234,7 +234,6 @@ export function SelfPanel({ store, voice, assets, onProfile }: { store: Store; v
   const waitRoom = store.voiceWait ? MAP.rooms.find(r => r.id === store.voiceWait) : undefined;
   const meet = store.callLink && MEET_LINK_RE.test(store.callLink) ? store.callLink : null;
   const state = voiceState(voice);
-  const roomState = voice?.deafened ? 'Deafened' : voice?.micError ? 'Listen-only' : voice?.muted ? 'Muted' : 'Voice connected';
   const others = me && room ? store.callPeers(me).filter(u => !u.bot && u.presence !== 'offline' && !u.instance && store.roomOf(u)?.id === room.id) : [];
   const who = others.length ? others.map(u => u.name.split(' ')[0]).join(', ') : 'nobody yet';
   const line = me?.callId && !room ? `with ${store.names(store.callPeers(me))} · ${state}` : room ? `${room.name} · here: ${who}` : '';

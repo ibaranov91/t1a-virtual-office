@@ -6,7 +6,7 @@ import type { ParkState } from '../../../../shared/park/sim';
 import { Paint, parkTime } from '../paint';
 import { drawHub } from './hub';
 export function renderPark(paint: Paint, state: ParkGameState | ParkState, hub = false) {
-  const { ctx, session, store, blit, text } = paint;
+  const { ctx, blit, text } = paint;
   const level = hub ? HUB_LEVEL : LEVELS[(state as ParkGameState).level], cam = Math.floor(state.camX / SUB);
   ctx.save(); ctx.beginPath(); ctx.rect(0, 0, 320, 192); ctx.clip(); ctx.translate(-cam, 0);
   ctx.fillStyle = '#3d4e52'; ctx.fillRect(cam, 0, 320, 192);

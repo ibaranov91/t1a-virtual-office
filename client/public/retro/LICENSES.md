@@ -64,7 +64,7 @@ the following restrictions:
 3.  This notice may not be removed or altered from any source distribution.
 ```
 
-## binjgb — `binjgb.wasm` (and `vendor/binjgb/`)
+## binjgb — `binjgb.wasm` (its JavaScript glue is `vendor/binjgb/binjgb.mjs`)
 
 Game Boy emulator by Ben Smith. Source: https://github.com/binji/binjgb (commit 16621111ed0ee73bcc45c912a823bcebedcffc0f).
 

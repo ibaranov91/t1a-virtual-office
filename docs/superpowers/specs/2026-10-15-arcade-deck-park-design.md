@@ -3,6 +3,8 @@
 Owner: Andrii Butko · 2026-10-15 · status: v3, after two Codex spec reviews · builds on `2026-10-15-music-room-design.md`
 (PR #28: the Music room shrinks here) and the hall-voice rules (`rules.voice: 'open'`). Only what changes is written here.
 
+**Shipped** in #38. Deck Park is now the CO-OP mode behind the Arcade hub of the party pack (#91).
+
 ## Goal
 
 The hackathon task "Gaming room: people can login together, choose a game, game opens in overlay", the way Andrii

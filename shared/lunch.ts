@@ -1,5 +1,5 @@
 // The dining terrace: take food from the cart, sit at a picnic table, eat for a while, leave a plate for the cleaner.
-import { seatAt, type Dir, type MapObject, type Tile, type TileMap } from './map';
+import { inRect, seatAt, type Dir, type MapObject, type Tile, type TileMap } from './map';
 
 export const LUNCH_MS = 10 * 60_000;
 export const FOOD_ITEMS = ['sandwich', 'ramen', 'salad', 'pizza'];
@@ -19,6 +19,6 @@ export function picnicSeat(m: TileMap, t: Tile): { seat: Tile & { dir: Dir }; ta
   const seat = seatAt(m, t.x, t.y);
   if (seat?.type !== 'chair') return null;
   const front = { x: t.x + STEP[seat.dir].x, y: t.y + STEP[seat.dir].y };
-  const table = m.objects.find(o => o.type === PICNIC_TABLE && front.x >= o.x && front.x < o.x + o.w && front.y >= o.y && front.y < o.y + o.h);
+  const table = m.objects.find(o => o.type === PICNIC_TABLE && inRect(o, front.x, front.y));
   return table ? { seat, table, front } : null;
 }

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { Arcade, type Session } from './arcade';
+import { Arcade } from './arcade';
 import { Runner } from '../../shared/arcade/runner';
 import { hash } from '../../shared/arcade/hash';
 import { ballot } from '../../shared/arcade/ballot';
@@ -12,7 +12,7 @@ import { PARTY_PAD, type HubState } from '../../shared/arcade/hub';
 import type { CrownState } from '../../shared/arcade/games/crown';
 import type { VoteOptions, VoteState } from '../../shared/arcade/vote';
 import { TILE, PLAYER_H, SUB } from '../../shared/arcade/arena';
-import type { ArcadeBoards, ArcadeIncoming, BaseState, BreakSet, GameEvent, Outcome, RoundResult, SetPlayer } from '../../shared/arcade/types';
+import type { ArcadeBoards, ArcadeIncoming, BreakSet, Outcome, RoundResult, SetPlayer } from '../../shared/arcade/types';
 import type { ClientMsg, PublicUser, ServerMsg } from '../../shared/protocol';
 const players = (n: number): SetPlayer[] => Array.from({ length: n }, (_, slot) => ({ slot, userId: String(slot), team: null, left: false }));
 const outcome = (order: number[][]): Outcome => ({ order, stats: {} });

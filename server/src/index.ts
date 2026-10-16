@@ -7,11 +7,12 @@ import { createHash, randomUUID } from 'node:crypto';
 import { reverse as dnsReverse } from 'node:dns/promises';
 import { WebSocketServer } from 'ws';
 import type { TileMap } from '../../shared/map';
-import { PRESENT_MAX_BYTES, type ClientMsg, type DecksReply } from '../../shared/protocol';
+import { FRAME_MAX_BYTES, PRESENT_MAX_BYTES, type ClientMsg, type DecksReply } from '../../shared/protocol';
 import { USER_QUOTA } from './decks';
 import { World } from './world';
 import { LofiLive } from './lofi';
 import { serveStatic } from './static';
+import { cleanEmail, inCidr, nameFromEmail, netbirdUserEmail } from './auth';
 import { startBots } from './bots';
 import { startCreatures } from './creatures';
 import { DECK_ID_RE, DeckStore, PresentError, Presenter } from './presentation';
@@ -49,7 +50,7 @@ for (const game of retroRoms) {
   try { roms[game] = readFileSync(new URL(`../../client/public/retro/${game === 'tobu' ? 'tobudx.gb' : 'shocklobster.gb'}`, import.meta.url)); }
   catch { /* Retro logs the missing ROM once and marks its cabinet broken. */ }
 }
-const world = new World(map, { roms, wasm: readFileSync(new URL('../../vendor/binjgb/binjgb.wasm', import.meta.url)) });
+const world = new World(map, { roms, wasm: readFileSync(new URL('../../client/public/retro/binjgb.wasm', import.meta.url)) });
 const DECKS_DIR = fileURLToPath(new URL('decks/', DATA));
 world.present = new Presenter(new DeckStore(DECKS_DIR), map, {
   scopeOf: id => world.presentScopeOf(id),
@@ -171,17 +172,6 @@ const STATIC = existsSync(join(STATIC_DIR, 'index.html'));
 // index.html names the hashed bundles, so its hash changes whenever the client does.
 if (STATIC) world.build = createHash('sha1').update(readFileSync(join(STATIC_DIR, 'index.html'))).digest('hex').slice(0, 12);
 // ---------- NetBird trust gate ----------
-const ip4 = (ip: string) => {
-  const m = ip.replace(/^::ffff:/, '').match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/);
-  return m ? ((+m[1] << 24) | (+m[2] << 16) | (+m[3] << 8) | +m[4]) >>> 0 : null;
-};
-const inCidr = (ip: string, cidr: string) => {
-  const [base, bits = '32'] = cidr.split('/');
-  const a = ip4(ip), b = ip4(base), n = Number(bits);
-  if (a === null || b === null || !(n >= 0 && n <= 32)) return false;
-  const mask = n === 0 ? 0 : (~0 << (32 - n)) >>> 0;
-  return (a & mask) === (b & mask);
-};
 const peerCache = new Map<string, { ok: boolean; at: number }>();
 const isProxyPeer = async (ip: string) => {
   if (!TRUSTED_PEER) return true;
@@ -201,24 +191,13 @@ const netbirdEmail = async (req: IncomingMessage): Promise<string | null> => {
   const src = req.socket.remoteAddress ?? '';
   if (!TRUSTED_CIDRS.some(c => inCidr(src, c))) return null;
   if (!(await isProxyPeer(src))) return null;
-  const raw = req.headers['x-netbird-user'];
-  return cleanEmail(Array.isArray(raw) ? raw[0] : raw);
-};
-const cleanEmail = (raw: unknown) => {
-  const email = String(raw ?? '').trim().toLowerCase();
-  return /^[^\s@]{1,64}@[^\s@]{1,190}$/.test(email) ? email : null;
+  return netbirdUserEmail(req.headers['x-netbird-user']);
 };
 /** Sign in by email (NetBird or typed): find or create that person, with the name the email gives. */
 const emailUser = (email: string) => {
   const user = world.findByEmail(email) ?? world.addUser(nameFromEmail(email), false, undefined, email);
   if (!user.nameSet && user.name !== nameFromEmail(email)) user.name = nameFromEmail(email);
   return user;
-};
-/** "ivan.baranov@t1a.com" -> "Ivan Bar": first name plus the first three letters of the last name */
-const nameFromEmail = (email: string) => {
-  const [first, ...rest] = email.split('@')[0].split(/[._+-]+/).filter(Boolean).map(w => w[0].toUpperCase() + w.slice(1));
-  const last = rest.at(-1);
-  return (last ? `${first} ${last.slice(0, 3)}` : first)?.slice(0, 24) || email;
 };
 /** The name an email sign-in shows: a name the person set themselves wins. */
 const emailName = (email: string) => { const u = world.findByEmail(email); return u?.nameSet ? u.name : nameFromEmail(email); };
@@ -231,7 +210,13 @@ const lofiLive = new LofiLive();
 const json = (res: import('node:http').ServerResponse, code: number, body: unknown) => {
   res.writeHead(code, { 'content-type': 'application/json', 'cache-control': 'no-store' }); res.end(JSON.stringify(body));
 };
-const server = createServer(async (req, res) => {
+const server = createServer((req, res) => {
+  route(req, res).catch(e => { // a bug in one route answers 500 instead of taking the process down
+    console.warn(`${req.method} ${req.url} failed:`, e);
+    if (!res.headersSent) json(res, 500, { error: 'server error' }); else res.destroy();
+  });
+});
+async function route(req: IncomingMessage, res: import('node:http').ServerResponse) {
   if (req.method === 'GET' && req.url === '/api/lofi') return json(res, 200, await lofiLive.get());
   if (req.method === 'GET' && req.url === '/api/health') return json(res, 200, { ok: true, users: world.users.size });
   if (req.method === 'GET' && req.url === '/api/config') return json(res, 200, { netbird: NETBIRD, tokenLogin: TOKEN_LOGIN, tokenRequired: !OPEN_LOGIN && !EMAIL_LOGIN, emailLogin: EMAIL_LOGIN, iceServers: ICE_SERVERS });
@@ -350,10 +335,11 @@ const server = createServer(async (req, res) => {
   }
   if ((req.method === 'GET' || req.method === 'HEAD') && STATIC) return serveStatic(STATIC_DIR, req, res);
   json(res, 404, { error: 'not found' });
-});
+}
 
 // ---------- WebSocket ----------
-const wss = new WebSocketServer({ server, path: '/ws' });
+// The biggest thing a client sends is one screen-share frame (base64); ws would otherwise accept 100 MiB per message.
+const wss = new WebSocketServer({ server, path: '/ws', maxPayload: Math.ceil(FRAME_MAX_BYTES * 4 / 3) + 64 * 1024 });
 wss.on('connection', (ws, req) => {
   const session = new URL(req.url ?? '', 'http://x').searchParams.get('session') ?? '';
   const userId = sessions.get(session);

@@ -166,7 +166,7 @@ canvas { display: block; image-rendering: pixelated; touch-action: none; }
 @keyframes pop { 0% { transform: translateY(8px) scale(.96); opacity: 0; } 100% { transform: none; opacity: 1; } }
 @keyframes wiggle { 50% { transform: translateY(-2px); } }
 
-/* thumb dock: only on phones and small windows (see COMPACT in App.tsx) */
+/* thumb dock: only on phones and small windows (see COMPACT in sidebar/hooks.ts) */
 .dock { display: none; }
 @media (min-width: 561px) and (max-width: 900px) and (min-height: 501px) {
   .brand { display: none; }

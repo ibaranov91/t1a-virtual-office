@@ -437,7 +437,7 @@ export function applyEdit(m: TileMap, edit: LayoutEdit, newId: () => string): La
       break;
     }
     case 'add': {
-      const t = m.catalog[edit.type];
+      const t = Object.hasOwn(m.catalog, String(edit.type)) ? m.catalog[edit.type] : undefined; // not `__proto__`
       if (!t || FIXED_TYPES.has(edit.type) || KEEP_TYPES.has(edit.type)) return 'can\'t add that';
       if (!int(edit.x) || !int(edit.y)) return 'bad position';
       objects.push({ ...structuredClone(t), id: newId(), x: edit.x, y: edit.y });

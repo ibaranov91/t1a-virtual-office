@@ -9,7 +9,7 @@ import { GAMES, gameDef } from '../../shared/arcade/registry';
 import { hash } from '../../shared/arcade/hash';
 import { Runner } from '../../shared/arcade/runner';
 import { SUB, TILE, PLAYER_H, PLAYER_W } from '../../shared/arcade/arena';
-import type { BaseState, GameEvent, GameId, PublicSession, RosterEntry } from '../../shared/arcade/types';
+import type { BaseState, GameEvent, PublicSession, RosterEntry } from '../../shared/arcade/types';
 import { SOLUTIONS } from '../../shared/park/solutions';
 const roster = (n: number, teams = false): RosterEntry[] => Array.from({ length: n }, (_, slot) => ({ slot, userId: `p${slot}`, team: teams ? slot % 2 as 0 | 1 : null }));
 const joins = (r: RosterEntry[]): GameEvent[] => r.map(p => [0, p.slot, 1, 0]);

@@ -1,4 +1,3 @@
-import React from 'react';
 import { IconButton } from './Icon';
 import { voiceControlState } from './voiceControls';
 import type { Voice } from './voice';

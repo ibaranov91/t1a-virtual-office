@@ -2,6 +2,8 @@
 
 Owner: Andrii Butko · 2026-10-15 · status: v2, after a Codex spec review · branch `andr/dungeon`
 
+**Shipped** in #36.
+
 ## Goal
 
 A small secret in the Garden. In a corner there is a hole in the grass, half hidden under a tree. Walk onto it and

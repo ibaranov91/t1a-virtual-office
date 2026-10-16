@@ -3,6 +3,8 @@
 Owner: Andrii Butko · 2026-10-15 · delta on top of `2026-10-15-sound-v2-design.md` (shipped in PR #15). Only the
 differences are written here; everything not mentioned stays as in v2.
 
+**Shipped** in #29 (leftovers of earlier versions removed in #43).
+
 ## Why
 
 v2 let a hall room's voices fade out past its doors, so walking near Coffee could put you into a call you didn't

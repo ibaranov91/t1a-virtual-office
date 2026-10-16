@@ -41,7 +41,7 @@ export function PresentPanel({ store, id }: { store: Store; id: string }) {
   const close = () => store.openPresent(null);
   const headers = { 'x-deck-session': store.sessionId };
   const refresh = () => fetch('/api/present/decks', { headers }).then(r => r.json()).then(d => setLib({ decks: d.decks ?? [], used: d.used ?? 0, limit: d.limit ?? 0 })).catch(() => setLib({ decks: [], used: 0, limit: 0 }));
-  useEffect(() => { void refresh(); }, [store]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { void refresh(); }, [store]); // once per store: refresh is a new function every render
   const call = async (path: string, body: object) => {
     setBusy(true); setErr(null);
     try {

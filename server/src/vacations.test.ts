@@ -187,17 +187,17 @@ const teamEvent = (summary: string, extra = {}) => ({ summary, eventType: 'defau
 test('team-only vacations match attendee, creator and diacritic names, ignore business travel and hide summaries', async t => {
   const { w, add, poller, requests, respond } = pollSetup(t, true);
   add('Reader');
-  const attendee = add('Liliya', false), creator = add('Veronika', false), named = add('Other', false), business = add('Maria', false), display = add('Anastasia Pletneva', false);
-  attendee.email = 'liliya.minibaeva@t1a.com'; creator.email = 'veronika.ulyashova@t1a.com'; named.email = 'stepan.vitecek@t1a.com';
+  const attendee = add('Ada', false), creator = add('Grace', false), named = add('Other', false), business = add('Maria', false), display = add('Katherine Johnson', false);
+  attendee.email = 'ada.lovelace@t1a.com'; creator.email = 'grace.hopper@t1a.com'; named.email = 'antonin.dvorak@t1a.com';
   named.tz = 'Asia/Tokyo';
   const messages: unknown[] = []; w.connect(attendee.id, m => messages.push(m));
   const warnings = t.mock.method(console, 'warn', () => {});
   const events = [
-    teamEvent('Liliya Minibaeva - Time OFF SD-12030', { attendees: [{ email: attendee.email!.toUpperCase(), responseStatus: 'declined' }] }),
-    teamEvent('Veronika Ulyashova - Time OFF', { creator: { email: creator.email }, transparency: 'transparent' }),
-    teamEvent('Štěpán Víteček - Time OFF SD-12235'),
-    teamEvent('Anastasia Pletneva - Vacation'),
-    teamEvent('Maria - Business Trip vacation SD-12704', { attendees: [{ email: business.email }] }),
+    teamEvent('Ada Lovelace - Time OFF SD-1001', { attendees: [{ email: attendee.email!.toUpperCase(), responseStatus: 'declined' }] }),
+    teamEvent('Grace Hopper - Time OFF', { creator: { email: creator.email }, transparency: 'transparent' }),
+    teamEvent('Antonín Dvořák - Time OFF SD-1002'),
+    teamEvent('Katherine Johnson - Vacation'),
+    teamEvent('Maria - Business Trip vacation SD-1003', { attendees: [{ email: business.email }] }),
     teamEvent('Maria - Travel holiday', { attendees: [{ email: business.email }] }),
     teamEvent('Maria - Vacation', { status: 'cancelled', attendees: [{ email: business.email }] }),
   ];

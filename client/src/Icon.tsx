@@ -1,4 +1,4 @@
-import React, { type ButtonHTMLAttributes } from 'react';
+import type { ButtonHTMLAttributes } from 'react';
 
 const paths = {
   moon: 'M21 13A9 9 0 1 1 11 3a7 7 0 0 0 10 10Z',

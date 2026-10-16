@@ -1,4 +1,4 @@
-import { body, fighter, move, overlaps, TILE, SUB, PLAYER_H, PLAYER_W, type ArenaState, type Rect } from '../arena';
+import { body, fighter, move, overlaps, TILE, SUB, PLAYER_H, type ArenaState, type Rect } from '../arena';
 import { random } from '../rng';
 import type { GameDef } from '../types';
 import { finishMatch, heatPoint, matchEvents, sides } from './match';

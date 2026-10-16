@@ -4,6 +4,8 @@ Owner: Andrii Butko · 2026-10-15 · status: v2 after a Codex spec review · bui
 `2026-10-15-open-talk-rooms-design.md` (v3, shipped in PR #8). Only the differences are written here; everything not
 mentioned stays as in the v3 spec.
 
+**Shipped** in #15. Rooms became sealed in sound v3 (#29), and the v1/v2 leftovers were removed in #43.
+
 ## Why
 
 Trying v3 on the andr instance showed friction:

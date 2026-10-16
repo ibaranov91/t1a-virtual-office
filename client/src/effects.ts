@@ -3,7 +3,7 @@
 // back: drawn before the body (auras, capes); front: after it (hats, particles, critters).
 import type { Effect, Look } from '../../shared/protocol';
 import type { Pose } from './net';
-import { SPECIAL_HATS, danceBeat, dancePhase, drunkLevel } from '../../shared/effects';
+import { danceBeat, dancePhase, drunkLevel } from '../../shared/effects';
 
 export interface FxCtx {
   ctx: CanvasRenderingContext2D;

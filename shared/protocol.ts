@@ -8,7 +8,7 @@ export { PARK_FPS, PARK_INPUT_DELAY, PARK_SERVER_LAG, PARK_SPECTATOR_DELAY, PARK
 export type { GameRole, GameEvent, GameMember, GameClear, PublicSession, ParkRecord, ParkRecords, CabinetSummary, ArcadeBoards } from './arcade/types';
 import type { CabinetSummary } from './arcade/types';
 
-import type { Dir, Layout, Move, Tile } from './map';
+import { inRect, type Dir, type Layout, type Move, type Tile } from './map';
 import type { Eating } from './lunch';
 
 export const NOTE_RATE = 40;
@@ -31,6 +31,8 @@ export type JukeboxAction =
   | { action: 'pause' | 'play' | 'skip'; playId: string };
 export const DUNGEON_INSTANCE = 'dungeon';
 export const underground = (u: { instance: string | null }) => u.instance === DUNGEON_INSTANCE;
+/** Packing up or walking out: not around any more, as far as knocks go. */
+export const goingOut = (u: { door: Door }) => u.door === 'thinking' || u.door === 'leaving';
 
 export const ROOM_VOICE_MAX = 12;
 export const AFK_MS = 10 * 60_000;
@@ -131,6 +133,17 @@ export const ACHIEVEMENTS: Achievement[] = [
 ];
 
 export interface Look { skin: string; hair: string; shirt: string; pants: string; eyes: string; shoes: string; glassesColor: string; hatColor: string; style: number; top: number; bottom: number; glasses: number; hat: number; beard: number; mustache: number }
+/** The colours a character can wear; random new characters pick from the same lists. */
+export const LOOK_COLORS = {
+  skin: ['#f8dcc0', '#f2c79b', '#e2ad7f', '#c98d5e', '#a46a43', '#7c4f32'],
+  hair: ['#2b1d1f', '#4f2b1a', '#6b3e26', '#a0603a', '#d8a050', '#ecd59a', '#b4473a', '#8c8a98', '#3e5a8a', '#c8789a'],
+  eyes: ['#2b1d1f', '#4b2e1e', '#3e5a8a', '#4f7d45', '#6b9ac4', '#7a4c32'],
+  shirt: ['#4a7ab0', '#b4534a', '#7a9a55', '#d0a040', '#8a5aa0', '#4f9a92', '#d8805a', '#e8e0d0', '#5a5a6e', '#c8607a', '#6a8ad0', '#9a7a50'],
+  pants: ['#3d3a52', '#2c3e5a', '#5a4030', '#4a4a4a', '#6a5a7a', '#3a5a4a'],
+  shoes: ['#4a3028', '#282832', '#68432e', '#85766b', '#b05b42', '#d0b58a'],
+  glassesColor: ['#282832', '#4a3028', '#d0b58a', '#85766b', '#3e5a8a', '#b4473a', '#e8e0d0'],
+  hatColor: ['#3e5a8a', '#b4534a', '#3a5a4a', '#282832', '#d0a040', '#e8e0d0', '#6b3e26'],
+};
 
 /** A buff, debuff or hat on a person (see shared/effects.ts). until: when it wears off (ms); absent = until removed. */
 export interface Effect { kind: string; until?: number; data?: Record<string, unknown> }
@@ -179,7 +192,7 @@ export const CUP_ITEMS = ['coffee', 'tea'];
 /** Furniture you can put a cup on. */
 export const CUP_TABLES = ['table_long', 'table_round', 'table_big', 'desk', 'counter', 'table_picnic'];
 export const cupTableAt = <O extends { type: string; x: number; y: number; w: number; h: number }>(objects: O[], t: Tile) =>
-  objects.find(o => CUP_TABLES.includes(o.type) && t.x >= o.x && t.x < o.x + o.w && t.y >= o.y && t.y < o.y + o.h);
+  objects.find(o => CUP_TABLES.includes(o.type) && inRect(o, t.x, t.y));
 export type CreatureServerMsg =
   | { t: 'creatures'; creatures: Creature[] } // everyone, on connect and when one appears or leaves
   | { t: 'creature'; creature: Creature; by?: string }     // one of them set off, sat down, fell asleep…
@@ -195,7 +208,7 @@ export interface CalEvent { id: string; title: string; start: string; end: strin
 /** A calendar meeting with other people, now or within the hour. Sent only to its attendees (the title is theirs). */
 export interface AgendaItem { key: string; instance: string; title: string; start: number; end: number; link?: string; left?: boolean; adhoc?: boolean; from?: string } // adhoc: a private room someone started (from: host's name); left: I left it for good (not busy, no heads-up)
 /** A meeting room in use, for everyone: who's in it and until when, no title. */
-export interface MeetingRoomInfo { id: string; until: number; members: string[]; voice: string[] } // voice: who is on the room's voice call (at most MAX_CALL_SIZE; the rest get Meet)
+export interface MeetingRoomInfo { id: string; until: number; members: string[]; voice: string[] } // voice: who is on the room's voice call (at most ROOM_VOICE_MAX; the rest wait in line or use Meet)
 /** Meeting rooms are copies of this room on the map. */
 export const MEETING_ROOM_ID = 'meeting';
 
@@ -299,7 +312,7 @@ export type ServerMsg =
   | { t: 'emote'; userId: string; emote: Emote }
   | { t: 'door'; userId: string; door: Door }
   | { t: 'knock'; knockId: string; fromId: string; toId: string }
-  | { t: 'knock_reply'; knockId: string; fromId: string; toId: string; reply: 'accept' | 'later' | 'blocked'; link?: string; reason?: string; fallback?: boolean; cancelled?: boolean; kept?: boolean /* in the target's Later list: no "missed" toast */ }
+  | { t: 'knock_reply'; knockId: string; fromId: string; toId: string; reply: 'accept' | 'later' | 'blocked'; link?: string; reason?: string; cancelled?: boolean; kept?: boolean /* in the target's Later list: no "missed" toast */ }
   // private settings, only to the user themselves. google: the connected Google account (null = not connected),
   // absent when this instance has no Google sign-in
   | { t: 'me'; meetLink: string; email?: string; google?: string | null; calendar?: boolean; admin?: boolean; sysadmin?: boolean; items?: string[] } // calendar: Calendar access granted; admin: may rearrange the office; sysadmin: may also walk into the Admin room

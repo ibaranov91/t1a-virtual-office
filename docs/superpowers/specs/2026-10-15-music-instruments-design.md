@@ -4,6 +4,8 @@ Owner: Andrii Butko · 2026-10-15 · status: v2, after a Codex spec review · bu
 `2026-10-15-music-room-design.md` (jukebox), `2026-10-15-sound-v2-design.md` (mixer, Music category) and
 `2026-10-15-open-talk-rooms-design.md` (soundscape). Only what changes is here.
 
+**Shipped** in #41.
+
 ## Goal
 
 «Put instruments in the Music room: you play them like in GarageBand, and whoever walks into the room hears you.»

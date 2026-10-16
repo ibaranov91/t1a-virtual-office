@@ -1,7 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { canTeachLead, learnLead, seekTarget } from '../../client/src/jukeboxSync';
-import { clockStep, currentPlay, isAdvancing, type ClockInput, type ClockAction } from '../../client/src/jukeboxSync';
+import { canTeachLead, clockStep, currentPlay, isAdvancing, learnLead, seekTarget, type ClockInput, type ClockAction } from './jukeboxSync';
 import type { JukeboxState } from '../../shared/protocol';
 
 test('seek targets stay before the catalog and element ends', () => {

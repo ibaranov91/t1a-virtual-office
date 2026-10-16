@@ -6,7 +6,7 @@ import { DeckStore, Presenter } from './presentation';
 import { findPath, isWalkable, doorwayTiles, pathDuration, reindexMap, roomAt, sampleMove, seatAt, voiceRooms, WALK_MS_PER_TILE, type TileMap, type Tile } from '../../shared/map';
 import { TRACK, TRACKS } from '../../shared/music';
 import { ADMIN_HAT, BITE_MS, EFFECTS, hatItem, SPEED_FACTOR, walkMs } from '../../shared/effects';
-import { FRAME_MAX_BYTES, FRAME_MIN_INTERVAL_MS, PLANT_DIES_DAYS, PLANT_STAGES, plantDead, ROOM_VOICE_MAX, MAX_CALL_SIZE, type ClientMsg, type ServerMsg } from '../../shared/protocol';
+import { FRAME_MAX_BYTES, FRAME_MIN_INTERVAL_MS, PLANT_DIES_DAYS, PLANT_STAGES, plantDead, ROOM_VOICE_MAX, type ClientMsg, type ServerMsg } from '../../shared/protocol';
 const map: TileMap = JSON.parse(readFileSync(new URL('../../shared/tilemap.json', import.meta.url), 'utf8'));
 const coffee = map.rooms.find(r => r.id === 'coffee')!;
 const memberTile = (m: TileMap, t: Tile, r = coffee) => roomAt(m, t.x, t.y)?.id === r.id || doorwayTiles(m, r).some(g => g.some(p => p.x === t.x && p.y === t.y));
@@ -304,6 +304,19 @@ test('relay is bidirectional within one call, owner-only, and rejects absent, bo
     w.handle(b.u, { t: 'rtc', to: a.u.id, signal }, tab.socket); assert.equal(a.messages.length, 0);
   }
   c.messages.length = 0; w.handle(a.u, { t: 'rtc', to: c.u.id, signal }, a.socket); assert.equal(c.messages.length, 0);
+});
+test('malformed intents are dropped before anything changes: move, look and rtc', t => {
+  const { w, add, join } = setup(t), a = add('A'), b = add('B'); join(a.u); join(b.u);
+  const tile = { ...a.u.tile }, look = structuredClone(a.u.look);
+  for (const bad of [{ t: 'move' }, { t: 'move', to: null }, { t: 'look' }, { t: 'look', look: 'red' }] as unknown as ClientMsg[]) {
+    assert.doesNotThrow(() => w.handle(a.u, bad, a.socket), JSON.stringify(bad));
+  }
+  assert.deepEqual(a.u.tile, tile); assert.deepEqual(a.u.look, look);
+  a.messages.length = 0;
+  for (const signal of [null, 'offer', { kind: 'nope' }, { kind: 'offer', sdp: 'x'.repeat(70_000), conn: 'c' }]) {
+    w.handle(b.u, { t: 'rtc', to: a.u.id, signal } as unknown as ClientMsg, b.socket);
+  }
+  assert.equal(a.messages.filter(m => m.t === 'rtc').length, 0, 'not relayed');
 });
 test('ownership transfers on claim and close; non-owner controls are ignored; mute survives calls', t => {
   const { w, add, join, settle } = setup(t), a = add('A'), b = add('B', { x: 7, y: 17 }); join(a.u);
@@ -701,7 +714,7 @@ test('early keyboard-style steps preserve key arrival across redirects', t => {
 });
 
 test('door without the key stays locked, then opens for 900ms and escapes with a once-only achievement', t => {
-  const { w, a, move, arrive, tick, d, settle } = dungeonSetup(t);
+  const { a, move, arrive, tick, d, settle } = dungeonSetup(t);
   move(d.doorFront); arrive();
   assert.equal(dungeonMessages(a.messages).at(-1)?.event, 'locked'); assert.equal(a.u.instance, 'dungeon');
   move(a.u.dungeon!.key!); arrive(); move(d.doorFront); arrive();
@@ -737,7 +750,7 @@ test('give up exits beside the hole without achievement and chooses an unoccupie
 });
 
 test('escape uses a nearby free tile if the hatch is occupied', t => {
-  const { w, add, a, d, move, arrive, tick } = dungeonSetup(t); add('On the hatch', d.hatch);
+  const { add, a, d, move, arrive, tick } = dungeonSetup(t); add('On the hatch', d.hatch);
   move(a.u.dungeon!.key!); arrive(); move(d.doorFront); arrive(); tick(900);
   assert.equal(a.u.instance, null); assert.notDeepEqual(a.u.tile, d.hatch);
   assert.equal(Math.abs(a.u.tile.x - d.hatch.x) + Math.abs(a.u.tile.y - d.hatch.y), 1);
@@ -1170,9 +1183,9 @@ test('effects: people only put hats on themselves; GM-only and server-only effec
 });
 
 test('effects: admins find their cap in their pockets, put on once, and everyone wears only what they own', t => {
-  const { w, person } = people(t), judge = person('Oleg', 'oleg.mikhov@t1a.com', { x: 34, y: 8 }), gm = person('Gm', GM_EMAIL, { x: 32, y: 8 }), a = person('A', undefined, { x: 33, y: 8 });
+  const { w, person } = people(t), judge = person('Judge', 'judge@t1a.com', { x: 34, y: 8 }), gm = person('Gm', GM_EMAIL, { x: 32, y: 8 }), a = person('A', undefined, { x: 33, y: 8 });
   assert.deepEqual(judge.u.items, [], 'nobody finds a special hat on their own');
-  const gift = (from: typeof gm, to: User, style: string): ClientMsg => ({ t: 'gift_hat', targetId: to.id, style });
+  const gift = (_from: typeof gm, to: User, style: string): ClientMsg => ({ t: 'gift_hat', targetId: to.id, style });
   w.handle(a.u, gift(a, judge.u, 'laurel'), a.socket);
   assert.deepEqual(judge.u.items, [], 'only admins gift');
   w.handle(gm.u, gift(gm, judge.u, 'nonsense'), gm.socket);

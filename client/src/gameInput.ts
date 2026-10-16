@@ -1,14 +1,32 @@
-const KEYS: Record<string, number> = { ArrowLeft: 2, KeyA: 2, ArrowRight: 1, KeyD: 1, ArrowUp: 4, KeyW: 4, ArrowDown: 8, KeyS: 8, Space: 16, KeyZ: 16, KeyJ: 16, KeyX: 32, KeyK: 32, Enter: 128, ShiftLeft: 64, ShiftRight: 64 };
+// Keyboard, touch and gamepad input for the arcade overlays (Deck Park, party games, Game Boy cabinets), as one
+// bitmask sampled per frame. Keys only count while the overlay has focus, so typing elsewhere never moves anyone.
+
+/** The bit each control sets. Each game picks its own layout: the Game Boy swaps left and right and adds Select/Start. */
+export interface ButtonBits { left: number; right: number; up: number; down: number; a: number; b: number; select?: number; start?: number }
+
 const textField = (target: EventTarget | null) => target instanceof Element && !!target.closest('input, textarea, select, [contenteditable]');
 
-export class RetroInput {
+const keyMap = (bits: ButtonBits): Record<string, number> => {
+  const keys: Record<string, number> = {
+    ArrowLeft: bits.left, KeyA: bits.left, ArrowRight: bits.right, KeyD: bits.right, ArrowUp: bits.up, KeyW: bits.up,
+    ArrowDown: bits.down, KeyS: bits.down, Space: bits.a, KeyZ: bits.a, KeyJ: bits.a, KeyX: bits.b, KeyK: bits.b,
+    ShiftLeft: bits.select ?? bits.b, ShiftRight: bits.select ?? bits.b,
+  };
+  if (bits.start) keys.Enter = bits.start;
+  return keys;
+};
+
+export class GameInput {
+  private keys: Record<string, number>;
   private held = new Set<string>();
   private blocked = new Set<string>();
   private touches = new Map<number, number>();
   private open = false;
-  constructor(private root: HTMLElement, private options: {
+  constructor(private root: HTMLElement, private bits: ButtonBits, private options: {
     enabled(): boolean; ptt(): boolean; menu(): void; spectator(): boolean;
+    cheer?(kind: 0 | 1 | 2): void; // spectators cheer with 1, 2 and 3
   }) {
+    this.keys = keyMap(bits);
     window.addEventListener('keydown', this.down);
     window.addEventListener('keyup', this.up);
     window.addEventListener('blur', this.refresh);
@@ -36,7 +54,11 @@ export class RetroInput {
     }
     this.refresh();
     if (!this.open) return;
-    if (!(e.code in KEYS)) return;
+    const cheer = this.options.cheer;
+    if (cheer && this.options.spectator() && ['Digit1', 'Digit2', 'Digit3'].includes(e.code)) {
+      e.preventDefault(); if (!e.repeat) cheer((Number(e.code.slice(-1)) - 1) as 0 | 1 | 2); return;
+    }
+    if (!(e.code in this.keys)) return;
     e.preventDefault();
     if (!e.repeat && !this.blocked.has(e.code)) this.held.add(e.code);
   };
@@ -45,19 +67,20 @@ export class RetroInput {
   sample() {
     this.refresh();
     if (!this.open || this.options.spectator()) return 0;
+    const b = this.bits;
     let bits = 0;
-    for (const key of this.held) if (key !== 'Space' || !this.options.ptt()) bits |= KEYS[key];
+    for (const key of this.held) if (key !== 'Space' || !this.options.ptt()) bits |= this.keys[key];
     for (const touch of this.touches.values()) bits |= touch;
     for (const pad of navigator.getGamepads?.() ?? []) {
       if (!pad || pad.mapping !== 'standard') continue;
-      if (pad.buttons[14]?.pressed || pad.axes[0] < -.35) bits |= 2;
-      if (pad.buttons[15]?.pressed || pad.axes[0] > .35) bits |= 1;
-      if (pad.buttons[12]?.pressed || pad.axes[1] < -.35) bits |= 4;
-      if (pad.buttons[13]?.pressed || pad.axes[1] > .35) bits |= 8;
-      if (pad.buttons[8]?.pressed) bits |= 64;
-      if (pad.buttons[9]?.pressed) bits |= 128;
-      if (pad.buttons[0]?.pressed) bits |= 16;
-      if (pad.buttons[1]?.pressed || pad.buttons[2]?.pressed) bits |= 32;
+      if (pad.buttons[14]?.pressed || pad.axes[0] < -.35) bits |= b.left;
+      if (pad.buttons[15]?.pressed || pad.axes[0] > .35) bits |= b.right;
+      if (pad.buttons[12]?.pressed || pad.axes[1] < -.35) bits |= b.up;
+      if (pad.buttons[13]?.pressed || pad.axes[1] > .35) bits |= b.down;
+      if (b.select && pad.buttons[8]?.pressed) bits |= b.select;
+      if (b.start && pad.buttons[9]?.pressed) bits |= b.start;
+      if (pad.buttons[0]?.pressed) bits |= b.a;
+      if (pad.buttons[1]?.pressed || pad.buttons[2]?.pressed) bits |= b.b;
     }
     return bits;
   }

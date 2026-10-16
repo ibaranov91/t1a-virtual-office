@@ -8,6 +8,7 @@ import { splitStatus, activityLine, place } from './model';
 import { Avatar, useSpeaking } from './Avatar';
 import { useSurface } from './hooks';
 import { effectOf } from '../../../shared/effects';
+import { goingOut } from '../../../shared/protocol';
 export type PersonAnchor = { id: string; x: number; y: number };
 export function PersonCard({ store, engine, assets, at, compact, onClose, onAction, onAppearance }: {
   store: Store; engine: Engine | null; assets: Assets | null; at: PersonAnchor; compact: boolean;
@@ -20,7 +21,7 @@ export function PersonCard({ store, engine, assets, at, compact, onClose, onActi
   if (!u) return null;
   const statusEmoji = splitStatus(u.status ?? '').emoji;
   const mine = u.id === store.me, room = store.roomCallOf(u), activity = activityLine(store, u);
-  const offline = u.presence === 'offline', away = u.door === 'thinking' || u.door === 'leaving';
+  const offline = u.presence === 'offline', away = goingOut(u);
   const knock = store.knockReason(u), dungeon = store.dungeonReason(u);
   const walk = offline ? 'Offline' : dungeon || (me?.instance ? 'Leave the meeting room first' : u.instance && u.instance !== me?.instance ? `${u.name.split(' ')[0]} is in a meeting room` : null);
   const follow = offline ? 'Offline' : away ? 'Heading out' : dungeon;
@@ -38,7 +39,7 @@ export function PersonCard({ store, engine, assets, at, compact, onClose, onActi
       {u.callId && <p>{room ? `In ${room.name} voice` : `On a call with ${store.names(store.callPeers(u))}`}{u.muted ? ' · mic off' : ''}{u.deafened ? ' · deafened' : ''}</p>}
       <div className="sb-actions">
         {mine ? <><button data-action disabled={!engine} onClick={() => act(() => engine?.recenter())}>Find me</button><button data-action onClick={() => act(onAppearance)}>Change look</button></> : <>
-          <button data-action disabled={!!knock} onClick={() => act(() => store.requestKnock(u.id))}>Knock</button>
+          <button data-action disabled={!!knock} onClick={() => act(() => store.knock(u.id))}>Knock</button>
           <button data-action onClick={() => act(() => store.openChat(u.id))}>Message</button>
           <button data-action disabled={!!walk || !engine} onClick={() => act(() => engine?.walkToUser(u.id))}>Walk over</button>
           <button data-action className={following ? 'on' : ''} aria-pressed={following} disabled={!!follow} onClick={() => store.follow(following ? null : u.id)}>{following ? 'Unfollow' : 'Follow'}</button>

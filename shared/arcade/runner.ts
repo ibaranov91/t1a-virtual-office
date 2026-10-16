@@ -10,7 +10,6 @@ export interface RunnerOptions {
 export class Runner<S extends BaseState = BaseState> {
   state: S | null = null;
   session: PublicSession<S> | null = null;
-  reason?: 'empty' | 'elsewhere';
   readonly debug = { frame: 0, desyncs: 0, rollbacks: 0, maxRollback: 0, syncs: 0, checks: 0 };
   private samples: { at: number; offset: number }[] = [];
   private offset = 0;
@@ -79,7 +78,7 @@ export class Runner<S extends BaseState = BaseState> {
     if (msg.t === 'game_session') {
       if (!msg.session) {
         this.session = null; this.state = null; this.base = null; this.pending = null; this.log = [];
-        this.effects = []; this.reason = msg.reason; this.debug.frame = 0; return;
+        this.effects = []; this.debug.frame = 0; return;
       }
       this.sample(msg.session.serverNow);
       const next = msg.session as PublicSession<S>;
@@ -98,7 +97,7 @@ export class Runner<S extends BaseState = BaseState> {
       if (!this.syncing && ((spectator && (this.session ? this.session.epoch !== next.epoch : next.view.kind === 'screen')) || this.session && this.session.epoch !== next.epoch && this.checks.length > 0)) {
         this.pending = { session: structuredClone(next), at: this.options.now() + (spectator ? 150 : 0), messages: [] }; return;
       }
-      this.pending = null; this.reason = undefined; this.apply(next); return;
+      this.pending = null; this.apply(next); return;
     }
     if (this.pending && msg.epoch === this.pending.session.epoch) { this.pending.messages.push(structuredClone(msg)); return; }
     if (!this.session || msg.epoch !== this.session.epoch) return;

@@ -2,7 +2,7 @@ import { useLayoutEffect, useRef, useState } from 'react';
 import type { Assets } from '../assets';
 import type { Engine } from '../engine';
 import type { Store } from '../net';
-import { Icon, IconButton } from '../Icon';
+import { Icon } from '../Icon';
 import { Avatar } from './Avatar';
 import { overlayOpen, useSurface } from './hooks';
 import { place, PRESENCE_COLOR } from './model';

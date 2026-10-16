@@ -10,7 +10,7 @@ import type { FrameBatch } from './retro/player';
 import mapJson from '../../shared/tilemap.json';
 import { applyLayout, besideObject, doorwayTiles, isWalkable, objectById, pathTo, roomAt, sampleMove, stallDoor, stallOfCall, tableOfCall, type Dir, type Room, type Tile, type TileMap } from '../../shared/map';
 import { FOOD_ITEMS, picnicSeat } from '../../shared/lunch';
-import { ACHIEVEMENTS, underground, DUNGEON_INSTANCE, MEETING_ROOM_ID, PLANT_STAGES, plantName, ROOM_VOICE_MAX, type JukeboxState, type JukeboxAction, type AgendaItem, type LayoutEdit, type CalEvent, type MeetingRoomInfo, type ChatMsg, type LiveDeck, presentScope, type ObjectState, type ToiletState, type ClientMsg, type LaterItem, type PublicUser, type Reaction, type RtcSignal, type ServerMsg, type Creature, type Cup, CUP_ITEMS, type LibraryState } from '../../shared/protocol';
+import { ACHIEVEMENTS, goingOut, underground, DUNGEON_INSTANCE, MEETING_ROOM_ID, PLANT_STAGES, plantName, ROOM_VOICE_MAX, type JukeboxState, type JukeboxAction, type AgendaItem, type LayoutEdit, type CalEvent, type MeetingRoomInfo, type ChatMsg, type LiveDeck, presentScope, type ObjectState, type ToiletState, type ClientMsg, type LaterItem, type PublicUser, type Reaction, type RtcSignal, type ServerMsg, type Creature, type Cup, CUP_ITEMS, type LibraryState } from '../../shared/protocol';
 import { gameDef } from '../../shared/arcade/registry';
 import { emptyWeek } from '../../shared/arcade/weeks';
 import { ParkLoop } from './park/loop';
@@ -247,18 +247,6 @@ export class Store {
     if (tile) this.moveTo(tile);
   }
   knock(targetId: string) { this.send({ t: 'knock', targetId }); }
-  /** Knock, but first walk the user through setting up their Meet room if they have none. */
-  pendingKnock: string | null = null;
-  meetSetupSkipped = false; // "knock without a room" — don't nag again this session
-  requestKnock(targetId: string) {
-    this.knock(targetId);
-  }
-  finishKnockSetup(action: 'saved' | 'skip' | 'cancel') {
-    const id = this.pendingKnock; this.pendingKnock = null;
-    if (action === 'skip') this.meetSetupSkipped = true;
-    if (id && action !== 'cancel') this.knock(id); // after meet_link on the same socket, so the server has it
-    this.emit();
-  }
   cancelKnock(knockId: string) {
     this.send({ t: 'knock_cancel', knockId });
     this.toasts = this.toasts.filter(t => t.knockId !== knockId); this.emit();
@@ -346,7 +334,7 @@ export class Store {
   closeLater() { this.laterOpen = false; this.emit(); }
   laterDismiss(id: string) { this.send({ t: 'later_dismiss', id }); }
   laterClear() { this.send({ t: 'later_clear' }); this.laterOpen = false; this.emit(); }
-  laterKnockBack(fromId: string) { this.requestKnock(fromId); this.laterOpen = false; this.emit(); } // knocking clears the entry on the server
+  laterKnockBack(fromId: string) { this.knock(fromId); this.laterOpen = false; this.emit(); } // knocking clears the entry on the server
   openVacations() { this.vacationsOpen = true; this.emit(); }
   closeVacations() { this.vacationsOpen = false; this.emit(); }
   openMeetings() { this.meetingsOpen = true; this.emit(); }
@@ -504,7 +492,7 @@ export class Store {
     if (u.id === this.me) return 'This is you';
     if (u.presence === 'offline') return 'Offline';
     if (me?.callId && me.callId === u.callId) return 'Already talking';
-    if (u.door === 'thinking' || u.door === 'leaving') return 'Heading out';
+    if (goingOut(u)) return 'Heading out';
     const talking = !!u.callId && !u.callId.startsWith('room:'); // a direct talk: knock even when they stand in a hall or stall
     if (tableOfCall(u.callId)) return 'Chatting at lunch — sit at their table and pick Eat & chat';
     if (!talking && (hall || room?.rules.voice === 'open')) return `In ${(hall ?? room)!.name} — just walk in`;
@@ -831,7 +819,7 @@ export class Store {
       case 'later_nudge': {
         playKnock();
         const id = msg.userId;
-        this.toast({ kind: 'info', text: `🔔 ${msg.text}`, expires: 30000, actions: id ? [{ label: 'Knock back', run: () => this.requestKnock(id) }] : [{ label: 'Open', run: () => this.openLater() }] });
+        this.toast({ kind: 'info', text: `🔔 ${msg.text}`, expires: 30000, actions: id ? [{ label: 'Knock back', run: () => this.knock(id) }] : [{ label: 'Open', run: () => this.openLater() }] });
         break;
       }
       case 'notice': this.toast({ kind: 'info', text: msg.text, expires: 6000 }); break;
