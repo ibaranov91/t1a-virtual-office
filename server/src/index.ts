@@ -185,9 +185,14 @@ const netbirdEmail = async (req: IncomingMessage): Promise<string | null> => {
   const email = (Array.isArray(raw) ? raw[0] : raw ?? '').trim().toLowerCase();
   return /^[^\s@]{1,64}@[^\s@]{1,190}$/.test(email) ? email : null;
 };
-/** "ivan.baranov@t1a.com" -> "Ivan Baranov" */
-const nameFromEmail = (email: string) =>
-  email.split('@')[0].split(/[._+-]+/).filter(Boolean).map(w => w[0].toUpperCase() + w.slice(1)).join(' ').slice(0, 24) || email;
+/** "ivan.baranov@t1a.com" -> "Ivan Bar": first name plus the first three letters of the last name */
+const nameFromEmail = (email: string) => {
+  const [first, ...rest] = email.split('@')[0].split(/[._+-]+/).filter(Boolean).map(w => w[0].toUpperCase() + w.slice(1));
+  const last = rest.at(-1);
+  return (last ? `${first} ${last.slice(0, 3)}` : first)?.slice(0, 24) || email;
+};
+/** The name an email sign-in shows: a name the person set themselves wins. */
+const emailName = (email: string) => { const u = world.findByEmail(email); return u?.nameSet ? u.name : nameFromEmail(email); };
 
 const newSession = (userId: string) => { const s = randomUUID(); sessions.set(s, userId); return s; };
 
@@ -202,8 +207,9 @@ const server = createServer(async (req, res) => {
   if (req.url === '/api/auth/netbird' && (req.method === 'GET' || req.method === 'POST')) {
     const email = await netbirdEmail(req);
     if (!email) return json(res, 404, { error: 'not signed in via NetBird' });
-    if (req.method === 'GET') return json(res, 200, { email, name: world.findByEmail(email)?.name ?? nameFromEmail(email) });
+    if (req.method === 'GET') return json(res, 200, { email, name: emailName(email) });
     const user = world.findByEmail(email) ?? world.addUser(nameFromEmail(email), false, undefined, email);
+    if (!user.nameSet && user.name !== nameFromEmail(email)) user.name = nameFromEmail(email);
     return json(res, 200, { session: newSession(user.id), userId: user.id });
   }
   if (req.method === 'POST' && req.url?.startsWith('/api/logout')) {
@@ -309,6 +315,7 @@ wss.on('connection', (ws, req) => {
   const userId = sessions.get(session);
   const user = userId ? world.users.get(userId) : undefined;
   if (!user) { ws.close(4001, 'unauthorized'); return; }
+  if (user.email && !user.nameSet && user.name !== nameFromEmail(user.email)) user.name = nameFromEmail(user.email); // sessions outlive sign-in: bring old "Ivan Baranov" names to the current rule
   const { socket, close } = world.connect(user.id, msg => { if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(msg)); });
   ws.on('message', raw => {
     try {

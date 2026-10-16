@@ -219,8 +219,8 @@ export type LayoutEdit =
   | { op: 'move'; id: string; x: number; y: number }
   | { op: 'add'; type: string; x: number; y: number }
   | { op: 'remove'; id: string }
-  | { op: 'rug_add'; x: number; y: number; color?: string; w?: number; h?: number }
-  | { op: 'rug'; id: string; color?: string; w?: number; h?: number };
+  | { op: 'rug_add'; x: number; y: number; color?: string; pattern?: string; w?: number; h?: number }
+  | { op: 'rug'; id: string; color?: string; pattern?: string; w?: number; h?: number };
 
 /** Presentation mode: a deck of slide images shown on a screen object to everyone in its room. */
 export interface DeckInfo { id: string; title: string; count: number; ext: string[]; by: string; at: number } // ext: each slide's file extension
@@ -256,7 +256,7 @@ export type ServerMsg =
   | { t: 'knock_reply'; knockId: string; fromId: string; toId: string; reply: 'accept' | 'later' | 'blocked'; link?: string; reason?: string; fallback?: boolean; cancelled?: boolean }
   // private settings, only to the user themselves. google: the connected Google account (null = not connected),
   // absent when this instance has no Google sign-in
-  | { t: 'me'; meetLink: string; email?: string; google?: string | null; calendar?: boolean; admin?: boolean; items?: string[] } // calendar: Calendar access granted; admin: may rearrange the office
+  | { t: 'me'; meetLink: string; email?: string; google?: string | null; calendar?: boolean; admin?: boolean; sysadmin?: boolean; items?: string[] } // calendar: Calendar access granted; admin: may rearrange the office; sysadmin: may also walk into the Admin room
   | { t: 'google_auth'; url: string; calendar?: boolean } // open this to connect Google (in the system browser from the Mac app)
   | { t: 'calendar'; events?: CalEvent[]; error?: string } // my own events, only to me
   | { t: 'agenda'; items: AgendaItem[] } // my calendar meetings now and soon, only to me
@@ -287,11 +287,12 @@ export type ServerMsg =
   | { t: 'deafen'; userId: string; on: boolean }
   | { t: 'hand'; userId: string; up: boolean }
   | { t: 'gm_items'; targetId: string; items: string[] } // to the asking admin only
+  | { t: 'teleport'; userId: string; from: Tile; to: Tile } // an admin stepped through a portal: everyone plays it (the server has already moved them)
   | { t: 'notice'; text: string }
   | { t: 'present_open'; objectId: string } // you walked up to the board: show the upload/present panel
   | { t: 'voice_wait'; roomId: string | null }
   | { t: 'voice_owner'; owner: boolean }
-  | { t: 'look'; userId: string; look: Look; lookSet: boolean }
+  | { t: 'look'; userId: string; look: Look; lookSet: boolean; name?: string }
   | { t: 'presentation'; live: LiveDeck | null };
 
 // client -> server
@@ -352,9 +353,11 @@ export type ClientMsg =
   | { t: 'ring'; objectId: string }  // ring a bell (walks you over first if you're not beside it)
   | { t: 'toilet_shelf'; objectId: string }  // inside with company and the item in your inventory: rack a line
   | { t: 'toilet_sniff'; objectId: string }  // inside, a line on the shelf: take it (and see unicorns)
-  | { t: 'look'; look: Look }
+  | { t: 'look'; look: Look; name?: string } // name: optional manual display name ("First Las")
   // put an effect on someone (on: true) or take it off. Yourself: 'self' effects; office admins (GMs): anyone, any effect.
   | { t: 'gm_items'; targetId: string } // office admins only: ask what someone carries in their pockets
+  | { t: 'teleport'; targetId: string } // office admins only: step through a portal to stand beside someone
+  | { t: 'rename'; targetId: string; name: string } // office admins only: give someone another name (if theirs was taken)
   | { t: 'gift_hat'; targetId: string; style: string } // office admins only: put a hat in someone's pockets and on their head
   | { t: 'effect'; targetId: string; kind: string; on: boolean; style?: string }
   | { t: 'present_slide'; slide: number } // presenter only

@@ -99,8 +99,8 @@ npm run typecheck    # run before every commit or deploy
   later arrivals watch from the balcony, and the records board shows best runs by level and team size. The server
   sequences inputs; clients predict locally and roll back with the shared `Runner`. `npm test` includes the deterministic
   simulation and delayed-transport netcode harness; `scripts/park-replay.mjs <level> <team> [--every 30]` replays solutions.
-- **Edit mode** (pencil in the top bar, admins only: `DECK_ADMINS`, emails, default `ivan.baranov@t1a.com`; `npm run dev`
-  adds the name `dev`, and names only count for logins without an email). Admins drag furniture and rugs, add from the
+- **Edit mode** (pencil in the top bar, admins only: `DECK_ADMINS`, comma-separated emails, no default: set it in `/etc/the-deck.env` (and each instance's env file); `npm run dev` and `npm test` set their own
+  (dev adds the name `dev`), and names only count for logins without an email). Admins drag furniture and rugs, add from the
   catalog (one of each generated type), recolor/resize rugs, Reset. Walls, floors and rooms stay as generated; the
   furniture and rugs are a `Layout` the server owns (`edit` → `layout` to everyone, saved in `state.json` once changed).
   `applyLayout` in `shared/map.ts` derives walkable tiles, chair facing, seats and plant slots from it; `layoutProblem`
@@ -124,7 +124,7 @@ npm run typecheck    # run before every commit or deploy
   `x-deck-session`. Decks are files in `data/decks/<id>/` and survive restarts; who's presenting is memory only. Everyone in
   the screen's room sees the slides as a 90s magazine page; the presenter flips with ← →, Stop ends it, and it ends by itself
   60 s after the presenter's last tab closes.
-- **Admin room & Berghain** (east column, x 65-73): a room with `rules.access: 'admins'` is walkable only for admins
+- **Admin room & Berghain** (east column, x 65-73): a room with `rules.access: 'admins'` is walkable only for sysadmins (`DECK_SYSADMINS`, no default, set in the same env file; admins who are not listed there are locked out like everyone else)
   (`findPath`/`pathTo` take `keepOut`; the server sends non-admins' paths in `move` so clients match). Berghain's
   `use.kind: 'toilet'` stalls live in `server/src/toilets.ts` (in memory): up to `TOILET_CAPACITY` (4) inside (hidden,
   heads over the half door), the rest line up straight out from the door (`stallLine`) and move in as places free up.
@@ -132,6 +132,8 @@ npm run typecheck    # run before every commit or deploy
   company inside, "Rack a line" puts a line + card on the stall's shelf; it needs `drugs` in your inventory. The
   bouncer (`use.kind: 'dealer'`) puts `drugs` in your inventory (`User.items`, saved, sent only to you in `me`, at most
   `ITEMS_MAX` of a kind); racking takes one. **Sniff** (`toilet_sniff`) takes a line off the shelf and gives you the `unicorns` effect.
+- **Teleport** (office admins; "Teleport" on a person's action wheel and in the GM panel): `teleport` → `World.teleport` moves the admin at once to the nearest free tile beside the target (same room, never into the Admin room unless a sysadmin) and broadcasts `teleport {from, to}`; the 2.2 s portal animation is client-only (`portalStage` / `drawPortal` in engine.ts: portal opens at the origin, they step in, one opens at the destination, they step out; the camera heads for the far side early). Not from or into a meeting or the dungeon.
+- **Renaming people** (office admins; "Rename" on a person's action wheel and in the GM panel): `rename` → `World.rename` sets `User.name` and rebroadcasts the `state` snapshot. Names stay unique (case-insensitive), never empty, 24 chars, never a plain-name admin entry; bots can't be renamed. The name is what pin-login instances match on, so a renamed impostor frees the original name.
 - **Reception bell** (Lobby, `use.kind: 'bell'`, `onTop` so it shares the counter's tile): `ring` → `bell` broadcast, one ring a second per person; from farther away the server walks you over first; the first ring earns `bellringer`. Bots never ring. The sound is panned and faded by `Soundscape.ringBell` (never silent: a faint carry from other rooms).
 - **Pockets (inventory)** are `User.items` (strings): `drugs` from the bouncer and hats as `hat:<style>` from the Lobby hat rack by reception
   (`use.kind: 'dealer'` hands out one of its `items`; one of each hat). The 🎒 button lists them; wearing a hat is the `hat`
