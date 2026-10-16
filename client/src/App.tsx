@@ -255,6 +255,7 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
       <div className="office-chrome" ref={chromeRef}>
       <TopBar store={store} assets={assets} voice={voice} roomName={myRoom?.name}
         onToggleMeet={() => setShowMeet(s => !s)} onProfile={openProfile}
+        pocketsOpen={pocketsOpen} onTogglePockets={() => { setPocketsOpen(o => !o); setGmOpen(false); }}
         editing={editing} onToggleEdit={() => setEditing(e => !e)} gmOpen={gmOpen} onToggleGm={() => { setGmOpen(o => !o); setPocketsOpen(false); }} />
       <div className="workspace">
         {!isCompact && <Sidebar ref={sidebarRef} store={store} voice={voice} engine={engine} assets={assets} onPerson={openPerson}
@@ -403,11 +404,13 @@ function InstrumentPanel({ store, id, dialogOpen }: { store: Store; id: string; 
   </section>;
 }
 
-function TopBar({ store, assets, voice, roomName, onToggleMeet, onProfile, editing, onToggleEdit, gmOpen, onToggleGm }: {
+function TopBar({ store, assets, voice, roomName, onToggleMeet, onProfile, pocketsOpen, onTogglePockets, editing, onToggleEdit, gmOpen, onToggleGm }: {
   store: Store; assets: Assets | null; voice: Voice | null; roomName?: string; onToggleMeet: () => void; onProfile: (opener: HTMLButtonElement) => void;
+  pocketsOpen: boolean; onTogglePockets: () => void;
   editing: boolean; onToggleEdit: () => void; gmOpen: boolean; onToggleGm: () => void;
 }) {
   const me = store.users.get(store.me);
+  const thirsty = !!me?.plant && needsWater(me.plant, store.now());
   const [more, setMore] = useState(false);
   const isCompact = useMedia(COMPACT);
   useEffect(() => { // the ⋯ menu closes on a tap anywhere else
@@ -426,6 +429,15 @@ function TopBar({ store, assets, voice, roomName, onToggleMeet, onProfile, editi
         {isCompact && <VoiceIcons store={store} voice={voice} />}
         <UnreadButton store={store} />
         <LaterButton store={store} />
+        {me && <>
+          <IconButton icon="backpack" label="Pockets" className={`chip pockets-btn${pocketsOpen ? ' on' : ''}`} aria-expanded={pocketsOpen} onClick={onTogglePockets}>
+            <span className="pockets-count">{store.items.length}</span>
+          </IconButton>
+          <IconButton icon="trophy" label={thirsty ? 'Achievements · your plant needs a status today' : 'Achievements'} className={`chip hanger-btn trophy-btn${store.achievementsOpen ? ' on' : ''}`}
+            aria-haspopup="dialog" aria-expanded={store.achievementsOpen} onClick={() => store.openAchievements(!store.achievementsOpen)}>
+            {thirsty && <i className="dot" />}
+          </IconButton>
+        </>}
         <button className="chip ghost more-btn" aria-label="More" aria-expanded={more} onClick={() => setMore(m => !m)}><Icon name="more" /></button>
         <div className={`top-more${more ? ' open' : ''}`} onClick={e => { if (!(e.target as HTMLElement).closest('.mac-app')) setMore(false); }}>
           <button onClick={onToggleMeet} className={`chip meet-btn${store.meetLink === '' && !store.google ? ' unset' : ''}`}

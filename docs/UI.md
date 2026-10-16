@@ -76,8 +76,8 @@ Hover card: the mini profile over a person on the floor (DOM, pointer-events non
 
 Achievements: the trophy modal (summary ring, plant hero, unlocked/locked card grid, rarity) and the Xbox-style unlock toast; new achievements need only an entry in ACHIEVEMENTS (and a progress rule in client/src/achievements.ts if they have a goal).
 
-Your profile popout: the one place to manage yourself (look, pockets, achievements,
-status, presence, sign out). Don't add self-management buttons to the top bar.
+Your profile popout: manage yourself (look, pockets, achievements, status, presence, sign out).
+Pockets and Achievements also have shortcuts in the top bar; keep both entry points connected to the same panels.
 The banner editor is part of the profile popout: Color, Pattern and Image tabs replace its menu area, with a live
 strip preview, Reset to default and Save. Escape discards the draft and returns focus to Edit banner.
 Use the existing surface before inventing another. Escape closes the innermost open surface. Opening a surface
