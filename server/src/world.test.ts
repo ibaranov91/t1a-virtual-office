@@ -5,7 +5,7 @@ import { World, type User } from './world';
 import { DeckStore, Presenter } from './presentation';
 import { findPath, isWalkable, doorwayTiles, pathDuration, reindexMap, roomAt, sampleMove, seatAt, voiceRooms, WALK_MS_PER_TILE, type TileMap, type Tile } from '../../shared/map';
 import { TRACK, TRACKS } from '../../shared/music';
-import { ADMIN_HAT, EFFECTS, hatItem, SPEED_FACTOR, walkMs } from '../../shared/effects';
+import { ADMIN_HAT, BITE_MS, EFFECTS, hatItem, SPEED_FACTOR, walkMs } from '../../shared/effects';
 import { FRAME_MAX_BYTES, FRAME_MIN_INTERVAL_MS, PLANT_DIES_DAYS, PLANT_STAGES, plantDead, ROOM_VOICE_MAX, MAX_CALL_SIZE, type ClientMsg, type ServerMsg } from '../../shared/protocol';
 const map: TileMap = JSON.parse(readFileSync(new URL('../../shared/tilemap.json', import.meta.url), 'utf8'));
 const coffee = map.rooms.find(r => r.id === 'coffee')!;
@@ -1123,6 +1123,25 @@ test('effects: GM debuffs anyone, they broadcast and wear off on time', t => {
   tick(EFFECTS.unicorns.ms!); assert.deepEqual(kinds(b.u), []);
   w.handle(gm.u, effect(b.u.id, 'vampire'), gm.socket); w.handle(gm.u, effect(b.u.id, 'vampire', false), gm.socket);
   assert.deepEqual(kinds(b.u), []);
+});
+
+test('bite: a vampire walks over and turns someone for BITE_MS; it spreads, but only from vampires', t => {
+  const { w, person, tick } = people(t);
+  const gm = person('GM', GM_EMAIL), a = person('A', undefined, { x: 32, y: 12 }), b = person('B', undefined, { x: 33, y: 12 }), c = person('C', undefined, { x: 34, y: 12 });
+  w.handle(a.u, { t: 'bite', targetId: b.u.id }, a.socket);
+  assert.deepEqual(kinds(b.u), []); // not a vampire: nothing
+  w.handle(gm.u, effect(a.u.id, 'vampire'), gm.socket);
+  w.handle(a.u, { t: 'bite', targetId: b.u.id }, a.socket);
+  assert.deepEqual(kinds(b.u), ['vampire']);
+  assert.ok(b.u.effects[0].until! - Date.now() <= BITE_MS && b.u.effects[0].until! - Date.now() > BITE_MS - 1000);
+  w.handle(b.u, { t: 'bite', targetId: c.u.id }, b.socket);
+  assert.deepEqual(kinds(c.u), ['vampire']);
+  const d = person('D', undefined, { x: 32, y: 8 }); // a few tiles off: walk over first
+  w.handle(a.u, { t: 'bite', targetId: d.u.id }, a.socket);
+  assert.deepEqual(kinds(d.u), []);
+  tick(10_000); assert.deepEqual(kinds(d.u), ['vampire']);
+  assert.ok(Math.max(Math.abs(a.u.tile.x - 32), Math.abs(a.u.tile.y - 8)) <= 1);
+  tick(BITE_MS); assert.deepEqual(kinds(b.u), []); // wears off
 });
 
 test('effects: people only put hats on themselves; GM-only and server-only effects are refused', t => {

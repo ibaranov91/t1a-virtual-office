@@ -7,6 +7,7 @@ import { prefs, savePrefs, subscribePrefs } from '../prefs';
 import { activityLine, place } from './model';
 import { Avatar, useSpeaking } from './Avatar';
 import { useSurface } from './hooks';
+import { effectOf } from '../../../shared/effects';
 export type PersonAnchor = { id: string; x: number; y: number };
 export function PersonCard({ store, engine, assets, at, compact, onClose, onAction, onAppearance }: {
   store: Store; engine: Engine | null; assets: Assets | null; at: PersonAnchor; compact: boolean;
@@ -42,6 +43,7 @@ export function PersonCard({ store, engine, assets, at, compact, onClose, onActi
           <button data-action className={following ? 'on' : ''} aria-pressed={following} disabled={!!follow} onClick={() => store.follow(following ? null : u.id)}>{following ? 'Unfollow' : 'Follow'}</button>
           {!away && !store.roomReason(u) && <button data-action title={`Take ${u.name.split(' ')[0]} to a private room`} onClick={() => act(() => store.createRoom([u.id]))}>Private room</button>}
           {store.admin && me && !me.instance && !u.instance && !away && !offline && <button data-action onClick={() => act(() => store.teleport(u.id))}>Teleport</button>}
+          {me && effectOf(me.effects, 'vampire') && !away && !offline && <button data-action disabled={!!effectOf(u.effects, 'vampire')} title={effectOf(u.effects, 'vampire') ? 'Already a vampire' : 'A vampire for 2 minutes'} onClick={() => act(() => store.bite(u.id))}>🧛 Bite</button>}
         </>}
       </div>
       {!mine && reason && <p className="sb-reason">{reason}</p>}

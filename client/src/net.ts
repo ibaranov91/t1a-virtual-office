@@ -295,6 +295,7 @@ export class Store {
   lunch(tile: Tile, open: boolean) { this.send({ t: 'lunch', tile, open }); }
   lunchOpen(open: boolean) { this.send({ t: 'lunch_open', open }); }
   give(targetId: string) { this.send({ t: 'give', targetId }); }
+  bite(targetId: string) { this.send({ t: 'bite', targetId }); }
   openChat(withId: string) {
     this.chatWith = withId; this.unread.delete(withId);
     this.toasts = this.toasts.filter(t => !(t.kind === 'chat' && t.userId === withId));

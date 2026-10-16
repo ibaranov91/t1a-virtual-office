@@ -11,7 +11,7 @@ import {
 import { FOOD_ITEMS, LUNCH_MS, PLATE_PREFIX, picnicSeat, type Eating } from '../../shared/lunch';
 import { INSTRUMENTS, validNote } from '../../shared/instruments';
 import { phrase } from '../../shared/phrases';
-import { ADMIN_HAT, ALL_HATS, BAT_HAT, DANCE_ROOM, EFFECTS, HAT_NAMES, MAX_EFFECTS, RAVER_MS, hatItem, hatOf, walkMs } from '../../shared/effects';
+import { ADMIN_HAT, ALL_HATS, BAT_HAT, BITE_MS, DANCE_ROOM, EFFECTS, HAT_NAMES, MAX_EFFECTS, RAVER_MS, hatItem, hatOf, walkMs } from '../../shared/effects';
 import { tracksFor } from '../../shared/music';
 import { Arcade } from './arcade';
 import { Table } from './table';
@@ -1119,6 +1119,42 @@ export class World {
     this.addEffect(target, kind, { data });
   }
 
+  // ---------- vampire bite ----------
+  /** A vampire clicks Bite: walk up beside them (one tile away is enough), then bite. They turn for BITE_MS, so it spreads.
+   *  If they walked off meanwhile, give chase a few more times. */
+  private bite(u: User, targetId: string, chase = 4) {
+    const target = this.users.get(targetId);
+    const ok = () => !!target && !!u.effects.some(e => e.kind === 'vampire') && target.id !== u.id && onMap(u) && u.presence !== 'offline' && target.presence !== 'offline'
+      && u.instance === target.instance && !goingOut(u) && !goingOut(target) && !target.effects.some(e => e.kind === 'vampire');
+    if (!ok()) return;
+    const near = (t: Tile) => { const d = this.position(target!).dest; return Math.max(Math.abs(t.x - d.x), Math.abs(t.y - d.y)) <= 1; };
+    const sink = () => {
+      if (!ok() || !near(this.position(u).dest)) return;
+      this.addEffect(target!, 'vampire', { ms: BITE_MS });
+      u.dir = dirBetween(this.position(u).dest, this.position(target!).dest);
+      this.broadcast({ t: 'instance', userId: u.id, instance: u.instance, tile: u.tile, dir: u.dir });
+      this.sendTo(target!.id, { t: 'notice', text: `🧛 ${u.name} bit you! You're a vampire for 2 minutes: go bite someone` });
+      this.sendTo(u.id, { t: 'notice', text: `🧛 You bit ${target!.name}` });
+    };
+    const here = this.position(u).next;
+    if (near(here)) { this.cancelSeatWalk(u.id); return sink(); }
+    const there = this.position(target!).dest, occ = this.occupied(u.instance);
+    const spots = [{ x: 0, y: 1 }, { x: 1, y: 0 }, { x: -1, y: 0 }, { x: 0, y: -1 }].map(d => ({ x: there.x + d.x, y: there.y + d.y }))
+      .filter(s => isWalkable(this.map, s.x, s.y) && !occ.has(`${s.x},${s.y}`) && !seatAt(this.map, s.x, s.y))
+      .map(s => ({ s, len: findPath(this.map, here, s, !this.isSysadmin(u)).length })).filter(p => p.len).sort((a, b) => a.len - b.len);
+    const spot = spots[0]?.s;
+    if (!spot) return this.sendTo(u.id, { t: 'notice', text: `🧛 Can't get close enough to ${target!.name}` });
+    this.cancelSeatWalk(u.id); this.setFollowing(u, null);
+    clearTimeout(this.errands.get(u.id));
+    const at = this.walk(u, spot, dirBetween(spot, there)) ?? Date.now();
+    this.errands.set(u.id, setTimeout(() => {
+      this.errands.delete(u.id);
+      const d = this.position(u).dest;
+      if (d.x !== spot.x || d.y !== spot.y) return; // changed their mind
+      if (near(d)) sink(); else if (chase > 0) this.bite(u, targetId, chase - 1);
+    }, Math.max(0, at - Date.now()) + 200));
+  }
+
   // ---------- reactions & chat ----------
   react(u: User, to: User, emoji: string) {
     if (!(REACTIONS as readonly string[]).includes(emoji) || to.presence === 'offline') return;
@@ -2131,6 +2167,7 @@ export class World {
       case 'cup_put': if (msg.tile) this.putCup(u, { x: msg.tile.x | 0, y: msg.tile.y | 0 }); break;
       case 'cup_take': this.takeCup(u, String(msg.cupId)); break;
       case 'give': { const to = this.users.get(String(msg.targetId)); if (to) this.give(u, to); break; }
+      case 'bite': this.bite(u, String(msg.targetId)); break;
       case 'present_slide': this.present?.slide(u.id, msg.slide); break;
       case 'present_share': if (!u.bot) try { this.present?.share(u.id, msg.objectId); } catch (e) { if (e instanceof PresentError) this.sendTo(u.id, { t: 'notice', text: e.message }); else throw e; } break;
       case 'present_frame': this.present?.frame(u.id, msg.seq, msg.data); break;
