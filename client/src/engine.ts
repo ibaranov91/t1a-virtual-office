@@ -657,6 +657,11 @@ export class Engine {
     if (!me?.holding || !FOOD_ITEMS.includes(me.holding) || me.instance || this.areaDown || !picnicSeat(MAP, t)) return null;
     return MAP.objects.find(o => o.type === 'chair' && o.x === t.x && o.y === t.y) ?? null;
   }
+  /** What a click at this point can use: inside a meeting's room only the wall screen (it has a show per room). */
+  private pickable(wx: number, wy: number, inside: string | null): MapObject | null {
+    const o = this.objectAt(wx, wy);
+    return o && (!inside || o.use?.kind === 'presentation') ? o : null;
+  }
   private objectAt(wx: number, wy: number): MapObject | null {
     let best: MapObject | null = null;
     for (const o of this.interactive) {
@@ -778,7 +783,7 @@ export class Engine {
     this.hoverUser = this.userAt(w.x, w.y);
     const inside = this.myInstance();
     this.hoverCup = this.hoverUser || inside || this.areaDown ? null : this.critters.cupAt(w.x, w.y);
-    this.hoverObject = this.hoverUser || this.hoverCup || inside ? null : this.objectAt(w.x, w.y);
+    this.hoverObject = this.hoverUser || this.hoverCup ? null : this.pickable(w.x, w.y, inside);
     this.hoverPlant = this.hoverUser || this.hoverObject || inside ? null
       : this.plants.find(p => w.x >= p.x - 5 && w.x < p.x + 5 && w.y >= p.y - 18 && w.y < p.y) ?? null;
     const tx = Math.floor(w.x / TS), ty = Math.floor(w.y / TS);
@@ -831,7 +836,7 @@ export class Engine {
     if (critter?.id) { this.onPick?.(null); this.manualCam = false; return this.store.pet(critter.id); }
     const cupHit = inside || this.areaDown ? null : this.critters.cupAt(w.x, w.y);
     if (cupHit) { this.onPick?.(null); this.manualCam = false; return this.store.takeCup(cupHit.id); }
-    const obj = inside ? null : this.objectAt(w.x, w.y);
+    const obj = this.pickable(w.x, w.y, inside);
     if (obj?.sit) { this.onPick?.(null); this.manualCam = false; return this.store.moveTo(this.freeSeat(obj, Math.floor(w.x / TS))); }
     if (obj?.sound && obj.use?.kind !== 'jukebox') return this.onPick?.(null);
     if (obj) return this.onPick?.({ kind: 'object', id: obj.id });
@@ -1068,7 +1073,8 @@ export class Engine {
     }
     ctx.globalAlpha = 1;
 
-    if (!me?.instance) { this.drawBoardBadges(ctx, ms); this.drawLiveScreen(ctx, ms); }
+    if (!me?.instance) this.drawBoardBadges(ctx, ms);
+    this.drawLiveScreen(ctx, ms); // the store only holds the show of my own scope
 
     // a meeting's own room: the rest of the office fades away
     if (me?.instance && !this.areaDown && !this.falling()) {
@@ -1112,6 +1118,8 @@ export class Engine {
       const instrumentTip = o.use?.kind === 'instrument' ? `${INSTRUMENTS[o.use.instrument].name} · ${this.store.seat === o.id ? "you're playing · Esc to stand up" : player === this.store.me ? "you're playing in another tab" : player ? `${this.store.name(player).split(' ')[0]} is playing` : 'click to play'}` : '';
       const what = instrumentTip || (o.use?.kind === 'arcade' ? this.store.gameDescription(o.id) : o.use?.kind === 'records' ? 'Deck Park · team records' : o.use?.kind === 'jukebox' ? !jukebox ? 'Jukebox · Reconnecting…' : jukebox.pausedAt !== null ? 'Jukebox · paused' : `Jukebox · ♪ ${track?.title ?? jukebox.track} — ${track?.artist ?? ''}` : o.use?.kind === 'toggle' ? `${o.use.label[0].toUpperCase()}${o.use.label.slice(1)} · ${this.isOn(o) ? 'on' : 'off'}`
         : o.use?.kind === 'calendar' ? 'Calendar · your week' : o.use?.kind === 'achievements' ? 'Notice board · your plant and achievements' : o.use?.kind === 'link' ? `Vault 13 · click to open the ${o.use.label}` : o.use?.kind === 'meetings' ? `Meetings · ${this.store.meetingRooms.length || 'none'} on now`
+        : o.use?.kind === 'youtube' ? `${o.use.label} · click to watch`
+        : o.use?.kind === 'room_start' ? 'Start a private room · click to walk over'
         : o.use?.kind === 'presentation' ? (this.store.presentation?.objectId === o.id ? `Screen · LIVE: ${this.store.presentation.deck?.title ?? `${this.store.name(this.store.presentation.presenter).split(' ')[0]}'s screen`}` : 'Screen · click to present slides') : o.use?.kind === 'clock' ? `Clock · ${o.use.city}, ${zoneTime(o.use.tz)} · click for all our cities` : o.sit ? `${o.type === 'bench' ? 'Bench' : 'Sofa'} · click to sit` : o.type === 'coffee_machine' ? 'Coffee machine' : o.type === 'fridge' ? 'Fridge' : o.use?.kind === 'toilet' ? this.toiletTip(o.id) : o.use?.kind === 'bell' ? 'Reception bell · click to ring' : o.type === 'reading_table' || o.type === 'reading_desk' ? 'Reading table · take a book from the shelf' : o.use?.kind === 'library' ? 'Library shelf · publish or borrow an article' : o.use?.kind === 'dealer' ? (o.type === 'bouncer' ? 'Bouncer · knows a guy' : 'Hat stand · pick a hat for your pockets') : objectName(o.type));
       this.drawLabel(what, (o.x + o.w / 2) * TS, (o.y + o.h) * TS - fr.h + 4, camX, camY);
     }

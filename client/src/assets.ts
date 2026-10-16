@@ -56,7 +56,11 @@ export async function loadAssets(): Promise<Assets> {
       if (!pixels.data[i + 3]) continue;
       const key = (pixels.data[i] << 16) | (pixels.data[i + 1] << 8) | pixels.data[i + 2];
       if (key === primaryKey || key === highlightKey) {
-        const shadeColor = key === highlightKey ? shade(color, 1.12) : replacement;
+        const shadeColor = item === 'sunglasses'
+          ? key === highlightKey ? [255, 255, 255] : [12, 12, 15]
+          : key === highlightKey
+            ? item === 'round_glasses' ? [255, 255, 255] : shade(color, 1.12)
+            : replacement;
         pixels.data[i] = shadeColor[0]; pixels.data[i + 1] = shadeColor[1]; pixels.data[i + 2] = shadeColor[2];
       }
     }
@@ -105,7 +109,9 @@ export async function loadAssets(): Promise<Assets> {
         }
       }
     };
-    applyAccessory(look.glasses ? accessorySheet(look.glasses === 1 ? 'round_glasses' : 'rectangular_glasses', look.glassesColor) : null);
+    applyAccessory(look.glasses ? accessorySheet(look.glasses === 1 ? 'round_glasses' : 'sunglasses', look.glassesColor) : null);
+    applyAccessory(look.beard ? accessorySheet('beard', look.hair) : null);
+    applyAccessory(look.mustache ? accessorySheet('mustache', look.hair) : null);
     applyAccessory(look.hat ? accessorySheet(look.hat === 1 ? 'cap' : 'bowler', look.hatColor) : null);
     cache.set(key, out);
     return out;
