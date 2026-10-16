@@ -69,6 +69,18 @@ npm run typecheck    # run before every commit or deploy
   The server relays signaling only between members of the same call. The lower user id makes the offer. Signals carry `conn` (one attempt) and `inst` (one page)
   so stale offers or answers are dropped and reloads reconnect. If you touch this, re-test: two tabs, call, Leave,
   call again (must connect), and reload each side mid-call.
+- **Voice relay (TURN).** Audio goes browser to browser; the server only passes signaling. When two browsers can't reach
+  each other directly (phone hotspots, carrier-grade NAT, strict office networks) a call sits on "Connecting" forever
+  unless a relay exists, so the box runs **coturn** (`scripts/turnserver.conf`, rendered to `/etc/turnserver.conf` by
+  `deploy.sh`). It listens on the box's NetBird address only (port 3478, relay ports 50000-50199, long-term credentials,
+  relays only to NetBird peers), so it works for everyone on NetBird (prod) and can't be reached from the internet.
+  `DECK_TURN_PASSWORD` in an instance's env file turns it on: prod's deploy installs and configures coturn, and every
+  deploy derives `DECK_ICE_SERVERS` (STUN + the TURN entry) from it, which `/api/config` hands to clients
+  (`client/src/voice.ts` passes it to every `RTCPeerConnection`). No password, no relay: the public demo stays STUN-only
+  on purpose, since its users have no NetBird. The password is in 1Password, never in git. Check:
+  `curl -s http://<netbird-ip>:<port>/api/config` shows a `turn:` entry; `systemctl status coturn` and
+  `journalctl -u coturn` on the box. A NetBird policy narrowed from "all ports" must still allow users → box on
+  UDP 3478 and 50000-50199 (and TCP 3478), both directions, besides TCP 8080-8084 for the instances.
 - **Voice policy** (`client/src/voicePolicy.ts`, spec `docs/superpowers/specs/2026-10-16-voice-policy-design.md`): shared
   spaces (`room:*`) start muted and open the mic only on the first unmute; knock calls start live. Auto-mute after 1 min
   of silence alone (at once on switching away) or 5 min with others; "you're muted" hint; ⌘⇧M / ⌘⇧D. Idle = 10 min with
@@ -322,6 +334,8 @@ scripts/deploy.sh          # prod: only from a clean checkout of the head of ori
   ```
   Public `pin` URLs answer 401 (the PIN page) to curl. That's expected.
 - **Logs:** `ssh Hetzner2-vOffice journalctl -u deck-<name> -f`.
+- **Voice relay:** `DECK_TURN_PASSWORD` in the env file (same value on every instance that should use the relay; prod's
+  deploy installs coturn from `scripts/turnserver.conf`). See "Voice relay (TURN)" above.
 
 ## Landing a PR and deploying prod
 Several people and agents merge and deploy at the same time. Prod must always run one known commit, the head of

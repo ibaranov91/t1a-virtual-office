@@ -150,6 +150,24 @@ if [ "$NAME" = prod ]; then sudo sed -i '/^BOTS=/d;/^BOT_COUNT=/d' $ENVF; fi
 # the hackathon demo gets a busier floor (bots.ts has 12 names)
 if [ "$NAME" = demo ]; then setenv BOT_COUNT 10; fi
 sudo sed -i '/^TOKEN_LOGIN=/d' $ENVF
+# Voice relay (TURN): coturn on this box, over NetBird only (scripts/turnserver.conf). One relay serves every
+# instance whose env file has DECK_TURN_PASSWORD (the same password everywhere; prod's deploy installs and
+# configures coturn). Without it an instance stays STUN-only, as the public demo does.
+TURN_PW=\$(sudo grep '^DECK_TURN_PASSWORD=' $ENVF | cut -d= -f2- | tr -d "'\"" || true)
+if [ -n "\$TURN_PW" ]; then
+  if [ "$NAME" = prod ]; then
+    dpkg -s coturn >/dev/null 2>&1 || sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -q coturn >/dev/null
+    sed "s|@IP@|$BIND|g; s|@PASSWORD@|\$TURN_PW|g" $APP/scripts/turnserver.conf > /tmp/deck-turnserver.conf
+    grep -qx TURNSERVER_ENABLED=1 /etc/default/coturn 2>/dev/null || echo TURNSERVER_ENABLED=1 | sudo tee -a /etc/default/coturn >/dev/null
+    if ! sudo cmp -s /tmp/deck-turnserver.conf /etc/turnserver.conf; then
+      sudo install -m 640 -o root -g turnserver /tmp/deck-turnserver.conf /etc/turnserver.conf && sudo systemctl restart coturn
+    fi
+    rm -f /tmp/deck-turnserver.conf
+    sudo systemctl enable --now coturn >/dev/null 2>&1
+    systemctl is-active coturn >/dev/null || { echo "coturn is not running" >&2; exit 1; }
+  fi
+  setenv DECK_ICE_SERVERS "'[{\"urls\":\"stun:stun.l.google.com:19302\"},{\"urls\":[\"turn:$BIND:3478?transport=udp\",\"turn:$BIND:3478?transport=tcp\"],\"username\":\"deck\",\"credential\":\"\$TURN_PW\"}]'"
+fi
 
 sudo tee /etc/systemd/system/$SVC.service >/dev/null <<UNIT
 [Unit]
