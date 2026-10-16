@@ -11,7 +11,7 @@ import {
 import { FOOD_ITEMS, LUNCH_MS, PLATE_PREFIX, picnicSeat, type Eating } from '../../shared/lunch';
 import { INSTRUMENTS, validNote } from '../../shared/instruments';
 import { ADMIN_HAT, ALL_HATS, BAT_HAT, DANCE_ROOM, EFFECTS, HAT_NAMES, MAX_EFFECTS, RAVER_MS, hatItem, hatOf, walkMs } from '../../shared/effects';
-import { TRACKS } from '../../shared/music';
+import { tracksFor } from '../../shared/music';
 import { Arcade } from './arcade';
 import { Jukebox } from './jukebox';
 import { Library } from './library';
@@ -1424,9 +1424,10 @@ export class World {
   /** Lamps added get switched on, lamps removed are forgotten. */
   /** One Jukebox per jukebox on the floor; an admin moving it keeps what's playing. */
   private syncJukeboxes(announce = false) {
-    const ids = new Set(this.map.objects.filter(o => o.use?.kind === 'jukebox').map(o => o.id));
+    const boxes = new Map(this.map.objects.filter(o => o.use?.kind === 'jukebox').map(o => [o.id, o.use?.kind === 'jukebox' ? o.use.genres : undefined]));
+    const ids = new Set(boxes.keys());
     for (const id of ids) if (!this.jukeboxes.has(id)) {
-      const j = new Jukebox(TRACKS, Date.now()); this.jukeboxes.set(id, j);
+      const j = new Jukebox(tracksFor(boxes.get(id)), Date.now()); this.jukeboxes.set(id, j);
       if (announce) this.broadcast({ t: 'jukebox', id, state: j.state });
     }
     for (const id of [...this.jukeboxes.keys()]) if (!ids.has(id)) this.jukeboxes.delete(id);
@@ -1786,7 +1787,10 @@ export class World {
     for (const [id, on] of Object.entries(data.objects ?? {})) if (this.objectOn.has(id)) this.objectOn.set(id, !!on);
     this.arcade.load(data.arcade);
     const now = Date.now();
-    for (const [id, saved] of Object.entries(data.jukebox ?? {})) if (this.jukeboxes.has(id)) this.jukeboxes.set(id, Jukebox.load(TRACKS, saved, now));
+    for (const [id, saved] of Object.entries(data.jukebox ?? {})) {
+      const o = this.map.objects.find(o => o.id === id);
+      if (this.jukeboxes.has(id) && o?.use?.kind === 'jukebox') this.jukeboxes.set(id, Jukebox.load(tracksFor(o.use.genres), saved, now));
+    }
     for (const [key, msgs] of Object.entries(data.chats ?? {})) this.chats.set(key, msgs);
     this.creatures.cups = (data.cups ?? []).filter(c => this.creatures.tableAt(c.tile));
     this.library.load(data.library);

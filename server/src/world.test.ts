@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { World, type User } from './world';
 import { Presenter } from './presentation';
 import { findPath, doorwayTiles, pathDuration, reindexMap, roomAt, sampleMove, seatAt, voiceRooms, WALK_MS_PER_TILE, type TileMap, type Tile } from '../../shared/map';
-import { TRACKS } from '../../shared/music';
+import { TRACK, TRACKS } from '../../shared/music';
 import { ADMIN_HAT, EFFECTS, hatItem, SPEED_FACTOR, walkMs } from '../../shared/effects';
 import { PLANT_DIES_DAYS, PLANT_STAGES, plantDead, ROOM_VOICE_MAX, type ClientMsg, type ServerMsg } from '../../shared/protocol';
 const map: TileMap = JSON.parse(readFileSync(new URL('../../shared/tilemap.json', import.meta.url), 'utf8'));
@@ -271,7 +271,7 @@ test('room calls have no two-hour expiry; disconnect retains grace then leaves',
   const { w, add, join, tick } = setup(t), a = add('A'); join(a.u); tick(2 * 60 * 60_000 + 1); assert.equal(a.u.callId, 'room:coffee');
   a.close(); tick(4999); assert.equal(a.u.callId, 'room:coffee'); tick(1); assert.equal(a.u.callId, null); assert.equal(w['calls'].has('room:coffee'), false);
 });
-const jukebox = map.objects.find(o => o.use?.kind === 'jukebox')!;
+const jukebox = map.objects.find(o => o.use?.kind === 'jukebox' && !o.use.genres)!;
 const stateOf = (w: World) => (w.snapshot() as Extract<ServerMsg, { t: 'state' }>).jukebox![jukebox.id];
 test('jukebox snapshot, actions, private refusals, broadcasts and tick', t => {
   const { w, add, tick } = setup(t), a = add('A', { x: 57, y: 7 }), b = add('B', { x: 60, y: 8 });
@@ -334,7 +334,7 @@ test('jukebox dump/load preserves state, ignores removed objects and loads old s
   assert.notEqual(stateOf(w).pausedAt, null);
   const saved = w.dump(); saved.jukebox.removed = saved.jukebox[jukebox.id];
   const restored = new World(map); restored.load(saved);
-  assert.deepEqual(stateOf(restored), stateOf(w)); assert.deepEqual(Object.keys(restored.dump().jukebox), [jukebox.id]);
+  assert.deepEqual(stateOf(restored), stateOf(w)); assert.deepEqual(Object.keys(restored.dump().jukebox).sort(), [jukebox.id, map.objects.find(o => o.type === 'dj_booth')!.id].sort());
   const old = { ...saved }; delete (old as Partial<typeof saved>).jukebox;
   restored.load(old); assert.ok(stateOf(restored).track);
 });
@@ -1246,4 +1246,10 @@ test('30 minutes of dancing earns the raver badge', t => {
   }
   tick(250);
   assert.ok(a.u.achievements.raver);
+});
+test('the DJ booth plays only techno and the Music room jukebox never does', t => {
+  const { w } = setup(t), booth = map.objects.find(o => o.type === 'dj_booth')!;
+  const state = (w.snapshot() as Extract<ServerMsg, { t: 'state' }>).jukebox!;
+  assert.equal(TRACK.get(state[booth.id].track)?.genre, 'Techno');
+  assert.notEqual(TRACK.get(state[jukebox.id].track)?.genre, 'Techno');
 });

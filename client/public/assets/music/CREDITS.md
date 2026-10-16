@@ -22,3 +22,6 @@ All tracks are CC0 (public domain). Thank you to the artists.
 | Nocturne Op. 9 No. 2 | Chopin (Musopen) | Acoustic & piano | CC0 1.0 | https://archive.org/details/musopen-chopin |
 | Walking on Water | TRG Banks | Ambient | CC0 1.0 | https://freemusicarchive.org/music/TRG_Banks/The_Rainbows_End/Walking_on_water/ |
 | Endless Seascape | John Bartmann | Ambient | CC0 1.0 | https://freemusicarchive.org/music/John_Bartmann/underwater-wonders/endless-seascape/ |
+| Sound like old guys playing the sound of youth | Dancefloor is Lava | Techno | CC0 1.0 | https://freemusicarchive.org/music/Dancefloor_is_Lava/La_Boum_2020/Dancefloor_is_Lava_-_La_Boum_2020_-_07_Sound_like_old_guys_playing_the_sound_of_youth/ |
+| Drown in noise | Dancefloor is Lava | Techno | CC0 1.0 | https://freemusicarchive.org/music/Dancefloor_is_Lava/La_Boum_2020/Dancefloor_is_Lava_-_La_Boum_2020_-_04_Drown_in_noise/ |
+| Why Oh You Are L O V E | Dancefloor is Lava | Techno | CC0 1.0 | https://freemusicarchive.org/music/Dancefloor_is_Lava/La_Boum_2020/Dancefloor_is_Lava_-_La_Boum_2020_-_01_Why_Oh_You_Are_L_O_V_E/ |

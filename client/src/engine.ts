@@ -4,7 +4,7 @@ import { INSTRUMENTS } from '../../shared/instruments';
 import { adminOnly, applyEdit, FIXED_TYPES, findPath, pathTo, sampleMove, pathDuration, WALK_MS_PER_TILE, isWalkable, layoutProblem, objectById, objectName, roomAt, seatAt, withLayout, type MapObject, type Rect, type Rug, type Tile } from '../../shared/map';
 import { FOOD_ITEMS, picnicSeat } from '../../shared/lunch';
 import { DungeonView } from './dungeon';
-import { danceBeat } from '../../shared/effects';
+import { danceBeat, dancePhase } from '../../shared/effects';
 import { drawEffects, effectLook, effectSway } from './effects';
 import { CreatureLayer } from './creatures';
 import { lockedDoors, roomDoors, type RoomDoor } from './doors';
@@ -355,18 +355,33 @@ export class Engine {
     const fr = this.f(name);
     return fr && { name, fr, x: o.x * TS + (o.w * TS - fr.w) / 2, y: o.wall ? o.y * TS : (o.y + o.h) * TS - fr.h };
   }
-  /** Berghain's floor: two checkered neon frames on the beat; the tiles under dancers flicker. */
+  /** Berghain's floor: two checkered neon frames on the beat, a colour wave of light across the tiles that pulses with the beat, a sweeping spotlight, and a hotter glow under dancers. */
   private drawDanceFloor(ctx: CanvasRenderingContext2D, poses: Map<string, Pose>) {
-    const beat = danceBeat(Date.now());
+    const now = Date.now(), beat = danceBeat(now), ph = dancePhase(now), pulse = Math.pow(1 - ph, 2);
+    const COLORS = ['255,94,200', '94,240,255', '248,224,112', '154,255,122'];
     for (const o of MAP.objects) {
       if (o.type !== 'dance_floor') continue;
       const name = `dance_floor_${beat % 2}`, fr = this.f(name) ?? this.f(o.type);
       if (fr) this.blit(ctx, this.f(name) ? name : o.type, o.x * TS, (o.y + o.h) * TS - fr.h);
+      const dancing = new Set<string>();
       for (const u of this.store.users.values()) {
         const p = poses.get(u.id);
         if (!p || p.walking || !u.effects?.some(e => e.kind === 'dance') || p.tile.x < o.x || p.tile.x >= o.x + o.w || p.tile.y < o.y || p.tile.y >= o.y + o.h) continue;
-        ctx.fillStyle = (beat + p.tile.x + p.tile.y) % 2 ? 'rgba(255,94,200,0.45)' : 'rgba(94,240,255,0.45)';
-        ctx.fillRect(p.tile.x * TS, p.tile.y * TS, TS, TS);
+        dancing.add(`${p.tile.x},${p.tile.y}`);
+      }
+      const sweep = (now / 1500) % (o.w + 2) - 1; // a spotlight crossing the floor left to right
+      for (let y = o.y; y < o.y + o.h; y++) for (let x = o.x; x < o.x + o.w; x++) {
+        const wave = COLORS[(beat + (x - o.x) + (y - o.y)) % COLORS.length];
+        ctx.fillStyle = `rgba(${wave},${(0.1 + pulse * 0.22).toFixed(2)})`; // the whole floor throbs
+        ctx.fillRect(x * TS, y * TS, TS, TS);
+        if (dancing.has(`${x},${y}`)) {
+          ctx.fillStyle = `rgba(${COLORS[(beat + x + y) % 2]},${(0.3 + pulse * 0.3).toFixed(2)})`;
+          ctx.fillRect(x * TS, y * TS, TS, TS);
+          ctx.fillStyle = 'rgba(255,255,255,0.55)'; // bright rim on the beat
+          if (ph < 0.2) { ctx.fillRect(x * TS, y * TS, TS, 1); ctx.fillRect(x * TS, (y + 1) * TS - 1, TS, 1); ctx.fillRect(x * TS, y * TS, 1, TS); ctx.fillRect((x + 1) * TS - 1, y * TS, 1, TS); }
+        }
+        const near = 1 - Math.min(1, Math.abs(x - o.x + 0.5 - sweep));
+        if (near > 0) { ctx.fillStyle = `rgba(255,255,255,${(near * 0.16).toFixed(2)})`; ctx.fillRect(x * TS, y * TS, TS, TS); }
       }
     }
   }

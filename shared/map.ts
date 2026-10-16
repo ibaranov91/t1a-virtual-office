@@ -24,7 +24,7 @@ export interface UseItem { id: string; label: string; icon: string }
 /** What clicking an object offers: take something from it, flip it on/off, or look at your calendar on it. */
 export type ObjectUse = { kind: 'take'; items: UseItem[] } | { kind: 'toggle'; label: string } | { kind: 'calendar'; label: string }
   | { kind: 'instrument'; instrument: InstrumentKind; label: string }
-  | { kind: 'jukebox'; label: string }
+  | { kind: 'jukebox'; label: string; genres?: string[] } // genres: play only these (the club's DJ booth); without it, everything but the club-only genres
   | { kind: 'dance'; label: string } // Berghain's dance floor: step on and dance
   | { kind: 'library'; label: string } // the Library's shelf: publish and pick articles; reading happens at its reading tables
   | { kind: 'arcade'; label: string; game: 'park' } | { kind: 'records'; label: string }

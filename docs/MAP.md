@@ -73,7 +73,7 @@ Each room is filled with its letter (table below) and labelled with its id. `#` 
  10 #............#*..........X#*..........X#............X#....s.....#.........#
  11 ######++###########++###########++############++##########++############++#
  12 ##**##++**########*++#*#*#*#*###++############++##########++##**########++#
- 13 #X..........x.X#....................s.X#.XX.XX..XX.XX#*.*....*..#*.XXX....#
+ 13 #X..........x.X#....................s.X#.XX.XX..XX.XX#*.*....*..#*.***....#
  14 #*........X*X..#..XX...XX...XX...XX....#.h..h...h..h.#*.*....*..#.........#
  15 #........**s...#.hXXh.hXXh.hXXh.hXXh...#.............#..........#.****....#
  16 #..............#.......................#.............#.s.....s..#*****....#
@@ -186,6 +186,7 @@ Every object with a `use` (wall decor counts toward the room below it). Routing 
 | o182 | `drum_kit` | `instrument` | reach | 58,4 | 2×2 | music | drums · drums |
 | o183 | `bass_amp` | `instrument` | reach | 61,4 | 1×1 | music | bass · bass |
 | o184 | `screen` | `presentation` | use reach | 18,1 | 5×2 | meeting | screen (on a wall) |
+| o200 | `dj_booth` | `jukebox` | — | 67,13 | 3×1 | berghain | DJ booth |
 | o201 | `bouncer` | `dealer` | wheel use | 65,16 | 1×1 | berghain | bouncer · drugs |
 | o202 | `lamp` | `toggle` | wheel use reach | 65,13 | 1×1 | berghain | lamp |
 | o203 | `toilet` | `toilet` | wheel use | 68,21 | 2×2 | berghain | toilet |
@@ -238,7 +239,7 @@ A 3×3 feature fits where both sides are ≥ 3. `layoutProblem` (shared/map.ts) 
 | `orangery` | 8,31 6×2 · 3,31 4×2 · 6,25 3×2 · 6,28 2×3 · 8,27 2×2 |
 | `garden` | 45,29 18×2 · 16,29 12×2 · 39,27 8×2 · 57,26 5×3 · 24,25 3×4 · 52,25 3×4 · +11 smaller |
 | `admin` | 65,4 6×3 · 65,8 5×3 · 71,6 2×4 |
-| `berghain` | 72,14 2×6 · 65,20 2×3 · 70,13 2×2 · 70,18 2×2 |
+| `berghain` | 72,14 2×6 · 65,20 2×3 · 70,18 2×2 |
 | `terrace` | 37,26 2×5 · 28,28 2×4 · 34,29 3×2 · 32,27 2×2 · 30,29 2×2 |
 | `library` | 67,28 2×2 (rug) · 70,28 2×2 (rug) · 72,29 2×2 (rug) |
 
