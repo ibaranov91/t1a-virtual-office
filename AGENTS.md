@@ -90,7 +90,7 @@ npm run typecheck    # run before every commit or deploy
   of the Meeting room (same tiles), where only people with the same `instance` see each other; the office sees them on
   the board by the Meeting room and under "In meetings". Voice inside is opt-in (`room_voice`, a hall scoped to the
   instance, up to `ROOM_VOICE_MAX`; Meet otherwise). The Meeting room's booking kiosk by the Co-working door (`use.kind:
-  'room_start'` → `room_create`; also "Start a private room" in the sidebar's room menu) opens the same kind of instance for invited people, with voice on entry. Leave, or the meeting's end, puts you back
+  'room_start'` → `room_create`; also "Start a private room" in the sidebar's room menu) opens the same kind of instance for invited people, with voice on entry. A private room lasts at most 3 h; it closes once nobody's been inside for `ADHOC_EMPTY_MS` (2 min), or when its host (or an office admin) clicks End room (`room_end`). Leave, or the meeting's end, puts you back
   where you were, still in the meeting (busy). The chip then offers **Rejoin** or **Leave meeting** (`meeting_out`): no longer
   busy, knocks come through again, Go puts you back in. Instances and who left live in memory only.
 - **Zoom** is whole device pixels per art pixel (crisp; on Retina that includes 1.5×, 2.5×), glides 140 ms between levels

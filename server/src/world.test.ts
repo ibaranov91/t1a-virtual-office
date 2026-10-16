@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { World, type User } from './world';
 import { DeckStore, Presenter } from './presentation';
+import { ADHOC_EMPTY_MS } from './meetings';
 import { findPath, isWalkable, doorwayTiles, pathDuration, reindexMap, roomAt, sampleMove, seatAt, voiceRooms, WALK_MS_PER_TILE, type TileMap, type Tile } from '../../shared/map';
 import { TRACK, TRACKS } from '../../shared/music';
 import { ADMIN_HAT, BITE_MS, EFFECTS, hatItem, SPEED_FACTOR, walkMs } from '../../shared/effects';
@@ -1547,6 +1548,38 @@ test('private rooms: create, invite, enter, busy, leave/rejoin, expiry and valid
   assert.equal(m2.title, 'Private room'); assert.equal(m2.adhoc!.invited.size, 30);
   w.handle(bot.u, { t: 'room_create', invite: [] }, bot.socket); assert.equal([...w.meetings.events.values()].filter(e => e.adhoc).length, 1);
   w.handle(off.u, { t: 'room_create', invite: [] }, off.socket); assert.equal([...w.meetings.events.values()].filter(e => e.adhoc).length, 1);
+});
+
+test('private rooms end once everyone has left for a while, or when the host (or an admin) ends them', t => {
+  const { w, add, tick } = setup(t), host = add('Host'), b = add('B'), admin = add('Admin');
+  admin.u.email = 'andrii.butko@t1a.com';
+  w.meetings.poll = async () => {};
+  w.handle(host.u, { t: 'room_create', title: 'Sync', invite: [b.u.id] }, host.socket);
+  const m = [...w.meetings.events.values()].find(e => e.adhoc)!;
+  const agenda = (x: { messages: ServerMsg[] }) => [...x.messages].reverse().find(e => e.t === 'agenda') as Extract<ServerMsg, { t: 'agenda' }>;
+  assert.equal(agenda(host).items[0].host, true); assert.equal(agenda(b).items[0].host, undefined);
+  // empty: a short step out keeps it, a longer one ends it
+  w.handle(host.u, { t: 'meeting_leave' }, host.socket); w.meetings.tick();
+  tick(ADHOC_EMPTY_MS - 30_000); w.meetings.tick(); assert.ok(w.meetings.events.has(m.key));
+  w.handle(host.u, { t: 'meeting_go', key: m.key }, host.socket); w.meetings.tick();
+  tick(ADHOC_EMPTY_MS); w.meetings.tick(); assert.ok(w.meetings.events.has(m.key), 'someone is back inside');
+  w.handle(host.u, { t: 'meeting_leave' }, host.socket); w.meetings.tick();
+  tick(ADHOC_EMPTY_MS); w.meetings.tick();
+  assert.equal(w.meetings.events.has(m.key), false); assert.equal(host.u.meeting, null); assert.equal(b.u.meeting, null);
+  assert.equal(agenda(b).items.length, 0);
+  // the host ends it for everyone inside; a guest can't
+  w.handle(host.u, { t: 'room_create', title: 'Two', invite: [b.u.id] }, host.socket);
+  const m2 = [...w.meetings.events.values()].find(e => e.adhoc)!;
+  w.handle(b.u, { t: 'meeting_go', key: m2.key }, b.socket);
+  w.handle(b.u, { t: 'room_end', key: m2.key }, b.socket); assert.ok(w.meetings.events.has(m2.key));
+  w.handle(host.u, { t: 'room_end', key: m2.key }, host.socket);
+  assert.equal(w.meetings.events.has(m2.key), false); assert.equal(b.u.instance, null); assert.equal(host.u.instance, null); assert.equal(b.u.meeting, null);
+  assert.ok(b.messages.some(e => e.t === 'notice' && /Host ended Two/.test(e.text)));
+  // an office admin can end someone else's
+  w.handle(b.u, { t: 'room_create', title: 'Three', invite: [] }, b.socket);
+  const m3 = [...w.meetings.events.values()].find(e => e.adhoc)!;
+  w.handle(admin.u, { t: 'room_end', key: m3.key }, admin.socket);
+  assert.equal(w.meetings.events.has(m3.key), false); assert.equal(b.u.instance, null);
 });
 
 test('room voice: private rooms join on entry, calendar meetings are opt-in, signaling stays inside, the cap is ROOM_VOICE_MAX', t => {
