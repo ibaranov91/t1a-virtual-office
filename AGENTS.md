@@ -47,7 +47,7 @@ npm run dev:mesh     # also on this machine's NordVPN Meshnet IP over self-signe
 npm run typecheck    # run before every commit or deploy
 ```
 - In dev you're signed in automatically as `Dev`. Use `?as=Kim` for another person, for example a second tab.
-- Bots are opt-in: `npm run dev` turns them on (`BOTS=0` disables, `BOT_COUNT` sets how many, default 4), test
+- Bots are opt-in: `npm run dev` turns them on (`BOTS=0` disables, `BOT_COUNT` sets how many, default 4; demo gets 10), test
   instances have `BOTS=1`, and prod never has bots (deploy.sh removes the setting). Bots only knock on other bots, never on people.
 - `VITE_PORT` / `DECK_PORT` run a second copy beside the first. Port 5174 may be held by another worktree's
   session, so leave other sessions' processes alone and pick a free port.
