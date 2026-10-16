@@ -3,7 +3,8 @@
 import AppKit
 
 struct DeckState {
-  var connected = false, inCall = false, busy = false, muted = false, deafened = false
+  var connected = false, inCall = false, busy = false
+  var mic = "off", speaker = "off" // as the page's buttons: mic idle|live|muted|err|off, speaker live|deafened|off
   var knocks: [(id: String, text: String)] = []
   var unread: [(id: String, name: String, count: Int)] = [] // oldest first
 }

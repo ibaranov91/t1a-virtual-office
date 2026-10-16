@@ -283,7 +283,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
     func item(_ title: String, _ sel: Selector, on: Bool = false, key: String = "") -> NSMenuItem {
       let i = NSMenuItem(title: title, action: sel, keyEquivalent: key); i.target = self; i.state = on ? .on : .off; return i
     }
-    m.addItem(withTitle: state.connected ? (state.inCall ? "In a call" + (state.deafened ? " · deafened" : state.muted ? " · muted" : "") : "Connected") : "Not connected", action: nil, keyEquivalent: "")
+    m.addItem(withTitle: state.connected ? (state.inCall ? "In a call" + voiceNote : "Connected") : "Not connected", action: nil, keyEquivalent: "")
     if let u = updater.available {
       m.addItem(updater.busy ? NSMenuItem(title: "Updating…", action: nil, keyEquivalent: "") : item("Update to \(u.version) (restarts the app)", #selector(updateClicked)))
     }
@@ -332,19 +332,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
   @objc func openInBrowser() { if let u = URL(string: url) { NSWorkspace.shared.open(u) } }
   @objc func quit() { NSApp.terminate(nil) }
 
+  var micGlyph: Person.Glyph { switch state.mic { case "live": return .on; case "muted", "err": return .off; default: return .dim } }
+  var speakerGlyph: Person.Glyph { switch state.speaker { case "live": return .on; case "deafened": return .off; default: return .dim } }
+  var voiceNote: String { state.speaker == "deafened" ? " · deafened" : state.mic == "muted" ? " · muted" : "" }
+
   func renderIcon() {
     // same little person always: orange = someone's knocking, green + mic and speaker = you're in a call
-    // (mic red = muted, both red = deafened); blue dot = unread messages, on top of any of those
+    // blue dot = unread messages, on top of any of those. The mic and speaker beside it mirror the page's buttons:
+    // mic dim = not in use, green = live, red = muted; speaker green = hearing, red = deafened
     let dot = !state.unread.isEmpty
-    let voice: Person.Voice = state.deafened ? .deafened : state.muted ? .muted : .live
-    status.button?.image = !state.knocks.isEmpty ? Person.image(color: .systemOrange, dot: dot)
-      : state.inCall ? Person.image(color: .systemGreen, voice: voice, dot: dot) : Person.image(dot: dot)
+    let color: NSColor? = !state.knocks.isEmpty ? .systemOrange : state.inCall ? .systemGreen : nil
+    status.button?.image = Person.image(color: color, mic: micGlyph, speaker: speakerGlyph, dot: dot)
     let total = state.unread.reduce(0) { $0 + $1.count }
     NSApp.dockTile.badgeLabel = total > 0 ? "\(total)" : nil // visible while the window is open (in the Dock); never bounces
     status.button?.appearsDisabled = !state.connected
     status.button?.toolTip = state.knocks.first?.text
       ?? (state.unread.isEmpty ? nil : "Unread messages from " + state.unread.map(\.name).joined(separator: ", "))
-      ?? (state.inCall ? "In a call" + (state.deafened ? " · deafened" : state.muted ? " · muted" : "") : appName)
+      ?? (state.inCall ? "In a call" + voiceNote : appName)
   }
 
   /// The person knocks a few times on the icon, so a knock is noticeable even in quiet mode.
@@ -354,7 +358,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
     ringing = Timer.scheduledTimer(withTimeInterval: 0.18, repeats: true) { [weak self] t in
       guard let self else { return t.invalidate() }
       n += 1
-      self.status.button?.image = Person.image(n % 2 == 1 ? Person.knocking : Person.standing, color: .systemOrange)
+      self.status.button?.image = Person.image(n % 2 == 1 ? Person.knocking : Person.standing, color: .systemOrange, mic: self.micGlyph, speaker: self.speakerGlyph)
       if n >= 8 { t.invalidate(); self.renderIcon() }
     }
   }
@@ -385,7 +389,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
     let old = state
     state = DeckState(connected: m["connected"] as? Bool ?? false, inCall: m["inCall"] as? Bool ?? false,
                       busy: m["busy"] as? Bool ?? false,
-                      muted: m["muted"] as? Bool ?? false, deafened: m["deafened"] as? Bool ?? false,
+                      mic: m["mic"] as? String ?? "off", speaker: m["speaker"] as? String ?? "off",
                       knocks: (m["knocks"] as? [[String: Any]] ?? []).compactMap { k in
                         (k["id"] as? String).map { ($0, k["text"] as? String ?? "Someone is knocking") } },
                       unread: (m["unread"] as? [[String: Any]] ?? []).compactMap { u in
