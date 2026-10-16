@@ -2090,22 +2090,40 @@ for (const [game, accent] of [['tobu', '#cf82ae'], ['lobster', '#bd524a']]) {
     return mix(mix(sample(ix, iy), sample(ix + 1, iy), sx),
       mix(sample(ix, iy + 1), sample(ix + 1, iy + 1), sx), sy);
   };
-  const ridge = (px, py) => {
-    const u = px + py * 0.38, v = py - px * 0.22;
-    const fold = 1 - Math.abs(2 * noise(u / 46, v / 30, 71) - 1);
-    return fold * 0.66 + noise(u / 23, v / 17, 137) * 0.24 + noise(px / 9, py / 11, 293) * 0.10;
-  };
   const stone = ['#4b525b', '#676e73', '#8d938e', '#aeb2a6', '#c9cbbf'];
+  // Small alpine silhouettes, back to front. World coordinates keep the peaks
+  // continuous across tiles; the existing switchback still carves through them.
+  const peaks = [
+    [62, 547, 62, 78], [162, 545, 54, 62], [231, 546, 46, 47], [339, 548, 62, 64],
+    [49, 618, 40, 70], [109, 629, 49, 68], [201, 626, 58, 72],
+    [291, 625, 57, 73], [367, 634, 43, 64],
+  ];
   const mountainPixel = (px, py) => {
     const x = Math.floor(px / 16), y = Math.floor(py / 16), j = py - y * 16;
-    const h = ridge(px, py), slope = h - ridge(px - 1, py - 1);
-    const summit = Math.max(0, 1 - Math.hypot(Math.max(256 - px, 0, px - 303), Math.max(544 - py, 0, py - 575)) / 64);
-    const shade = h * 2.4 + slope * 32 + summit * 0.7;
-    let color = stone[Math.max(0, Math.min(4, Math.floor(shade + 0.7)))];
-    if (h < 0.31 || (slope < -0.026 && h < 0.63)) color = stone[0];
-    // Snow settles on the upper, lit faces; its boundary follows the same world-space ridges.
-    if (summit > 0 && h > 0.73 - summit * 0.18 && slope > -0.006)
-      color = slope > 0.005 ? '#f1f5f2' : '#c9d6dc';
+    let color = noise(px / 26, py / 19, 71) > 0.55 ? '#7c8979' : '#718071';
+    let onPeak = false;
+    for (const [cx, top, width, height] of peaks) {
+      const dy = py - top, z = dy / height;
+      if (z < 0 || z > 1) continue;
+      const left = cx - Math.floor(dy * width / height);
+      const right = cx + Math.floor(dy * width * 0.78 / height);
+      if (px < left || px > right) continue;
+      onPeak = true;
+      const crest = cx + Math.floor(dy * 0.12) + Math.floor(dy / 13) % 2;
+      const lit = px <= crest, across = (px - left) / Math.max(1, right - left);
+      color = lit ? stone[3] : stone[1];
+      // Long, angular ribs descend from each summit instead of mottled noise.
+      if (lit && across < 0.22) color = stone[2];
+      if (!lit && across > 0.82) color = stone[0];
+      const rib = cx + Math.floor(dy * (lit ? -0.34 : 0.38));
+      if (Math.abs(px - rib) < 1 + Math.floor(z * 2)) color = lit ? stone[2] : stone[0];
+      if (px === crest || (lit && px === crest - 1)) color = stone[4];
+      // A broken snow line and shaded right face make even tiny peaks legible.
+      const snowline = 0.22 + 0.055 * Math.sin((px - cx) * 0.48) + (lit ? 0.035 : -0.015);
+      if (z < snowline) color = lit ? '#f1f5ef' : '#b6cbd2';
+      if (px === left || px === right) color = z < 0.17 ? '#d7e3df' : stone[0];
+      if (z > 0.88 && grain(px, py, 293) % 9 === 0) color = stone[2];
+    }
     if (mountainWalkable(x, y + 1)) {
       const rim = 9 + Math.floor(noise(px / 9, (y + 1) * 16 / 20, 419) * 3);
       if (j === rim - 1) color = stone[4];
@@ -2120,7 +2138,7 @@ for (const [game, accent] of [['tobu', '#cf82ae'], ['lobster', '#bd524a']]) {
     }
     if (y >= 41) {
       const moss = noise(px / 13, py / 7, 733), tuft = noise(px / 2, py / 4, 811);
-      if (moss > 0.59 && tuft > 0.48 && (h < 0.64 || j > 12))
+      if (moss > 0.59 && tuft > 0.48 && (!onPeak || j > 12))
         color = tuft > 0.65 ? '#8fae67' : '#6f8f55';
       // Sparse low boulders, anchored to a world-space lattice, can cross frame boundaries.
       const bx = Math.floor(px / 29), by = Math.floor(py / 19);
