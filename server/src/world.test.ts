@@ -2,6 +2,7 @@ import { test, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { World, type User } from './world';
+import { Presenter } from './presentation';
 import { findPath, doorwayTiles, pathDuration, reindexMap, roomAt, sampleMove, seatAt, voiceRooms, WALK_MS_PER_TILE, type TileMap, type Tile } from '../../shared/map';
 import { TRACKS } from '../../shared/music';
 import { ADMIN_HAT, EFFECTS, hatItem, SPEED_FACTOR, walkMs } from '../../shared/effects';
@@ -1182,6 +1183,25 @@ test('the reception bell rings for everyone, once a second, from beside it, and 
   assert.equal(rings(a).length, 2, 'only bells ring');
   w.handle(far.u, { t: 'ring', objectId: bell.id }, far.socket);
   assert.equal(rings(a).length, 2, 'too far away: it walks over first, no ring yet');
+});
+
+test('presenting needs standing at the board, walking over opens the panel, and walking away ends it', t => {
+  const { w, person } = people(t), board = w.map.objects.find(o => o.use?.kind === 'presentation')!;
+  w.present = new Presenter('/nonexistent-decks', w.map, msg => w.broadcast(msg), (id, obj, settled) => w.isBeside(id, obj, settled));
+  const a = person('A', undefined, { x: 40, y: 12 });
+  assert.throws(() => w.present!.present(a.u.id, { pin: '1234', deck: 'x', objectId: board.id }), /Walk up/, 'too far away');
+  w.handle(a.u, { t: 'use', objectId: board.id }, a.socket);
+  assert.equal(a.messages.filter(m => m.t === 'present_open').length, 0, 'not there yet');
+  t.mock.timers.tick(60_000);
+  assert.deepEqual(a.messages.filter(m => m.t === 'present_open'), [{ t: 'present_open', objectId: board.id }], 'panel opens on arrival');
+  assert.ok(w.isBeside(a.u.id, board.id));
+  const deck = { id: 'd', title: 'T', count: 1, ext: ['png'], by: a.u.id, at: 0 };
+  w.present.decks.set('d', deck);
+  w.present.present(a.u.id, { pin: '1234', deck: 'd', objectId: board.id });
+  assert.ok(w.present.live);
+  w.present.tick(); assert.ok(w.present.live, 'still at the board');
+  const away = w.walk(a.u, { x: 20, y: 9 }); assert.notEqual(away, null, 'walk started');
+  w.present.tick(); assert.equal(w.present.live, null, 'walking away ends it');
 });
 
 test('dancing works only on the Berghain floor and ends when you leave', t => {

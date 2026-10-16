@@ -3,7 +3,6 @@ import { useEffect, useRef, useState } from 'react';
 import { drawText, textWidth } from './font';
 import { MAP, type Store } from './net';
 import { PdfError, renderPdf } from './pdfSlides';
-import { seatAt } from '../../shared/map';
 import { PRESENT_AWAY_MS, PRESENT_MAX_BYTES, PRESENT_MAX_SLIDES, slideUrl, type DeckInfo } from '../../shared/protocol';
 
 /** Chunky text in the office's own 3×5 pixel font, with a hard drop shadow. */
@@ -197,23 +196,19 @@ export function LiveChip({ store, onGo }: { store: Store; onGo: (room: string) =
   );
 }
 
-/** Sitting down on a chair in the screen's room while slides are up asks whether to watch. Standing up closes them. */
+/** Standing still in the screen's room while slides are up asks once per deck whether to watch. Leaving the room closes them. */
 export function WatchPrompt({ store }: { store: Store }) {
   const [ask, setAsk] = useState(false);
-  const asked = useRef<string | null>(null), seated = useRef(false);
+  const asked = useRef<string | null>(null);
   useEffect(() => {
     const tick = () => {
       const live = store.presentation, me = store.users.get(store.me);
-      if (!live || !me || me.bot || live.presenter === me.id) { asked.current = null; seated.current = false; setAsk(false); return; }
-      const p = store.pose(me), inRoom = store.inPresentationRoom();
-      const seat = !p.walking && inRoom ? seatAt(MAP, p.tile.x, p.tile.y) : null;
-      if (seat?.type === 'chair') {
-        seated.current = true;
-        const key = `${live.deck.id}@${seat.x},${seat.y}`;
-        if (asked.current !== key) { asked.current = key; if (store.slidesHidden) setAsk(true); }
-      } else if (seated.current || !inRoom) {
+      if (!live || !me || me.bot || live.presenter === me.id) { asked.current = null; setAsk(false); return; }
+      if (store.inPresentationRoom()) {
+        if (!store.pose(me).walking && asked.current !== live.deck.id) { asked.current = live.deck.id; if (store.slidesHidden) setAsk(true); }
+      } else {
         if (!store.slidesHidden) store.hideSlides(true);
-        seated.current = false; asked.current = null; setAsk(false);
+        asked.current = null; setAsk(false);
       }
     };
     tick();

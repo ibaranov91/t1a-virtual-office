@@ -72,7 +72,7 @@ const DOOR_PAUSE_MS = 400;   // a beat at the door before vanishing
 const goingOut = (u: User) => u.door === 'thinking' || u.door === 'leaving';
 const FOLLOW_LAG_MS = 300;   // followers set off a beat after the person they follow
 const HOLD_MS = 3 * 60_000;  // a coffee lasts this long
-const USE_MS = { take: 1200, toggle: 150, toilet: 300, dealer: 350, bell: 100 }; // brewing a coffee vs flicking a switch
+const USE_MS = { take: 1200, toggle: 150, toilet: 300, dealer: 350, bell: 100, presentation: 100 }; // brewing a coffee vs flicking a switch
 const ARRIVAL_SLACK_MS = 50; // timers can fire a millisecond before the walk is over
 
 /** Office admins rearrange the furniture: NetBird emails, or (only for name logins, so dev) plain names. */
@@ -130,7 +130,7 @@ export class World {
     this.baseLayout = structuredClone({ objects: map.objects, rugs: map.rugs });
     for (const o of map.objects) if (o.use?.kind === 'toggle') this.objectOn.set(o.id, o.on ?? true);
     this.syncJukeboxes();
-    setInterval(() => { const now = Date.now(); this.voiceTick(now); this.jukeboxTick(now); this.instrumentTick(now); this.effectsTick(now); this.lunchTick(now); this.toilets.tick(now); }, 250).unref();
+    setInterval(() => { const now = Date.now(); this.voiceTick(now); this.jukeboxTick(now); this.instrumentTick(now); this.effectsTick(now); this.lunchTick(now); this.toilets.tick(now); this.present?.tick(); }, 250).unref();
   }
 
   // ---------- transport ----------
@@ -313,6 +313,14 @@ export class World {
     if (s.done) return { tile: s.tile, next: s.tile, remainingMs: 0, dest: s.tile };
     const seg = Math.max(0, now - move.startedAt) / ms;
     return { tile: s.tile, next: s.next, remainingMs: (Math.ceil(seg) - seg) * ms, dest: u.move.to };
+  }
+  /** Standing beside the object (or heading to a tile beside it, with `settled` false). */
+  isBeside(userId: string, objectId: string, settled = true) {
+    const u = this.users.get(userId), o = this.map.objects.find(o => o.id === objectId);
+    if (!u || !o || u.instance || u.presence === 'offline') return false;
+    const p = this.position(u), t = settled ? p.next : p.dest;
+    if (settled && (p.next.x !== p.dest.x || p.next.y !== p.dest.y)) return false;
+    return Math.max(o.x - t.x, t.x - (o.x + o.w - 1), 0) <= 1 && Math.max(o.y - t.y, t.y - (o.y + o.h - 1), 0) <= 1;
   }
   roomOf(u: User) { const p = this.position(u); return roomAt(this.map, p.tile.x, p.tile.y); }
 
@@ -521,7 +529,7 @@ export class World {
   use(u: User, objectId: string, itemId?: string) {
     this.cancelSeatWalk(u.id);
     const o = this.map.objects.find(o => o.id === objectId);
-    if (!o || !routes(o.use, 'use') || goingOut(u) || u.instance || u.presence === 'offline' || (o.use.kind === 'arcade' && u.bot)) return;
+    if (!o || !routes(o.use, 'use') || goingOut(u) || u.instance || u.presence === 'offline' || ((o.use.kind === 'arcade' || o.use.kind === 'presentation') && u.bot)) return;
     const item = o.use.kind === 'take' ? o.use.items.find(i => i.id === itemId) ?? o.use.items[0] : null;
     if (o.use.kind === 'toilet') return this.useToilet(u, o);
     this.setFollowing(u, null);
@@ -559,6 +567,7 @@ export class World {
       if (!current?.use || current.use.kind !== o.use!.kind) return;
       if (current.use.kind === 'arcade') { if (!u.bot && this.sockets.get(u.id)?.size) this.arcade.join(u, current.id); return; }
       if (current.use.kind === 'bell') this.ringBell(u, current);
+      else if (current.use.kind === 'presentation') { if (!u.bot) this.sendTo(u.id, { t: 'present_open', objectId: current.id }); }
       else if (o.use!.kind === 'toggle') this.setObject(o.id, !this.objectOn.get(o.id), u);
       else if (current.use.kind === 'dealer') {
         const want = itemId && current.use.items.includes(itemId) ? itemId : current.use.items[0];

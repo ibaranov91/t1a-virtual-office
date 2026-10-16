@@ -283,6 +283,7 @@ export type ServerMsg =
   | { t: 'deafen'; userId: string; on: boolean }
   | { t: 'hand'; userId: string; up: boolean }
   | { t: 'notice'; text: string }
+  | { t: 'present_open'; objectId: string } // you walked up to the board: show the upload/present panel
   | { t: 'voice_wait'; roomId: string | null }
   | { t: 'voice_owner'; owner: boolean }
   | { t: 'look'; userId: string; look: Look; lookSet: boolean }
