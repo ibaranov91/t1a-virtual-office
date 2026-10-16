@@ -973,12 +973,12 @@ export class Engine {
       }
       if (d.door) { // open while someone stands in or right next to the doorway; a locked one stays shut for non-admins
         const door = d.door;
-        if (!this.onScreen(door.x * TS - 4, door.y * TS - 4, door.w * TS + 8, door.h * TS + 8)) return;
         const open = [...poses.values()].some(p => door.tiles.some(t => Math.abs(t.x - p.tile.x) + Math.abs(t.y - p.tile.y) <= 1));
         const locked = door.locked && !this.store.admin, age = ms - (this.deniedAt.get(door.room.id) ?? -1e9);
         const shake = locked && age < 450 ? Math.round(Math.sin(age / 22) * 2) : 0;
         const name = `door_${door.horizontal ? 'h' : 'v'}_${locked ? 'locked' : open ? 'open' : 'closed'}`, fr = this.f(name);
-        return void (fr && this.blit(ctx, name, door.x * TS + (door.w * TS - fr.w) / 2 + shake, (door.y + door.h) * TS - fr.h));
+        if (!fr || !this.onScreen(door.x * TS + (door.w * TS - fr.w) / 2 - 2, (door.y + door.h) * TS - fr.h, fr.w + 6, fr.h)) return;
+        return void this.blit(ctx, name, door.x * TS + (door.w * TS - fr.w) / 2 + shake, (door.y + door.h) * TS - fr.h);
       }
       const p = d.plant!, pl = p.u.plant!;
       if (!this.onScreen(p.x - 16, p.y - 24, 32, 32)) return;
