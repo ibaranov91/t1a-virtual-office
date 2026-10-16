@@ -1,19 +1,20 @@
 export type Category = 'voice' | 'music' | 'effects';
 interface Prefs {
   deafened: boolean; mode: 'voice' | 'ptt';
+  processing: boolean; // echo cancellation, noise suppression, auto gain: off helps WebKit on a Mac, with headphones
   mix: Record<Category, number>;
   jukeboxVolumes: Record<string, number>;
   volumes: Record<string, number>; localMuted: Record<string, true>;
   retroVolume: number; retroMuted: boolean; // the retro cabinets' game sound, for me
 }
 const KEY = 'deck.voice';
-const defaults = (): Prefs => ({ deafened: false, mode: 'voice', mix: { voice: 1, music: 1, effects: 1 }, jukeboxVolumes: {}, volumes: {}, localMuted: {}, retroVolume: .5, retroMuted: false });
+const defaults = (): Prefs => ({ deafened: false, mode: 'voice', processing: true, mix: { voice: 1, music: 1, effects: 1 }, jukeboxVolumes: {}, volumes: {}, localMuted: {}, retroVolume: .5, retroMuted: false });
 function load(): Prefs {
   const p = defaults();
   try {
     const v = JSON.parse(localStorage.getItem(KEY) ?? 'null');
     if (!v || typeof v !== 'object') return p;
-    p.deafened = v.deafened === true; p.mode = v.mode === 'ptt' ? 'ptt' : 'voice';
+    p.deafened = v.deafened === true; p.mode = v.mode === 'ptt' ? 'ptt' : 'voice'; p.processing = v.processing !== false;
     for (const id of Object.keys(p.mix) as Category[]) {
       const n = v.mix?.[id];
       if (typeof n === 'number' && Number.isFinite(n)) p.mix[id] = Math.max(0, Math.min(1, n));

@@ -166,6 +166,8 @@ button:disabled:hover { filter: none; }
 .voice-pop .rooms-head { margin: 0; gap: 12px; }
 .voice-pop .input-mode { display: grid; gap: 8px; }
 .voice-pop .input-mode select { width: 100%; }
+.voice-pop .voice-processing { display: grid; grid-template-columns: auto 1fr; align-items: center; column-gap: 8px; row-gap: 2px; color: var(--text); }
+.voice-pop .voice-processing small { grid-column: 2; color: var(--muted); }
 .voice-mix { display: grid; gap: 18px; }
 .voice-mix .volume-control { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
 .voice-pop .voice-mix .volume-control > span { display: inline-flex; align-items: center; gap: 8px; width: auto; color: var(--text); }
