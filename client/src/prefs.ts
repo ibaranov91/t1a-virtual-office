@@ -1,17 +1,17 @@
 export type Category = 'voice' | 'music' | 'effects';
 interface Prefs {
-  muted: boolean; deafened: boolean; mode: 'voice' | 'ptt';
+  deafened: boolean; mode: 'voice' | 'ptt';
   mix: Record<Category, number>;
   volumes: Record<string, number>; localMuted: Record<string, true>;
 }
 const KEY = 'deck.voice';
-const defaults = (): Prefs => ({ muted: false, deafened: false, mode: 'voice', mix: { voice: 1, music: 1, effects: 1 }, volumes: {}, localMuted: {} });
+const defaults = (): Prefs => ({ deafened: false, mode: 'voice', mix: { voice: 1, music: 1, effects: 1 }, volumes: {}, localMuted: {} });
 function load(): Prefs {
   const p = defaults();
   try {
     const v = JSON.parse(localStorage.getItem(KEY) ?? 'null');
     if (!v || typeof v !== 'object') return p;
-    p.muted = v.muted === true; p.deafened = v.deafened === true; p.mode = v.mode === 'ptt' ? 'ptt' : 'voice';
+    p.deafened = v.deafened === true; p.mode = v.mode === 'ptt' ? 'ptt' : 'voice';
     for (const id of Object.keys(p.mix) as Category[]) {
       const n = v.mix?.[id];
       if (typeof n === 'number' && Number.isFinite(n)) p.mix[id] = Math.max(0, Math.min(1, n));

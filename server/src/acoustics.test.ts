@@ -80,7 +80,7 @@ test('stereo reverb is deterministic, decaying and capped at .7 seconds times ma
   }
 });
 test('moving the jukebox moves its acoustic room and derived doors without adding map objects or catalog items', () => {
-  const jukebox = map.objects.find(o => o.sound)!, ids = map.objects.map(o => o.id);
+  const jukebox = map.objects.find(o => o.sound && o.use?.kind === 'jukebox' && !o.use.genres)!, ids = map.objects.map(o => o.id);
   const objects = structuredClone(map.objects), moved = objects.find(o => o.id === jukebox.id)!; moved.x = 4; moved.y = 4;
   const next = withLayout(map, { objects, rugs: map.rugs });
   const src = pose(moved.x, moved.y), me = pose(6, 6);
@@ -88,12 +88,12 @@ test('moving the jukebox moves its acoustic room and derived doors without addin
   const oldRoom = pose(music.rect.x + 1, music.rect.y + 1);
   assert.equal(soundModel(next, oldRoom, src).gain, 0);
   assert.deepEqual(next.objects.map(o => o.id), ids); assert.deepEqual(next.catalog, map.catalog);
-  assert.deepEqual([...new Set(roomDoors(next).map(d => d.room.id))].sort(), ['arcade', 'coffee', 'focus']);
-  assert.deepEqual([...new Set(roomDoors(map).map(d => d.room.id))].sort(), ['arcade', 'coffee', 'music']);
+  assert.deepEqual([...new Set(roomDoors(next).map(d => d.room.id))].sort(), ['arcade', 'berghain', 'coffee', 'focus']);
+  assert.deepEqual([...new Set(roomDoors(map).map(d => d.room.id))].sort(), ['arcade', 'berghain', 'coffee', 'music']);
   assert.equal(Object.keys(map.catalog).some(k => /^door_[hv]_/.test(k)), false);
 });
 test('the jukebox fills Music and nothing outside it, not even at the door; knock calls stay flat', () => {
-  const jukebox = map.objects.find(o => o.use?.kind === 'jukebox')!, src = pose(jukebox.x, jukebox.y);
+  const jukebox = map.objects.find(o => o.use?.kind === 'jukebox' && !o.use.genres)!, src = pose(jukebox.x, jukebox.y);
   assert.equal(roomAt(map, jukebox.x, jukebox.y)?.id, 'music'); assert.equal(music.rules.voice, undefined);
   assert.deepEqual(jukebox.sound, { gain: .8 }); assert.equal(map.layers.walkable[jukebox.y][jukebox.x], 0);
   const lobby = map.rooms.find(r => r.id === 'lobby')!;

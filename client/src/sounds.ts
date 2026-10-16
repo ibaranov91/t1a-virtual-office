@@ -68,6 +68,26 @@ export function playPop() {
   } catch { /* audio unavailable: stay silent */ }
 }
 
+/** A cat's purr (a low, wobbling rumble) or a dog's yip (two quick rising chirps). */
+export function playPet(dog: boolean) {
+  try {
+    const c = audio(), at = c.currentTime + 0.01, out = categoryOutput('effects');
+    const blip = (t0: number, f0: number, f1: number, len: number, vol: number, type: OscillatorType) => {
+      const g = c.createGain(), o = c.createOscillator();
+      g.gain.setValueAtTime(0, t0); g.gain.linearRampToValueAtTime(vol, t0 + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t0 + len);
+      o.type = type; o.frequency.setValueAtTime(f0, t0); o.frequency.exponentialRampToValueAtTime(f1, t0 + len * 0.8);
+      o.connect(g); g.connect(out); o.start(t0); o.stop(t0 + len + 0.02);
+      o.onended = () => { o.disconnect(); g.disconnect(); };
+      return o;
+    };
+    if (dog) { blip(at, 520, 900, 0.1, 0.1, 'triangle'); blip(at + 0.14, 600, 1050, 0.12, 0.1, 'triangle'); return; }
+    const o = blip(at, 38, 34, 1.1, 0.16, 'sawtooth'); // purr: a rumble with a 25 Hz flutter
+    const lfo = c.createOscillator(), depth = c.createGain();
+    lfo.frequency.value = 25; depth.gain.value = 12; lfo.connect(depth); depth.connect(o.frequency); lfo.start(at); lfo.stop(at + 1.15);
+    blip(at, 110, 90, 1.0, 0.04, 'sine');
+  } catch { /* audio unavailable: stay silent */ }
+}
+
 export function playDoorOpen(dest: AudioNode = categoryOutput('effects')) {
   const c = audio(), at = c.currentTime + .01, length = Math.floor(c.sampleRate * .35);
   const buffer = c.createBuffer(1, length, c.sampleRate), data = buffer.getChannelData(0);
@@ -87,6 +107,24 @@ export function playHand() {
   const dest = categoryOutput('effects'), c = audio(), t = c.currentTime + .02;
   for (const [delay, hz] of [[0, 660], [.12, 880]])
     tone(c, dest, t + delay, { hz, level: .055, attack: .008, decay: .18 });
+}
+
+/** A brass desk bell: a bright strike with two inharmonic partials, ringing out for about a second. */
+export function playBell(dest: AudioNode = categoryOutput('effects')) {
+  try {
+    const c = audio(), at = c.currentTime + .01;
+    const out = c.createGain();
+    out.gain.setValueAtTime(0, at); out.gain.linearRampToValueAtTime(1, at + .004); out.gain.exponentialRampToValueAtTime(.0001, at + 1.1);
+    out.connect(dest);
+    const oscs = [[1568, .09, 1.1], [1568 * 2.76, .05, .45], [1568 * 5.4, .02, .18]].map(([hz, level, ring]) => {
+      const osc = c.createOscillator(), g = c.createGain();
+      osc.type = 'sine'; osc.frequency.value = hz;
+      g.gain.setValueAtTime(level, at); g.gain.exponentialRampToValueAtTime(.0001, at + ring);
+      osc.connect(g).connect(out); osc.start(at); osc.stop(at + ring + .05);
+      return { osc, g };
+    });
+    oscs[0].osc.onended = () => { for (const { osc, g } of oscs) { osc.disconnect(); g.disconnect(); } out.disconnect(); };
+  } catch { /* audio unavailable: stay silent */ }
 }
 
 /** Short cabinet effects, all routed through the shared Effects mix and deafen control. */

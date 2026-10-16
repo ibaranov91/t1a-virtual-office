@@ -1,17 +1,18 @@
 // WebSocket client + the client-side mirror of server state.
 import mapJson from '../../shared/tilemap.json';
-import { applyLayout, besideObject, doorwayTiles, isWalkable, pathTo, roomAt, sampleMove, type Dir, type Tile, type TileMap } from '../../shared/map';
-import { ACHIEVEMENTS, underground, DUNGEON_INSTANCE, PLANT_STAGES, plantName, ROOM_VOICE_MAX, type JukeboxState, type JukeboxAction, type AgendaItem, type LayoutEdit, type CalEvent, type MeetingRoomInfo, type ChatMsg, type ObjectState, type ClientMsg, type PublicUser, type Reaction, type RtcSignal, type ServerMsg } from '../../shared/protocol';
+import { applyLayout, besideObject, doorwayTiles, isWalkable, objectById, pathTo, roomAt, sampleMove, type Dir, type Tile, type TileMap } from '../../shared/map';
+import { FOOD_ITEMS } from '../../shared/lunch';
+import { ACHIEVEMENTS, underground, DUNGEON_INSTANCE, PLANT_STAGES, plantName, ROOM_VOICE_MAX, type JukeboxState, type JukeboxAction, type AgendaItem, type LayoutEdit, type CalEvent, type MeetingRoomInfo, type ChatMsg, type LiveDeck, type ObjectState, type ToiletState, type ClientMsg, type PublicUser, type Reaction, type RtcSignal, type ServerMsg, type Creature, type Cup, CUP_ITEMS, type LibraryState } from '../../shared/protocol';
 import { ParkLoop } from './park/loop';
 import type { CabinetSummary, ParkRecords } from '../../shared/protocol';
-import { playPark, playHand, playKnock, playPop, playDungeon } from './sounds';
+import { playPark, playHand, playKnock, playPop, playDungeon, playPet } from './sounds';
 import type { Soundscape } from './soundscape';
 
 export const MAP = mapJson as unknown as TileMap;
 
 export interface ClientUser extends PublicUser {
   path: Tile[] | null;
-  prev: { path: Tile[]; startedAt: number } | null; // walk in progress when a new move was issued
+  prev: { path: Tile[]; startedAt: number; ms?: number } | null; // walk in progress when a new move was issued
   faceOverride: Dir | null;
   speaking?: boolean; // live mic activity in a voice call (client-only)
 }
@@ -21,6 +22,7 @@ export interface Toast {
   id: number; kind: 'knock_in' | 'knock_out' | 'knock_again' | 'chat' | 'info' | 'link' | 'meeting' | 'call_moved';
   text: string; link?: string; knockId?: string; expires?: number; hint?: string;
   roomId?: string;
+  actions?: { label: string; run: () => void; ghost?: boolean }[]; // extra buttons (the one-time mute prompt)
   meetingKey?: string; // meeting: one-click Go into its room
   userId?: string; // the other person, for knock_again and chat
 }
@@ -36,7 +38,7 @@ export interface DungeonFx { kind: 'fall' | 'land' | 'climb'; user: ClientUser; 
 export interface Pose { x: number; y: number; dir: Dir; walking: boolean; tile: Tile }
 
 type Listener = () => void;
-const SCENE_ONLY = new Set<ServerMsg['t']>(['move', 'speaking', 'emote', 'react']);
+const SCENE_ONLY = new Set<ServerMsg['t']>(['move', 'speaking', 'emote', 'react', 'creatures', 'creature', 'cups']);
 
 export class Store {
   users = new Map<string, ClientUser>();
@@ -60,8 +62,10 @@ export class Store {
   meetingRooms: MeetingRoomInfo[] = [];    // meeting rooms in use (the board)
   meetingsOpen = false;
   private headsUp = new Set<string>();     // meetings I've had a heads-up for
-  staleBuild = false;         // the server serves another build than this page: reload when not in a call
+  build: string | undefined;  // the server's client build when this page loaded
+  staleBuild = false;         // server now serves a newer build; reload when not in a call
   objects: Record<string, ObjectState> = {};
+  toilets: Record<string, ToiletState> = {}; // Berghain's stalls
   jukebox: Record<string, JukeboxState> = {};
   instruments: Record<string, string | null> = {};
   seat: string | null = null;
@@ -78,13 +82,17 @@ export class Store {
   unread = new Map<string, number>();
   chatWith: string | null = null;       // open conversation
   reactions: Flying[] = [];             // the engine draws and prunes these
+  bells: Record<string, { userId: string; at: number }> = {}; // the last ring of each bell (the engine bounces it and shows a ding)
   objectFx: { objectId: string; at: number }[] = []; // someone just used it (coffee steam)
   dungeon: { key: Tile | null; hasKey: boolean; seen: Set<number> } | null = null;
   dungeonOpening = false;
   dungeonFx: DungeonFx[] = [];
+  creatures = new Map<string, Creature>(); // the office animals and the cleaner (never people)
+  cups: Cup[] = [];                        // left on tables
   version = 0;    // bumps on any change, including scene-only ones (the engine reads the store every frame)
   uiVersion = 0;  // bumps only when React chrome has something new to show
-  admin = false;      // may rearrange the office
+  admin = false;      // may rearrange the office (and is a GM: may put effects on anyone)
+  items: string[] = []; // my inventory (what the bouncer sold me)
   layoutVersion = 0;  // bumps whenever the furniture changes; the engine redraws the floor
   added: string | null = null; // the thing I just added, to select it
   private listeners = new Set<Listener>();
@@ -188,8 +196,36 @@ export class Store {
   }
   follow(targetId: string | null) { this.send({ t: 'follow', targetId }); }
   react(targetId: string, emoji: Reaction) { this.send({ t: 'react', targetId, emoji }); }
+  ring(objectId: string) { this.send({ t: 'ring', objectId }); }
   use(objectId: string, item?: string) { this.send({ t: 'use', objectId, item }); }
+  rackLine(objectId: string) { this.send({ t: 'toilet_shelf', objectId }); }
+  get dancing() { return !!this.users.get(this.me)?.effects?.some(e => e.kind === 'dance'); }
+  /** Dance in Berghain: on the dance floor object, walk onto a free tile of it first. Dancing already: stop. */
+  dance(floorId?: string) {
+    const me = this.users.get(this.me);
+    if (!me) return;
+    if (this.dancing) return this.setEffect(this.me, 'dance', false);
+    const o = floorId ? MAP.objects.find(o => o.id === floorId && o.use?.kind === 'dance') : undefined;
+    if (o) {
+      const taken = new Set([...this.users.values()].filter(u => u.id !== this.me && u.presence !== 'offline' && !u.instance).map(u => `${u.tile.x},${u.tile.y}`));
+      const tiles: Tile[] = [];
+      for (let y = o.y; y < o.y + o.h; y++) for (let x = o.x; x < o.x + o.w; x++) if (!taken.has(`${x},${y}`)) tiles.push({ x, y });
+      const mine = tiles.find(t => t.x === me.tile.x && t.y === me.tile.y);
+      const dist = (t: Tile) => Math.abs(t.x - me.tile.x) + Math.abs(t.y - me.tile.y);
+      const to = mine ?? tiles.sort((a, b) => dist(a) - dist(b))[0];
+      if (!to) return this.toast({ kind: 'info', text: 'The dance floor is packed 🕺', expires: 3000 });
+      if (!mine) this.moveTo(to);
+    }
+    this.setEffect(this.me, 'dance', true);
+  }
+  sniffLine(objectId: string) { this.send({ t: 'toilet_sniff', objectId }); }
   drop() { this.send({ t: 'drop' }); }
+  putCup(tile: Tile) { this.send({ t: 'cup_put', tile }); }
+  takeCup(cupId: string) { this.send({ t: 'cup_take', cupId }); }
+  pet(creatureId: string) { this.send({ t: 'pet', creatureId }); }
+  devBat() { this.send({ t: 'dev_bat' }); }
+  lunch(tile: Tile, open: boolean) { this.send({ t: 'lunch', tile, open }); }
+  lunchOpen(open: boolean) { this.send({ t: 'lunch_open', open }); }
   give(targetId: string) { this.send({ t: 'give', targetId }); }
   openChat(withId: string) {
     this.chatWith = withId; this.unread.delete(withId);
@@ -205,8 +241,21 @@ export class Store {
   }
   edit(edit: LayoutEdit) { this.send({ t: 'edit', edit }); }
   resetLayout() { this.send({ t: 'edit_reset' }); }
+  /** My time zone, shown to colleagues in the hover card; on unless switched off (kept on this device only). */
+  get shareTz() { try { return localStorage.getItem('deck.shareTz') !== 'off'; } catch { return true; } }
+  setShareTz(on: boolean) { try { localStorage.setItem('deck.shareTz', on ? 'on' : 'off'); } catch { /* storage unavailable */ } this.sendTz(); this.emit(); }
+  /** The zone the browser reports, and the one picked by hand instead (null = follow the browser). */
+  detectedTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  get pickedTz(): string | null { try { return localStorage.getItem('deck.tz'); } catch { return null; } }
+  setPickedTz(tz: string | null) { try { if (tz) localStorage.setItem('deck.tz', tz); else localStorage.removeItem('deck.tz'); } catch { /* storage unavailable */ } this.sendTz(); this.emit(); }
+  private sendTz() { this.send({ t: 'tz', tz: this.shareTz ? this.pickedTz ?? this.detectedTz : null }); }
   setStatus(status: string) { this.send({ t: 'status', status }); }
   setLook(look: PublicUser['look']) { this.send({ t: 'look', look }); }
+  /** Put an effect on someone (yourself, or anyone if you're a GM), or take it off. */
+  gmItems = new Map<string, string[]>(); // GM only: pockets of the people I looked at
+  requestGmItems(targetId: string) { this.send({ t: 'gm_items', targetId }); }
+  giftHat(targetId: string, style: string) { this.send({ t: 'gift_hat', targetId, style }); }
+  setEffect(targetId: string, kind: string, on: boolean, style?: string) { this.send({ t: 'effect', targetId, kind, on, style }); }
   setPresence(presence: 'online' | 'away' | 'in_call') { this.send({ t: 'presence', presence }); }
   setMeetLink(link: string) { this.send({ t: 'meet_link', link }); }
   /** The Google account Meet links should open as. */
@@ -247,6 +296,24 @@ export class Store {
     if (to) this.moveTo({ x: to.x, y: to.y });
   }
   achievementsOpen = false;
+  library: LibraryState = { articles: [], reads: [] };
+  libraryOpen = false;
+  fetching: string | null = null; // the article I picked, until I'm sitting down with it
+  private fetchTimer?: ReturnType<typeof setTimeout>;
+  openLibrary(open = true) { this.libraryOpen = open; this.emit(); }
+  publishArticle(url: string, title: string, topic: string) { this.send({ t: 'article_add', url, title, topic }); }
+  removeArticle(id: string) { this.send({ t: 'article_remove', id }); }
+  readArticle(id: string) {
+    this.fetching = id; this.libraryOpen = false; this.emit();
+    clearTimeout(this.fetchTimer); this.fetchTimer = setTimeout(() => { this.fetching = null; this.emit(); }, 20_000);
+    this.send({ t: 'read_start', articleId: id });
+  }
+  readDone() { this.fetching = null; this.send({ t: 'read_done' }); }
+  /** Distinct people who finished this article (not its author). */
+  readCount(articleId: string) {
+    const by = this.library.articles.find(a => a.id === articleId)?.by;
+    return new Set(this.library.reads.filter(r => r.articleId === articleId && r.userId !== by).map(r => r.userId)).size;
+  }
   openAchievements(open = true) { this.achievementsOpen = open; this.emit(); }
   closeMeetings() { this.meetingsOpen = false; this.emit(); }
   goToMeeting(key: string) {
@@ -287,7 +354,24 @@ export class Store {
   setDeafen(on: boolean) { this.send({ t: 'deafen', on }); }
   claimVoice() { this.send({ t: 'voice_claim' }); }
   /** The vault door: a panel with the link, which works from a tap anywhere (a tap on the floor can't open a tab on a phone). */
+  clockOpen = false;
+  openClock() { this.clockOpen = true; this.emit(); }
+  closeClock() { this.clockOpen = false; this.emit(); }
   linkOpen: { label: string; url: string } | null = null;
+  presentation: LiveDeck | null = null; // slides on a screen right now
+  presentOpen: string | null = null;    // the screen whose upload panel is open
+  slidesHidden = true;                  // not watching: viewers sit down and say Watch (or use the Live chip)
+  openPresent(id: string | null) { this.presentOpen = id; this.emit(); }
+  presentSlide(slide: number) { if (this.presentation?.presenter === this.me) this.send({ t: 'present_slide', slide }); }
+  presentStop() { this.send({ t: 'present_stop' }); }
+  hideSlides(hidden: boolean) { this.slidesHidden = hidden; this.emit(); }
+  /** For REST calls made as me (uploading slides). */
+  get sessionId() { return this.session; }
+  /** I'm presenting, or I'm in the screen's room (not in a meeting's copy of it). */
+  inPresentationRoom() {
+    const l = this.presentation, me = this.users.get(this.me);
+    return !!l && !!me && (l.presenter === me.id || (!me.instance && this.roomOf(me)?.id === l.room));
+  }
   openLink(use: { label: string; url: string }) { this.linkOpen = use; this.emit(); }
   closeLink() { this.linkOpen = null; this.emit(); }
   roomCallOf(u?: ClientUser) {
@@ -337,12 +421,12 @@ export class Store {
   dismiss(id: number) { this.toasts = this.toasts.filter(t => t.id !== id); this.emit(); }
 
   // ---------- state ----------
-  private applyMove(u: ClientUser, m: { from: Tile; to: Tile; startedAt: number; path?: Tile[]; face?: Dir }) {
+  private applyMove(u: ClientUser, m: { from: Tile; to: Tile; startedAt: number; path?: Tile[]; face?: Dir; ms?: number }) {
     const path = m.path ?? pathTo(MAP, m.from, m.to);
     const t = this.now();
-    if (u.move && u.path && t < m.startedAt) u.prev = { path: u.path, startedAt: u.move.startedAt };
+    if (u.move && u.path && t < m.startedAt) u.prev = { path: u.path, startedAt: u.move.startedAt, ms: u.move.ms };
     else u.prev = null;
-    u.move = { from: m.from, to: m.to, startedAt: m.startedAt, face: m.face };
+    u.move = { from: m.from, to: m.to, startedAt: m.startedAt, face: m.face, ms: m.ms };
     u.path = path.length ? path : [m.to];
     u.tile = m.to;
     u.faceOverride = null;
@@ -351,7 +435,7 @@ export class Store {
   pose(u: ClientUser, t = this.now()): Pose {
     if (u.move && u.path) {
       const usePrev = u.prev && t < u.move.startedAt;
-      const s = usePrev ? sampleMove(u.prev!.path, u.prev!.startedAt, t) : sampleMove(u.path, u.move.startedAt, t);
+      const s = usePrev ? sampleMove(u.prev!.path, u.prev!.startedAt, t, u.prev!.ms) : sampleMove(u.path, u.move.startedAt, t, u.move.ms);
       if (s) {
         const walking = usePrev ? true : !s.done;
         const dir = !walking ? (u.faceOverride ?? u.move.face ?? s.dir) : s.dir;
@@ -369,8 +453,9 @@ export class Store {
         this.me = msg.you;
         this.park ??= new ParkLoop(this.me, msg => this.send(msg));
         this.offset = msg.serverTime - Date.now();
-        // compared with this bundle's own id, so a page served from a stale cache fixes itself on its first connect
-        if (msg.build && __DECK_BUILD__ !== 'dev' && msg.build !== __DECK_BUILD__) this.staleBuild = true;
+        if (msg.build && this.build && msg.build !== this.build) this.staleBuild = true;
+        this.build ??= msg.build;
+        this.sendTz();
         break;
       case 'game_session':
         if (msg.session) { this.gameOpen = true; this.gameCheers.clear(); }
@@ -408,11 +493,13 @@ export class Store {
         this.users = next;
         this.setInstruments(msg.instruments ?? {});
         this.objects = msg.objects ?? {};
+        this.toilets = msg.toilets ?? {};
         this.jukebox = msg.jukebox ?? {}; this.jukeboxReady = true;
         this.soundscape?.resetCrossings();
         break;
       }
       case 'follow': { const u = this.users.get(msg.userId); if (u) u.following = msg.targetId; break; }
+      case 'eating': { const u = this.users.get(msg.userId); if (u) { if (msg.eating) u.eating = msg.eating; else delete u.eating; } break; }
       case 'holding': {
         const u = this.users.get(msg.userId); if (u) u.holding = msg.item;
         if (msg.objectId) this.objectFx = [...this.objectFx.filter(f => performance.now() - f.at < 4000), { objectId: msg.objectId, at: performance.now() }];
@@ -421,13 +508,32 @@ export class Store {
           this.reactions.push({ fromId: msg.fromId, toId: msg.userId, emoji: it.icon, at: performance.now() });
           if (msg.userId === this.me) { playPop(); this.toast({ kind: 'info', text: `${this.name(msg.fromId)} handed you ${it.label.toLowerCase()} ${it.icon}`, expires: 5000 }); }
         }
+        if (msg.objectId && it && msg.userId === this.me && CUP_ITEMS.includes(it.id)) this.toast({ kind: 'info', text: `${it.icon} Click a table to put your cup down`, expires: 5000 });
+        if (msg.objectId && it && msg.userId === this.me && FOOD_ITEMS.includes(it.id)) this.toast({ kind: 'info', text: `${it.icon} Click a chair at a picnic table to eat`, expires: 5000 });
         break;
       }
+      case 'creatures': this.creatures = new Map(msg.creatures.map(c => [c.id, c])); break;
+      case 'creature': {
+        const was = this.creatures.get(msg.creature.id), me = this.users.get(this.me), c = msg.creature;
+        if (c.pose === 'pet' && was?.pose !== 'pet' && me && Math.hypot(me.tile.x - c.tile.x, me.tile.y - c.tile.y) < 8) playPet(c.kind === 'dog');
+        this.creatures.set(c.id, c); break;
+      }
+      case 'cups': this.cups = msg.cups; break;
       case 'instrument': this.setInstruments({ ...this.instruments, [msg.id]: msg.player }); break;
       case 'seat': this.seat = msg.id; break;
       case 'note': this.soundscape?.receiveNote(msg.id, msg.by, msg.note, msg.on, msg.vel, msg.preset, msg.at); return;
       case 'jukebox': if (this.jukeboxReady) this.jukebox = { ...this.jukebox, [msg.id]: msg.state }; break;
       case 'object': this.objects = { ...this.objects, [msg.id]: { on: msg.on } }; break;
+      case 'present_open': this.presentOpen = msg.objectId; break;
+      case 'bell': {
+        const me = this.users.get(this.me), by = this.users.get(msg.userId);
+        if (me?.instance || by?.instance) break;
+        this.bells = { ...this.bells, [msg.objectId]: { userId: msg.userId, at: performance.now() } };
+        const o = objectById(MAP, msg.objectId);
+        if (o) this.soundscape?.ringBell(o);
+        break;
+      }
+      case 'toilet': this.toilets = { ...this.toilets, [msg.id]: msg.state }; break;
       case 'react':
         this.reactions.push({ fromId: msg.fromId, toId: msg.toId, emoji: msg.emoji, at: performance.now() });
         if (msg.toId === this.me && msg.fromId !== this.me) playPop();
@@ -458,12 +564,13 @@ export class Store {
         if (this.google === null && msg.google) this.toast({ kind: 'info', text: `Google connected as ${msg.google}`, hint: 'Calls you start now get their own Meet room', expires: 6000 });
         if (!this.calendarAccess && msg.calendar && this.google) this.toast({ kind: 'info', text: 'Google Calendar connected', expires: 4000 });
         const calendarNow = !!msg.calendar && !this.calendarAccess;
-        this.meetLink = msg.meetLink; this.email = msg.email ?? null; this.google = msg.google; this.calendarAccess = !!msg.calendar; this.admin = !!msg.admin;
+        this.meetLink = msg.meetLink; this.email = msg.email ?? null; this.google = msg.google; this.calendarAccess = !!msg.calendar; this.admin = !!msg.admin; this.items = msg.items ?? [];
         if (msg.google !== null) this.googleAuthUrl = null;
         if (this.calendarAccess) this.calendarAuthUrl = null;
         if (calendarNow && this.calendarOpen) this.loadCalendar(); // just granted from the open panel
         break;
       }
+      case 'gm_items': this.gmItems.set(msg.targetId, msg.items); break;
       case 'agenda': {
         this.agenda = msg.items;
         const keys = new Set(msg.items.map(a => a.key)); // cancelled or declined: drop its heads-up
@@ -473,6 +580,12 @@ export class Store {
       }
       case 'meeting': { const u = this.users.get(msg.userId); if (u) u.meeting = msg.until; break; }
       case 'meetings': this.meetingRooms = msg.rooms; break;
+      case 'library': this.library = { articles: msg.articles, reads: msg.reads }; break;
+      case 'reading': {
+        const u = this.users.get(msg.userId); if (u) u.reading = msg.articleId;
+        if (msg.userId === this.me) { this.fetching = null; clearTimeout(this.fetchTimer); }
+        break;
+      }
       case 'dungeon': {
         const me = this.users.get(this.me);
         if (me && underground(me)) {
@@ -561,7 +674,13 @@ export class Store {
       case 'speaking': { const u = this.users.get(msg.userId); if (u) u.speaking = msg.on; break; }
       case 'mute': { const u = this.users.get(msg.userId); if (u) { u.muted = msg.muted; if (msg.muted) u.speaking = false; } break; }
       case 'status': { const u = this.users.get(msg.userId); if (u) u.status = msg.status; break; }
+      case 'presentation': {
+        if (msg.live?.deck.id !== this.presentation?.deck.id) this.slidesHidden = msg.live?.presenter !== this.me; // viewers are asked first (LiveChip)
+        this.presentation = msg.live; break;
+      }
+      case 'tz': { const u = this.users.get(msg.userId); if (u) { if (msg.tz) u.tz = msg.tz; else delete u.tz; } break; }
       case 'look': { const u = this.users.get(msg.userId); if (u) { u.look = msg.look; u.lookSet = msg.lookSet; } break; }
+      case 'effects': { const u = this.users.get(msg.userId); if (u) u.effects = msg.effects; break; }
       case 'presence': { const u = this.users.get(msg.userId); if (u) u.presence = msg.presence; break; }
       case 'emote': { const u = this.users.get(msg.userId); if (u) u.emote = msg.emote; break; }
       case 'door': { const u = this.users.get(msg.userId); if (u) u.door = msg.door; break; }
@@ -598,9 +717,6 @@ export class Store {
     // (The People list follows walkers on its own 1 s tick.)
     if (SCENE_ONLY.has(msg.t)) this.version++; else this.emit();
     // A deploy happened while this page was open: reload into the new build, but never mid-call.
-    if (this.staleBuild && !this.users.get(this.me)?.callId) { // a fresh URL: a plain reload can come back from the cache (iOS)
-      const u = new URL(location.href); u.searchParams.set('v', String(Date.now().toString(36)));
-      location.replace(u.href);
-    }
+    if (this.staleBuild && !this.users.get(this.me)?.callId) location.reload();
   }
 }

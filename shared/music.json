@@ -179,6 +179,36 @@
       "duration": 225020,
       "page": "https://freemusicarchive.org/music/John_Bartmann/underwater-wonders/endless-seascape/",
       "license": "CC0 1.0"
+    },
+    {
+      "id": "old-guys-sound-of-youth",
+      "file": "old-guys-sound-of-youth-c8b7edee.m4a",
+      "title": "Sound like old guys playing the sound of youth",
+      "artist": "Dancefloor is Lava",
+      "genre": "Techno",
+      "duration": 173429,
+      "page": "https://freemusicarchive.org/music/Dancefloor_is_Lava/La_Boum_2020/Dancefloor_is_Lava_-_La_Boum_2020_-_07_Sound_like_old_guys_playing_the_sound_of_youth/",
+      "license": "CC0 1.0"
+    },
+    {
+      "id": "drown-in-noise",
+      "file": "drown-in-noise-51d57c78.m4a",
+      "title": "Drown in noise",
+      "artist": "Dancefloor is Lava",
+      "genre": "Techno",
+      "duration": 185286,
+      "page": "https://freemusicarchive.org/music/Dancefloor_is_Lava/La_Boum_2020/Dancefloor_is_Lava_-_La_Boum_2020_-_04_Drown_in_noise/",
+      "license": "CC0 1.0"
+    },
+    {
+      "id": "why-oh-you-are-love",
+      "file": "why-oh-you-are-love-ad25abf0.m4a",
+      "title": "Why Oh You Are L O V E",
+      "artist": "Dancefloor is Lava",
+      "genre": "Techno",
+      "duration": 156077,
+      "page": "https://freemusicarchive.org/music/Dancefloor_is_Lava/La_Boum_2020/Dancefloor_is_Lava_-_La_Boum_2020_-_01_Why_Oh_You_Are_L_O_V_E/",
+      "license": "CC0 1.0"
     }
   ]
 }

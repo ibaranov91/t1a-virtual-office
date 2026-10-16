@@ -4,7 +4,7 @@
 import { writeFileSync } from 'node:fs';
 import { applyLayout, besideObject, findPath, isWalkable, layoutProblem, roomAt } from '../shared/map.ts';
 
-const W = 65, OFFICE_H = 34;
+const W = 75, OFFICE_H = 34; // x 65-73: the Admin room over Berghain, added beside the Music room and the Arcade
 const dungeonRect = { x: 17, y: OFFICE_H + 2, w: 31, h: 19 };
 const H = dungeonRect.y + dungeonRect.h;
 const SOUTH = 23; // the old outer wall: now the building's back wall, the Orangery and the Garden lie beyond it
@@ -72,6 +72,25 @@ const rooms = [
     floor: 'grass', rug: 'green',
     rules: { knock: 'allow', label: 'outside · knock to talk' },
     meeting: { provider: 'meet', url: 'https://meet.google.com/new' } },
+  // the far east column: the servers, reached through the club (only admins get past its door), and the club itself
+  { id: 'admin', name: 'Admin', type: 'admin', rect: { x: 65, y: 3, w: 9, h: 8 }, capacity: 4,
+    floor: 'raised', rug: 'blue',
+    rules: { knock: 'allow', access: 'admins', label: 'admins only · knock to talk' },
+    meeting: { provider: 'meet', url: 'https://meet.google.com/new' } },
+  { id: 'berghain', name: 'Berghain', type: 'club', rect: { x: 65, y: 13, w: 9, h: 10 }, capacity: 20,
+    floor: 'club', rug: 'red',
+    rules: { knock: 'allow', label: 'club · knock to talk' },
+    meeting: { provider: 'meet', url: 'https://meet.google.com/new' } },
+  // the dining terrace in the middle of the Garden (last, so it wins the tiles it covers): picnic tables, a food cart
+  { id: 'terrace', name: 'Terrace', type: 'garden', rect: { x: 28, y: 26, w: 11, h: 6 }, capacity: 8,
+    floor: 'grass', rug: 'orange',
+    rules: { knock: 'allow', label: 'lunch outside · knock to talk' },
+    meeting: { provider: 'meet', url: 'https://meet.google.com/new' } },
+  // the Library: the old patch behind the hedge under the club, now walled in; its door opens onto the garden path
+  { id: 'library', name: 'Library', type: 'library', rect: { x: 65, y: 25, w: 9, h: 8 }, capacity: 14,
+    floor: 'wood_dark', rug: 'burgundy',
+    rules: { knock: 'later', occupantLabel: 'reading', label: 'in the library · knocks wait for later' },
+    meeting: { provider: 'meet', url: 'https://meet.google.com/new' } },
 ];
 
 // ---- base floor everywhere inside the outer walls ----
@@ -94,7 +113,7 @@ for (let y = 0; y < OFFICE_H; y++) { setWall(0, y, CAP); setWall(W - 1, y, CAP);
 // tall back wall (2 rows of face)
 for (let x = 1; x < W - 1; x++) { setWall(x, 1, 'wall_face_top'); setWall(x, 2, 'wall_face_bottom'); }
 // horizontal divider: cap row 11, short face row 12, with doors
-const hDoors = [6, 7, 19, 20, 32, 33, 46, 47, 58, 59];
+const hDoors = [6, 7, 19, 20, 32, 33, 46, 47, 58, 59, 72, 73];
 for (let x = 1; x < W - 1; x++) {
   if (hDoors.includes(x)) continue;
   setWall(x, 11, CAP); setWall(x, 12, 'wall_face_short');
@@ -109,26 +128,30 @@ for (let y = 12; y <= 22; y++) { if (y === 17 || y === 18) continue; setWall(15,
 for (let y = 1; y <= 22; y++) { if (y === 17 || y === 18) continue; setWall(39, y, CAP); }
 // music room divider: closed to the Studio, a door from Desks
 for (let y = 1; y <= 22; y++) { if (y === 17 || y === 18) continue; setWall(53, y, CAP); }
+// the old east wall: closed to the Music room, the club's door from the Arcade
+for (let y = 1; y <= 22; y++) { if (y === 17 || y === 18) continue; setWall(64, y, CAP); }
 // the building's back wall (row SOUTH) with doors out; brick outside over the garden, wallpaper in the glasshouse
 const sDoors = [9, 10, 27, 28, 44, 45, 58, 59];
+const LIB_X = 64, LIB_DOOR = [29, 30]; // the Library's west wall, and its door off the garden path
 for (let x = 1; x < W - 1; x++) {
   if (sDoors.includes(x)) continue;
-  setWall(x, SOUTH, CAP); setWall(x, SOUTH + 1, x < 15 ? 'wall_face_short' : x === 15 ? CAP : 'wall_face_ext');
+  setWall(x, SOUTH, CAP); setWall(x, SOUTH + 1, x < 15 || x > LIB_X ? 'wall_face_short' : x === 15 || x === LIB_X ? CAP : 'wall_face_ext');
 }
 for (let y = SOUTH; y < OFFICE_H; y++) { if (y === 31 || y === 32) continue; setWall(15, y, CAP); } // Orangery | Garden
-// the garden's edge is a hedge, not a wall
-for (let x = 16; x < W; x++) setWall(x, OFFICE_H - 1, 'hedge');
-for (let y = SOUTH + 2; y < OFFICE_H; y++) setWall(W - 1, y, 'hedge');
+// the garden's edge is a hedge, not a wall; the Library east of it is walled in
+for (let x = 16; x < LIB_X; x++) setWall(x, OFFICE_H - 1, 'hedge');
+for (let y = SOUTH + 2; y < OFFICE_H; y++) if (!LIB_DOOR.includes(y)) setWall(LIB_X, y, CAP);
 // door thresholds get plain wood
 for (const x of hDoors) for (const y of [11, 12]) floor[y][x] = tid('door_floor');
 for (const vx of [13, 26]) for (const y of [6, 7]) floor[y][vx] = tid('door_floor');
-for (const y of [17, 18]) for (const x of [15, 39, 53]) floor[y][x] = tid('door_floor');
+for (const y of [17, 18]) for (const x of [15, 39, 53, 64]) floor[y][x] = tid('door_floor');
 for (const x of sDoors) for (const y of [SOUTH, SOUTH + 1]) floor[y][x] = tid('door_floor');
 for (const y of [31, 32]) floor[y][15] = tid('door_floor');
+for (const y of LIB_DOOR) floor[y][LIB_X] = tid('door_floor');
 // garden paths: one along the middle, one from each door down to it, one to the Orangery
 {
   const path = (x, y) => { floor[y][x] = tid(`path_${hash(x, y) % 2}`); };
-  for (let x = 16; x < W - 1; x++) path(x, 29);
+  for (let x = 16; x < LIB_X; x++) path(x, 29);
   for (const x of [27, 28, 44, 45, 58, 59]) for (let y = SOUTH + 2; y < 29; y++) path(x, y);
   for (let x = 16; x < 20; x++) for (const y of [31, 32]) path(x, y);
   for (const x of [18, 19]) path(x, 30);
@@ -141,10 +164,11 @@ rug('green', 2, 6, 9, 2);
 rug('blue', 16, 4, 8, 5);
 rug('orange', 28, 5, 9, 3);
 rug('red', 3, 15, 9, 5);
-rug('teal', 17, 17, 20, 2);
+rug('teal', 18, 16, 19, 3);
 rug('green', 41, 6, 11, 2);
 rug('blue', 42, 16, 9, 3);
 rug('orange', 55, 6, 8, 4); // music room dance floor
+rug('burgundy', 65, 26, 9, 7); // the Library, under the reading tables
 floor[EXIT.y][EXIT.x] = tid('doormat');
 
 // ---- objects: multi-tile furniture. Footprint blocks walking unless walkable. ----
@@ -155,25 +179,24 @@ const obj = (type, x, y, w = 1, h = 1, extra = {}) => objects.push({ id: `o${++o
 // what clicking an object offers (see ObjectUse in shared/map.ts)
 const LAMP = { light: true, use: { kind: 'toggle', label: 'lamp' }, on: true };
 const COFFEE = { kind: 'take', items: [{ id: 'coffee', label: 'Coffee', icon: '☕' }, { id: 'tea', label: 'Tea', icon: '🍵' }] };
+const FOOD = { kind: 'take', items: [{ id: 'sandwich', label: 'Sandwich', icon: '🥪' }, { id: 'ramen', label: 'Ramen', icon: '🍜' }, { id: 'salad', label: 'Salad', icon: '🥗' }, { id: 'pizza', label: 'Pizza', icon: '🍕' }] };
 const FRIDGE = { kind: 'take', items: [{ id: 'snack', label: 'Snack', icon: '🥪' }, { id: 'juice', label: 'Juice', icon: '🧃' }, { id: 'icecream', label: 'Ice cream', icon: '🍦' }] };
 
 // outer windows & wall decor
 for (const wx of [3, 9, 29, 36]) obj('window', wx, 1, 2, 2, { wall: true });
-obj('whiteboard', 18, 1, 3, 2, { wall: true });
 obj('painting', 23, 1, 1, 2, { wall: true });
 obj('noticeboard', 2, 12, 2, 1, { wall: true, use: { kind: 'achievements', label: 'achievements' } });
-obj('clock', 25, 12, 1, 1, { wall: true });
 obj('painting_small', 10, 12, 1, 1, { wall: true });
 
 // Focus: desks with monitors, chairs, a lamp, bookshelf
 for (const [dx, dy] of [[2, 4], [5, 4], [8, 4], [2, 8], [9, 8]]) {
   obj('desk', dx, dy, 2, 1);
-  obj('chair', dx, dy + 1, 1, 1, { walkable: true });
+  obj('chair', dx === 2 ? 3 : dx, dy + 1, 1, 1, { walkable: true });
 }
-obj('bookshelf', 10, 3, 2, 1);
-obj('lamp', 12, 3, 1, 1, LAMP);
+obj('bookshelf', 11, 3, 2, 1);
+obj('lamp', 1, 10, 1, 1, LAMP);
 obj('plant', 1, 3, 1, 1);
-obj('lamp', 12, 9, 1, 1, LAMP);
+obj('lamp', 12, 10, 1, 1, LAMP);
 
 // Meeting: long table, chairs around, plants
 obj('table_long', 17, 5, 6, 2);
@@ -198,12 +221,17 @@ obj('plant', 38, 10, 1, 1);
 // Lobby: plants, sofa, reception, coffee table
 obj('plant', 1, 13, 1, 1);
 obj('plant', 14, 13, 1, 1);
-obj('sofa', 5, 21, 3, 1, { sit: true, dir: 'down' });
-obj('table_round', 6, 19, 1, 1);
+obj('sofa', 5, 16, 3, 1, { sit: true, dir: 'down' });
+obj('table_round', 6, 18, 1, 1);
 obj('reception', 10, 14, 3, 1);
+// Co-working's world clocks: real time with moving hands; clicking one opens the list of our cities
+obj('clock_nyc', 24, 12, 1, 1, { wall: true, use: { kind: 'clock', label: 'NYC', city: 'New York', tz: 'America/New_York' } });
+obj('clock_berlin', 26, 12, 1, 1, { wall: true, use: { kind: 'clock', label: 'BERLIN', city: 'Berlin', tz: 'Europe/Berlin' } });
+obj('clock_moscow', 28, 12, 1, 1, { wall: true, use: { kind: 'clock', label: 'MOSCOW', city: 'Moscow', tz: 'Europe/Moscow' } });
 obj('safe', 8, 12, 2, 1, { wall: true, use: { kind: 'link', label: 'vault', url: 'https://vault13.t1a.cloud/' } }); // Vault 13's door, set in the wall by reception
 obj('plant', 1, 22, 1, 1);
 obj('bookshelf', 12, 21, 2, 1);
+obj('hat_rack', 1, 18, 2, 1, { use: { kind: 'dealer', label: 'hat stand', items: ['hat:top', 'hat:party', 'hat:wizard', 'hat:cowboy', 'hat:crown'] } }); // hats go into your pockets
 
 // Co-working: four-seat tables
 for (const tx of [18, 23, 28, 33]) for (const ty of [14, 19]) {
@@ -218,7 +246,7 @@ obj('lamp', 38, 22, 1, 1, LAMP);
 // Lobby exit door (last, so earlier object ids stay put)
 obj('exit_door', EXIT.x, 12, 1, 1, { wall: true });
 // more lamps to flick on and off (after the door, same reason)
-obj('lamp', 1, 14, 1, 1, LAMP);
+obj('lamp', 2, 22, 1, 1, LAMP);
 obj('lamp', 27, 10, 1, 1, LAMP);
 obj('lamp', 14, 10, 1, 1, LAMP);
 
@@ -251,8 +279,7 @@ for (const [dx, dy] of [[41, 13], [44, 13], [48, 13], [51, 13], [41, 20], [44, 2
 }
 obj('sofa', 45, 17, 3, 1, { sit: true, dir: 'down' });
 obj('plant', 40, 22, 1, 1);
-obj('lamp', 52, 17, 1, 1, LAMP);
-obj('bookshelf', 47, 22, 2, 1);
+obj('lamp', 40, 16, 1, 1, LAMP);
 // Music room (after the east wing, same reason): windows, tables with stools, sofas along the bottom
 for (const wx of [55, 60]) obj('window', wx, 1, 2, 2, { wall: true });
 obj('plant', 54, 3, 1, 1);
@@ -285,6 +312,40 @@ obj('keyboard', 55, 4, 2, 1, { use: { kind: 'instrument', instrument: 'keys', la
 obj('drum_kit', 58, 4, 2, 2, { use: { kind: 'instrument', instrument: 'drums', label: 'drums' } });
 obj('bass_amp', 61, 4, 1, 1, { use: { kind: 'instrument', instrument: 'bass', label: 'bass' } });
 
+// the Meeting room's one board (the old whiteboard's spot is part of it): upload slides (PIN) and present them to the room (appended, same reason)
+obj('screen', 18, 1, 5, 2, { wall: true, use: { kind: 'presentation', label: 'screen' } });
+// the Admin room and Berghain (last, so earlier object ids stay put)
+obj('window', 71, 1, 2, 2, { wall: true });
+for (const y of [3, 7]) for (let x = 65; x <= 69; x++) obj('server_rack', x, y);
+obj('desk', 71, 4, 2, 1);
+obj('chair', 71, 5, 1, 1, { walkable: true });
+obj('plant', 73, 7);
+obj('neon_sign', 67, 12, 2, 1, { wall: true });
+obj('dj_booth', 67, 13, 3, 1, { sound: { gain: 0.8 }, use: { kind: 'jukebox', label: 'DJ booth', genres: ['Techno'] } }); // plays techno only
+obj('bouncer', 65, 16, 1, 1, { use: { kind: 'dealer', label: 'bouncer', items: ['drugs'] } }); // right by the door from the Arcade; knows a guy
+obj('lamp', 65, 13, 1, 1, LAMP);
+for (const x of [68, 70, 72]) obj('toilet', x, 21, 2, 2, { use: { kind: 'toilet', label: 'toilet' } });
+// the Library's tall shelves, in place of the trees of the patch it was built on (same ids); the middle one is the
+// shelf you publish to and borrow from
+for (const x of [66, 69, 72]) obj('bookshelf_tall', x, 25, 2, 1, x === 69 ? { use: { kind: 'library', label: 'library' } } : {});
+
+// Berghain's dance floor (appended: object ids stay put): step on and dance
+obj('dance_floor', 66, 15, 4, 3, { walkable: true, use: { kind: 'dance', label: 'dance floor' } });
+// two one-seat reading desks along the Library's east wall (the reading tables come last, so ids here stay put)
+for (const y of [27, 31]) {
+  obj('reading_desk', 73, y);
+  obj('chair', 73, y + 1, 1, 1, { walkable: true });
+}
+// the dining terrace (last, so earlier object ids stay put): two picnic tables with chairs on both sides, staggered so
+// the plates in front of facing diners land on different tiles, and a food cart
+for (const tx of [29, 34]) {
+  obj('table_picnic', tx, 27, 3, 1);
+  obj('chair', tx, 26, 1, 1, { walkable: true });
+  obj('chair', tx + 2, 26, 1, 1, { walkable: true });
+  obj('chair', tx + 1, 28, 1, 1, { walkable: true });
+}
+obj('food_cart', 32, 31, 2, 1, { use: FOOD });
+
 // ---- standing spots (seats follow the furniture: applyLayout in shared/map.ts) ----
 for (const r of rooms) r.stand = [];
 const stand = (id, list) => rooms.find(r => r.id === id).stand.push(...list.map(([x, y, dir]) => ({ x, y, dir })));
@@ -298,7 +359,10 @@ stand('desks', [[42, 17, 'right'], [50, 18, 'left']]);
 stand('music', [[57, 7, 'up'], [60, 8, 'up'], [58, 10, 'up']]);
 stand('arcade', [[55, 16, 'up'], [61, 16, 'up'], [58, 19, 'up']]);
 stand('orangery', [[7, 27, 'down'], [8, 29, 'down'], [7, 31, 'down']]);
-stand('garden', [[42, 29, 'down'], [43, 29, 'down'], [31, 27, 'left'], [56, 28, 'down'], [20, 28, 'down']]);
+stand('admin', [[70, 9, 'left']]);
+stand('berghain', [[69, 16, 'down'], [71, 17, 'left'], [66, 19, 'right']]);
+stand('library', [[68, 25, 'up'], [71, 25, 'up']]);
+stand('garden', [[42, 29, 'down'], [43, 29, 'down'], [33, 29, 'left'], [56, 28, 'down'], [20, 28, 'down']]);
 
 // ---- a separate, deterministic maze under the garden (never furniture) ----
 const random = (() => { let seed = 16; return () => {
@@ -390,6 +454,18 @@ for (const k of ['hole', 'hatch']) {
 const catalog = {};
 for (const { id: _i, x: _x, y: _y, ...t } of objects) catalog[t.type] ??= t;
 
+obj('bell', 11, 14, 1, 1, { onTop: true, use: { kind: 'bell', label: 'bell' } }); // on the reception counter
+
+// the Library's reading tables (after the bell, so every earlier id stays put): long dark tables with a green banker's
+// lamp each, in two rows of three; a chair on each side, staggered so the readers don't sit nose to nose
+const firstTable = objects.length;
+for (const ty of [27, 31]) for (const tx of [65, 68, 71]) {
+  obj('reading_table', tx, ty, 2, 1, { light: true });
+  obj('chair', tx, ty - 1, 1, 1, { walkable: true });
+  obj('chair', tx + 1, ty + 1, 1, 1, { walkable: true });
+}
+for (const { id: _i, x: _x, y: _y, ...t } of objects.slice(firstTable)) catalog[t.type] ??= t;
+
 const map = { version: 1, width: W, height: H, tileSize: 16, office: { x: 0, y: 0, w: W, h: OFFICE_H }, dungeon, tiles, layers: { floor, walls, walkable: [] }, rooms, objects: [], rugs: [], spawn: { x: 7, y: 17 }, exit: EXIT, catalog };
 applyLayout(map, { objects, rugs });
 for (const r of rooms) for (const s of r.stand) if (!r.spots.includes(s)) throw new Error(`standing spot ${r.id} ${s.x},${s.y} is under furniture`);
@@ -404,5 +480,14 @@ const problem = layoutProblem(map);
 if (problem) throw new Error(problem);
 for (const o of objects) if (o.use?.kind === 'arcade' && !besideObject(map, o).some(t => findPath(map, map.spawn, t).length)) throw new Error(`unreachable cabinet ${o.id}`);
 for (const x of [58, 59]) if (!findPath(map, map.spawn, { x, y: 11 }).length) throw new Error('Music door is unreachable');
+const admin = rooms.find(r => r.id === 'admin').rect;
+if (!findPath(map, map.spawn, { x: admin.x + 7, y: admin.y + 7 }).length) throw new Error('Admin room is unreachable');
+if (findPath(map, map.spawn, { x: admin.x + 7, y: admin.y + 7 }, true).length) throw new Error('non-admins can walk into the Admin room');
+for (const r of rooms) if (r.id !== 'admin' && r.stand.some(s => !findPath(map, map.spawn, s, true).length)) throw new Error(`${r.name} is only reachable through the Admin room`);
+{
+  const lib = rooms.find(r => r.id === 'library');
+  if (lib.spots.filter(s => objects.some(o => o.type === 'chair' && o.x === s.x && o.y === s.y)).length < 6) throw new Error('the Library seats fewer than six');
+  if (lib.stand.some(s => !findPath(map, map.spawn, s, true).length)) throw new Error('the Library is unreachable');
+}
 writeFileSync(new URL('../shared/tilemap.json', import.meta.url), JSON.stringify(map));
 console.log(`tilemap: ${W}x${H}, ${tiles.length - 1} tile kinds, ${objects.length} objects, ${rugs.length} rugs, ${rooms.reduce((n, r) => n + r.spots.length, 0)} spots`);
