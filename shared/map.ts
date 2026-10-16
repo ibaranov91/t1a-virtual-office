@@ -16,6 +16,7 @@ export interface Room {
   spots: Spot[];
   homeDesks?: boolean; // seats here can be claimed as someone's home desk
   plantSlots?: Tile[];  // where plants of people without a home desk stand (the Orangery's shelves)
+  disco?: { x: number; y: number }; // a disco ball comes out here in the evening: the floor point under it, in tiles
   rules: { voice?: 'open'; knock: KnockRule; label?: string; occupantLabel?: string; access?: 'admins' }; // access: only office admins walk in
   meeting: { provider: 'meet' | 'teams'; url: string };
 }
@@ -66,6 +67,7 @@ export interface MapObject {
   wall?: boolean; walkable?: boolean; light?: boolean; steam?: boolean; dir?: Dir;
   use?: ObjectUse; on?: boolean; // on: starting state of a toggle
   onTop?: boolean; // sits on top of another object (the reception bell): allowed to share its tile
+  turned?: boolean; // a chair or stool an admin rotated: keeps its `dir` instead of facing the nearest furniture
   sit?: boolean; // a sofa: blocks walking, but every tile is a seat facing `dir`, reached from the tile in front
 }
 /** A rug, drawn over the floor (9-slice). Never blocks. */
@@ -94,7 +96,7 @@ export interface TileMap {
 
 export const WALK_MS_PER_TILE = 250; // 4 tiles/s
 
-const SEAT_TYPES = new Set(['chair', 'stool']);
+export const SEAT_TYPES = new Set(['chair', 'stool']);
 /**
  * Per-tile lookups, built once per map: the map is read many times a frame (every sprite, every path), so
  * walkable/room/seat are flat typed arrays indexed by `y * width + x` instead of scans over rooms and objects.
@@ -228,6 +230,7 @@ export function sampleMove(path: Tile[], startedAt: number, t: number, ms = WALK
   return { x: a.x + (b.x - a.x) * f, y: a.y + (b.y - a.y) * f, dir: dirBetween(a, b), done: false, tile: f < 0.5 ? a : b, next: b };
 }
 
+const TURN: Record<Dir, Dir> = { down: 'left', left: 'up', up: 'right', right: 'down' }; // a quarter turn clockwise
 const STEP: Record<Dir, Tile> = { down: { x: 0, y: 1 }, up: { x: 0, y: -1 }, left: { x: -1, y: 0 }, right: { x: 1, y: 0 } };
 /** Path to `to`. Sofa seats aren't walkable: you sit down onto one from the tile in front, and get up the same way. */
 export function pathTo(m: TileMap, from: Tile, to: Tile, keepOut = false): Tile[] {
@@ -324,8 +327,8 @@ export function applyLayout(m: TileMap, l: Layout) {
     if (o.type === 'plant_shelf') { if (r) for (let x = o.x; x < o.x + o.w; x++) (r.plantSlots ??= []).push({ x, y: o.y }); continue; }
     if (!SEAT_TYPES.has(o.type)) continue;
     // face the neighbouring furniture
-    o.dir = !free(o.x, o.y - 1) && walls[o.y - 1]?.[o.x] === 0 ? 'up' : !free(o.x, o.y + 1) ? 'down' : !free(o.x + 1, o.y) ? 'right' : !free(o.x - 1, o.y) ? 'left' : 'down';
-    if (r) r.spots.push({ x: o.x, y: o.y, dir: o.dir });
+    if (!o.turned) o.dir = !free(o.x, o.y - 1) && walls[o.y - 1]?.[o.x] === 0 ? 'up' : !free(o.x, o.y + 1) ? 'down' : !free(o.x + 1, o.y) ? 'right' : !free(o.x - 1, o.y) ? 'left' : 'down';
+    if (r) r.spots.push({ x: o.x, y: o.y, dir: o.dir ?? 'down' });
   }
   for (const r of m.rooms) for (const s of r.stand) if (free(s.x, s.y) && !r.spots.some(p => p.x === s.x && p.y === s.y)) r.spots.push(s);
   reindexMap(m);
@@ -396,6 +399,13 @@ export function applyEdit(m: TileMap, edit: LayoutEdit, newId: () => string): La
       if (!it) return 'it\'s gone';
       if ('type' in it && FIXED_TYPES.has(it.type)) return `the ${objectName(it.type)} stays put`;
       it.x = edit.x; it.y = edit.y;
+      break;
+    }
+    case 'rotate': {
+      const it = objects.find(o => o.id === edit.id);
+      if (!it) return 'it\'s gone';
+      if (!SEAT_TYPES.has(it.type)) return `the ${objectName(it.type)} doesn't turn`;
+      it.dir = TURN[it.dir ?? 'down']; it.turned = true;
       break;
     }
     case 'add': {

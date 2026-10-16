@@ -10,12 +10,13 @@ import { needsGesture, resume } from './audio';
 import { prefs, savePrefs, type Category } from './prefs';
 import { ITEMS, MAP, Store, type ClientUser } from './net';
 import { inNativeApp, syncNative } from './native';
+import { fakeShare } from './share';
 import { LiveChip, PresentPanel, SlideOverlay } from './Presentation';
 import { LibraryPanel, ReadingOverlay } from './Library';
 import { ACHIEVEMENTS, underground, dayNumber, JUKEBOX_PER_PERSON, JUKEBOX_QUEUE_MAX, MAX_CHAT_LEN, MEET_LINK_RE, meetAs, normalizeMeetLink, kindName, PLANT_DIES_DAYS, PLANT_KINDS, PLANT_REVEAL, PLANT_STAGES, plantDead, plantName, REACTIONS, TOILET_CAPACITY, TOILET_SHELF_ITEM, TOILET_SHELF_MAX, TOILET_USE_MS, toiletFull, type JukeboxState, type Plant } from '../../shared/protocol';
 import { jukeboxPosition, TRACK, tracksFor } from '../../shared/music';
 import { ALL_HATS, DANCE_ROOM, EFFECTS, HAT_NAMES, effectOf, hatItem, hatOf } from '../../shared/effects';
-import { FIXED_TYPES, KEEP_TYPES, objectName, RUG_COLORS, RUG_MAX, RUG_MIN, RUG_PATTERNS, routes, rugFrame, seatAt } from '../../shared/map';
+import { FIXED_TYPES, KEEP_TYPES, objectName, RUG_COLORS, RUG_MAX, RUG_MIN, RUG_PATTERNS, SEAT_TYPES, routes, rugFrame, seatAt } from '../../shared/map';
 import { LUNCH_MS, picnicSeat } from '../../shared/lunch';
 
 // Dev server: sign in automatically as ?as=<name> (default "Dev"); each name keeps its own session,
@@ -170,7 +171,7 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
     e.onZoom = () => tick(n => n + 1);
     e.onEditChange = () => { setEditing(e.editing); tick(n => n + 1); };
     engineRef.current = e; setEngine(e);
-    if (import.meta.env.DEV) Object.assign(window, { __deck: { store, engine: e } });
+    if (import.meta.env.DEV) Object.assign(window, { __deck: { store, engine: e, share: { fake: (id?: string) => fakeShare(store, id) } } });
     return () => { e.destroy(); setEngine(null); };
   }, [assets, store]);
   useEffect(() => { const i = setInterval(() => { tick(n => n + 1); store.checkAgenda(); }, 1000); return () => clearInterval(i); }, [store]);
@@ -502,7 +503,7 @@ function RoomList({ store, onPick, onRoom, onPerson, onClose }: {
         if ((r.id === 'hall' || r.id === 'meetings' || r.id === 'underground') && !ids.length) return null;
         return (
           <section key={r.id}>
-            <h3 onClick={MAP.rooms.some(m => m.id === r.id) ? () => onRoom(r.id) : undefined} title={MAP.rooms.some(m => m.id === r.id) ? `Walk to ${r.name}` : undefined}>{r.name} <small>{ids.length}{r.capacity ? `/${r.capacity}` : ''} · {subtitle}</small></h3>
+            <h3 onClick={MAP.rooms.some(m => m.id === r.id) ? () => onRoom(r.id) : undefined} title={MAP.rooms.some(m => m.id === r.id) ? `Walk to ${r.name}` : undefined}>{r.name} <small>{ids.length} · {subtitle}</small></h3>
             <ul>
               {ids.map(id => {
                 const u = store.users.get(id)!;
@@ -630,7 +631,8 @@ function NowPlayingChip({ store }: { store: Store }) {
   const o = MAP.objects.find(o => o.use?.kind === 'jukebox' && store.inJukeboxRoom(o.id));
   const state = o && store.jukebox[o.id], track = state && TRACK.get(state.track);
   if (!o || !state || !track) return null;
-  const label = `♪ ${track.title} — ${track.artist} · ${musicTime(musicPosition(store, state))} / ${musicTime(track.duration)}`;
+  const loading = store.soundscape?.jukeboxLoading(o.id) ?? false;
+  const label = `♪ ${track.title} — ${track.artist} · ${loading ? 'Loading…' : `${musicTime(musicPosition(store, state))} / ${musicTime(track.duration)}`}`;
   return <div className="desk-chip jukebox-chip" onClick={() => store.openJukebox(o.id)}>
     <button className="ghost jukebox-chip-title" title={label} onClick={e => { e.stopPropagation(); store.openJukebox(o.id); }}>{label}</button>
     <div className="jukebox-controls" onClick={e => e.stopPropagation()}>
@@ -672,7 +674,7 @@ function JukeboxPanel({ store, id }: { store: Store; id: string }) {
         {state && track && <>
           <b>{track.title}</b><p className="small">{track.artist} · {track.genre}</p>
           <progress className="jukebox-progress" aria-label="Track progress" max={track.duration} value={position} />
-          <div className="jukebox-times"><span>{musicTime(position)}</span><span>{musicTime(track.duration)}</span></div>
+          <div className="jukebox-times"><span role="status">{store.soundscape?.jukeboxLoading(id) ? 'Loading…' : musicTime(position)}</span><span>{musicTime(track.duration)}</span></div>
           <p className="small">{state.by ? `picked by ${store.name(state.by)}` : 'shuffle'}</p>
           {last && <p className="small" role="status">{{ pause: 'Paused', play: 'Resumed', skip: 'Skipped' }[last.kind]} by {store.name(last.by)}</p>}
           <div className="jukebox-controls"><JukeboxControls store={store} id={id} state={state} disabled={disabled} /></div>
@@ -728,7 +730,7 @@ function EditPanel({ store, engine, assets, onDone }: { store: Store; engine: En
   return (
     <div className="edit-panel">
       <div className="rooms-head"><span>Rearrange the office</span><button onClick={onDone}>Done</button></div>
-      <p className="hint">Drag furniture or rugs to move them. Arrows nudge, Delete removes, Esc lets go. Everyone sees changes right away.</p>
+      <p className="hint">Drag furniture or rugs to move them. Arrows nudge, R turns a chair, Delete removes, Esc lets go. Everyone sees changes right away.</p>
       {sel && <section className="edit-sel">
         <h3>{sel.type ? objectName(sel.type) : 'Rug'}</h3>
         {sel.color && <>
@@ -744,6 +746,7 @@ function EditPanel({ store, engine, assets, onDone }: { store: Store; engine: En
             <button onClick={() => resize(0, 1)} disabled={sel.h >= RUG_MAX} title="Longer (shift ↓)">↕+</button>
           </div>
         </>}
+        {sel.type && SEAT_TYPES.has(sel.type) && <button onClick={() => store.edit({ op: 'rotate', id: sel.id })} title="Turn (R)">⟳ Turn</button>}
         {sel.type && FIXED_TYPES.has(sel.type) ? <p className="hint">This one stays where it is.</p>
           : sel.type && KEEP_TYPES.has(sel.type) ? <p className="hint">The office needs this one: move it, but it stays.</p>
           : <button className="danger" onClick={() => store.edit({ op: 'remove', id: sel.id })}>Remove</button>}

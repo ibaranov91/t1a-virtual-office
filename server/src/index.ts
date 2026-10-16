@@ -7,12 +7,13 @@ import { createHash, randomUUID } from 'node:crypto';
 import { reverse as dnsReverse } from 'node:dns/promises';
 import { WebSocketServer } from 'ws';
 import type { TileMap } from '../../shared/map';
-import { PRESENT_MAX_BYTES, type ClientMsg } from '../../shared/protocol';
+import { PRESENT_MAX_BYTES, type ClientMsg, type DecksReply } from '../../shared/protocol';
+import { USER_QUOTA } from './decks';
 import { World } from './world';
 import { serveStatic } from './static';
 import { startBots } from './bots';
 import { startCreatures } from './creatures';
-import { DECK_ID_RE, PresentError, Presenter } from './presentation';
+import { DECK_ID_RE, DeckStore, PresentError, Presenter } from './presentation';
 import { finish as finishGoogle, googleEnabled, revoke as revokeGoogle } from './google';
 
 const PORT = Number(process.env.DECK_PORT ?? 8787);
@@ -40,7 +41,16 @@ const STATE_FILE = new URL('state.json', DATA);
 const map: TileMap = JSON.parse(readFileSync(new URL('../../shared/tilemap.json', import.meta.url), 'utf8'));
 const world = new World(map);
 const DECKS_DIR = fileURLToPath(new URL('decks/', DATA));
-world.present = new Presenter(DECKS_DIR, map, msg => world.broadcast(msg), (id, obj, settled) => world.isBeside(id, obj, settled));
+world.present = new Presenter(new DeckStore(DECKS_DIR), map, {
+  scopeOf: id => world.presentScopeOf(id),
+  beside: (id, obj, settled) => world.isBeside(id, obj, settled),
+  toScope: (scope, msg, except) => world.toScope(scope, msg, except),
+  name: id => world.users.get(id)?.name ?? 'Someone',
+});
+// Expired decks go at startup and hourly (and any live show of one comes down).
+const sweepDecks = () => world.present!.sweep().catch(e => console.warn('deck sweep failed:', e));
+void sweepDecks();
+setInterval(sweepDecks, 3600_000).unref();
 const sessions = new Map<string, string>(); // session id -> user id
 
 const BACKUPS = new URL('backups/', DATA);
@@ -260,19 +270,26 @@ const server = createServer(async (req, res) => {
     } catch (e) { return page('Not connected', (e as Error).message); }
   }
   // ---------- presentation mode ----------
-  const slide = req.method === 'GET' ? req.url?.match(/^\/api\/present\/([0-9a-f-]{36})\/(\d{1,3})\.(png|jpg)$/) : null;
-  if (slide) {
-    const deck = world.present!.decks.get(slide[1]), n = Number(slide[2]);
-    if (!deck || !DECK_ID_RE.test(deck.id) || n < 1 || n > deck.count || deck.ext[n - 1] !== slide[3]) return json(res, 404, { error: 'not found' });
-    const file = join(DECKS_DIR, deck.id, `${n}.${slide[3]}`);
+  const present = world.present!, store = present.store;
+  const slide = req.method === 'GET' ? req.url?.match(/^\/api\/present\/([0-9a-f-]{36})\/(\d{1,3})\.(png|jpg)\?k=([A-Za-z0-9_-]{8,32})$/) : null;
+  if (slide) { // the key in the URL is the only credential: viewers' <img> tags can't send the session header
+    const deck = store.get(slide[1]), n = Number(slide[2]);
+    if (!deck || !DECK_ID_RE.test(deck.id) || n < 1 || n > deck.count || deck.ext[n - 1] !== slide[3] || deck.key !== slide[4]) return json(res, 404, { error: 'not found' });
+    const file = store.slidePath(deck, n);
     res.writeHead(200, { 'content-type': slide[3] === 'png' ? 'image/png' : 'image/jpeg', 'content-length': statSync(file).size, 'cache-control': 'private, max-age=31536000, immutable' });
     return createReadStream(file).pipe(res);
   }
   if (req.url?.startsWith('/api/present/')) {
     const userId = sessions.get(String(req.headers['x-deck-session'] ?? ''));
     if (!userId || !world.users.has(userId)) return json(res, 401, { error: 'sign in first' });
-    if (req.method === 'GET' && req.url === '/api/present/decks')
-      return json(res, 200, { decks: [...world.present!.decks.values()].sort((a, b) => b.at - a.at).slice(0, 20) });
+    if (req.method === 'GET' && req.url === '/api/present/decks') {
+      const reply: DecksReply = { decks: store.list(userId), used: store.used(userId), limit: USER_QUOTA };
+      return json(res, 200, reply);
+    }
+    const del = req.method === 'DELETE' ? req.url.match(/^\/api\/present\/([0-9a-f-]{36})$/) : null;
+    if (del) {
+      return present.remove(userId, del[1]).then(() => json(res, 200, {}), e => json(res, e instanceof PresentError ? e.code : 400, { error: e instanceof PresentError ? e.message : 'Delete failed.' }));
+    }
     if (req.method !== 'POST' || !['/api/present/upload', '/api/present/start'].includes(req.url)) return json(res, 404, { error: 'not found' });
     const chunks: Buffer[] = []; let size = 0, tooBig = false;
     req.on('data', (c: Buffer) => { size += c.length; if (size > PRESENT_MAX_BYTES * 1.4) tooBig = true; else chunks.push(c); });
@@ -283,7 +300,7 @@ const server = createServer(async (req, res) => {
         const deck = req.url === '/api/present/upload' ? await world.present!.upload(userId, body) : world.present!.present(userId, body);
         json(res, 200, { deck });
       } catch (e) {
-        if (e instanceof PresentError) return json(res, e.code, { error: e.message });
+        if (e instanceof PresentError) return json(res, e.code, { error: e.message, ...e.extra });
         console.warn('presentation upload failed:', e);
         json(res, 400, { error: 'Upload failed.' });
       }

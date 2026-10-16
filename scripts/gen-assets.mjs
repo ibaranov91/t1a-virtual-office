@@ -429,6 +429,42 @@ for (const n of [1, 2]) {
   else { t.hline(4, 1, 3, c); t.vline(6, 1, 4, c); t.px(5, 5, c); }
   frames[`note_${n}`] = t.outline();
 }
+// disco ball for the Music room's evenings: mirror facets lit from the upper left; each frame turns it half a facet
+{
+  const DISCO = ['#2c2840', '#46405e', '#666684', '#8e90ae', '#b8bcd4', '#dfe3f0', '#ffffff'];
+  for (let f = 0; f < 4; f++) {
+    const t = new Img(16, 16), c = 8, r = 7;
+    for (let y = 1; y < 15; y++) for (let x = 1; x < 15; x++) {
+      const nx = (x + 0.5 - c) / r, ny = (y + 0.5 - c) / r, d = nx * nx + ny * ny;
+      if (d > 1) continue;
+      const nz = Math.sqrt(1 - d), light = Math.max(0, -0.5 * nx - 0.55 * ny + 0.67 * nz);
+      const u = Math.atan2(nx, nz) / Math.PI * 7 + f / 4 + 7, v = Math.asin(ny) / Math.PI * 6 + 6;
+      const grout = u % 1 < 0.3 || v % 1 < 0.3; // the gaps between mirrors
+      t.px(x, y, DISCO[Math.max(0, Math.min(DISCO.length - 1, Math.round(light * (DISCO.length - 1) + 0.4) - (grout ? 2 : 0)))]);
+    }
+    t.px(4, 4, '#ffffff'); t.px(5, 4, '#ffffff'); t.px(4, 5, '#ffffff'); t.px(6, 3, '#ffffff'); // the window's reflection stays put
+    t.outline();
+    t.hline(7, 0, 2, '#8a8aa2'); // where the string ties on
+    frames[`disco_${f}`] = t;
+  }
+  const s = new Img(1, 12); // the string, fading up into the dark
+  for (let y = 0; y < 12; y++) s.px(0, y, [150, 144, 170, Math.round(220 * ((y + 1) / 12) ** 1.5)]);
+  frames.disco_string = s;
+  const g = new Img(5, 5); // a glint off a facet
+  g.px(2, 2, '#ffffff'); for (const [x, y] of [[2, 0], [2, 1], [2, 3], [2, 4], [0, 2], [1, 2], [3, 2], [4, 2]]) g.px(x, y, [235, 230, 255, Math.abs(x - 2) + Math.abs(y - 2) > 1 ? 110 : 220]);
+  frames.disco_glint = g;
+  // the spots it throws: soft pixel blobs, a white-hot middle
+  for (const [i, c] of ['#ff6ec4', '#6ad8ff', '#ffd860', '#b088ff', '#78f0a8'].entries()) {
+    const t = new Img(13, 8), [cr, cg, cb] = hex(c);
+    for (let y = 0; y < 8; y++) for (let x = 0; x < 13; x++) {
+      const dx = (x + 0.5 - 6.5) / 6.5, dy = (y + 0.5 - 4) / 4, d = dx * dx + dy * dy;
+      if (d > 1) continue;
+      const w = d < 0.15 ? 0.35 : 0, a = d < 0.15 ? 255 : d < 0.5 ? 210 : 110;
+      t.px(x, y, [cr + (255 - cr) * w, cg + (255 - cg) * w, cb + (255 - cb) * w, a].map(Math.round));
+    }
+    frames[`disco_spot_${i}`] = t;
+  }
+}
 
 // ---------- wall decor ----------
 {

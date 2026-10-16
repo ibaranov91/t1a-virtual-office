@@ -4,13 +4,14 @@ import { playTable } from './sounds';
 import mapJson from '../../shared/tilemap.json';
 import { applyLayout, besideObject, doorwayTiles, isWalkable, objectById, pathTo, roomAt, sampleMove, type Dir, type Tile, type TileMap } from '../../shared/map';
 import { FOOD_ITEMS } from '../../shared/lunch';
-import { ACHIEVEMENTS, underground, DUNGEON_INSTANCE, PLANT_STAGES, plantName, ROOM_VOICE_MAX, type JukeboxState, type JukeboxAction, type AgendaItem, type LayoutEdit, type CalEvent, type MeetingRoomInfo, type ChatMsg, type LiveDeck, type ObjectState, type ToiletState, type ClientMsg, type PublicUser, type Reaction, type RtcSignal, type ServerMsg, type Creature, type Cup, CUP_ITEMS, type LibraryState } from '../../shared/protocol';
+import { ACHIEVEMENTS, underground, DUNGEON_INSTANCE, PLANT_STAGES, plantName, ROOM_VOICE_MAX, type JukeboxState, type JukeboxAction, type AgendaItem, type LayoutEdit, type CalEvent, type MeetingRoomInfo, type ChatMsg, type LiveDeck, presentScope, type ObjectState, type ToiletState, type ClientMsg, type PublicUser, type Reaction, type RtcSignal, type ServerMsg, type Creature, type Cup, CUP_ITEMS, type LibraryState } from '../../shared/protocol';
 import { gameDef } from '../../shared/arcade/registry';
 import { emptyWeek } from '../../shared/arcade/weeks';
 import { ParkLoop } from './park/loop';
 import type { CabinetSummary, ParkRecords, ArcadeBoards } from '../../shared/protocol';
 import { playPark, playHand, playKnock, playPop, playDungeon, playPet } from './sounds';
 import type { Soundscape } from './soundscape';
+import { bestOffset, clockSample, CLOCK_SAMPLES, type ClockSample } from './clockSync';
 
 export const MAP = mapJson as unknown as TileMap;
 
@@ -51,6 +52,7 @@ export class Store {
   users = new Map<string, ClientUser>();
   me = '';
   offset = 0; // serverTime - localTime
+  private clockSync = { samples: [] as ClockSample[], pings: new Map<number, { at: number; perf: number }>(), id: 0, timers: [] as number[], synced: false };
   toasts: Toast[] = [];
   connected = false;
   voiceOwner = false;
@@ -128,13 +130,26 @@ export class Store {
     ws.onopen = () => { this.connected = true; this.emit(); };
     ws.onmessage = (e) => this.onMessage(JSON.parse(e.data));
     ws.onclose = (e) => {
-      this.clearInstruments(); this.park?.runner.setLocalBits(0); this.cabinets = []; this.connected = false; this.voiceOwner = false; this.jukebox = {}; this.jukeboxReady = false; this.soundscape?.resetCrossings(); this.emit();
+      this.stopClock(); this.clearInstruments(); this.park?.runner.setLocalBits(0); this.cabinets = []; this.connected = false; this.voiceOwner = false; this.jukebox = {}; this.jukeboxReady = false; this.soundscape?.resetCrossings(); this.emit();
       if (e.code === 4001) return this.onUnauthorized();
       if (!this.closed) setTimeout(() => this.connect(), 1500);
     };
   }
-  close() { this.closed = true; this.clearInstruments(); this.park?.runner.setLocalBits(0); this.cabinets = []; this.connected = false; this.voiceOwner = false; this.jukebox = {}; this.jukeboxReady = false; this.soundscape?.resetCrossings(); this.emit(); this.ws?.close(); }
+  close() { this.closed = true; this.stopClock(); this.clearInstruments(); this.park?.runner.setLocalBits(0); this.cabinets = []; this.connected = false; this.voiceOwner = false; this.jukebox = {}; this.jukeboxReady = false; this.soundscape?.resetCrossings(); this.emit(); this.ws?.close(); }
   send(msg: ClientMsg) { if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(msg)); }
+  /** NTP-style clock sync (clockSync.ts): a burst of pings on connect, then one every 20 s to follow drift. Everything timed by
+   *  the server (walks, notes, the jukebox) runs on now(), so listeners on slow links hear the jukebox where others do. */
+  private syncClock() {
+    this.stopClock(); this.clockSync.samples = []; this.clockSync.synced = false;
+    const ping = () => {
+      const id = ++this.clockSync.id, at = Date.now();
+      for (const [old, p] of this.clockSync.pings) if (at - p.at > 10_000) this.clockSync.pings.delete(old);
+      this.clockSync.pings.set(id, { at, perf: performance.now() }); this.send({ t: 'ping', id });
+    };
+    for (const ms of [0, 150, 300, 450, 600]) this.clockSync.timers.push(window.setTimeout(ping, ms));
+    this.clockSync.timers.push(window.setInterval(ping, 20_000));
+  }
+  private stopClock() { for (const t of this.clockSync.timers) { clearTimeout(t); clearInterval(t); } this.clockSync.timers = []; this.clockSync.pings.clear(); }
 
   private clearInstruments() {
     for (const id of Object.keys(this.instruments)) this.soundscape?.allOff(id);
@@ -396,13 +411,16 @@ export class Store {
   openPresent(id: string | null) { this.presentOpen = id; this.emit(); }
   presentSlide(slide: number) { if (this.presentation?.presenter === this.me) this.send({ t: 'present_slide', slide }); }
   presentStop() { this.send({ t: 'present_stop' }); }
+  presentShare(objectId: string) { this.send({ t: 'present_share', objectId }); }
+  presentFrame(seq: number, data: string) { this.send({ t: 'present_frame', seq, data }); }
+  frame: { seq: number; url: string } | null = null; // screen share: the latest frame (a data: URL)
   hideSlides(hidden: boolean) { this.slidesHidden = hidden; this.emit(); }
   /** For REST calls made as me (uploading slides). */
   get sessionId() { return this.session; }
   /** I'm presenting, or I'm in the screen's room (not in a meeting's copy of it). */
   inPresentationRoom() {
     const l = this.presentation, me = this.users.get(this.me);
-    return !!l && !!me && (l.presenter === me.id || (!me.instance && this.roomOf(me)?.id === l.room));
+    return !!l && !!me && (l.presenter === me.id || (presentScope(me.instance) === l.scope && (!!me.instance || this.roomOf(me)?.id === l.room)));
   }
   openLink(use: { label: string; url: string }) { this.linkOpen = use; this.emit(); }
   closeLink() { this.linkOpen = null; this.emit(); }
@@ -481,10 +499,20 @@ export class Store {
 
   private onMessage(msg: ServerMsg) {
     switch (msg.t) {
+      case 'pong': {
+        const sent = this.clockSync.pings.get(msg.id); if (!sent) break;
+        this.clockSync.pings.delete(msg.id);
+        const sample = clockSample(sent.at, performance.now() - sent.perf, msg.serverTime); if (!sample) break;
+        this.clockSync.samples = [...this.clockSync.samples, sample].slice(-CLOCK_SAMPLES);
+        const offset = bestOffset(this.clockSync.samples)!, moved = Math.abs(offset - this.offset) > 1;
+        this.offset = offset; this.clockSync.synced = true;
+        if (moved) this.emit();
+        break;
+      }
       case 'hello':
         this.me = msg.you;
         this.park ??= new ParkLoop(this.me, msg => this.send(msg));
-        this.offset = msg.serverTime - Date.now();
+        this.offset = msg.serverTime - Date.now(); this.syncClock();
         if (msg.build && this.build && msg.build !== this.build) this.staleBuild = true;
         this.build ??= msg.build;
         this.sendTz();
@@ -523,7 +551,9 @@ export class Store {
         this.toast({ kind: 'call_moved', roomId: msg.roomId, text: `${this.name(msg.userId).split(' ')[0]} went into ${MAP.rooms.find(r => r.id === msg.roomId)?.name ?? msg.roomId}`, expires: 15000 });
         break;
       case 'state': {
-        this.offset = msg.serverTime - Date.now();
+        // until the clock pings answer: a message can't arrive before it was sent, so each reading is a lower bound, and the
+        // big snapshot takes longer on a slow link than the hello just before it, so keep the tighter one
+        if (!this.clockSync.synced) this.offset = Math.max(this.offset, msg.serverTime - Date.now());
         const next = new Map<string, ClientUser>();
         for (const p of msg.users) {
           const old = this.users.get(p.id);
@@ -726,8 +756,14 @@ export class Store {
       case 'mute': { const u = this.users.get(msg.userId); if (u) { u.muted = msg.muted; if (msg.muted) u.speaking = false; } break; }
       case 'status': { const u = this.users.get(msg.userId); if (u) u.status = msg.status; break; }
       case 'presentation': {
-        if (msg.live?.deck.id !== this.presentation?.deck.id) this.slidesHidden = msg.live?.presenter !== this.me; // viewers are asked first (LiveChip)
+        if (msg.live?.deck?.id !== this.presentation?.deck?.id || msg.live?.presenter !== this.presentation?.presenter) this.slidesHidden = msg.live?.presenter !== this.me; // viewers are asked first (LiveChip)
+        if (!msg.live || msg.live.presenter !== this.presentation?.presenter || msg.live.deck?.id !== this.presentation.deck?.id) this.frame = null;
         this.presentation = msg.live; break;
+      }
+      case 'frame': {
+        const me = this.users.get(this.me);
+        if (!this.presentation || msg.scope !== this.presentation.scope || msg.scope !== presentScope(me?.instance) || msg.seq <= (this.frame?.seq ?? -1)) return;
+        this.frame = { seq: msg.seq, url: `data:image/jpeg;base64,${msg.data}` }; break;
       }
       case 'tz': { const u = this.users.get(msg.userId); if (u) { if (msg.tz) u.tz = msg.tz; else delete u.tz; } break; }
       case 'look': { const u = this.users.get(msg.userId); if (u) { u.look = msg.look; u.lookSet = msg.lookSet; if (msg.name) u.name = msg.name; } break; }

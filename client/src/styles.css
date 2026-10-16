@@ -674,3 +674,20 @@ button:focus-visible, summary:focus-visible, input[type="range"]:focus-visible {
   .table-hand { gap: 4px; }
   .table-hand canvas[height="68"] { width: 48px; height: 68px; }
 }
+
+/* presentation: tabs, deck library, usage bar, screen share */
+.present-tabs { display: flex; gap: 6px; align-items: center; }
+.present-tabs button[role=tab] { background: transparent; color: var(--muted, #aaa); box-shadow: none; border-bottom: 2px solid transparent; border-radius: 0; padding: 2px 8px; }
+.present-tabs button[role=tab].on { color: var(--text); border-bottom-color: #ff2d95; }
+.present-tabs .present-share { margin-left: auto; }
+.present-spot { display: grid; gap: 6px; max-height: 200px; overflow: auto; }
+.present-spot .row { display: flex; align-items: center; gap: 8px; }
+.present-spot input { flex: 1; min-width: 0; }
+.present-decks { max-height: 200px; }
+.present-usage { position: relative; height: 14px; border: 1px solid var(--line); border-radius: 3px; background: var(--panel2); overflow: hidden; margin-top: 4px; }
+.present-usage > div { position: absolute; inset: 0 auto 0 0; background: #6b2a5a; }
+.present-usage > span { position: relative; display: block; text-align: center; font-size: 10px; line-height: 12px; }
+.present-live + .present-tabs { margin-top: 2px; }
+.watch-wait { color: #ff4fa8; font-weight: 900; padding: 40px 12px; text-align: center; }
+.share-card { position: absolute; left: 50%; top: 56px; transform: translateX(-50%); z-index: 6; display: flex; align-items: center; gap: 10px; }
+.share-card .mag-stop { background: #ff2d95; color: #fff; }

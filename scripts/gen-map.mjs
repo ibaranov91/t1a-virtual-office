@@ -57,6 +57,7 @@ const rooms = [
   // Music above the Arcade: reached through the new divider door
   { id: 'music', name: 'Music', type: 'music', rect: { x: 54, y: 3, w: 10, h: 8 }, capacity: 12,
     floor: 'wood_dark', rug: 'orange',
+    disco: { x: 59, y: 8.5 }, // over the dance floor, clear of the drum kit
     rules: { knock: 'allow', label: 'jukebox · knock to talk' },
     meeting: { provider: 'meet', url: 'https://meet.google.com/new' } },
   { id: 'arcade', name: 'Arcade', type: 'arcade', rect: { x: 54, y: 13, w: 10, h: 10 }, capacity: 12,
@@ -74,7 +75,7 @@ const rooms = [
     meeting: { provider: 'meet', url: 'https://meet.google.com/new' } },
   // the far east column: the servers, reached through the club (only admins get past its door), and the club itself
   { id: 'admin', name: 'Admin', type: 'admin', rect: { x: 65, y: 3, w: 9, h: 8 }, capacity: 4,
-    floor: 'raised', rug: 'blue',
+    floor: 'raised', rug: 'blue', homeDesks: true,
     rules: { knock: 'allow', access: 'admins', label: 'admins only · knock to talk' },
     meeting: { provider: 'meet', url: 'https://meet.google.com/new' } },
   { id: 'berghain', name: 'Berghain', type: 'club', rect: { x: 65, y: 13, w: 9, h: 10 }, capacity: 20,
