@@ -208,15 +208,15 @@ function useUnreachable(store: Store, voice: Voice | null) {
 }
 
 /** Knock calls keep the shared Meet link. */
-export function CallChip({ store, voice, compact = false }: { store: Store; voice: Voice | null; compact?: boolean }) {
+export function CallChip({ store, voice, compact = false, header = false }: { store: Store; voice: Voice | null; compact?: boolean; header?: boolean }) {
   const me = store.users.get(store.me), unreachable = useUnreachable(store, voice);
   if (!me?.callId) return null;
   const state = voiceState(voice), peers = store.callPeers(me);
   const meet = store.callLink && MEET_LINK_RE.test(store.callLink) ? store.callLink : null;
   const text = `Talking with ${store.names(peers)} · ${state}`;
-  return <div className={compact ? "now-row call-chip knock-panel" : "desk-chip call-chip knock-panel"}>
+  return <div className={`${compact ? 'now-row' : header ? 'chip header-voice' : 'desk-chip'} call-chip knock-panel`}>
     <span className={`dot ${state === 'live' ? 'live' : ''}`} />
-    <span className={compact ? 'now-text' : undefined} title={unreachable ? `${text} · ${unreachable}` : text}>{text}{!compact && unreachable && <small className="cant-reach" title={REACH_TITLE}>{unreachable}</small>}</span>
+    <span className={compact || header ? 'now-text' : undefined} title={unreachable ? `${text} · ${unreachable}` : text}>{text}{!compact && !header && unreachable && <small className="cant-reach" title={REACH_TITLE}>{unreachable}</small>}</span>
     {!compact && <><VoiceToggle kind="mic" voice={voice} disabled={!store.connected || !store.voiceOwner} /><VoiceToggle kind="headphones" voice={voice} disabled={!store.connected || !store.voiceOwner} savedDeafened={prefs.deafened} /></>}
     {voice?.onMeet && <button onClick={() => voice.setOnMeet(false)}>Use Deck voice</button>}
     {meet && <ExternalLink href={meetAs(meet, store.meetAccount)} onOpen={() => { voice?.setOnMeet(); store.moveToMeet(); }}>Move to Meet</ExternalLink>}
@@ -246,13 +246,13 @@ export function roomVoiceStatus(store: Store, voice: Pick<Voice, 'onMeet' | 'dea
 }
 
 /** In an open-voice room: say whether the room can hear you. */
-export function RoomVoiceChip({ store, voice, compact = false }: { store: Store; voice: Voice | null; compact?: boolean }) {
+export function RoomVoiceChip({ store, voice, compact = false, header = false }: { store: Store; voice: Voice | null; compact?: boolean; header?: boolean }) {
   const room = roomVoiceOf(store, voice);
   if (!room || !voice) return null;
-  const { state, text, title } = roomVoiceStatus(store, voice, room, { short: compact });
-  return <div className={`${compact ? 'now-row' : 'desk-chip'} call-chip room-voice ${state}`} role="status">
+  const { state, text, title } = roomVoiceStatus(store, voice, room, { short: compact || header });
+  return <div className={`${compact ? 'now-row' : header ? 'chip header-voice' : 'desk-chip'} call-chip room-voice ${state}`} role="status">
     <span className={`dot ${state === 'live' ? 'live' : ''}`} />
-    <span className={compact ? 'now-text' : undefined} title={title}>{text}</span>
+    <span className={compact || header ? 'now-text' : undefined} title={title}>{text}</span>
     {voice.onMeet && <button onClick={() => voice.setOnMeet(false)}>Use Deck voice</button>}
     {!compact && <><VoiceToggle kind="mic" voice={voice} disabled={!store.connected} />
       <VoiceToggle kind="headphones" voice={voice} disabled={!store.connected} savedDeafened={prefs.deafened} /></>}
