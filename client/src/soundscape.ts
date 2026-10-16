@@ -12,7 +12,11 @@ import { playDoorOpen, playDoorClose, playBell } from './sounds';
 import { roomDoors, type RoomDoor } from './doors';
 
 type Level = { id: string; gain: number; pan: number; send: number };
-type Jukebox = { player: JukeboxPlayer; duck: GainNode; heard: boolean; heardAt: number; warmAt: number; analyser?: AnalyserNode };
+type Jukebox = {
+  player: JukeboxPlayer; duck: GainNode; heard: boolean; heardAt: number; warmAt: number; analyser?: AnalyserNode;
+  waitingSince?: number; loading: boolean; // heard, should play, silent for a moment: the UI says "Loading…"
+};
+const LOADING_AFTER = 300; // ms: a start this quick (a prefetched track) doesn't flash the status
 const WARM_TILES = 4; // walking this close to the jukebox room's door starts loading it (silently)
 /** Whether a walk of at most n steps from `from` reaches one of `targets` (through floor, not walls). */
 function within(from: Tile, targets: Tile[], n: number) {
@@ -73,7 +77,7 @@ export class Soundscape {
     return [...this.sources.values()].filter(s => s.kind === 'jukebox').map(s => {
       const id = s.level.id.slice(4), desired = this.store.jukebox[id], j = s.jukebox!;
       return { id, track: desired?.track ?? null, playId: desired?.playId ?? null,
-        duck: s.duck ?? 1, ...j.player.debug(), rms: j.analyser ? rms(j.analyser) : 0 };
+        duck: s.duck ?? 1, ...j.player.debug(), loading: j.loading, rms: j.analyser ? rms(j.analyser) : 0 };
     });
   }
   instruments() {
@@ -123,6 +127,8 @@ export class Soundscape {
     }
     if (by) this.clocks.delete(by); else this.clocks.clear();
   }
+  /** The jukebox should be playing for me but is still loading (or waiting for data). */
+  jukeboxLoading(id: string) { return !!this.sources.get(`obj:${id}`)?.jukebox?.loading; }
   levels(): Level[] { return [...this.sources.values()].map(s => ({ ...s.level })); }
   addVoice(id: string, stream: MediaStream) {
     this.remove(id);
@@ -174,7 +180,7 @@ export class Soundscape {
     for (const o of MAP.objects) if (o.use?.kind === 'jukebox' && !this.sources.has(`obj:${o.id}`)) {
       const duck = audio().createGain(); // ducked while someone plays
       const s = this.add(`obj:${o.id}`, 'jukebox', duck, o.sound?.gain ?? 1, { x: o.x, y: o.y });
-      const j: Jukebox = { player: new JukeboxPlayer(duck, () => this.update()), duck, heard: false, heardAt: -Infinity, warmAt: -Infinity };
+      const j: Jukebox = { player: new JukeboxPlayer(duck, () => this.update()), duck, heard: false, heardAt: -Infinity, warmAt: -Infinity, loading: false };
       if (import.meta.env.DEV) { j.analyser = audio().createAnalyser(); j.analyser.fftSize = 2048; s.low.connect(j.analyser); }
       s.jukebox = j;
     }
@@ -214,7 +220,7 @@ export class Soundscape {
       return;
     }
     const pose = this.store.pose(me), room = this.store.roomCallOf(me), c = audio();
-    let audible = false;
+    let audible = false, loadingChanged = false;
     for (const [id, s] of this.sources) {
       const u = this.store.users.get(id), p = s.tile ? { ...s.tile, tile: s.tile } : u ? this.store.pose(u) : null;
       if (!p) continue;
@@ -252,13 +258,17 @@ export class Soundscape {
         j.player.update({ state, now: serverNow, perf: now, warm: now - j.warmAt < 3000, heard: j.heard });
         const play = currentPlay(state, id => TRACK.get(id)?.duration, serverNow);
         if (j.heard && play && !play.paused && serverNow < play.endsAt) audible = true;
+        const waiting = j.heard && j.player.waiting();
+        j.waitingSince = waiting ? j.waitingSince ?? now : undefined;
+        const loading = waiting && now - j.waitingSince! >= LOADING_AFTER;
+        if (loading !== j.loading) { j.loading = loading; loadingChanged = true; }
       } else if (gain > 0) audible = true;
     }
     for (const b of this.buses.values()) {
       const inside = !me.instance && roomAt(MAP, pose.tile.x, pose.tile.y)?.id === b.room.id;
       b.gate.gain.setTargetAtTime(inside ? 1 : 0, c.currentTime, inside ? .08 : .02);
     }
-    if (this.audible !== audible) { this.audible = audible; this.store.changed(); }
+    if (this.audible !== audible || loadingChanged) { this.audible = audible; this.store.changed(); }
     this.crossings();
     } finally { this.updating = false; }
   }

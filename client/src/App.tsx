@@ -627,7 +627,8 @@ function NowPlayingChip({ store }: { store: Store }) {
   const o = MAP.objects.find(o => o.use?.kind === 'jukebox' && store.inJukeboxRoom(o.id));
   const state = o && store.jukebox[o.id], track = state && TRACK.get(state.track);
   if (!o || !state || !track) return null;
-  const label = `♪ ${track.title} — ${track.artist} · ${musicTime(musicPosition(store, state))} / ${musicTime(track.duration)}`;
+  const loading = store.soundscape?.jukeboxLoading(o.id) ?? false;
+  const label = `♪ ${track.title} — ${track.artist} · ${loading ? 'Loading…' : `${musicTime(musicPosition(store, state))} / ${musicTime(track.duration)}`}`;
   return <div className="desk-chip jukebox-chip" onClick={() => store.openJukebox(o.id)}>
     <button className="ghost jukebox-chip-title" title={label} onClick={e => { e.stopPropagation(); store.openJukebox(o.id); }}>{label}</button>
     <div className="jukebox-controls" onClick={e => e.stopPropagation()}>
@@ -669,7 +670,7 @@ function JukeboxPanel({ store, id }: { store: Store; id: string }) {
         {state && track && <>
           <b>{track.title}</b><p className="small">{track.artist} · {track.genre}</p>
           <progress className="jukebox-progress" aria-label="Track progress" max={track.duration} value={position} />
-          <div className="jukebox-times"><span>{musicTime(position)}</span><span>{musicTime(track.duration)}</span></div>
+          <div className="jukebox-times"><span role="status">{store.soundscape?.jukeboxLoading(id) ? 'Loading…' : musicTime(position)}</span><span>{musicTime(track.duration)}</span></div>
           <p className="small">{state.by ? `picked by ${store.name(state.by)}` : 'shuffle'}</p>
           {last && <p className="small" role="status">{{ pause: 'Paused', play: 'Resumed', skip: 'Skipped' }[last.kind]} by {store.name(last.by)}</p>}
           <div className="jukebox-controls"><JukeboxControls store={store} id={id} state={state} disabled={disabled} /></div>

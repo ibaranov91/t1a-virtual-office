@@ -288,6 +288,15 @@ export class JukeboxPlayer {
     this.prefetch(play, d, perf);
     this.boundaryStart(play, now, perf, heard);
   }
+  /** Should be sounding but isn't: loading, a silent start, or a stream waiting for data. Not when blocked (Enable sound shows). */
+  waiting() {
+    const play = this.play, d = this.current;
+    if (!this.input?.warm || !play || play.paused) return false;
+    if (!d) return true;
+    if (d.blocked) return false;
+    if (d.phase !== 'live') return true;
+    return !d.el.paused && d.el.readyState < HTMLMediaElement.HAVE_FUTURE_DATA;
+  }
   audioChanged() {
     for (const d of this.decks) {
       if (d.blocked && !d.el.paused) { d.blocked = false; d.key = null; }
@@ -297,7 +306,7 @@ export class JukeboxPlayer {
   resync() { for (const d of this.decks) d.checkAt = -Infinity; }
   debug() {
     const d = this.current ?? this.decks[0], nextTrack = this.play?.next;
-    return { active: d.url !== null, paused: d.el.paused, currentTime: d.el.currentTime, src: d.el.getAttribute('src'),
+    return { waiting: this.waiting(), active: d.url !== null, paused: d.el.paused, currentTime: d.el.currentTime, src: d.el.getAttribute('src'),
       rate: d.el.playbackRate, lead: this.lead, expected: this.play && this.input ? this.expected(this.play, this.serverNow()) : 0,
       trusted: this.trusted, phase: d.phase, gate: d.gate.gain.value, key: d.key, local: d.local, nextTrack,
       nextReady: !!nextTrack && TRACK.has(nextTrack) && this.decks.some(d => d.phase === 'ready' && d.url === urlFor(nextTrack)),
