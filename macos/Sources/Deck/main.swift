@@ -406,6 +406,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
     decisionHandler(type == .microphone ? .grant : .deny)
   }
 
+  // <input type=file> (Slides in presentation mode): WKWebView draws no picker of its own.
+  func webView(_ w: WKWebView, runOpenPanelWith parameters: WKOpenPanelParameters, initiatedByFrame frame: WKFrameInfo,
+               completionHandler: @escaping ([URL]?) -> Void) {
+    let panel = NSOpenPanel()
+    panel.allowsMultipleSelection = parameters.allowsMultipleSelection
+    panel.canChooseDirectories = parameters.allowsDirectories
+    panel.canChooseFiles = true
+    if #available(macOS 11.0, *) { panel.allowedContentTypes = [.png, .jpeg, .pdf] }
+    else { panel.allowedFileTypes = ["png", "jpg", "jpeg", "pdf"] }
+    if let host = w.window, host.isVisible {
+      panel.beginSheetModal(for: host) { completionHandler($0 == .OK ? panel.urls : nil) }
+    } else {
+      // Popover: it's transient and would close when the panel takes focus, taking the web view (and the page's file input) with it.
+      let behavior = popover.behavior
+      popover.behavior = .applicationDefined
+      NSApp.activate()
+      let ok = panel.runModal() == .OK
+      popover.behavior = behavior
+      completionHandler(ok ? panel.urls : nil)
+    }
+  }
+
   // target=_blank / window.open (Meet links etc.) go to the default browser.
   func webView(_ w: WKWebView, createWebViewWith c: WKWebViewConfiguration, for action: WKNavigationAction,
                windowFeatures: WKWindowFeatures) -> WKWebView? {
