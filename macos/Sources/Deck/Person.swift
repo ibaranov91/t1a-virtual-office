@@ -50,9 +50,9 @@ enum Person {
   /// color nil = template (follows the menu bar's light/dark). mic and speaker add the glyphs beside the person (any glyph makes it non-template);
   /// dot adds a blue unread dot at the top right (then the image can't be a template, so the person is
   /// drawn in the menu bar's label color).
-  /// Test instances' apps ("The Deck (iva)") get a small purple mark at the bottom right, so they're easy to
-  /// tell apart from prod's app in the menu bar.
-  static let isTestInstance = (Bundle.main.object(forInfoDictionaryKey: "DeckInstance") as? String).map { $0 != "prod" } ?? false
+  /// Pointed at anything but prod (a test instance, the demo, local dev), the person gets a small purple mark
+  /// at the bottom right, so it's easy to tell which office the menu bar is showing. Set by AppDelegate.load().
+  static var isTestInstance = false
 
   static func image(_ art: [String] = standing, color: NSColor? = nil, mic: Glyph = .none, speaker: Glyph = .none, dot: Bool = false, pixel: CGFloat = 1) -> NSImage {
     let test = isTestInstance

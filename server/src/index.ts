@@ -164,7 +164,7 @@ ${CURL} '${base}/api/mac/The-Deck.zip' -o "$tmp/The-Deck.zip"
 echo '${m.sha256}  '"$tmp/The-Deck.zip" | shasum -a 256 -c - >/dev/null || { echo "Download is corrupted, try again." >&2; exit 1; }
 ditto -x -k "$tmp/The-Deck.zip" "$tmp"
 dest=/Applications; [ -w "$dest" ] || { dest="$HOME/Applications"; mkdir -p "$dest"; }
-pkill -f '/${m.app.replace(/[().]/g, '\\$&')}.app/Contents/MacOS/Deck' 2>/dev/null && sleep 1 || true # only this instance's app
+pkill -f '/${m.app.replace(/[().]/g, '\\$&')}.app/Contents/MacOS/Deck' 2>/dev/null && sleep 1 || true # only the app being replaced
 rm -rf "$dest/${m.app}.app"
 ditto "$tmp/${m.app}.app" "$dest/${m.app}.app"
 defaults write ${m.bundleId} url '${appUrl}'

@@ -82,9 +82,9 @@ npm run build -w client
 rm -rf macos/dist
 KC="${DECK_SIGNING_DIR:-$HOME/.deck-signing}/deck.keychain-db"
 if [ "$(uname)" != Darwin ]; then echo "warning: not on macOS; deploying without the Mac app" >&2
-elif [ -f "$KC" ] && macos/build.sh --dist "$NAME"; then :
+elif [ -f "$KC" ] && macos/build.sh --dist; then :
 else
-  if [ -f "$KC" ]; then WHY="the Mac app build failed"; FIX="fix the build (macos/build.sh --dist $NAME)"; ANYWAY="without a Mac app"
+  if [ -f "$KC" ]; then WHY="the Mac app build failed"; FIX="fix the build (macos/build.sh --dist)"; ANYWAY="without a Mac app"
   else WHY="this Mac has no T1A Deck signing identity"; ANYWAY="with an ad-hoc Mac app"
     FIX="import the shared identity, not a new one: DECK_P12_PASSWORD=… macos/make-cert.sh import <p12>"; fi
   SERVED=$(mktemp -d) # removed by cleanup
@@ -95,7 +95,7 @@ else
       grep -q '^Authority=' <<<"$(codesign -dvv "$SERVED/app/"*.app 2>&1 || true)" && SIGNED=true
   fi
   HAVE=$(sed -n 's/.*"build":"\([^"]*\)".*/\1/p' "$SERVED/manifest.json" 2>/dev/null || true)
-  WANT=$(macos/build.sh --build-id "$NAME")
+  WANT=$(macos/build.sh --build-id)
   if $SIGNED && [ "$HAVE" = "$WANT" ]; then
     mkdir -p macos/dist && cp "$SERVED/manifest.json" "$SERVED/The-Deck.zip" macos/dist/
     echo "→ $WHY, but the Mac app is unchanged (build $WANT): '$NAME' keeps the signed one it serves"
@@ -108,7 +108,7 @@ else
   else
     $SIGNED && echo "warning: DECK_ALLOW_ADHOC=1: replacing the signed Mac app '$NAME' serves; installed apps won't take it" >&2
     if [ -f "$KC" ]; then echo "warning: Mac app build failed; deploying without it" >&2
-    else macos/build.sh --dist "$NAME" || echo "warning: Mac app build failed; deploying without it" >&2; fi
+    else macos/build.sh --dist || echo "warning: Mac app build failed; deploying without it" >&2; fi
   fi
 fi
 rsync -az --delete \
