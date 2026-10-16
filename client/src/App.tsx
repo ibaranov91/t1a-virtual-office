@@ -10,6 +10,7 @@ import { prefs, savePrefs, type Category } from './prefs';
 import { ITEMS, MAP, Store, type ClientUser } from './net';
 import { inNativeApp, syncNative } from './native';
 import { LiveChip, PresentPanel, SlideOverlay } from './Presentation';
+import { RoomPopup } from './RoomPopup';
 import { LibraryPanel, ReadingOverlay } from './Library';
 import { ACHIEVEMENTS, underground, dayNumber, JUKEBOX_PER_PERSON, JUKEBOX_QUEUE_MAX, MAX_CHAT_LEN, MEET_LINK_RE, meetAs, normalizeMeetLink, kindName, PLANT_DIES_DAYS, PLANT_KINDS, PLANT_REVEAL, PLANT_STAGES, plantDead, plantName, REACTIONS, TOILET_CAPACITY, TOILET_SHELF_ITEM, TOILET_SHELF_MAX, TOILET_USE_MS, toiletFull, type JukeboxState, type Plant } from '../../shared/protocol';
 import { jukeboxPosition, TRACK, tracksFor } from '../../shared/music';
@@ -213,6 +214,7 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
         {store.jukeboxOpen && <JukeboxPanel key={store.jukeboxOpen} store={store} id={store.jukeboxOpen} />}
         {store.recordsOpen && <RecordsPopover store={store} />}
         {store.linkOpen && <LinkPanel store={store} />}
+        {store.roomOpen && <RoomPopup store={store} />}
         {store.presentOpen && <PresentPanel key={store.presentOpen} store={store} id={store.presentOpen} />}
         {store.clockOpen && <ClockPanel store={store} />}
         {store.achievementsOpen && me && <AchievementsPanel store={store} me={me} assets={assets} />}
@@ -235,7 +237,7 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
         </div>
         {personMenu && <PersonMenu key={personMenu.id} store={store} at={personMenu} onClose={() => setPersonMenu(null)} />}
         {store.seat && <InstrumentPanel key={store.seat} store={store} id={store.seat}
-          dialogOpen={!!(showAppearance || showMeet || store.pendingKnock || store.calendarOpen || store.meetingsOpen || store.clockOpen || store.jukeboxOpen || store.libraryOpen || !!me?.reading || store.achievementsOpen || store.presentOpen || store.chatWith || personMenu || pick)} />}
+          dialogOpen={!!(showAppearance || showMeet || store.pendingKnock || store.calendarOpen || store.meetingsOpen || store.clockOpen || store.jukeboxOpen || store.libraryOpen || !!me?.reading || store.achievementsOpen || store.presentOpen || store.roomOpen || store.chatWith || personMenu || pick)} />}
         <Dock store={store} voice={voice} engine={engine} roomsOpen={showRooms} onRooms={() => setShowRooms(s => !s)} />
       </div>
       </div>
@@ -605,7 +607,8 @@ function MeetingChip({ store }: { store: Store }) {
   const m = store.myMeeting, room = store.meetingRooms.find(r => r.id === me.instance);
   const others = (room?.members ?? []).filter(id => id !== me.id).map(id => store.users.get(id)).filter((u): u is ClientUser => !!u);
   return <div className="desk-chip call-chip meeting-chip">
-    <span>📅 <b>{m?.title ?? 'Meeting'}</b> <small>· until {store.clock(room?.until ?? m?.end ?? 0)}{others.length ? ` · with ${store.names(others)}` : ' · waiting for the others'}</small></span>
+    <span>{m?.adhoc ? '🔒' : '📅'} <b>{m?.title ?? 'Meeting'}</b> <small>{m?.adhoc && m.from ? `· ${m.from.split(' ')[0]}'s room` : ''} · until {store.clock(room?.until ?? m?.end ?? 0)}{others.length ? ` · with ${store.names(others)}` : ' · waiting for the others'}</small></span>
+    {m?.adhoc && <button onClick={() => store.openRoom(true)}>Invite</button>}
     {m?.link && <ExternalLink href={meetAs(m.link, store.meetAccount)}>Join call</ExternalLink>}
     <button className="end" onClick={() => store.leaveMeeting()}>Leave</button>
   </div>;
@@ -1478,6 +1481,7 @@ function ActionWheel({ store, engine, pick, assets, onPerson, onClose }: { store
       ];
       if (isMe && (store.dancing || (store.roomOf(u)?.id === DANCE_ROOM && !u.instance))) items.push({ icon: '💃', label: store.dancing ? 'Stop dancing' : 'Dance', onClick: act(() => store.dance()) });
       if (me?.callId && me.callId === u.callId) items.push({ icon: '🔊', label: 'Volume', onClick: act(() => { if (at) onPerson({ id: u.id, x, y }); }) });
+      if (!isMe && !away) { const why = store.roomReason(u); if (!why) items.push({ icon: '🔒', label: 'Private room', title: `Take ${u.name.split(' ')[0]} to a private room`, onClick: act(() => store.createRoom([u.id])) }); }
       if (store.admin && me && !me.instance && !u.instance && !away) items.push({ icon: '🌀', label: 'Teleport', title: `Step through a portal to ${u.name.split(' ')[0]}`, onClick: act(() => store.teleport(u.id)) });
       if (store.admin && !u.bot) items.push({ icon: '✏️', label: 'Rename', title: `Give ${u.name.split(' ')[0]} another name`, onClick: act(() => { const v = window.prompt(`New name for ${u.name}`, u.name); if (v?.trim()) store.rename(u.id, v); }) });
       const held = me?.holding ? ITEMS.get(me.holding) : undefined;

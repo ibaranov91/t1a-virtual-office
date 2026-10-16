@@ -605,3 +605,16 @@ button:focus-visible, summary:focus-visible, input[type="range"]:focus-visible {
 .watch-slide { position: relative; }
 .watch-slide img { max-width: 100%; max-height: calc(80vh - 80px); object-fit: contain; display: block; }
 @media (max-width: 700px) { .watch-modal { width: calc(100% - 16px); } }
+
+/* private-room popup: centered card, bottom sheet on phones */
+.room-popup { max-height: min(560px, calc(100% - 16px)); grid-template-rows: auto auto auto auto minmax(0, 1fr) auto; }
+.room-popup input[type=text], .room-popup input:not([type]) { min-height: 36px; }
+.room-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.room-people { list-style: none; margin: 0; padding: 0; overflow-y: auto; min-height: 120px; }
+.room-people label { display: flex; align-items: center; gap: 8px; padding: 6px 4px; border-radius: 6px; cursor: pointer; }
+.room-people label:hover, .room-people label.on { background: var(--panel2); }
+.room-people label span { flex: 1; }
+@media (max-width: 560px), (max-height: 500px) {
+  .room-popup.meet-panel.guided { top: auto; bottom: 0; left: 0; transform: none; width: 100%; max-height: 85%; border-radius: 12px 12px 0 0; padding-bottom: calc(12px + env(safe-area-inset-bottom)); box-sizing: border-box; }
+  .room-people label { padding: 10px 4px; }
+}

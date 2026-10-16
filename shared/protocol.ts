@@ -188,7 +188,7 @@ export type Reaction = typeof REACTIONS[number];
 export interface CalEvent { id: string; title: string; start: string; end: string; allDay: boolean; link: string; meet?: string; declined?: boolean }
 
 /** A calendar meeting with other people, now or within the hour. Sent only to its attendees (the title is theirs). */
-export interface AgendaItem { key: string; instance: string; title: string; start: number; end: number; link?: string; left?: boolean } // left: I left it for good (not busy, no heads-up)
+export interface AgendaItem { key: string; instance: string; title: string; start: number; end: number; link?: string; left?: boolean; adhoc?: boolean; from?: string } // left: I left it for good (not busy, no heads-up)
 /** A meeting room in use, for everyone: who's in it and until when, no title. */
 export interface MeetingRoomInfo { id: string; until: number; members: string[] }
 /** Meeting rooms are copies of this room on the map. */
@@ -292,6 +292,7 @@ export type ServerMsg =
   | { t: 'gm_items'; targetId: string; items: string[] } // to the asking admin only
   | { t: 'teleport'; userId: string; from: Tile; to: Tile } // an admin stepped through a portal: everyone plays it (the server has already moved them)
   | { t: 'notice'; text: string }
+  | { t: 'room_open' } // you clicked the Meeting room's wall button: show the private-room popup
   | { t: 'present_open'; objectId: string } // you walked up to the board: show the upload/present panel
   | { t: 'voice_wait'; roomId: string | null }
   | { t: 'voice_owner'; owner: boolean }
@@ -331,6 +332,8 @@ export type ClientMsg =
   | { t: 'article_remove'; id: string }  // the author, or an office admin
   | { t: 'read_start'; articleId: string }
   | { t: 'read_done' }
+  | { t: 'room_create'; title?: string; invite: string[] }
+  | { t: 'room_invite'; userIds: string[] }
   | { t: 'meeting_leave' }           // back to the office (still in the meeting: busy, knocks go to Later)
   | { t: 'meeting_out'; key: string } // leave the meeting for good: not busy any more, knocks come through again
   | { t: 'google_disconnect' }
