@@ -5,7 +5,8 @@ import { playTable } from './sounds';
 import { RetroClient } from './retro/client';
 import { games as retroGames } from '../../shared/retro/games';
 import { emptyBoards as emptyRetroBoards } from '../../shared/retro/boards';
-import type { RetroCabinet } from '../../shared/protocol';
+import type { RetroCabinet, Ticket, TicketStatus } from '../../shared/protocol';
+import { inNativeApp } from './native';
 import type { FrameBatch } from './retro/player';
 // WebSocket client + the client-side mirror of server state.
 import mapJson from '../../shared/tilemap.json';
@@ -253,7 +254,7 @@ export class Store {
     return `Playing ${game}${s.round ? ` · round ${s.round}/3` : ` · level ${s.level}`}${peers.length ? ` with ${this.names(peers)}` : ''}`;
   }
 
-  moveTo(to: Tile) { this.send({ t: 'move', to }); }
+  moveTo(to: Tile) { if (this.terminalOpen) this.openTerminal(null); this.send({ t: 'move', to }); }
   joinRoom(roomId: string) {
     const me = this.users.get(this.me), room = MAP.rooms.find(r => r.id === roomId);
     if (!me || me.instance || !room) return;
@@ -387,6 +388,23 @@ export class Store {
     tiles.sort((a, b) => Math.hypot(a.x - pose.x, a.y - pose.y) - Math.hypot(b.x - pose.x, b.y - pose.y));
     const to = tiles.find(t => pathTo(MAP, pose.tile, t).length);
     if (to) this.moveTo({ x: to.x, y: to.y });
+  }
+  // ---------- bug terminal ----------
+  tickets: Ticket[] = [];               // mine, or every ticket for an admin
+  terminalOpen: string | null = null;   // the terminal whose screen is up
+  openTerminal(id: string | null) { this.terminalOpen = id; this.emit(); }
+  fileTicket(title: string, text: string) {
+    this.send({ t: 'ticket_new', title, text, context: { ua: navigator.userAgent, app: inNativeApp() ? 'mac' : 'web', build: this.build ?? '', viewport: `${innerWidth}x${innerHeight}` } });
+  }
+  replyTicket(id: number, text: string) { this.send({ t: 'ticket_reply', id, text }); }
+  setTicketStatus(id: number, status: TicketStatus) { this.send({ t: 'ticket_status', id, status }); }
+  seeTicket(id: number) { this.send({ t: 'ticket_seen', id }); }
+  /** Something new in it from someone else. Admins don't count settled tickets that aren't theirs. */
+  ticketUnread(t: Ticket) { return (t.by === this.me || t.status === 'open') && t.msgs.some(m => m.by !== this.me && m.at > (t.seen[this.me] ?? 0)); }
+  ticketsUnread() { return this.tickets.filter(t => this.ticketUnread(t)).length; }
+  terminalTip() {
+    const n = this.ticketsUnread();
+    return `Bug terminal · ${n ? `${n} new ${this.admin ? 'in the queue' : n === 1 ? 'reply' : 'replies'}` : 'report a bug'}`;
   }
   achievementsOpen = false;
   library: LibraryState = { articles: [], reads: [] };
@@ -707,6 +725,8 @@ export class Store {
       case 'object': this.objects = { ...this.objects, [msg.id]: { on: msg.on } }; break;
       case 'room_open': this.roomOpen = true; break;
       case 'present_open': this.presentOpen = msg.objectId; break;
+      case 'terminal_open': this.terminalOpen = msg.objectId; break;
+      case 'tickets': this.tickets = msg.list; break;
       case 'bell': {
         const me = this.users.get(this.me), by = this.users.get(msg.userId);
         if (me?.instance || by?.instance) break;

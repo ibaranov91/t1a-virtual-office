@@ -90,7 +90,7 @@ test('every activity branch, precedence and status joining', () => {
   assert.equal(activityLine(v, { ...base, reading: 'a' }), '📖 reading');
 });
 test('room things include wall fixtures, dedupe clocks and exclude on-site actions', () => {
-  const expected: Record<string, string[]> = { music: ['jukebox', 'youtube'], cowork: ['meetings', 'clock', 'calendar'], lobby: ['achievements', 'link'], arcade: ['records'], library: ['library'], focus: [], coffee: ['calendar'], berghain: ['jukebox'] };
+  const expected: Record<string, string[]> = { music: ['jukebox', 'youtube'], cowork: ['meetings', 'clock', 'calendar'], lobby: ['achievements', 'link', 'tickets'], arcade: ['records'], library: ['library'], focus: [], coffee: ['calendar'], berghain: ['jukebox'] };
   for (const [id, kinds] of Object.entries(expected)) assert.deepEqual(roomThings(map, room(id)).map(o => o.use!.kind).sort(), kinds.sort(), id);
   const box = roomThings(map, room('music')).find(o => o.use.kind === 'jukebox')!;
   const duplicate = { ...box, id: 'second-box' };

@@ -556,6 +556,9 @@ obj('retro_tobu', 62, 13, 1, 2, { use: { kind: 'retro', label: 'Tobu Tobu Girl',
 obj('retro_lobster', 63, 13, 1, 2, { use: { kind: 'retro', label: 'Shock Lobster', game: 'lobster' } });
 for (const { id: _i, x: _x, y: _y, ...t } of objects.slice(firstRetro)) catalog[t.type] ??= t;
 
+// Lobby: the bug terminal (before the wing: its furniture stays last)
+obj('terminal', 3, 14, 2, 1, { use: { kind: 'tickets', label: 'bug terminal' } }); // Lobby: file a bug, read the replies (admins: the queue)
+
 // ---------- vacation: props appended after all existing objects ----------
 const firstVacation = objects.length;
 // Check against the complete building furniture before opening the closest free garden pair.

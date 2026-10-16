@@ -2104,6 +2104,23 @@ for (const [game, accent] of [['tobu', '#cf82ae'], ['lobster', '#bd524a']]) {
   frames.pomodoro_timer = t.outline();
 }
 
+// ---------- bug terminal: a beige CRT on a little desk (fixed pixels, no random calls) ----------
+for (const on of [false, true]) {
+  const t = new Img(32, 30), glass = on ? '#a6ffbf' : '#33ff66';
+  t.rect(2, 15, 28, 3, '#8b5a2b'); t.hline(2, 15, 28, '#a87545'); t.rect(2, 18, 28, 1, '#6b4220'); // desk top
+  t.rect(3, 19, 2, 11, '#6b4220'); t.rect(27, 19, 2, 11, '#6b4220'); t.rect(5, 21, 22, 1, '#6b4220'); // legs, rail
+  t.rect(7, 1, 18, 13, '#d8cfb4'); t.hline(7, 1, 18, '#ece5cf'); t.rect(7, 12, 18, 2, '#b3a888'); // CRT case
+  t.rect(9, 3, 14, 9, '#0d3b17'); // glass
+  for (const [y, w] of [[4, 10], [6, 7], [8, 11], [10, 4]]) t.hline(10, y, w, glass); // text lines
+  if (on) t.rect(15, 10, 2, 1, '#e8ffe8'); // the cursor
+  t.rect(12, 14, 8, 1, '#8a7f63'); // neck
+  t.rect(22, 12, 1, 1, on ? '#33ff66' : '#4d5a40'); // power LED
+  t.rect(6, 16, 14, 2, '#d8cfb4'); t.hline(7, 16, 12, '#ece5cf'); // keyboard
+  for (let x = 7; x < 19; x += 2) t.rect(x, 17, 1, 1, '#b3a888');
+  t.rect(23, 16, 3, 2, '#ece5cf'); // a mug of pens… or coffee
+  frames[on ? 'terminal_on' : 'terminal'] = t.outline();
+}
+
 // ---------- pack world atlas (shelf packer) ----------
 const names = Object.keys(frames).sort((a, b) => frames[b].h - frames[a].h || frames[b].w - frames[a].w);
 const AW = 256; let x = 0, y = 0, rowH = 0; const rects = {};

@@ -1,6 +1,6 @@
 import { isRoomMode, roomMode, rulesForMode, type RoomModes } from '../../shared/roomModes';
 import { BannerStore, BannerError, validateBanner } from './banners';
-import type { Banner } from '../../shared/protocol';
+import { ticketNo, type Banner, type Ticket } from '../../shared/protocol';
 import { randomUUID } from 'node:crypto';
 import {
   adminOnly, applyEdit, inRect, stallDoor, stallLine, stallVoiceId, tableVoiceId, applyLayout, besideObject, playSpots, dirBetween, doorwayTiles, KEEP_TYPES, migrateBeach, resetBeach, migrateEastWing, layoutProblem, objectName, voiceRooms, findPath, isWalkable, pathDuration, pathTo, roomAt, routes, sampleMove, seatAt, uniqueIds, withLayout, WALK_MS_PER_TILE,
@@ -21,6 +21,7 @@ import { Table } from './table';
 import { Retro } from './retro';
 import { Jukebox } from './jukebox';
 import { Library } from './library';
+import { Tickets } from './tickets';
 import { migrateBookClub, migrateLibrary, readingSeats } from '../../shared/library';
 import { onMap } from '../../shared/beach';
 import type { Vacation } from '../../shared/vacation';
@@ -83,7 +84,7 @@ const LEAVE_GRACE_MS = 5000; // a dropped tab or quick re-login shouldn't send a
 const DOOR_PAUSE_MS = 400;   // a beat at the door before vanishing
 const FOLLOW_LAG_MS = 300;   // followers set off a beat after the person they follow
 const HOLD_MS = 3 * 60_000;  // a coffee lasts this long
-const USE_MS = { take: 1200, toggle: 150, toilet: 300, dealer: 350, bell: 100, presentation: 100, room_start: 100 }; // brewing a coffee vs flicking a switch
+const USE_MS = { take: 1200, toggle: 150, toilet: 300, dealer: 350, bell: 100, presentation: 100, room_start: 100, tickets: 100 }; // brewing a coffee vs flicking a switch
 const ARRIVAL_SLACK_MS = 50; // timers can fire a millisecond before the walk is over
 
 /** Office admins rearrange the furniture: NetBird emails, or (only for name logins, so dev) plain names. */
@@ -120,6 +121,7 @@ export class World {
   private lofiListeners = new Map<string, Set<string>>();
   private jukeboxes = new Map<string, Jukebox>();
   library = new Library();
+  tickets = new Tickets();
   private readPlans = new Map<string, { articleId: string; seat: Tile; seq: number }>(); // on the way to a reading desk
   private objectOn = new Map<string, boolean>();          // toggle objects (lamps)
   private chats = new Map<string, ChatMsg[]>();           // per pair of people, oldest first
@@ -286,6 +288,7 @@ export class World {
     if (u.reading) this.stopReading(u); // a fresh page has no overlay; the old read ends
     send({ t: 'meetings', rooms: this.meetingRooms() });
     send({ t: 'library', ...this.library.state() });
+    if (!u.bot) send({ t: 'tickets', list: this.tickets.visibleTo(u.id, this.isAdmin(u)) });
     send({ t: 'creatures', creatures: this.creatures.all() });
     send({ t: 'cups', cups: this.creatures.cups });
     send({ t: 'arcade', cabinets: this.arcade.summary() });
@@ -680,7 +683,7 @@ export class World {
   use(u: User, objectId: string, itemId?: string) {
     this.cancelSeatWalk(u.id);
     const o = this.map.objects.find(o => o.id === objectId);
-    if (!o || !routes(o.use, 'use') || goingOut(u) || (u.instance && (underground(u) || o.use.kind !== 'presentation')) || u.presence === 'offline' || ((o.use.kind === 'arcade' || o.use.kind === 'table' || o.use.kind === 'retro' || o.use.kind === 'presentation' || o.use.kind === 'room_start') && u.bot)) return;
+    if (!o || !routes(o.use, 'use') || goingOut(u) || (u.instance && (underground(u) || o.use.kind !== 'presentation')) || u.presence === 'offline' || ((o.use.kind === 'arcade' || o.use.kind === 'table' || o.use.kind === 'retro' || o.use.kind === 'presentation' || o.use.kind === 'room_start' || o.use.kind === 'tickets') && u.bot)) return;
     const item = o.use.kind === 'take' ? (itemId === undefined ? o.use.items[0] : o.use.items.find(i => i.id === itemId)) : null;
     if (o.use.kind === 'take' && !item) return;
     if (o.use.kind === 'toilet') return this.useToilet(u, o);
@@ -723,6 +726,7 @@ export class World {
       if (current.use.kind === 'bell') this.ringBell(u, current);
       else if (current.use.kind === 'presentation') { if (!u.bot) this.sendTo(u.id, { t: 'present_open', objectId: current.id }); }
       else if (current.use.kind === 'room_start') { if (!u.bot) this.sendTo(u.id, { t: 'room_open' }); }
+      else if (current.use.kind === 'tickets') { if (!u.bot) this.sendTo(u.id, { t: 'terminal_open', objectId: current.id }); }
       else if (o.use!.kind === 'toggle') this.setObject(o.id, !this.objectOn.get(o.id), u);
       else if (current.use.kind === 'dealer') {
         const want = itemId && current.use.items.includes(itemId) ? itemId : current.use.items[0];
@@ -736,6 +740,49 @@ export class World {
         this.refreshment(u, item.id);
       }
     }, Math.max(0, at - Date.now()) + (o.use.kind === 'arcade' || o.use.kind === 'table' || o.use.kind === 'retro' ? 0 : USE_MS[o.use.kind])));
+  }
+  // ---------- bug terminal ----------
+  /** Everyone who can see this ticket (its author and every office admin) gets their fresh list. */
+  private ticketsChanged(t: Ticket) {
+    for (const p of this.users.values()) if (!p.bot && (p.id === t.by || this.isAdmin(p)) && this.sockets.get(p.id)?.size) this.sendTo(p.id, { t: 'tickets', list: this.tickets.visibleTo(p.id, this.isAdmin(p)) });
+  }
+  private tellAdmins(text: string, except: string) { for (const p of this.users.values()) if (p.id !== except && !p.bot && this.isAdmin(p)) this.sendTo(p.id, { t: 'notice', text }); }
+  private atTerminal(u: User) {
+    const here = this.position(u).dest;
+    return !u.instance && this.map.objects.some(o => o.use?.kind === 'tickets' && besideObject(this.map, o).some(s => s.x === here.x && s.y === here.y));
+  }
+  private ticketNew(u: User, msg: Extract<ClientMsg, { t: 'ticket_new' }>) {
+    if (u.bot) return;
+    if (!this.atTerminal(u)) return this.sendTo(u.id, { t: 'notice', text: 'File bugs at the terminal in the Lobby' });
+    const p = this.position(u).dest;
+    const t = this.tickets.add(u.id, msg.title, msg.text, msg.context, { room: roomAt(this.map, p.x, p.y)?.id, tile: { x: p.x, y: p.y } }, Date.now());
+    if (typeof t === 'string') return this.sendTo(u.id, { t: 'notice', text: t });
+    this.ticketsChanged(t);
+    this.tellAdmins(`📟 New bug ${ticketNo(t.id)} from ${u.name}: ${t.title}`, u.id);
+  }
+  private ticketReply(u: User, id: number, text: unknown) {
+    if (u.bot) return;
+    const admin = this.isAdmin(u), t = this.tickets.reply(id, u.id, admin, text, Date.now());
+    if (!t) return;
+    if (typeof t === 'string') return this.sendTo(u.id, { t: 'notice', text: t });
+    this.ticketsChanged(t);
+    if (t.by === u.id) this.tellAdmins(`📟 ${u.name} replied on ${ticketNo(t.id)}`, u.id);
+    else this.sendTo(t.by, { t: 'notice', text: `📟 Reply on your bug ${ticketNo(t.id)}: read it at the Lobby terminal` });
+  }
+  private ticketStatus(u: User, id: number, status: unknown) {
+    if (u.bot) return;
+    const t = this.tickets.setStatus(id, u.id, this.isAdmin(u), status, Date.now());
+    if (!t) return;
+    this.ticketsChanged(t);
+    const author = this.users.get(t.by);
+    if (author && author.id !== u.id) {
+      this.sendTo(author.id, { t: 'notice', text: `📟 Your bug ${ticketNo(t.id)} was marked ${t.status}` });
+      if (t.status === 'fixed' && !author.achievements.bughunter) { this.award(author, 'bughunter', Date.now()); this.plantChanged(author); }
+    }
+  }
+  private ticketSeen(u: User, id: number) {
+    const t = this.tickets.seen(id, u.id, this.isAdmin(u), Date.now());
+    if (t) this.sendTo(u.id, { t: 'tickets', list: this.tickets.visibleTo(u.id, this.isAdmin(u)) });
   }
   // ---------- the Library ----------
   private walkingTo = -1; // seq of the read plan whose own walk is under way (not a reason to stop reading)
@@ -2226,6 +2273,10 @@ export class World {
         break;
       }
       case 'article_add': this.addArticle(u, msg.url, msg.title, msg.topic); break;
+      case 'ticket_new': this.ticketNew(u, msg); break;
+      case 'ticket_reply': this.ticketReply(u, Number(msg.id), msg.text); break;
+      case 'ticket_status': this.ticketStatus(u, Number(msg.id), msg.status); break;
+      case 'ticket_seen': this.ticketSeen(u, Number(msg.id)); break;
       case 'article_remove': if (typeof msg.id === 'string' && this.library.remove(msg.id, u.id, this.isAdmin(u))) this.libraryChanged(); break;
       case 'read_start': if (typeof msg.articleId === 'string') this.startReading(u, msg.articleId); break;
       case 'read_done': this.stopReading(u); break;
@@ -2286,6 +2337,7 @@ export class World {
       chats: Object.fromEntries(this.chats),
       cups: this.creatures.cups,
       library: this.library.dump(),
+      tickets: this.tickets.dump(),
     };
   }
   load(data: ReturnType<World['dump']>) {
@@ -2358,5 +2410,6 @@ export class World {
     for (const [key, msgs] of Object.entries(data.chats ?? {})) this.chats.set(key, msgs);
     this.creatures.cups = (data.cups ?? []).filter(c => this.creatures.tableAt(c.tile));
     this.library.load(data.library);
+    this.tickets.load(data.tickets);
   }
 }
