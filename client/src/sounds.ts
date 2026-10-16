@@ -201,3 +201,22 @@ export function playTable(finished = false) {
     if (finished) tone(c, out, at + .12, { hz: 880, level: .045, attack: .008, decay: .22 });
   } catch { /* audio unavailable */ }
 }
+
+/** A quiet three-note trophy chime, with a little high shimmer. */
+export function playAchievement() {
+  try {
+    const c = audio(), dest = categoryOutput('effects'), at = c.currentTime + .01;
+    [784, 988, 1319].forEach((hz, i) => {
+      tone(c, dest, at + i * .11, { hz, level: .028, attack: .008, decay: .44 });
+      tone(c, dest, at + i * .11, { hz: hz * 2.76, level: .004, attack: .003, decay: .18 });
+    });
+    const noise = c.createBuffer(1, Math.ceil(c.sampleRate * .3), c.sampleRate), data = noise.getChannelData(0);
+    for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+    const source = c.createBufferSource(), filter = c.createBiquadFilter(), gain = c.createGain();
+    source.buffer = noise; filter.type = 'bandpass'; filter.frequency.value = 6500; filter.Q.value = 2;
+    gain.gain.setValueAtTime(0, at + .22); gain.gain.linearRampToValueAtTime(.012, at + .24);
+    gain.gain.exponentialRampToValueAtTime(.0001, at + .52);
+    source.connect(filter).connect(gain).connect(dest); source.start(at + .22); source.stop(at + .53);
+    source.onended = () => { source.disconnect(); filter.disconnect(); gain.disconnect(); };
+  } catch { /* audio unavailable: stay silent */ }
+}

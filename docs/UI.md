@@ -72,6 +72,8 @@ controls and hang-up hover. Do not color a settings title orange.
 
 ## Surfaces
 
+Achievements: the trophy modal (summary ring, plant hero, unlocked/locked card grid, rarity) and the Xbox-style unlock toast; new achievements need only an entry in ACHIEVEMENTS (and a progress rule in client/src/achievements.ts if they have a goal).
+
 Your profile popout: the one place to manage yourself (look, pockets, achievements,
 status, presence, sign out). Don't add self-management buttons to the top bar.
 Use the existing surface before inventing another. Escape closes the innermost open surface. Opening a surface
