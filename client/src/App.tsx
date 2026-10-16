@@ -1296,9 +1296,12 @@ function ActionWheel({ store, engine, pick, assets, onPerson, onClose }: { store
   }
   if (!at) return null;
   // buttons ring the sprite without covering it, at any zoom; the whole wheel stays on screen
-  const R = Math.max(items.length <= 2 ? 46 : items.length <= 4 ? 56 : 66, at.r + 30);
-  const x = Math.round(Math.min(Math.max(at.x, R + 28), window.innerWidth - R - 28));
-  const y = Math.round(Math.min(Math.max(at.y, R + 70), window.innerHeight - R - (compact() ? 100 : 30))); // clear of the dock
+  // A 128px chord clears the full 96 × 76px circle-and-label footprint (and exceeds 64px).
+  const spacing = items.some(it => it.label) ? 128 : 64; // labelled circles need room for their pills; bare emoji only for the circles
+  const spacingRadius = items.length > 1 ? spacing / (2 * Math.sin(Math.PI / items.length)) : 0;
+  const R = Math.max(items.length <= 2 ? 46 : items.length <= 4 ? 56 : 66, at.r + 54, spacingRadius);
+  const x = Math.round(Math.min(Math.max(at.x, R + 50), window.innerWidth - R - 50));
+  const y = Math.round(Math.min(Math.max(at.y, R + 70), window.innerHeight - R - (compact() ? 100 : 54))); // clear of the dock
   // two items sit left/right; more start at the top and go clockwise
   const start = items.length === 2 ? Math.PI : -Math.PI / 2;
   return (
