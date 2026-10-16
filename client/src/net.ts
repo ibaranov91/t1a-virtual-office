@@ -15,7 +15,7 @@ import { gameDef } from '../../shared/arcade/registry';
 import { emptyWeek } from '../../shared/arcade/weeks';
 import { ParkLoop } from './park/loop';
 import type { CabinetSummary, ParkRecords, ArcadeBoards } from '../../shared/protocol';
-import { playPark, playHand, playKnock, playPop, playDungeon, playPet } from './sounds';
+import { playPark, playHand, playKnock, playPop, playAchievement, playDungeon, playPet } from './sounds';
 import type { Soundscape } from './soundscape';
 import { bestOffset, clockSample, CLOCK_SAMPLES, type ClockSample } from './clockSync';
 
@@ -30,8 +30,9 @@ export interface ClientUser extends PublicUser {
 
 export interface Toast {
   // knock_out: my knock is waiting (Cancel); knock_again: it didn't land, or I missed one (Knock again / back)
-  id: number; kind: 'knock_in' | 'knock_out' | 'knock_again' | 'chat' | 'info' | 'link' | 'meeting' | 'call_moved';
+  id: number; kind: 'knock_in' | 'knock_out' | 'knock_again' | 'chat' | 'info' | 'link' | 'meeting' | 'call_moved' | 'achievement';
   text: string; link?: string; knockId?: string; expires?: number; hint?: string;
+  achievementId?: string;
   roomId?: string;
   actions?: { label: string; run: () => void; ghost?: boolean }[]; // extra buttons (the one-time mute prompt)
   meetingKey?: string; // meeting: one-click Go into its room
@@ -393,7 +394,8 @@ export class Store {
     const by = this.library.articles.find(a => a.id === articleId)?.by;
     return new Set(this.library.reads.filter(r => r.articleId === articleId && r.userId !== by).map(r => r.userId)).size;
   }
-  openAchievements(open = true) { this.achievementsOpen = open; this.emit(); }
+  achievementFocus: string | undefined;
+  openAchievements(open = true, id?: string) { this.achievementsOpen = open; this.achievementFocus = open ? id : undefined; this.emit(); }
   closeMeetings() { this.meetingsOpen = false; this.emit(); }
   goToMeeting(key: string) {
     this.send({ t: 'meeting_go', key });
@@ -798,7 +800,7 @@ export class Store {
           text: p.stage === 0 ? '🌱 You planted a new seedling' : `🌱 Your ${plantName(p)} grew: ${PLANT_STAGES[p.stage]}`,
           hint: p.stage === 0 ? 'The old one withered after a week without a status' : 'It grows once a day you set a status' });
         for (const a of ACHIEVEMENTS) if (msg.achievements[a.id] && !earned[a.id]) {
-          playPop(); this.toast({ kind: 'info', expires: 8000, text: `${a.icon} Achievement: ${a.title}`, hint: 'See all on the notice board in the Lobby' });
+          playAchievement(); this.toast({ kind: 'achievement', achievementId: a.id, expires: 8000, text: `${a.icon} Achievement: ${a.title}` });
         }
         break;
       }

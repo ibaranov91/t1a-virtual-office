@@ -1,4 +1,5 @@
 import { onMap } from '../../shared/beach';
+import { AchievementsPanel, AchievementBadge, AchievementRarity } from './Achievements.jsx';
 import { VacationPanel } from './Vacation';
 import { ProfilePopout } from './sidebar/ProfilePopout';
 import { Sidebar } from './sidebar/Sidebar';
@@ -28,7 +29,7 @@ import { fakeShare } from './share';
 import { LiveChip, PresentPanel, SlideOverlay } from './Presentation';
 import { RoomPopup } from './RoomPopup';
 import { LibraryPanel, ReadingOverlay } from './Library';
-import { ACHIEVEMENTS, underground, dayNumber, JUKEBOX_PER_PERSON, JUKEBOX_QUEUE_MAX, MAX_CHAT_LEN, ROOM_VOICE_MAX, MEET_LINK_RE, meetAs, normalizeMeetLink, kindName, PLANT_DIES_DAYS, PLANT_KINDS, PLANT_REVEAL, PLANT_STAGES, plantDead, plantName, REACTIONS, TOILET_CAPACITY, TOILET_SHELF_ITEM, TOILET_SHELF_MAX, TOILET_USE_MS, toiletFull, type JukeboxState, type Plant } from '../../shared/protocol';
+import { ACHIEVEMENTS, underground, dayNumber, JUKEBOX_PER_PERSON, JUKEBOX_QUEUE_MAX, MAX_CHAT_LEN, ROOM_VOICE_MAX, MEET_LINK_RE, meetAs, normalizeMeetLink, plantDead, REACTIONS, TOILET_CAPACITY, TOILET_SHELF_ITEM, TOILET_SHELF_MAX, TOILET_USE_MS, toiletFull, type JukeboxState, type Plant } from '../../shared/protocol';
 import { jukeboxPosition, TRACK, tracksFor } from '../../shared/music';
 import { ALL_HATS, DANCE_ROOM, EFFECTS, HAT_NAMES, REFRESHMENT_HINTS, effectOf, hatItem, hatOf } from '../../shared/effects';
 import { FIXED_TYPES, KEEP_TYPES, objectName, RUG_COLORS, RUG_MAX, RUG_MIN, RUG_PATTERNS, SEAT_TYPES, routes, rugFrame, seatAt } from '../../shared/map';
@@ -267,7 +268,7 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
         {store.roomOpen && <RoomPopup store={store} />}
         {store.presentOpen && <PresentPanel key={store.presentOpen} store={store} id={store.presentOpen} />}
         {store.clockOpen && <ClockPanel store={store} />}
-        {store.achievementsOpen && me && <AchievementsPanel store={store} me={me} assets={assets} />}
+        {store.achievementsOpen && me && <AchievementsPanel store={store} me={me} assets={assets} backdrop={backdropClose(() => store.openAchievements(false))} />}
         {(showMeet || store.pendingKnock) && <MeetSetup key={store.pendingKnock ?? 'panel'} store={store} onClose={() => setShowMeet(false)} />}
         {showAppearance && me && <AppearanceMenu key={me.id} look={me.look} name={me.name} assets={assets} firstTime={!me.lookSet} store={store}
           onSave={(look, name) => { store.setLook(look, name); setShowAppearance(false); }} onClose={() => setShowAppearance(false)} />}
@@ -881,18 +882,6 @@ function ItemThumb({ assets, frame }: { assets: Assets | null; frame: string }) 
   return <canvas ref={ref} width={32} height={32} />;
 }
 
-/** A plant sprite from the world atlas, scaled up crisply. */
-function PlantSprite({ assets, plant, now, scale = 4 }: { assets: Assets | null; plant: Plant; now: number; scale?: number }) {
-  const ref = useRef<HTMLCanvasElement>(null);
-  const name = plantDead(plant, now) ? 'pot_dead' : plant.kind && plant.stage >= PLANT_REVEAL ? `pot_${plant.kind}_${plant.stage}` : `pot_${plant.stage}`;
-  useEffect(() => {
-    const c = ref.current, f = assets?.atlas.frames[name]; if (!c || !f || !assets) return;
-    const ctx = c.getContext('2d')!; ctx.imageSmoothingEnabled = false; ctx.clearRect(0, 0, c.width, c.height);
-    ctx.drawImage(assets.world, f.x, f.y, f.w, f.h, 0, 0, f.w * scale, f.h * scale);
-  }, [assets, name, scale]);
-  return <canvas ref={ref} width={12 * scale} height={20 * scale} className="plant-sprite" />;
-}
-
 /** A hat as it looks on a head, from the world atlas (`hat_<style>`), scaled up and centered. */
 function HatSprite({ assets, style, scale = 2 }: { assets: Assets | null; style: string; scale?: number }) {
   const ref = useRef<HTMLCanvasElement>(null);
@@ -903,49 +892,6 @@ function HatSprite({ assets, style, scale = 2 }: { assets: Assets | null; style:
     if (f) ctx.drawImage(assets.world, f.x, f.y, f.w, f.h, Math.floor((c.width - f.w * scale) / 2), Math.floor((c.height - f.h * scale) / 2), f.w * scale, f.h * scale);
   }, [assets, name, scale]);
   return <canvas ref={ref} width={16 * scale} height={14 * scale} className="hat-sprite" aria-hidden="true" />;
-}
-
-/** The Lobby notice board (and the 🏆 button): how your plant is doing, what makes it grow, and your achievements. */
-function AchievementsPanel({ store, me, assets }: { store: Store; me: ClientUser; assets: Assets | null }) {
-  const now = store.now(), today = dayNumber(now), p = me.plant, close = () => store.openAchievements(false);
-  const dead = p && plantDead(p, now), left = p ? PLANT_DIES_DAYS - (today - p.care) : 0;
-  const when = (ms: number) => new Date(ms).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
-  return (
-    <div className="modal-backdrop" {...backdropClose(close)}>
-      <div className="meet-panel guided calendar-panel achievements">
-        <div className="rooms-head"><span><Icon name="trophy" /> Achievements</span><button type="button" className="ghost" aria-label="Close" onClick={close}><Icon name="close" /></button></div>
-        <section className="plant-card">
-          {p && <PlantSprite assets={assets} plant={p} now={now} />}
-          <div>
-            <b>{!p ? 'No plant yet' : dead ? 'Your plant withered' : `Your ${plantName(p)}`}</b>
-            {p && !dead && <>
-              <div className="pips" aria-label={`Stage ${p.stage + 1} of ${PLANT_STAGES.length}`}>{PLANT_STAGES.map((_, i) => <i key={i} className={i <= p.stage ? 'on' : ''} />)}</div>
-              <small>{PLANT_STAGES[p.stage]}{p.stage < PLANT_REVEAL ? ' · what it becomes shows at stage 4' : ''}</small>
-            </>}
-            <p className={p && !dead && p.care >= today ? 'ok' : 'todo'}>
-              {!p ? 'Set a status to plant one.'
-                : dead ? `A week passed without a status. Set one to plant a new seedling.`
-                : p.care >= today ? '✓ Watered today: it grows again tomorrow when you set a status.'
-                : `💧 Set a status today to water it. It withers in ${left} day${left === 1 ? '' : 's'} without one.`}
-            </p>
-            <small className="muted-line">Your plant grows one stage each day you set a status, in the box at the top. It stands on your home desk, or in the Orangery if you don't have one.</small>
-          </div>
-        </section>
-        <ul className="achievement-list">
-          {ACHIEVEMENTS.map(a => {
-            const got = me.achievements[a.id];
-            const progress = a.id === 'botanist' && !got ? `${Math.min(me.bloomed.length, a.goal!)}/${a.goal}` : null;
-            return <li key={a.id} className={got ? 'got' : a.soon ? 'soon' : ''}>
-              <span className="icon">{a.icon}</span>
-              <span><b>{a.secret && !got ? '???' : a.title}</b><br /><small>{a.secret && !got ? a.secret : a.how}</small>
-                {a.id === 'botanist' && me.bloomed.length > 0 && <><br /><small className="muted-line">Bloomed: {me.bloomed.map(kindName).join(', ')} · {PLANT_KINDS.length} kinds in all</small></>}</span>
-              <small className="state">{got ? `✓ ${when(got)}` : a.soon ? 'Coming soon' : progress ?? ''}</small>
-            </li>;
-          })}
-        </ul>
-      </div>
-    </div>
-  );
 }
 
 /** The board by the Meeting room: meetings on right now in their own rooms. Titles only for their attendees. */
@@ -1226,9 +1172,13 @@ function Toasts({ store }: { store: Store }) {
   return (
     <div className="toasts">
       {store.toasts.map(t => (
-        <div key={t.id} className={`toast ${t.kind}`}>
+        <div key={t.id} className={`toast ${t.kind}`} role={t.kind === 'achievement' ? 'status' : undefined}>
           {t.kind === 'knock_in' && <span className="bang">!</span>}
-          <span className="txt">{t.text}{t.hint && <small className="hint">{t.hint}</small>}</span>
+          {t.kind === 'achievement' && t.achievementId ? <>
+            <AchievementBadge a={ACHIEVEMENTS.find(a => a.id === t.achievementId)!} unlocked />
+            <span className="txt"><span className="achievement-unlocked-label">ACHIEVEMENT UNLOCKED</span><strong className="achievement-toast-title">{ACHIEVEMENTS.find(a => a.id === t.achievementId)!.title}</strong><AchievementRarity id={t.achievementId} store={store} unlocked /></span>
+            <button onClick={() => { store.openAchievements(true, t.achievementId); store.dismiss(t.id); }}>View</button>
+          </> : <span className="txt">{t.text}{t.hint && <small className="hint">{t.hint}</small>}</span>}
           {t.kind === 'knock_in' && t.knockId && <>
             <button onClick={() => store.replyKnock(t.knockId!, 'accept')}>Accept</button>
             <button className="ghost" onClick={() => store.replyKnock(t.knockId!, 'later')}>Later</button>
@@ -1243,7 +1193,7 @@ function Toasts({ store }: { store: Store }) {
           {t.kind === 'meeting' && t.meetingKey && <button onClick={() => store.goToMeeting(t.meetingKey!)}>Go</button>}
           {t.kind === 'meeting' && t.link && <ExternalLink href={meetAs(t.link, store.meetAccount)}>Join call</ExternalLink>}
           {t.kind === 'link' && t.link && <ExternalLink href={meetAs(t.link, store.meetAccount)} onOpen={() => store.dismiss(t.id)}>Join Meet</ExternalLink>}
-          {t.kind !== 'knock_in' && t.kind !== 'knock_out' && <button aria-label="Close" className="ghost x" onClick={() => store.dismiss(t.id)}><Icon name="close" /></button>}
+          {t.kind !== 'knock_in' && t.kind !== 'knock_out' && <IconButton icon="close" label="Close" className="ghost x" onClick={() => store.dismiss(t.id)} />}
         </div>
       ))}
     </div>
