@@ -1034,7 +1034,7 @@ export class Engine {
       while (di < ds.length && ds[di].base <= f.base) drawD(ds[di++]);
       const ff = this.f(f.o.type);
       if (!this.onScreen(f.x - 2, f.y - 2, ff.w + 4, ff.h + 4)) continue;
-      this.blit(ctx, f.o.type === 'game_table' && [...this.store.users.values()].some(u => u.table?.objectId === f.o.id && u.table.running) ? 'game_table_on' : f.o.type === 'arcade' && this.store.cabinets.some(c => c.cabinet === f.o.id) ? `arcade_on_${1 + Math.floor(ms / 320) % 2}` : f.o.use?.kind === 'toilet' ? this.toiletFrame(f.o.id)
+      this.blit(ctx, f.o.use?.kind === 'retro' && this.store.retroCabinets.some(c => c.cabinet === f.o.id && c.player) ? `${f.o.type}_on` : f.o.type === 'game_table' && [...this.store.users.values()].some(u => u.table?.objectId === f.o.id && u.table.running) ? 'game_table_on' : f.o.type === 'arcade' && this.store.cabinets.some(c => c.cabinet === f.o.id) ? `arcade_on_${1 + Math.floor(ms / 320) % 2}` : f.o.use?.kind === 'toilet' ? this.toiletFrame(f.o.id)
         : f.o.type === 'bell' ? this.bellFrame(f.o.id, ms) : f.o.type === 'hat_rack' ? this.hatRackFrame(f.o, ms) : f.o.type === 'reading_table' && this.flickers(f.o, ms) ? 'reading_table_1'
         : f.o.type === 'server_rack' && Math.floor(ms / 500 + f.o.x * 3 + f.o.y) % 2 ? 'server_rack_1' : f.off && !this.isOn(f.o) ? `${f.o.type}_off` : f.o.type, f.x, f.y);
       if (f.o.use?.kind === 'toilet') this.drawStall(ctx, f.o, f.x, f.y);
@@ -1116,7 +1116,9 @@ export class Engine {
       const jukebox = this.store.jukebox[o.id], track = jukebox && TRACK.get(jukebox.track);
       const player = this.store.instruments[o.id];
       const instrumentTip = o.use?.kind === 'instrument' ? `${INSTRUMENTS[o.use.instrument].name} · ${this.store.seat === o.id ? "you're playing · Esc to stand up" : player === this.store.me ? "you're playing in another tab" : player ? `${this.store.name(player).split(' ')[0]} is playing` : 'click to play'}` : '';
-      const what = instrumentTip || (o.use?.kind === 'table' ? this.store.tableDescription(o.id) : o.use?.kind === 'arcade' ? this.store.gameDescription(o.id) : o.use?.kind === 'records' ? 'Arcade boards · weekly scores and records' : o.use?.kind === 'jukebox' ? !jukebox ? 'Jukebox · Reconnecting…' : jukebox.pausedAt !== null ? 'Jukebox · paused' : `Jukebox · ♪ ${track?.title ?? jukebox.track} — ${track?.artist ?? ''}` : o.use?.kind === 'toggle' ? `${o.use.label[0].toUpperCase()}${o.use.label.slice(1)} · ${this.isOn(o) ? 'on' : 'off'}`
+      const retro = o.use?.kind === 'retro' ? this.store.retroCabinets.find(c => c.cabinet === o.id) : null;
+      const retroTip = o.use?.kind === 'retro' ? retro?.broken ? 'Out of order' : `${o.use.label} · ${retro?.player ? `${this.store.name(retro.player)} is playing · ${retro.watchers} watching` : 'free'}` : '';
+      const what = retroTip || instrumentTip || (o.use?.kind === 'table' ? this.store.tableDescription(o.id) : o.use?.kind === 'arcade' ? this.store.gameDescription(o.id) : o.use?.kind === 'records' ? 'Arcade boards · weekly scores and records' : o.use?.kind === 'jukebox' ? !jukebox ? 'Jukebox · Reconnecting…' : jukebox.pausedAt !== null ? 'Jukebox · paused' : `Jukebox · ♪ ${track?.title ?? jukebox.track} — ${track?.artist ?? ''}` : o.use?.kind === 'toggle' ? `${o.use.label[0].toUpperCase()}${o.use.label.slice(1)} · ${this.isOn(o) ? 'on' : 'off'}`
         : o.use?.kind === 'calendar' ? 'Calendar · your week' : o.use?.kind === 'achievements' ? 'Notice board · your plant and achievements' : o.use?.kind === 'link' ? `Vault 13 · click to open the ${o.use.label}` : o.use?.kind === 'meetings' ? `Meetings · ${this.store.meetingRooms.length || 'none'} on now`
         : o.use?.kind === 'youtube' ? `${o.use.label} · click to watch`
         : o.use?.kind === 'room_start' ? 'Start a private room · click to walk over'

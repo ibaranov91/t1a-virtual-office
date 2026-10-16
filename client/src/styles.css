@@ -831,3 +831,38 @@ button:focus-visible, summary:focus-visible, input[type="range"]:focus-visible {
   .lofi-tv { right: 8px; bottom: 64px; width: calc(100% - 16px); max-height: calc(100% - 76px); overflow-y: auto; }
   .lofi-tv-head button { min-width: 40px; min-height: 40px; }
 }
+/* Retro cabinets */
+.retro-header > div { flex: 1; min-width: 0; }
+.retro-header h1 { font-size: 16px; margin: 0 0 4px; }
+.retro-header span { color: var(--muted); font-size: 12px; }
+.retro-area { overflow: auto; place-items: safe center; }
+.retro-bezel { border-width: 8px; border-radius: 8px; line-height: 0; box-shadow: 0 2px 0 #100e14; }
+.retro-bezel canvas { display: block; image-rendering: pixelated; }
+.retro-legend { text-align: center; padding: 6px 12px; background: var(--panel); flex: none; }
+.retro-legend p { margin: 0 0 4px; font-size: 12px; }
+.retro-legend small { color: var(--muted); font-size: 11px; }
+.retro-menu { width: min(440px, 100%); line-height: 1.5; }
+.retro-menu p { margin: 2px 0; }
+.retro-menu h2 { font-size: 16px; margin: 0; }
+.retro-menu a { color: var(--accent); }
+.retro-toast { position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%); width: max-content; max-width: calc(100% - 24px); padding: 12px 16px; background: var(--panel); border: 2px solid var(--accent); pointer-events: none; text-align: center; }
+.retro-touch { display: flex; align-items: center; justify-content: space-around; gap: 12px; padding: 8px max(8px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)); background: var(--panel); flex: none; }
+.retro-touch button { min-width: 44px; min-height: 44px; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+.retro-dpad { display: grid; grid-template-columns: repeat(3, 44px); grid-template-rows: repeat(2, 44px); gap: 3px; }
+.retro-dpad button:first-child { grid-column: 2; }
+.retro-dpad button:nth-child(2) { grid-column: 1; grid-row: 2; }
+.retro-dpad button:nth-child(3) { grid-column: 2; grid-row: 2; }
+.retro-dpad button:nth-child(4) { grid-column: 3; grid-row: 2; }
+.retro-actions { display: grid; grid-template-columns: repeat(2, minmax(44px, 64px)); gap: 6px; }
+.retro-own { color: var(--accent); }
+.retro-own-divider { border-top: 2px solid var(--wood); }
+.retro-boards section { margin-top: 18px; }
+@media (max-width: 560px), (max-height: 500px) {
+  .retro-header h1 { font-size: 13px; }
+  .retro-header { gap: 4px; }
+  .retro-legend { padding: 4px 8px; }
+}
+@media (max-height: 500px) and (min-width: 561px) {
+  .retro-touch { position: absolute; bottom: 40px; left: 8px; right: 8px; justify-content: space-between; pointer-events: none; background: transparent; }
+  .retro-touch button { pointer-events: auto; }
+}

@@ -4,6 +4,7 @@ import { RoomMenu, type RoomAnchor } from './sidebar/RoomMenu';
 import { PRESENCE_COLOR } from './sidebar/model';
 import { COMPACT, useMedia } from './sidebar/hooks';
 import { IdentityPill, VoiceIcons, CallChip, RoomVoiceChip, voiceState } from './sidebar/SelfPanel';
+import { RetroOverlay } from './retro/RetroOverlay';
 import { INSTRUMENTS, DRUM_PADS, VELOCITIES, VELOCITY_START, keyNote, noteName, type InstrumentKind } from '../../shared/instruments';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { loadAssets, type Assets } from './assets';
@@ -166,7 +167,7 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
       const use = p?.kind === 'object' ? MAP.objects.find(o => o.id === p.id)?.use : undefined;
       if (use?.kind === 'instrument' && p) { setPick(null); return store.playInstrument(p.id); }
       if (use?.kind === 'table' && p) { setPick(null); return store.use(p.id); }
-      if (use?.kind === 'arcade' && p) { setPick(null); return store.use(p.id); }
+      if ((use?.kind === 'arcade' || use?.kind === 'retro') && p) { setPick(null); return store.use(p.id); }
       if (use?.kind === 'dance' && p) { setPick(null); return store.dance(p.id); }
       if (use?.kind === 'records') { setPick(null); return store.openRecords(); }
       if (use?.kind === 'youtube' && p) { setPick(null); return setTv(p.id); }
@@ -267,7 +268,8 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
       </div>
       </div>
       {store.table && assets && <TableOverlay store={store} assets={assets} />}
-      {store.gameOpen && assets && store.park && <ArcadeOverlay store={store} assets={assets} voice={voice} />}
+      {store.retro && <RetroOverlay store={store} />}
+      {store.arcadeOpen && assets && store.park && <ArcadeOverlay store={store} assets={assets} voice={voice} />}
     </div>
   );
 }
