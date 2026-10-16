@@ -1,3 +1,4 @@
+import { ROOM_MODES, roomMode } from '../../../shared/roomModes';
 import { Icon } from '../Icon';
 import { MAP, type Store } from '../net';
 import type { Engine } from '../engine';
@@ -41,6 +42,13 @@ export function RoomMenu({ store, engine, at, compact, onClose, onAction, onTv }
         };
         return <button key={o.id} data-action role="menuitem" onClick={() => act(run)}>{label}</button>;
       })}
+      {store.admin && <div className="sb-room-modes" role="group" aria-label="Room mode">
+        <b>Room mode</b>
+        {ROOM_MODES.map(mode => <button key={mode.id} data-action role="menuitemradio" aria-checked={roomMode(room) === mode.id}
+          disabled={!store.connected} onClick={() => store.setRoomMode(room.id, mode.id)}>
+          <span>{mode.label}{roomMode(room) === mode.id && <Icon name="check" />}</span><small>{mode.hint}</small>
+        </button>)}
+      </div>}
     </div>
   </div>;
 }

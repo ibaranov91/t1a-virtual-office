@@ -1,3 +1,4 @@
+import type { RoomMode, RoomModes } from './roomModes';
 import type { TableView, TableGameId, TableStatus } from './table/types';
 export type { TableView, TableGameId } from './table/types';
 import type { RetroView, RetroCabinet, RetroBoards, RetroResult } from './retro/types';
@@ -303,11 +304,12 @@ export type ServerMsg =
   | { t: 'instrument'; id: string; player: string | null }
   | { t: 'seat'; id: string | null }
   | { t: 'note'; id: string; by: string; note: number; on: boolean; vel: number; preset: number; at: number }
+  | { t: 'room_modes'; modes: RoomModes; by: string } // admin changes: all room-mode overrides
   // the furniture and rugs: on connect, and to everyone after each admin edit. by: who made it; added: a new thing's id
   | { t: 'layout'; layout: Layout; by?: string; added?: string }
   | { t: 'hello'; you: string; serverTime: number; build?: string } // build: the client bundle the server serves (absent in dev)
   | { t: 'pong'; id: number; serverTime: number } // the answer to a clock ping, only to the socket that sent it
-  | { t: 'state'; users: PublicUser[]; objects: Record<string, ObjectState>; toilets?: Record<string, ToiletState>; jukebox?: Record<string, JukeboxState>; instruments?: Record<string, string | null>; serverTime: number }
+  | { t: 'state'; roomModes?: RoomModes; users: PublicUser[]; objects: Record<string, ObjectState>; toilets?: Record<string, ToiletState>; jukebox?: Record<string, JukeboxState>; instruments?: Record<string, string | null>; serverTime: number }
   | { t: 'move'; userId: string; from: Tile; to: Tile; startedAt: number; path?: Tile[]; face?: Dir; ms?: number } // ms: per tile, absent = WALK_MS_PER_TILE
   | { t: 'effects'; userId: string; effects: Effect[] }
   | { t: 'status'; userId: string; status: string }
@@ -418,6 +420,7 @@ export type ClientMsg =
   | { t: 'meeting_leave' }           // back to the office (still in the meeting: busy, knocks go to Later)
   | { t: 'room_create'; title?: string; invite: string[] } // start a private room in a copy of the Meeting room; invite = user ids
   | { t: 'room_invite'; userIds: string[] } // add people to the private room I'm in
+  | { t: 'room_mode'; roomId: string; mode: RoomMode } // admins: change a room's voice and knock rules
   | { t: 'room_voice'; on: boolean } // join / leave the voice call of the meeting room I'm in (ad-hoc rooms join on entry, calendar meetings are opt-in)
   | { t: 'room_meet' } // 'Use Meet' in an ad-hoc room: make (or re-send) its Meet link for everyone in it
   | { t: 'meeting_out'; key: string } // leave the meeting for good: not busy any more, knocks come through again
