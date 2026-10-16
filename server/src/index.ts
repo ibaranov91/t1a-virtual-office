@@ -1,3 +1,4 @@
+import { DiagStore, DiagError, DIAG_MAX_BYTES, validateDiag } from './diag';
 import { BannerStore, BannerError, BANNER_MAX_BYTES } from './banners';
 import { createServer, type IncomingMessage } from 'node:http';
 import { copyFileSync, createReadStream, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
@@ -42,6 +43,10 @@ const OPEN_LOGIN = process.env.OPEN_LOGIN === 'true';
 const EMAIL_LOGIN = process.env.EMAIL_LOGIN === 'true';
 const TOKEN_LOGIN = OPEN_LOGIN || EMAIL_LOGIN || (process.env.TOKEN_LOGIN ? process.env.TOKEN_LOGIN === 'true' : !NETBIRD);
 const DATA = new URL('../../data/', import.meta.url);
+const diagnostics = new DiagStore(fileURLToPath(new URL('diag/', DATA)));
+const sweepDiag = () => diagnostics.sweep().catch(e => console.warn('diagnostics sweep failed:', e));
+void sweepDiag();
+setInterval(sweepDiag, 3600_000).unref();
 const STATE_FILE = new URL('state.json', DATA);
 
 const map: TileMap = JSON.parse(readFileSync(new URL('../../shared/tilemap.json', import.meta.url), 'utf8'));
@@ -342,6 +347,34 @@ async function route(req: IncomingMessage, res: import('node:http').ServerRespon
   }
   if ((req.method === 'GET' || req.method === 'HEAD') && req.url?.startsWith('/banners/')) {
     return world.banners!.serve(req.url.slice(9), req, res);
+  }
+  if (req.method === 'POST' && req.url === '/api/diag') {
+    const session = String(req.headers['x-deck-session'] ?? ''), userId = sessions.get(session);
+    const user = userId && world.users.get(userId);
+    if (!user) return json(res, 401, { error: 'sign in first' });
+    try { diagnostics.begin(session); }
+    catch (e) { return json(res, (e as DiagError).code, { error: (e as Error).message }); }
+    const chunks: Buffer[] = []; let size = 0, tooBig = false;
+    req.on('data', (chunk: Buffer) => {
+      size += chunk.length;
+      if (size > DIAG_MAX_BYTES) { tooBig = true; chunks.length = 0; }
+      else if (!tooBig) chunks.push(chunk);
+    });
+    req.on('end', async () => {
+      if (tooBig) return json(res, 413, { error: 'Diagnostics must be at most 256 KB' });
+      try {
+        let body: unknown;
+        try { body = JSON.parse(Buffer.concat(chunks).toString()); }
+        catch { throw new DiagError(400, 'Invalid JSON'); }
+        await diagnostics.append(user.id, user.name, validateDiag(body));
+        json(res, 200, { ok: true });
+      } catch (e) {
+        if (e instanceof DiagError) return json(res, e.code, { error: e.message });
+        console.warn('diagnostics append failed:', e);
+        json(res, 500, { error: 'Diagnostics write failed' });
+      }
+    });
+    return;
   }
   if (req.method === 'POST' && req.url === '/api/banner') {
     const userId = sessions.get(String(req.headers['x-deck-session'] ?? ''));

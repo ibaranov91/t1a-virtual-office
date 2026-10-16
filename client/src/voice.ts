@@ -1,5 +1,6 @@
 import { AFK_MS, type RtcSignal } from '../../shared/protocol';
-import { audio, forgetMedia, playMedia, setAudioDeafened } from './audio';
+import { diag, peerStats, trackInfo } from './voiceDiag';
+import { DIRECT_VOICE, audio, forgetMedia, playMedia, setAudioDeafened } from './audio';
 import { voicePolicy, HINT_SPEECH_MS, HINT_COOLDOWN_MS } from './voicePolicy';
 import { playMuteBlip, playDeafenBlip, playKnock } from './sounds';
 import { prefs, savePrefs, subscribePrefs } from './prefs';
@@ -61,8 +62,29 @@ export class Voice {
   private inst = rid();
   private dead = false;
   private unsub: () => void;
+  private unbindDiag: () => void;
+  private diagEnabled: boolean | undefined;
+  private meterValues: { at: number; rms: number }[] = [];
+  private diagSample = async () => {
+    const now = performance.now();
+    this.meterValues = this.meterValues.filter(v => now - v.at <= 1000);
+    const values = this.meterValues.map(v => v.rms), track = this.local?.getAudioTracks()[0];
+    const self = { muted: this.muted, deafened: this.deafened, mode: this.mode, speaking: this.speaking,
+      mic: track ? { enabled: track.enabled, muted: track.muted, readyState: track.readyState } : null,
+      rmsMax: values.length ? Math.max(...values) : 0, rmsMean: values.length ? values.reduce((a, b) => a + b, 0) / values.length : 0 };
+    const peers = await Promise.all([...this.peers].map(async ([id, p]) => {
+      const el = p.audio;
+      const state = { id, connectionState: p.pc.connectionState, iceConnectionState: p.pc.iceConnectionState,
+        element: { paused: el.paused, readyState: el.readyState, networkState: el.networkState, volume: el.volume,
+          muted: el.muted, currentTime: el.currentTime, ...this.store.soundscape?.voiceLevel(id) } };
+      try { return { ...state, stats: await peerStats(p.pc) }; }
+      catch (e) { return { ...state, statsError: (e as Error).message }; }
+    }));
+    return { self, peers };
+  };
 
   constructor(private store: Store, private iceServers: RTCIceServer[]) {
+    this.unbindDiag = diag.bind(store, () => ({ DIRECT_VOICE, native: !!(window as unknown as { webkit?: { messageHandlers?: { deck?: unknown } } }).webkit?.messageHandlers?.deck, prefs: { processing: prefs.processing, mode: prefs.mode, deafened: prefs.deafened, mix: { ...prefs.mix } } }), this.diagSample);
     store.onRtc = (from, signal) => { void this.onSignal(from, signal); };
     for (const event of ['pointerdown', 'pointermove', 'keydown', 'wheel'] as const) window.addEventListener(event, this.activity, { passive: true });
     window.addEventListener('keydown', this.keyDown);
@@ -76,6 +98,7 @@ export class Voice {
     setAudioDeafened(this.deafened);
     this.unsub = subscribePrefs(() => {
       if (this.processing !== prefs.processing) { // reopen the mic with the new processing, if it's open
+        diag.event('processing', { from: this.processing, to: prefs.processing, reopen: !!this.local });
         this.processing = prefs.processing;
         if (this.local) { this.stopMic(); this.micAttempted = false; this.sendRule(); this.openMic(); }
       }
@@ -102,6 +125,7 @@ export class Voice {
     const me = this.store.users.get(this.store.me), owner = this.store.connected && this.store.voiceOwner;
     const callId = me?.callId ?? null;
     const newOwner = owner && !this.owner, newCall = callId !== this.callId;
+    if (newCall || newOwner || (this.owner && !owner)) diag.event('call', { oldCallId: this.callId, newCallId: callId, owner, oldOwner: this.owner });
     if (this.idleLeft && this.store.activeAt > this.idleLeftAt) this.idleLeft = false;
     if (this.idlePromptAt !== null && Math.max(this.store.activeAt, this.lastOwnSpeech, this.store.heardAt) > this.idlePromptAt) this.clearPrompt();
     const wasOwner = this.owner;
@@ -124,17 +148,18 @@ export class Voice {
     if (wasOwner && !owner) { this.spaceHeld = false; this.onMeet = false; this.clearPrompt(); }
     const away = me?.presence === 'away';
     const becameAway = away && !this.wasAway; this.wasAway = away;
-    if (owner && callId?.startsWith('room:') && away && (becameAway || newCall || newOwner) && !this.muted) this.setMuted(true);
+    if (owner && callId?.startsWith('room:') && away && (becameAway || newCall || newOwner) && !this.muted) this.setMuted(true, 'away');
     const ids = new Set(this.eligiblePeers().map(u => u.id));
-    for (const id of [...this.peers.keys()]) if (!ids.has(id)) this.closePeer(id);
+    for (const id of [...this.peers.keys()]) if (!ids.has(id)) this.closePeer(id, 'ineligible');
     for (const id of [...this.retries.keys()]) if (!ids.has(id)) this.retries.delete(id);
     for (const id of ids) if (!this.peers.has(id)) {
       const p = this.createPeer(id);
-      if (this.store.me < id) void this.offer(id, p).catch(e => console.warn('voice offer', e));
+      if (this.store.me < id) void this.offer(id, p).catch(e => { diag.event('signalingError', { id, phase: 'offer', error: (e as Error).message }); console.warn('voice offer', e); });
       else this.signal(id, { kind: 'hello', inst: this.inst });
     }
     this.checkInside(); this.sendRule();
     this.openMic();
+    diag.setCall(this.callId);
   }
   private checkInside() {
     const me = this.store.users.get(this.store.me), room = this.store.roomCallOf(me);
@@ -145,20 +170,25 @@ export class Voice {
   private sendRule() {
     const track = this.owner && this.callId ? this.local?.getAudioTracks()[0] ?? null : null;
     const enabled = this.insideRect && this.owner && !!this.callId && !!this.local && !this.muted && !this.deafened && !this.onMeet && (this.mode === 'voice' || this.spaceHeld);
+    if (enabled !== this.diagEnabled) { this.diagEnabled = enabled; diag.event('sendRule', { enabled, muted: this.muted, deafened: this.deafened, mode: this.mode, onMeet: this.onMeet, inside: this.insideRect }); }
     for (const t of this.local?.getAudioTracks() ?? []) t.enabled = enabled;
     if (enabled || !this.muted || this.deafened || this.onMeet || this.mode !== 'voice') this.hintSince = 0;
     if (!enabled) { this.loudTicks = 0; this.quietTicks = 0; this.handSince = 0; this.setSpeaking(false); }
-    for (const p of this.peers.values()) {
+    for (const [id, p] of this.peers) {
       const sender = p.transceiver?.sender;
       if (!sender || p.replacing || sender.track === track) continue;
+      diag.event('replaceTrack', { id, phase: 'start', track: !!track });
       p.replacing = true;
       void sender.replaceTrack(track).then(() => {
+        diag.event('replaceTrack', { id, phase: 'ok', track: !!track });
         p.replacing = false;
         if (p.pc.signalingState !== 'closed') this.sendRule();
-      }).catch(e => { p.replacing = false; console.warn('voice replaceTrack', e); });
+      }).catch(e => { diag.event('replaceTrack', { id, phase: 'error', track: !!track, error: (e as Error).name }); p.replacing = false; console.warn('voice replaceTrack', e); });
     }
   }
   private async requestMic(callId: string) {
+    const started = performance.now();
+    diag.event('requestMic', { phase: 'start', callId, processing: this.processing });
     this.micAttempted = true;
     const token = ++this.micRequest;
     let local: MediaStream | null = null, error: string | null = null;
@@ -166,7 +196,12 @@ export class Voice {
       const on = this.processing;
       local = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: on, noiseSuppression: on, autoGainControl: on } });
     } catch (e) {
+      diag.event('requestMic', { phase: 'error', ms: Math.round(performance.now() - started), error: (e as Error)?.name });
       error = (e as Error)?.name === 'NotAllowedError' ? 'Microphone blocked: you can listen but not talk' : 'No microphone: listen-only';
+    }
+    if (local) {
+      diag.event('requestMic', { phase: 'ok', ms: Math.round(performance.now() - started), tracks: local.getAudioTracks().map(trackInfo) });
+      for (const track of local.getAudioTracks()) for (const type of ['mute', 'unmute', 'ended']) track.addEventListener(type, () => diag.event('localTrack', { event: type, ...trackInfo(track) }));
     }
     if (token !== this.micRequest || !this.owner || this.callId !== callId || this.dead) {
       for (const t of local?.getTracks() ?? []) t.stop(); return;
@@ -199,16 +234,17 @@ export class Voice {
   }
   setOnMeet(on = true) {
     if (!this.owner || !this.callId || this.onMeet === on) return;
-    if (on) { this.meetMuted = this.muted; this.onMeet = true; this.setMuted(true); }
-    else { this.onMeet = false; this.setMuted(this.meetMuted); }
+    if (on) { this.meetMuted = this.muted; this.onMeet = true; this.setMuted(true, 'onMeet'); }
+    else { this.onMeet = false; this.setMuted(this.meetMuted, 'onMeet'); }
     for (const [id, p] of this.peers) {
       if (on) this.store.soundscape?.remove(id);
       else if (p.audio.srcObject) this.store.soundscape?.addVoice(id, p.audio.srcObject as MediaStream, p.audio);
     }
     this.clearPrompt(); this.rememberCall(); this.store.changed();
   }
-  setMuted(muted: boolean) {
+  setMuted(muted: boolean, why = 'user') {
     if (!this.store.voiceOwner || !this.store.connected) return;
+    diag.event('setMuted', { muted, why });
     if (!muted) {
       if (this.store.users.get(this.store.me)?.presence === 'away') this.store.setPresence('online');
       this.unmutedAt = Date.now();
@@ -237,6 +273,8 @@ export class Voice {
     this.releaseSpace(); this.sendRule(); this.store.changed();
   }
   private stopMic() {
+    diag.event('stopMic', { track: !!this.local });
+    this.meterValues = [];
     ++this.micRequest; this.micAttempted = false;
     for (const t of this.local?.getTracks() ?? []) t.stop(); this.local = null;
     this.meterTrack?.stop(); this.meterTrack = null; this.hintSince = 0;
@@ -249,6 +287,7 @@ export class Voice {
     for (const id of [...this.peers.keys()]) this.closePeer(id);
   }
   destroy() {
+    this.unbindDiag();
     this.dead = true; this.unsub(); this.stopVoice(); clearInterval(this.afk); clearInterval(this.watchdog); clearInterval(this.poseTimer); this.store.onRtc = undefined;
     for (const event of ['pointerdown', 'pointermove', 'keydown', 'wheel'] as const) window.removeEventListener(event, this.activity);
     window.removeEventListener('keydown', this.keyDown); window.removeEventListener('keyup', this.keyUp); window.removeEventListener('blur', this.blur); window.removeEventListener('focus', this.focus); document.removeEventListener('visibilitychange', this.visibility); this.clearPrompt();
@@ -256,6 +295,9 @@ export class Voice {
 
   private createPeer(id: string): Peer {
     const pc = new RTCPeerConnection({ iceServers: this.iceServers }), el = new Audio();
+    diag.event('peerCreate', { id });
+    diag.watchElement(id, el);
+    for (const type of ['iceconnectionstatechange', 'signalingstatechange'] as const) pc.addEventListener(type, () => diag.event(type, { id, iceConnectionState: pc.iceConnectionState, signalingState: pc.signalingState }));
     el.autoplay = true; el.muted = true;
     const p: Peer = { pc, audio: el, pendingIce: [], conn: null, remoteInst: null, replacing: false, since: Date.now() };
     if (this.store.me < id) {
@@ -269,14 +311,17 @@ export class Voice {
     pc.ontrack = e => {
       if (!this.current(id, p)) return;
       const stream = e.streams[0] ?? new MediaStream([e.track]);
+      diag.event('ontrack', { id, stream: stream.id, track: e.track.id, muted: e.track.muted, readyState: e.track.readyState });
       el.srcObject = stream; void playMedia(el); if (!this.onMeet) this.store.soundscape?.addVoice(id, stream, el);
     };
     pc.onconnectionstatechange = () => {
+      diag.event('connectionstatechange', { id, state: pc.connectionState });
       if (!this.current(id, p)) return;
       if (pc.connectionState === 'connected') this.retries.delete(id);
       else if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') p.since = Date.now(); // the clock starts when it drops
       if (pc.connectionState === 'failed' && this.store.me < id) {
-        pc.restartIce(); void this.offer(id, p).catch(e => console.warn('voice ICE restart', e));
+        diag.event('iceRestart', { id });
+        pc.restartIce(); void this.offer(id, p).catch(e => { diag.event('signalingError', { id, phase: 'iceRestart', error: (e as Error).message }); console.warn('voice ICE restart', e); });
       }
       this.store.changed();
     };
@@ -292,15 +337,17 @@ export class Voice {
       const tries = this.retries.get(id) ?? 0;
       const wait = state === 'disconnected' ? LOST_MS : Math.min(CONNECT_MS * (tries + 1), CONNECT_MAX_MS);
       if (now - p.since < wait) continue;
+      diag.event('watchdog', { id, state, tries: tries + 1, ms: now - p.since });
       this.retries.set(id, tries + 1);
       console.info(`voice: ${state} with ${id} for ${Math.round((now - p.since) / 1000)} s, reconnecting (try ${tries + 1})`);
-      this.closePeer(id);
-      void this.offer(id, this.createPeer(id)).catch(e => console.warn('voice reconnect', e));
+      this.closePeer(id, 'watchdog');
+      void this.offer(id, this.createPeer(id)).catch(e => { diag.event('signalingError', { id, phase: 'reconnect', error: (e as Error).message }); console.warn('voice reconnect', e); });
     }
   }
   private current(id: string, p: Peer) { return this.peers.get(id) === p && p.pc.signalingState !== 'closed'; }
-  private closePeer(id: string) {
+  private closePeer(id: string, reason = 'stopVoice') {
     const p = this.peers.get(id); if (!p) return;
+    diag.event('peerClose', { id, reason });
     this.peers.delete(id); p.pc.close(); p.audio.pause(); p.audio.srcObject = null;
     this.store.soundscape?.remove(id); forgetMedia(p.audio);
   }
@@ -317,11 +364,11 @@ export class Voice {
     try {
       if (signal.kind === 'hello') {
         if (this.store.me > from || p?.remoteInst === signal.inst) return;
-        this.closePeer(from); p = this.createPeer(from); p.remoteInst = signal.inst;
+        this.closePeer(from, 'hello'); p = this.createPeer(from); p.remoteInst = signal.inst;
         await this.offer(from, p);
       } else if (signal.kind === 'offer') {
         if (this.store.me < from) return;
-        if (p?.conn && p.conn !== signal.conn) { this.closePeer(from); p = undefined; }
+        if (p?.conn && p.conn !== signal.conn) { this.closePeer(from, 'newOffer'); p = undefined; }
         p ??= this.createPeer(from); p.conn = signal.conn;
         await p.pc.setRemoteDescription({ type: 'offer', sdp: signal.sdp }); if (!this.current(from, p)) return;
         p.transceiver = p.pc.getTransceivers().find(t => t.receiver.track.kind === 'audio');
@@ -339,7 +386,7 @@ export class Voice {
         if (p.pc.remoteDescription) await p.pc.addIceCandidate(signal.candidate);
         else p.pendingIce.push(signal.candidate);
       }
-    } catch (e) { console.warn('voice signaling', e); }
+    } catch (e) { diag.event('signalingError', { id: from, phase: signal.kind, error: (e as Error).message }); console.warn('voice signaling', e); }
   }
   private async flushIce(p: Peer) { for (const c of p.pendingIce.splice(0)) await p.pc.addIceCandidate(c).catch(() => {}); }
 
@@ -351,7 +398,10 @@ export class Voice {
     this.meter = window.setInterval(() => {
       this.analyser!.getFloatTimeDomainData(buf);
       let sum = 0; for (const v of buf) sum += v * v;
-      const loud = Math.sqrt(sum / buf.length) > .018;
+      const meterRms = Math.sqrt(sum / buf.length);
+      this.meterValues.push({ at: performance.now(), rms: meterRms });
+      this.meterValues = this.meterValues.filter(v => performance.now() - v.at <= 1000);
+      const loud = meterRms > .018;
       const now = Date.now(), scale = this.policyScale;
       if (!this.transmitting) {
         if (loud && this.muted && !this.deafened && !this.onMeet && this.mode === 'voice' && !this.micError) {
@@ -394,6 +444,7 @@ export class Voice {
   private activity = () => {
     const now = Date.now(), urgent = this.idlePromptAt !== null || this.idleLeft || now - this.store.activeAt >= AFK_MS * this.policyScale;
     this.store.activeAt = now; this.idleLeft = false; this.clearPrompt();
+    if (urgent) diag.event('policy', { action: 'active' });
     if (urgent || now - this.lastActiveSent >= 60_000) { this.lastActiveSent = now; this.store.send({ t: 'active' }); }
   };
   private keyDown = (e: KeyboardEvent) => {
@@ -427,17 +478,20 @@ export class Voice {
       lastInput: this.store.activeAt, lastHeard: this.store.heardAt, switchedAway: this.switchedAway,
       idlePromptAt: this.idlePromptAt, timeScale: this.policyScale });
     if (result.mute) {
-      this.setMuted(true);
+      diag.event('policy', { action: 'mute', why: result.mute });
+      this.setMuted(true, result.mute);
       this.store.toast({ kind: 'info', text: `Muted: ${result.mute === 'away' ? 'you switched away' : result.mute === 'alone' ? 'you were quiet for a minute' : 'you were quiet for 5 minutes'}`, expires: 6000 });
     }
     const me = this.store.users.get(this.store.me), room = this.store.roomCallOf(me);
     if (result.prompt) {
+      diag.event('policy', { action: 'idlePrompt' });
       this.idlePromptAt = now; playKnock();
       this.store.toast({ kind: 'info', text: `Still here? You'll leave ${room?.name ?? (me?.instance ? 'Meeting' : 'the call')} in 2 minutes`,
         actions: [{ label: "I'm here", run: this.activity }] });
       this.idleToast = this.store.toasts.at(-1)?.id ?? null;
     }
     if (result.leave) {
+      diag.event('policy', { action: 'idleLeave' });
       this.idleLeft = true; this.idleLeftAt = now; this.clearPrompt();
       const text = me?.instance ? 'Voice off' : this.inRoomCall ? `Left ${room?.name ?? 'the room'}` : `Left the call with ${this.store.names(peers)}`;
       this.store.send({ t: 'afk' });
