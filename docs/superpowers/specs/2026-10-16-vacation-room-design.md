@@ -145,8 +145,8 @@ events are read only so back-to-back periods can be merged; they are never sent.
   `GET calendars/primary/events?eventTypes=outOfOffice&eventTypes=default&singleEvents=true&timeMin&timeMax&maxResults=250&fields=nextPageToken,timeZone,items(status,eventType,summary,start,end,attendees(self,responseStatus))`.
   - Keep `outOfOffice` items.
   - Keep **all-day** `default` items (`start.date`) whose summary matches
-    `/отпуск|vacation|holiday|\bpto\b|\booo\b|out of office|urlop|відпустк|day off/i`.
-  - Skip cancelled items and ones the user declined.
+    `/отпуск|vacation|holiday|\bpto\b|\booo\b|out of office|urlop|відпустк|time\s*off|day[\s-]*off/i`.
+  - Skip cancelled items, ones the user declined, and summaries matching `/business\s*trip|travel/i`.
 - **Everyone else:**
   `GET calendars/<email>/events?eventTypes=outOfOffice&singleEvents=true&timeMin&timeMax&maxResults=250&fields=nextPageToken,timeZone,items(status,eventType,start,end)`,
   using a **reader**. The reader is the first `DECK_ADMINS` user (by email) with the calendar scope, else any user
@@ -165,6 +165,18 @@ events are read only so back-to-back periods can be merged; they are never sent.
 items are converted to epoch ms at midnight in the calendar's `timeZone` and keep their exclusive end date. The
 keyword match happens inside `listAbsences`; summaries are never returned or stored. The access-token cache stays
 keyed by `tokenOwnerId`.
+
+**Team calendar.** Also read Travel&Day-off (`t1a.com_aoas0mu6l5d0hmrdhabm01rc0k@group.calendar.google.com`,
+America/New_York) once per poll through the same admin-first readers. `VACATION_TEAM_CALENDAR` overrides the id;
+an empty string disables it. On 403/404 or `invalid_grant`, try the next reader (drop revoked grants as above).
+If all readers fail, keep the last successful team result and log once per process. Keep non-cancelled time-off,
+vacation, day-off, holiday, PTO, отпуск, urlop and відпустк events, including declined attendees and transparent events.
+Business Trip and travel do not count: those colleagues are working on the road. Match attendee emails or the creator
+(excluding `t1a.api@t1a.com` and the calendar itself), else the name before the first " - " against the Deck name or
+email local part with dots/underscores as spaces; names use NFD, stripped combining marks, lowercase and collapsed
+whitespace. Merge matching items with the person's existing absences, even when only the team calendar is accessible.
+Team all-day dates retain their exclusive end date and use the successful own/reader calendar timezone, else the
+person's shared `tz`, else Europe/Warsaw. Summaries stay inside `listTeamAbsences`.
 
 **Turning absences into a vacation** happens in pure `shared/vacation.ts`. Intervals are half-open
 `[start, end)`, and "working time" means Mon–Fri 09:00–17:00 in the calendar's `timeZone`.

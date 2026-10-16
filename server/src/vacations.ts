@@ -1,8 +1,13 @@
-import { currentVacation, type Vacation } from '../../shared/vacation';
-import { CALENDAR_SCOPE, forgetAccess, googleEnabled, listAbsences } from './google';
+import { currentVacation, zonedTime, type Absence, type Vacation } from '../../shared/vacation';
+import { CALENDAR_SCOPE, forgetAccess, googleEnabled, listAbsences, listTeamAbsences, type TeamAbsence } from './google';
 import type { User, World } from './world';
 
+const DEFAULT_TEAM_CALENDAR = 't1a.com_aoas0mu6l5d0hmrdhabm01rc0k@group.calendar.google.com';
+const normalize = (s: string) => s.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().trim().replace(/\s+/g, ' ');
+let teamFailureLogged = false;
+
 export class Vacations {
+  private team: TeamAbsence[] = [];
   private polling = false;
   private bots = false;
   private denied = new Set<string>();
@@ -58,16 +63,37 @@ export class Vacations {
     if (!this.enabled || this.polling) return;
     this.polling = true;
     try {
+      const calendarId = process.env.VACATION_TEAM_CALENDAR ?? DEFAULT_TEAM_CALENDAR;
+      if (calendarId) {
+        let succeeded = false;
+        for (const reader of this.readers()) {
+          const link = reader.google!;
+          try {
+            this.team = (await listTeamAbsences(reader.id, link, calendarId)).items;
+            succeeded = true;
+            break;
+          } catch (e) {
+            const err = e as Error & { code?: string; status?: number };
+            if (err.code === 'invalid_grant') this.forget(reader, link);
+          }
+        }
+        if (!succeeded && !teamFailureLogged) {
+          console.warn('google: team vacations unavailable; keeping last successful result');
+          teamFailureLogged = true;
+        }
+      }
       for (const u of this.world.users.values()) {
         if (u.bot || !u.email) continue;
+        const team = calendarId ? this.team.filter(a => a.who.emails.includes(u.email!.toLowerCase()) || normalize(a.who.name) === normalize(u.name) || normalize(a.who.name) === normalize(u.email!.split('@')[0].replace(/[._]/g, ' '))) : [];
+        let result: { timeZone: string; items: Absence[] } | undefined;
+        let clear = false;
         const own = !!u.google?.scopes.includes(CALENDAR_SCOPE);
         const candidates = own ? [u] : this.readers();
         for (const reader of candidates) {
           const link = reader.google;
           if (!link?.scopes.includes(CALENDAR_SCOPE)) continue;
           try {
-            const result = await listAbsences(reader.id, link, own ? 'primary' : u.email, own);
-            this.set(u.id, currentVacation(result.items, result.timeZone));
+            result = await listAbsences(reader.id, link, own ? 'primary' : u.email, own);
             break;
           } catch (e) {
             const err = e as Error & { code?: string; status?: number };
@@ -76,10 +102,19 @@ export class Vacations {
               if (!own) continue;
             } else if (err.status === 403 || err.status === 404) {
               if (!this.denied.has(u.id)) { console.warn(`google: vacations for ${u.name}: calendar unavailable (${err.status})`); this.denied.add(u.id); }
-              this.set(u.id, null);
+              clear = true;
             } else console.warn(`google: vacations for ${u.name}:`, err.message);
             break; // transient errors keep the last known result
           }
+        }
+        if (result || clear || team.length) {
+          const tz = result?.timeZone ?? u.tz ?? 'Europe/Warsaw';
+          const items: Absence[] = team.map(a => ({
+            start: typeof a.start === 'string' ? zonedTime(a.start, tz) : a.start,
+            end: typeof a.end === 'string' ? zonedTime(a.end, tz) : a.end,
+            ...(typeof a.end === 'string' ? { allDay: { endDate: a.end } } : {}),
+          }));
+          this.set(u.id, currentVacation([...(result?.items ?? []), ...items], tz));
         }
       }
     } finally { this.polling = false; }

@@ -1,3 +1,4 @@
+import { Icon } from './Icon';
 import { useEffect, useRef, useState } from 'react';
 import { MAP, type Store } from './net';
 import { prefs, savePrefs } from './prefs';
@@ -116,7 +117,7 @@ export function LofiTV({ store, id, onClose }: { store: Store; id: string; onClo
   const room = MAP.rooms.find(r => r.id === roomId);
   return <aside className="lofi-tv" aria-label="Lofi Girl TV">
     <div className="lofi-tv-head"><h2><svg viewBox="0 0 28 20" aria-hidden="true"><rect width="28" height="20" rx="5" fill="#f03b40" /><path d="M11 5 20 10 11 15Z" fill="white" /></svg>Lofi Girl <span className="lofi-live" data-live={isLive}>{badge}</span></h2>
-      <button className="ghost" aria-label="Close TV" onClick={onClose}>×</button></div>
+      <button className="ghost" aria-label="Close TV" onClick={onClose}><Icon name="close" /></button></div>
     {inside ? videoId ? <div className="lofi-player" ref={host} /> : <div className="lofi-tv-walk"><p role="status">{status}</p></div> : <div className="lofi-tv-walk"><p>Walk into {room?.name ?? 'Music'} to watch and listen.</p>
       <button onClick={() => { const spot = room?.stand[0]; if (spot) store.moveTo(spot); }}>Walk to Music</button></div>}
     {inside && videoId && <label className="volume-control jukebox-volume"><span>Volume for me</span>

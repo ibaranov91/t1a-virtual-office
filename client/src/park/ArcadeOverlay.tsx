@@ -1,6 +1,8 @@
 import { TABLE_GAMES, type TableGameId } from '../../../shared/table/types';
 import { games as retroGames, type RetroGameId } from '../../../shared/retro/games';
 import { ranked as retroRanked } from '../../../shared/retro/boards';
+import { Icon, IconButton } from '../Icon';
+import { VoiceToggle } from '../VoiceToggle';
 import { useEffect, useRef, useState } from 'react';
 import type { Assets } from '../assets';
 import type { Store } from '../net';
@@ -84,27 +86,24 @@ export function ArcadeOverlay({ store, assets, voice }: { store: Store; assets: 
     <header className="park-header">
       <div className="party-heading"><h1>{session?.set ? `BREAK SET · ${session.set.mode === '2v2' ? 'RED / BLUE' : 'FFA'}` : 'ARCADE'}</h1>
         <span>{session?.crew.name}{session?.set?.mode === '2v2' ? ` · ${session.set.players.find(p => p.userId === store.me)?.team === 0 ? 'Red' : session.set.players.find(p => p.userId === store.me)?.team === 1 ? 'Blue' : 'Red / Blue'}` : ''}</span>{hub && !spectator && <button className="ghost" aria-label="Edit crew name" onClick={() => { setDraft(session?.crew.name ?? ''); setEditingCrew(true); }}>✏</button>}</div>
-      <button disabled={!owner || !voice} aria-pressed={voice?.muted ?? true} aria-label={voice?.muted ? 'Unmute microphone' : 'Mute microphone'}
-        className={voice?.muted ? 'muted-btn' : 'ghost'} title={voice?.micError ?? (voice?.mode === 'ptt' ? 'Push to talk: hold Space' : 'Microphone')}
-        onClick={() => voice?.toggleMute()}>{voice?.muted ? '🔇' : '🎙'}</button>
-      <button disabled={!owner || !voice} aria-pressed={voice?.deafened ?? prefs.deafened} aria-label={voice?.deafened ? 'Undeafen' : 'Deafen'}
-        className={voice?.deafened ? 'muted-btn' : 'ghost'} onClick={() => voice?.toggleDeafen()}>🎧</button>
-      <button className="ghost" aria-expanded={menu} aria-label="Game menu" onClick={toggleMenu}>⏸</button>
-      <button className="ghost park-leave" aria-label="Leave game" title="Leave the game (Esc for the menu)" onClick={leave}>✕ Leave</button>
+      <VoiceToggle kind="mic" voice={voice} disabled={!owner} />
+      <VoiceToggle kind="headphones" voice={voice} disabled={!owner} savedDeafened={prefs.deafened} />
+      <IconButton icon="pause" label="Game menu" className="ghost" aria-expanded={menu} onClick={toggleMenu} />
+      <IconButton icon="logout" label="Leave game" className="ghost park-leave" title="Leave the game (Esc for the menu)" onClick={leave} />
     </header>
     <div className="park-area" ref={area} onPointerDown={e => { if (e.target === e.currentTarget || e.target === canvas.current) root.current?.focus(); }}>
       <div className="park-cabinet"><canvas ref={canvas} width={320} height={216} style={{ width: 320 * scale, height: 216 * scale }} aria-label="Arcade game. Move with arrows or WASD. Jump: Space, Z or J. Action: X, K or Shift." /></div>
       {!store.connected && <div className="park-connection" role="status">Reconnecting…</div>}
       {menu && <div className="park-menu-backdrop"><div className="park-menu" role="group" aria-label="Game menu">
         <b>{session?.set ? 'Break Set' : 'Paused controls'}</b>
-        {!session?.set && <button onClick={toggleMenu}>Resume</button>}
+        {!session?.set && <button onClick={toggleMenu}><Icon name="play" /> Resume</button>}
         {!spectator && !session?.set && view?.kind === 'sim' && view.game === 'park' && <>
-          <button disabled={!store.connected} onClick={() => command('lobby')}>Back to lobby</button>
-          <button disabled={!store.connected} onClick={() => command('restart')}>Restart level</button>
+          <button disabled={!store.connected} onClick={() => command('lobby')}><Icon name="arrow-left" /> Back to lobby</button>
+          <button disabled={!store.connected} onClick={() => command('restart')}><Icon name="rotate" /> Restart level</button>
         </>}
         {spectator && hub && session && session.players.length < 4 &&
           <button disabled={!store.connected} onClick={() => { store.gamePlay(); toggleMenu(); root.current?.focus(); }}>Play</button>}
-        <button onClick={leave}>Leave</button>
+        <button onClick={leave}><Icon name="logout" /> Leave</button>
       </div></div>}
     </div>
     {editingCrew && hub && <form className="party-crew-edit" onSubmit={e => { e.preventDefault(); if (crewName(draft)) { store.crewName(draft); setEditingCrew(false); root.current?.focus(); } }}>
@@ -122,11 +121,11 @@ export function ArcadeOverlay({ store, assets, voice }: { store: Store; assets: 
       {CHEERS.map((emoji, kind) => <button key={emoji} disabled={!store.connected || menu} aria-label={`${['Applause', 'Fire', 'Laugh'][kind]} (key ${kind + 1})`}
         onClick={() => store.gameCheer(kind as 0 | 1 | 2)}>{emoji} <small>{kind + 1}</small></button>)}
     </div> : touch && <div className="park-touch" aria-label="Touch game controls">
-      {([['◀', 1, 'Move left'], ['▶', 2, 'Move right'], ['▲', 4, 'Move up'], ['▼', 8, 'Move down'], ['Jump', 16, 'Jump'], ['Action', 32, 'Action']] as const).map(([label, bits, name]) => <button key={bits} aria-label={name} disabled={menu}
+      {([['arrow-left', 1, 'Move left'], ['arrow-right', 2, 'Move right'], ['arrow-up', 4, 'Move up'], ['arrow-down', 8, 'Move down'], ['Jump', 16, 'Jump'], ['Action', 32, 'Action']] as const).map(([label, bits, name]) => <button key={bits} aria-label={name} disabled={menu}
         onContextMenu={e => e.preventDefault()} onPointerDown={e => {
           e.preventDefault(); root.current?.focus(); e.currentTarget.setPointerCapture(e.pointerId); input.current?.touch(e.pointerId, bits);
         }} onPointerUp={e => input.current?.touch(e.pointerId, 0)} onPointerCancel={e => input.current?.touch(e.pointerId, 0)}
-        onLostPointerCapture={e => input.current?.touch(e.pointerId, 0)}>{label}</button>)}
+        onLostPointerCapture={e => input.current?.touch(e.pointerId, 0)}>{label === 'Jump' || label === 'Action' ? label : <Icon name={label} />}</button>)}
     </div>}
   </div>;
 }
@@ -149,7 +148,7 @@ export function RecordsPopover({ store }: { store: Store }) {
           else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
         }
       }}>
-      <div className="rooms-head"><span>Arcade boards</span><button className="ghost" onClick={close} aria-label="Close boards">×</button></div>
+      <div className="rooms-head"><span>Arcade boards</span><button className="ghost" onClick={close} aria-label="Close boards"><Icon name="close" /></button></div>
       <nav className="party-tabs" aria-label="Arcade boards">{tabs.map(name => <button key={name} aria-pressed={tab === name} onClick={() => setTab(name)}>{name}</button>)}</nav>
       <div className="park-records-scroll">
         {tab === 'Retro' && <RetroBoards store={store} />}

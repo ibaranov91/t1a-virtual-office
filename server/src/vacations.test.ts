@@ -6,7 +6,7 @@ import { createCipheriv } from 'node:crypto';
 process.env.GOOGLE_TOKEN_KEY = Buffer.alloc(32, 7).toString('base64');
 const { World } = await import('./world');
 const { Vacations } = await import('./vacations');
-const { CALENDAR_SCOPE, listAbsences, forgetAccess } = await import('./google');
+const { CALENDAR_SCOPE, listAbsences, listTeamAbsences, forgetAccess } = await import('./google');
 import type { TileMap } from '../../shared/map';
 const map: TileMap = JSON.parse(readFileSync(new URL('../../shared/tilemap.json', import.meta.url), 'utf8'));
 const zone = 'Europe/Warsaw';
@@ -55,7 +55,12 @@ function grant(refresh: string) {
   const body = Buffer.concat([cipher.update(refresh), cipher.final()]);
   return { email: `${refresh}@t1a.com`, refresh: Buffer.concat([iv, cipher.getAuthTag(), body]).toString('base64'), scopes: [CALENDAR_SCOPE] };
 }
-function pollSetup(t: import('node:test').TestContext) {
+const teamCalendar = 't1a.com_aoas0mu6l5d0hmrdhabm01rc0k@group.calendar.google.com';
+const isTeam = (url: URL) => decodeURIComponent(url.pathname).includes(teamCalendar);
+function pollSetup(t: import('node:test').TestContext, team = false) {
+  const oldTeam = process.env.VACATION_TEAM_CALENDAR;
+  if (team) delete process.env.VACATION_TEAM_CALENDAR; else process.env.VACATION_TEAM_CALENDAR = '';
+  t.after(() => { if (oldTeam === undefined) delete process.env.VACATION_TEAM_CALENDAR; else process.env.VACATION_TEAM_CALENDAR = oldTeam; });
   t.mock.timers.enable({ apis: ['Date', 'setTimeout', 'setInterval'], now: Date.parse('2026-10-16T10:00:00Z') });
   const w = new World(structuredClone(map));
   const poller = new Vacations(w, true);
@@ -176,4 +181,92 @@ test('concurrent polls never fetch a calendar twice', async t => {
   const first = poller.poll(); await new Promise<void>(r => setImmediate(r));
   await poller.poll(); assert.equal(requests.length, 1);
   unblock(); await first;
+});
+
+const teamEvent = (summary: string, extra = {}) => ({ summary, eventType: 'default', creator: { email: 't1a.api@t1a.com' }, start: { date: '2026-10-16' }, end: { date: '2026-10-17' }, ...extra });
+test('team-only vacations match attendee, creator and diacritic names, ignore business travel and hide summaries', async t => {
+  const { w, add, poller, requests, respond } = pollSetup(t, true);
+  add('Reader');
+  const attendee = add('Liliya', false), creator = add('Veronika', false), named = add('Other', false), business = add('Maria', false), display = add('Anastasia Pletneva', false);
+  attendee.email = 'liliya.minibaeva@t1a.com'; creator.email = 'veronika.ulyashova@t1a.com'; named.email = 'stepan.vitecek@t1a.com';
+  named.tz = 'Asia/Tokyo';
+  const messages: unknown[] = []; w.connect(attendee.id, m => messages.push(m));
+  const warnings = t.mock.method(console, 'warn', () => {});
+  const events = [
+    teamEvent('Liliya Minibaeva - Time OFF SD-12030', { attendees: [{ email: attendee.email!.toUpperCase(), responseStatus: 'declined' }] }),
+    teamEvent('Veronika Ulyashova - Time OFF', { creator: { email: creator.email }, transparency: 'transparent' }),
+    teamEvent('Štěpán Víteček - Time OFF SD-12235'),
+    teamEvent('Anastasia Pletneva - Vacation'),
+    teamEvent('Maria - Business Trip vacation SD-12704', { attendees: [{ email: business.email }] }),
+    teamEvent('Maria - Travel holiday', { attendees: [{ email: business.email }] }),
+    teamEvent('Maria - Vacation', { status: 'cancelled', attendees: [{ email: business.email }] }),
+  ];
+  respond(url => isTeam(url) ? Response.json({ timeZone: 'America/New_York', items: events }) : Response.json({}, { status: 403 }));
+  await poller.poll();
+  for (const u of [attendee, creator, display]) assert.deepEqual(u.vacation, { until: Date.parse('2026-10-16T22:00:00Z'), back: '2026-10-19' });
+  assert.deepEqual(named.vacation, { until: Date.parse('2026-10-16T15:00:00Z'), back: '2026-10-19' });
+  assert.ok(!business.vacation);
+  assert.equal(requests.filter(isTeam).length, 1);
+  assert.equal(requests.find(isTeam)!.searchParams.get('fields'), 'nextPageToken,timeZone,items(status,summary,start,end,creator(email),attendees(email))');
+  const output = JSON.stringify([w.snapshot(), w.dump(), messages, warnings.mock.calls]);
+  for (const e of events) assert.ok(!output.includes(e.summary));
+});
+test('team items merge with OOO using the successful personal calendar timezone', async t => {
+  const { add, poller, respond } = pollSetup(t, true), u = add('Merge'); u.tz = 'Asia/Tokyo';
+  respond(url => Response.json(isTeam(url) ? { timeZone: 'America/New_York', items: [teamEvent('Merge - day-off', { start: { date: '2026-10-19' }, end: { date: '2026-10-21' } })] } : { timeZone: zone, items: [{ eventType: 'outOfOffice', start: { date: '2026-10-16' }, end: { date: '2026-10-17' } }] }));
+  await poller.poll();
+  assert.deepEqual(u.vacation, { until: Date.parse('2026-10-20T22:00:00Z'), back: '2026-10-21' });
+});
+test('team reader 403 falls back, reads once per poll and retains the last team result on failure', async t => {
+  const { add, poller, respond, requests } = pollSetup(t, true);
+  const first = add('First'), second = add('Second'), person = add('Person', false);
+  const old = process.env.DECK_ADMINS; process.env.DECK_ADMINS = first.email;
+  t.after(() => { if (old === undefined) delete process.env.DECK_ADMINS; else process.env.DECK_ADMINS = old; });
+  let fail = false;
+  const tokens: string[] = [];
+  const warnings = t.mock.method(console, 'warn', () => {});
+  respond((url, token) => {
+    if (!isTeam(url)) return Response.json({ timeZone: zone, items: [] });
+    tokens.push(token);
+    return fail || token === 'Bearer first' ? Response.json({}, { status: 403 }) : Response.json({ items: [teamEvent('Person - TimeOFF')] });
+  });
+  await poller.poll();
+  assert.deepEqual(tokens, ['Bearer first', 'Bearer second']);
+  assert.ok(person.vacation); assert.ok(second.google);
+  const saved = person.vacation; fail = true;
+  await poller.poll(); await poller.poll();
+  assert.deepEqual(person.vacation, saved);
+  assert.equal(requests.filter(isTeam).length, 6);
+  assert.equal(warnings.mock.calls.length, 1);
+});
+test('team reader invalid_grant drops the grant and retries another reader', async t => {
+  const { add, poller, respond } = pollSetup(t, true);
+  const bad = add('Bad'); bad.google = grant('revoked'); add('Good'); const person = add('Person', false);
+  respond(url => Response.json({ timeZone: zone, items: isTeam(url) ? [teamEvent('Person - Vacation')] : [] }));
+  await poller.poll();
+  assert.equal(bad.google, undefined); assert.ok(person.vacation);
+});
+test('empty team calendar env disables team reads', async t => {
+  const { add, poller, requests } = pollSetup(t); add('Own');
+  await poller.poll(); assert.equal(requests.filter(isTeam).length, 0);
+});
+test('own calendar accepts time off and day-off but excludes business trip and travel', async t => {
+  const { add, respond } = pollSetup(t), u = add('Keywords');
+  respond(() => Response.json({ timeZone: zone, items: ['Time OFF', 'day-off', 'dayoff', 'vacation business trip', 'holiday travel'].map(s => teamEvent(s)) }));
+  const result = await listAbsences(u.id, u.google!, 'primary', true);
+  assert.equal(result.items.length, 3);
+});
+
+test('team API paginates five pages, preserves dates and timed epochs, and strips summaries and service creators', async t => {
+  const { add, respond, requests } = pollSetup(t), u = add('Reader');
+  respond(url => Response.json({ timeZone: 'America/New_York', nextPageToken: String(Number(url.searchParams.get('pageToken') ?? 0) + 1), items: [
+    teamEvent('Nobody - Vacation PRIVATE', { creator: { email: teamCalendar.toUpperCase() } }),
+    teamEvent('Someone - PTO PRIVATE', { creator: { email: 'PERSON@T1A.COM' }, start: { dateTime: '2026-10-16T08:00:00Z' }, end: { dateTime: '2026-10-16T16:00:00Z' } }),
+  ] }));
+  const result = await listTeamAbsences(u.id, u.google!, teamCalendar);
+  assert.equal(requests.length, 5); assert.equal(result.items.length, 10);
+  assert.deepEqual(result.items[0], { who: { emails: [], name: 'Nobody' }, start: '2026-10-16', end: '2026-10-17' });
+  assert.deepEqual(result.items[1], { who: { emails: ['person@t1a.com'], name: 'Someone' }, start: 1792137600000, end: 1792166400000 });
+  assert.ok(!JSON.stringify(result).includes('PRIVATE'));
+  assert.equal(result.timeZone, 'America/New_York');
 });

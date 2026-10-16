@@ -1,3 +1,4 @@
+import { Icon } from '../Icon';
 import type { Assets } from '../assets';
 import type { Store } from '../net';
 import { peopleGroups } from './model';
@@ -11,7 +12,7 @@ export function PeopleList({ store, assets, speaking, query, closed, onToggle, o
   return <>{groups.map(g => {
     const open = !!query.trim() || !closed.includes(g.id);
     return <section className="sb-group" key={g.id}>
-      <button className="sb-group-head" aria-expanded={open} onClick={() => onToggle(g.id)}><span>{open ? '▾' : '▸'}</span><b>{g.label}</b><span className="sb-count">{g.people.length}</span></button>
+      <button className="sb-group-head" aria-expanded={open} onClick={() => onToggle(g.id)}><span><Icon name={open ? "chevron-down" : "chevron-right"} /></span><b>{g.label}</b><span className="sb-count">{g.people.length}</span></button>
       {open && g.people.map(u => <PersonRow key={u.id} store={store} user={u} assets={assets} speaking={speaking} people onPerson={onPerson} onAction={onAction} />)}
     </section>;
   })}{!groups.length && <p className="sb-empty">No people found</p>}</>;
