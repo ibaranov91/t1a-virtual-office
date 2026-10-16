@@ -1,3 +1,5 @@
+import { TABLE_GAMES, type TableView, type TableGameId } from '../../shared/table/types';
+import { playTable } from './sounds';
 import { RetroClient } from './retro/client';
 import { games as retroGames } from '../../shared/retro/games';
 import { emptyBoards as emptyRetroBoards } from '../../shared/retro/boards';
@@ -5,15 +7,16 @@ import type { RetroCabinet } from '../../shared/protocol';
 import type { FrameBatch } from './retro/player';
 // WebSocket client + the client-side mirror of server state.
 import mapJson from '../../shared/tilemap.json';
-import { applyLayout, besideObject, doorwayTiles, isWalkable, objectById, pathTo, roomAt, sampleMove, type Dir, type Tile, type TileMap } from '../../shared/map';
+import { applyLayout, besideObject, doorwayTiles, isWalkable, objectById, pathTo, roomAt, sampleMove, stallDoor, stallOfCall, type Dir, type Room, type Tile, type TileMap } from '../../shared/map';
 import { FOOD_ITEMS } from '../../shared/lunch';
-import { ACHIEVEMENTS, underground, DUNGEON_INSTANCE, PLANT_STAGES, plantName, ROOM_VOICE_MAX, type JukeboxState, type JukeboxAction, type AgendaItem, type LayoutEdit, type CalEvent, type MeetingRoomInfo, type ChatMsg, type LiveDeck, type ObjectState, type ToiletState, type ClientMsg, type PublicUser, type Reaction, type RtcSignal, type ServerMsg, type Creature, type Cup, CUP_ITEMS, type LibraryState } from '../../shared/protocol';
+import { ACHIEVEMENTS, underground, DUNGEON_INSTANCE, MEETING_ROOM_ID, PLANT_STAGES, plantName, ROOM_VOICE_MAX, type JukeboxState, type JukeboxAction, type AgendaItem, type LayoutEdit, type CalEvent, type MeetingRoomInfo, type ChatMsg, type LiveDeck, presentScope, type ObjectState, type ToiletState, type ClientMsg, type LaterItem, type PublicUser, type Reaction, type RtcSignal, type ServerMsg, type Creature, type Cup, CUP_ITEMS, type LibraryState } from '../../shared/protocol';
 import { gameDef } from '../../shared/arcade/registry';
 import { emptyWeek } from '../../shared/arcade/weeks';
 import { ParkLoop } from './park/loop';
 import type { CabinetSummary, ParkRecords, ArcadeBoards } from '../../shared/protocol';
 import { playPark, playHand, playKnock, playPop, playDungeon, playPet } from './sounds';
 import type { Soundscape } from './soundscape';
+import { bestOffset, clockSample, CLOCK_SAMPLES, type ClockSample } from './clockSync';
 
 export const MAP = mapJson as unknown as TileMap;
 
@@ -54,6 +57,7 @@ export class Store {
   users = new Map<string, ClientUser>();
   me = '';
   offset = 0; // serverTime - localTime
+  private clockSync = { samples: [] as ClockSample[], pings: new Map<number, { at: number; perf: number }>(), id: 0, timers: [] as number[], synced: false };
   toasts: Toast[] = [];
   connected = false;
   voiceOwner = false;
@@ -66,6 +70,8 @@ export class Store {
   calendarAccess = false;               // Google Calendar access granted
   calendarAuthUrl: string | null = null; // same, but also asking for Calendar
   calendarOpen = false;
+  later: LaterItem[] = []; // knocks that went to Later while I was busy (server-kept, newest first)
+  laterOpen = false;
   calendarEvents: CalEvent[] | null = null; // null = loading
   calendarError: string | null = null;
   agenda: AgendaItem[] = [];               // my calendar meetings now and soon
@@ -93,6 +99,7 @@ export class Store {
   arcadeRecords: ParkRecords = {};
   arcadeBoards: ArcadeBoards = { records: {}, week: emptyWeek(''), hall: [] };
   recordsOpen = false;
+  table: TableView | null = null;
   gameCheers = new Map<string, { kind: 0 | 1 | 2; at: number }>();
   chats = new Map<string, ChatMsg[]>(); // by the other person's id
   unread = new Map<string, number>();
@@ -135,13 +142,26 @@ export class Store {
     ws.onopen = () => { this.connected = true; this.emit(); };
     ws.onmessage = (e) => this.onMessage(JSON.parse(e.data));
     ws.onclose = (e) => {
-      this.retroClient.socketLost(); this.retroCabinets = []; this.clearInstruments(); this.park?.runner.setLocalBits(0); this.cabinets = []; this.connected = false; this.voiceOwner = false; this.jukebox = {}; this.jukeboxReady = false; this.soundscape?.resetCrossings(); this.emit();
+      this.stopClock(); this.retroClient.socketLost(); this.retroCabinets = []; this.clearInstruments(); this.park?.runner.setLocalBits(0); this.cabinets = []; this.connected = false; this.voiceOwner = false; this.jukebox = {}; this.jukeboxReady = false; this.soundscape?.resetCrossings(); this.emit();
       if (e.code === 4001) return this.onUnauthorized();
       if (!this.closed) setTimeout(() => this.connect(), 1500);
     };
   }
-  close() { this.closed = true; this.retroClient.destroy(); this.retroCabinets = []; this.clearInstruments(); this.park?.runner.setLocalBits(0); this.cabinets = []; this.connected = false; this.voiceOwner = false; this.jukebox = {}; this.jukeboxReady = false; this.soundscape?.resetCrossings(); this.emit(); this.ws?.close(); }
+  close() { this.closed = true; this.stopClock(); this.retroClient.destroy(); this.retroCabinets = []; this.clearInstruments(); this.park?.runner.setLocalBits(0); this.cabinets = []; this.connected = false; this.voiceOwner = false; this.jukebox = {}; this.jukeboxReady = false; this.soundscape?.resetCrossings(); this.emit(); this.ws?.close(); }
   send(msg: ClientMsg) { if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(msg)); }
+  /** NTP-style clock sync (clockSync.ts): a burst of pings on connect, then one every 20 s to follow drift. Everything timed by
+   *  the server (walks, notes, the jukebox) runs on now(), so listeners on slow links hear the jukebox where others do. */
+  private syncClock() {
+    this.stopClock(); this.clockSync.samples = []; this.clockSync.synced = false;
+    const ping = () => {
+      const id = ++this.clockSync.id, at = Date.now();
+      for (const [old, p] of this.clockSync.pings) if (at - p.at > 10_000) this.clockSync.pings.delete(old);
+      this.clockSync.pings.set(id, { at, perf: performance.now() }); this.send({ t: 'ping', id });
+    };
+    for (const ms of [0, 150, 300, 450, 600]) this.clockSync.timers.push(window.setTimeout(ping, ms));
+    this.clockSync.timers.push(window.setInterval(ping, 20_000));
+  }
+  private stopClock() { for (const t of this.clockSync.timers) { clearTimeout(t); clearInterval(t); } this.clockSync.timers = []; this.clockSync.pings.clear(); }
 
   private clearInstruments() {
     for (const id of Object.keys(this.instruments)) this.soundscape?.allOff(id);
@@ -160,6 +180,20 @@ export class Store {
     this.send({ t: 'note', objectId: this.seat, note, on, vel, preset, at });
   }
   // ---------- actions ----------
+  tablePick(game: TableGameId, invite?: string[], rematch = false) { this.send({ t: 'table_pick', game, invite, rematch }); }
+  tableStart() { this.send({ t: 'table_start' }); }
+  tableMove(move: unknown) { const v = this.table; if (v?.match) this.send({ t: 'table_move', matchId: v.match.id, revision: v.revision, move }); }
+  tableDraw(offer: boolean) { const m = this.table?.match; if (m) this.send({ t: 'table_draw', matchId: m.id, offer }); }
+  tableResign() { const m = this.table?.match; if (m) this.send({ t: 'table_resign', matchId: m.id }); }
+  tableLeave() { this.send({ t: 'table_leave' }); }
+  tableDescription(objectId: string, userId?: string) {
+    const status = userId ? this.users.get(userId)?.table : [...this.users.values()].find(u => u.table?.objectId === objectId && u.table.running)?.table;
+    if (!status) return 'Game table · Chess, Checkers, Dominoes, Last Card';
+    const game = status.game ? TABLE_GAMES[status.game] : 'pick a game';
+    if (status.role === 'watcher' || userId && status.running && !status.players.includes(userId)) return `Watching ${game} at the game table`;
+    const peers = status.players.filter(id => id !== userId).map(id => this.name(id));
+    return `At the game table · ${game}${peers.length ? ` with ${peers.join(', ')}` : ''}`;
+  }
   openRecords(open = true) { this.recordsOpen = open; this.emit(); }
   retroFrames(batch: FrameBatch) { this.send(batch); }
   retroLeave() { this.retroClient.leave(); }
@@ -304,7 +338,13 @@ export class Store {
     this.emit();
   }
   closeCalendar() { this.calendarOpen = false; this.emit(); }
+  openLater() { this.laterOpen = true; this.emit(); }
+  closeLater() { this.laterOpen = false; this.emit(); }
+  laterDismiss(id: string) { this.send({ t: 'later_dismiss', id }); }
+  laterClear() { this.send({ t: 'later_clear' }); this.laterOpen = false; this.emit(); }
+  laterKnockBack(fromId: string) { this.requestKnock(fromId); this.laterOpen = false; this.emit(); } // knocking clears the entry on the server
   openMeetings() { this.meetingsOpen = true; this.emit(); }
+  setLofiListening(on: boolean) { this.send({ t: 'listening', on }); }
   openJukebox(id: string) { this.jukeboxOpen = id; this.emit(); }
   closeJukebox() { this.jukeboxOpen = null; this.emit(); }
   jukeboxAction(id: string, action: JukeboxAction) {
@@ -371,7 +411,7 @@ export class Store {
       if (a.left || this.headsUp.has(a.key) || now < a.start - 60_000 || now >= a.end || a.instance === mine) continue;
       this.headsUp.add(a.key);
       const soon = a.start > now ? `starts at ${this.clock(a.start)}` : 'is on now';
-      this.toast({ kind: 'meeting', meetingKey: a.key, link: a.link, text: `📅 ${a.title} ${soon}`, hint: 'Go: step into its room with the others', expires: a.end - now });
+      this.toast({ kind: 'meeting', meetingKey: a.key, link: a.link, text: a.adhoc ? `🔒 ${a.title}` : `📅 ${a.title} ${soon}`, hint: a.adhoc && a.from ? `${a.from.split(' ')[0]} invited you: step into the private room` : 'Go: step into its room with the others', expires: a.end - now });
       playKnock();
     }
   }
@@ -393,23 +433,48 @@ export class Store {
   closeClock() { this.clockOpen = false; this.emit(); }
   linkOpen: { label: string; url: string } | null = null;
   presentation: LiveDeck | null = null; // slides on a screen right now
+  roomMeetLink: { instance: string; link: string } | null = null; // the Meet room of the meeting room I'm in (members only)
+  roomOpen = false;                     // the private-room popup (start one, or invite into mine)
+  openRoom(on: boolean) { this.roomOpen = on; this.emit(); }
+  createRoom(invite: string[], title?: string) { this.send({ t: 'room_create', title: title?.trim() || undefined, invite }); this.roomOpen = false; this.emit(); }
+  inviteToRoom(userIds: string[]) { this.send({ t: 'room_invite', userIds }); this.roomOpen = false; this.emit(); }
+  roomVoice(on: boolean) { this.send({ t: 'room_voice', on }); }
+  useRoomMeet() { this.send({ t: 'room_meet' }); }
+  /** Is my voice on this meeting room's call? */
+  get inRoomVoice() { const me = this.users.get(this.me); return !!me?.instance && me.callId === `room:${me.instance}`; }
+  /** An ad-hoc private room I'm standing in (the agenda item whose instance is mine). */
+  get myAdhoc() { const a = this.myMeeting; return a?.adhoc ? a : null; }
+  /** Can I take this person into a private room right now? */
+  roomReason(u: ClientUser) {
+    const me = this.users.get(this.me);
+    return u.bot || u.presence === 'offline' ? 'Not around' : me?.instance || u.instance || underground(u) || (me && underground(me)) ? 'Not from a meeting or the dungeon' : null;
+  }
   presentOpen: string | null = null;    // the screen whose upload panel is open
   slidesHidden = true;                  // not watching: viewers sit down and say Watch (or use the Live chip)
   openPresent(id: string | null) { this.presentOpen = id; this.emit(); }
   presentSlide(slide: number) { if (this.presentation?.presenter === this.me) this.send({ t: 'present_slide', slide }); }
   presentStop() { this.send({ t: 'present_stop' }); }
+  presentShare(objectId: string) { this.send({ t: 'present_share', objectId }); }
+  presentFrame(seq: number, data: string) { this.send({ t: 'present_frame', seq, data }); }
+  frame: { seq: number; url: string } | null = null; // screen share: the latest frame (a data: URL)
   hideSlides(hidden: boolean) { this.slidesHidden = hidden; this.emit(); }
   /** For REST calls made as me (uploading slides). */
   get sessionId() { return this.session; }
   /** I'm presenting, or I'm in the screen's room (not in a meeting's copy of it). */
   inPresentationRoom() {
     const l = this.presentation, me = this.users.get(this.me);
-    return !!l && !!me && (l.presenter === me.id || (!me.instance && this.roomOf(me)?.id === l.room));
+    return !!l && !!me && (l.presenter === me.id || (presentScope(me.instance) === l.scope && (!!me.instance || this.roomOf(me)?.id === l.room)));
   }
   openLink(use: { label: string; url: string }) { this.linkOpen = use; this.emit(); }
   closeLink() { this.linkOpen = null; this.emit(); }
-  roomCallOf(u?: ClientUser) {
-    return u?.callId?.startsWith('room:') ? MAP.rooms.find(r => r.id === u.callId!.slice(5)) : undefined;
+  roomCallOf(u?: ClientUser): Room | undefined {
+    if (!u?.callId?.startsWith('room:')) return undefined;
+    const stall = stallOfCall(u.callId);
+    if (stall) { // a stall's own voice: its room, named for the stall
+      const o = objectById(MAP, stall), r = o && roomAt(MAP, stallDoor(o).x, stallDoor(o).y);
+      return r && { ...r, name: 'the stall' };
+    }
+    return MAP.rooms.find(r => r.id === u.callId!.slice(5)) ?? (u.instance && u.callId === `room:${u.instance}` ? MAP.rooms.find(r => r.id === MEETING_ROOM_ID) : undefined); // a meeting room's own voice
   }
   sameRoomCall(u: ClientUser) {
     const me = this.users.get(this.me);
@@ -483,10 +548,20 @@ export class Store {
 
   private onMessage(msg: ServerMsg) {
     switch (msg.t) {
+      case 'pong': {
+        const sent = this.clockSync.pings.get(msg.id); if (!sent) break;
+        this.clockSync.pings.delete(msg.id);
+        const sample = clockSample(sent.at, performance.now() - sent.perf, msg.serverTime); if (!sample) break;
+        this.clockSync.samples = [...this.clockSync.samples, sample].slice(-CLOCK_SAMPLES);
+        const offset = bestOffset(this.clockSync.samples)!, moved = Math.abs(offset - this.offset) > 1;
+        this.offset = offset; this.clockSync.synced = true;
+        if (moved) this.emit();
+        break;
+      }
       case 'hello':
         this.me = msg.you;
         this.park ??= new ParkLoop(this.me, msg => this.send(msg));
-        this.offset = msg.serverTime - Date.now();
+        this.offset = msg.serverTime - Date.now(); this.syncClock();
         if (msg.build && this.build && msg.build !== this.build) this.staleBuild = true;
         this.build ??= msg.build;
         this.sendTz();
@@ -515,13 +590,24 @@ export class Store {
           if (this.arcadeOpen) playPark('cheer');
         }
         return;
+      case 'table': {
+        const old = this.table; this.table = msg.view;
+        if (msg.view) {
+          this.offset = msg.view.serverNow - Date.now();
+          if (old?.match && old.match.id === msg.view.match?.id && old.revision !== msg.view.revision && old.match.state.ply !== msg.view.match.state.ply) playTable(!!msg.view.match.state.result);
+        }
+        break;
+      }
+      case 'table_status': { const u = this.users.get(msg.userId); if (u) u.table = msg.table; break; }
       case 'arcade': this.cabinets = msg.cabinets; break;
       case 'arcade_boards': this.arcadeBoards = msg.boards; this.arcadeRecords = msg.boards.records; break;
       case 'call_moved':
         this.toast({ kind: 'call_moved', roomId: msg.roomId, text: `${this.name(msg.userId).split(' ')[0]} went into ${MAP.rooms.find(r => r.id === msg.roomId)?.name ?? msg.roomId}`, expires: 15000 });
         break;
       case 'state': {
-        this.offset = msg.serverTime - Date.now();
+        // until the clock pings answer: a message can't arrive before it was sent, so each reading is a lower bound, and the
+        // big snapshot takes longer on a slow link than the hello just before it, so keep the tighter one
+        if (!this.clockSync.synced) this.offset = Math.max(this.offset, msg.serverTime - Date.now());
         const next = new Map<string, ClientUser>();
         for (const p of msg.users) {
           const old = this.users.get(p.id);
@@ -546,7 +632,11 @@ export class Store {
       case 'eating': { const u = this.users.get(msg.userId); if (u) { if (msg.eating) u.eating = msg.eating; else delete u.eating; } break; }
       case 'holding': {
         const u = this.users.get(msg.userId); if (u) u.holding = msg.item;
-        if (msg.objectId) this.objectFx = [...this.objectFx.filter(f => performance.now() - f.at < 4000), { objectId: msg.objectId, at: performance.now() }];
+        if (msg.objectId) {
+          this.objectFx = [...this.objectFx.filter(f => performance.now() - f.at < 4000), { objectId: msg.objectId, at: performance.now() }];
+          const o = objectById(MAP, msg.objectId);
+          if (o?.type === 'coffee_machine') this.soundscape?.coffeeBrew(o, msg.userId);
+        }
         const it = msg.item ? ITEMS.get(msg.item) : undefined;
         if (msg.fromId && it) { // handed over: the item hops across like a reaction
           this.reactions.push({ fromId: msg.fromId, toId: msg.userId, emoji: it.icon, at: performance.now() });
@@ -558,16 +648,18 @@ export class Store {
       }
       case 'creatures': this.creatures = new Map(msg.creatures.map(c => [c.id, c])); break;
       case 'creature': {
-        const was = this.creatures.get(msg.creature.id), me = this.users.get(this.me), c = msg.creature;
-        if (c.pose === 'pet' && was?.pose !== 'pet' && me && Math.hypot(me.tile.x - c.tile.x, me.tile.y - c.tile.y) < 8) playPet(c.kind === 'dog');
+        const was = this.creatures.get(msg.creature.id), c = msg.creature;
+        if (c.pose === 'pet' && was?.pose !== 'pet' && msg.by === this.me) playPet(c.kind === 'dog');
         this.creatures.set(c.id, c); break;
       }
       case 'cups': this.cups = msg.cups; break;
       case 'instrument': this.setInstruments({ ...this.instruments, [msg.id]: msg.player }); break;
       case 'seat': this.seat = msg.id; break;
       case 'note': this.soundscape?.receiveNote(msg.id, msg.by, msg.note, msg.on, msg.vel, msg.preset, msg.at); return;
+      case 'listening': { const u = this.users.get(msg.userId); if (u) u.listening = msg.on ? 'lofi' : null; break; }
       case 'jukebox': if (this.jukeboxReady) this.jukebox = { ...this.jukebox, [msg.id]: msg.state }; break;
       case 'object': this.objects = { ...this.objects, [msg.id]: { on: msg.on } }; break;
+      case 'room_open': this.roomOpen = true; break;
       case 'present_open': this.presentOpen = msg.objectId; break;
       case 'bell': {
         const me = this.users.get(this.me), by = this.users.get(msg.userId);
@@ -703,10 +795,18 @@ export class Store {
         if (msg.userId === this.me) this.callLink = msg.callId && !msg.callId.startsWith('room:') ? msg.link ?? this.callLink : null;
         break;
       }
+      case 'room_meet': this.roomMeetLink = msg.link ? { instance: msg.instance, link: msg.link } : null; break;
       case 'voice_owner': this.voiceOwner = msg.owner; break;
       case 'voice_wait': {
         const was = this.voiceWait; this.voiceWait = msg.roomId;
         if (!was && msg.roomId) this.toast({ kind: 'info', text: `${MAP.rooms.find(r => r.id === msg.roomId)?.name ?? 'Room'} voice is full (${ROOM_VOICE_MAX}) — you'll join when someone leaves`, expires: 6000 });
+        break;
+      }
+      case 'later': this.later = msg.items; if (!msg.items.length) this.laterOpen = false; break;
+      case 'later_nudge': {
+        playKnock();
+        const id = msg.userId;
+        this.toast({ kind: 'info', text: `🔔 ${msg.text}`, expires: 30000, actions: id ? [{ label: 'Knock back', run: () => this.requestKnock(id) }] : [{ label: 'Open', run: () => this.openLater() }] });
         break;
       }
       case 'notice': this.toast({ kind: 'info', text: msg.text, expires: 6000 }); break;
@@ -724,8 +824,14 @@ export class Store {
       case 'mute': { const u = this.users.get(msg.userId); if (u) { u.muted = msg.muted; if (msg.muted) u.speaking = false; } break; }
       case 'status': { const u = this.users.get(msg.userId); if (u) u.status = msg.status; break; }
       case 'presentation': {
-        if (msg.live?.deck.id !== this.presentation?.deck.id) this.slidesHidden = msg.live?.presenter !== this.me; // viewers are asked first (LiveChip)
+        if (msg.live?.deck?.id !== this.presentation?.deck?.id || msg.live?.presenter !== this.presentation?.presenter) this.slidesHidden = msg.live?.presenter !== this.me; // viewers are asked first (LiveChip)
+        if (!msg.live || msg.live.presenter !== this.presentation?.presenter || msg.live.deck?.id !== this.presentation.deck?.id) this.frame = null;
         this.presentation = msg.live; break;
+      }
+      case 'frame': {
+        const me = this.users.get(this.me);
+        if (!this.presentation || msg.scope !== this.presentation.scope || msg.scope !== presentScope(me?.instance) || msg.seq <= (this.frame?.seq ?? -1)) return;
+        this.frame = { seq: msg.seq, url: `data:image/jpeg;base64,${msg.data}` }; break;
       }
       case 'tz': { const u = this.users.get(msg.userId); if (u) { if (msg.tz) u.tz = msg.tz; else delete u.tz; } break; }
       case 'look': { const u = this.users.get(msg.userId); if (u) { u.look = msg.look; u.lookSet = msg.lookSet; if (msg.name) u.name = msg.name; } break; }
@@ -755,8 +861,8 @@ export class Store {
           this.toast({ kind: 'info', text: `🎙 Voice call with ${other}`, expires: 4000 });
         }
         else if (mine && msg.reply === 'blocked') this.toast({ kind: 'info', text: msg.reason ?? `Can't knock on ${other} now`, expires: 5000 });
-        else if (mine) this.toast({ kind: 'knock_again', userId: otherId, text: msg.reason ?? `${other} said later`, expires: 12000 });
-        else if (forMe && msg.reason) this.toast({ kind: 'knock_again', userId: otherId, text: `Missed a knock from ${other}`, expires: 30000 });
+        else if (mine) this.toast({ kind: 'knock_again', userId: otherId, text: msg.reason ?? `${other} said later`, expires: 30000 });
+        else if (forMe && msg.reason && !msg.kept) this.toast({ kind: 'knock_again', userId: otherId, text: `Missed a knock from ${other}`, expires: 30000 });
         break;
       }
     }

@@ -1,13 +1,14 @@
 import { INSTRUMENTS } from '../../shared/instruments';
 // The floor: one <canvas>, one requestAnimationFrame loop.
 // Order: static tilemap → y-sorted furniture + sprites → nameplates & bubbles → ambient tint → UI hints.
-import { adminOnly, applyEdit, FIXED_TYPES, findPath, pathTo, sampleMove, pathDuration, WALK_MS_PER_TILE, isWalkable, layoutProblem, objectById, objectName, roomAt, rugFrame, seatAt, withLayout, type MapObject, type Rect, type Rug, type Tile } from '../../shared/map';
+import { adminOnly, applyEdit, FIXED_TYPES, SEAT_TYPES, findPath, pathTo, sampleMove, pathDuration, WALK_MS_PER_TILE, isWalkable, layoutProblem, objectById, objectName, roomAt, rugFrame, seatAt, withLayout, type MapObject, type Rect, type Rug, type Tile } from '../../shared/map';
 import { FOOD_ITEMS, picnicSeat } from '../../shared/lunch';
 import { DungeonView } from './dungeon';
-import { danceBeat, dancePhase } from '../../shared/effects';
+import { DANCE_ROOM, danceBeat, dancePhase } from '../../shared/effects';
 import { drawEffects, effectLook, effectSway } from './effects';
-import { CreatureLayer } from './creatures';
+import { CreatureLayer, creaturePose } from './creatures';
 import { lockedDoors, roomDoors, type RoomDoor } from './doors';
+import { dance, discos, drawDisco, evening, type DanceStep, type Disco } from './disco';
 import type { Assets, Frame } from './assets';
 import { drawText, plateLines, textWidth } from './font';
 import { TRACK } from '../../shared/music';
@@ -132,6 +133,10 @@ export class Engine {
   private layoutSeen = -1;
   private doors: RoomDoor[] = [];
   private deniedAt = new Map<string, number>(); // room id → when a locked door last turned someone away (it shakes)
+  private discos: Disco[] = [];
+  private jukeboxes: { o: MapObject; room?: string }[] = [];
+  private parties: string[] = []; // rooms whose jukebox is playing, this frame: people there dance
+  private dancer: DanceStep = { dx: 0, dy: 0, turn: 0 }; // reused every frame
   // ---- edit mode (office admins) ----
   editing = false;
   /** Selected furniture or rug. */
@@ -309,6 +314,8 @@ export class Engine {
   private refreshLayout() {
     this.layoutSeen = this.store.layoutVersion;
     this.doors = [...roomDoors(MAP), ...lockedDoors(MAP)];
+    this.discos = discos(MAP);
+    this.jukeboxes = MAP.objects.filter(o => o.use?.kind === 'jukebox').map(o => ({ o, room: roomAt(MAP, o.x, o.y)?.id }));
     this.staticLayer = this.buildStatic();
     this.furniture = MAP.objects.filter(o => !o.wall && !o.walkable && this.f(o.type)).map(o => {
       const fr = this.f(o.type);
@@ -650,6 +657,11 @@ export class Engine {
     if (!me?.holding || !FOOD_ITEMS.includes(me.holding) || me.instance || this.areaDown || !picnicSeat(MAP, t)) return null;
     return MAP.objects.find(o => o.type === 'chair' && o.x === t.x && o.y === t.y) ?? null;
   }
+  /** What a click at this point can use: inside a meeting's room only the wall screen (it has a show per room). */
+  private pickable(wx: number, wy: number, inside: string | null): MapObject | null {
+    const o = this.objectAt(wx, wy);
+    return o && (!inside || o.use?.kind === 'presentation') ? o : null;
+  }
   private objectAt(wx: number, wy: number): MapObject | null {
     let best: MapObject | null = null;
     for (const o of this.interactive) {
@@ -723,7 +735,7 @@ export class Engine {
     this.zoomTo(this.gesture.px * e.scale, this.devicePoint(e));
   };
   private onKey = (e: KeyboardEvent) => {
-    if (this.store.seat || this.store.gameOpen) return;
+    if (this.store.seat || this.store.gameOpen || this.store.table) return;
     const t = e.target;
     if (this.falling()) return;
     if (e.metaKey || e.ctrlKey || e.altKey || (t instanceof Element && t.closest('input, textarea, select, [contenteditable]'))) return;
@@ -741,7 +753,7 @@ export class Engine {
     else return;
     e.preventDefault();
   };
-  /** Edit mode keys: arrows nudge (shift+arrows resize a rug), Delete removes, Esc lets go. */
+  /** Edit mode keys: arrows nudge (shift+arrows resize a rug), R turns a chair, Delete removes, Esc lets go. */
   private onEditKey(e: KeyboardEvent) {
     if (e.key === 'Escape' && (this.placing || this.editSel)) { if (this.placing) this.setPlacing(null); else this.select(null); return true; }
     const sel = this.editSel ? this.item(this.editSel) : undefined;
@@ -749,6 +761,7 @@ export class Engine {
     const step = ({ ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0] } as Record<string, [number, number]>)[e.key];
     if (step && e.shiftKey && sel.color) this.store.edit({ op: 'rug', id: sel.id, w: sel.w + step[0], h: sel.h + step[1] });
     else if (step) this.store.edit({ op: 'move', id: sel.id, x: sel.x + step[0], y: sel.y + step[1] });
+    else if ((e.key === 'r' || e.key === 'R') && !e.metaKey && !e.ctrlKey) { if (!SEAT_TYPES.has(sel.type ?? '')) return false; this.store.edit({ op: 'rotate', id: sel.id }); }
     else if (e.key === 'Delete' || e.key === 'Backspace') this.store.edit({ op: 'remove', id: sel.id });
     else return false;
     return true;
@@ -770,7 +783,7 @@ export class Engine {
     this.hoverUser = this.userAt(w.x, w.y);
     const inside = this.myInstance();
     this.hoverCup = this.hoverUser || inside || this.areaDown ? null : this.critters.cupAt(w.x, w.y);
-    this.hoverObject = this.hoverUser || this.hoverCup || inside ? null : this.objectAt(w.x, w.y);
+    this.hoverObject = this.hoverUser || this.hoverCup ? null : this.pickable(w.x, w.y, inside);
     this.hoverPlant = this.hoverUser || this.hoverObject || inside ? null
       : this.plants.find(p => w.x >= p.x - 5 && w.x < p.x + 5 && w.y >= p.y - 18 && w.y < p.y) ?? null;
     const tx = Math.floor(w.x / TS), ty = Math.floor(w.y / TS);
@@ -823,7 +836,7 @@ export class Engine {
     if (critter?.id) { this.onPick?.(null); this.manualCam = false; return this.store.pet(critter.id); }
     const cupHit = inside || this.areaDown ? null : this.critters.cupAt(w.x, w.y);
     if (cupHit) { this.onPick?.(null); this.manualCam = false; return this.store.takeCup(cupHit.id); }
-    const obj = inside ? null : this.objectAt(w.x, w.y);
+    const obj = this.pickable(w.x, w.y, inside);
     if (obj?.sit) { this.onPick?.(null); this.manualCam = false; return this.store.moveTo(this.freeSeat(obj, Math.floor(w.x / TS))); }
     if (obj?.sound && obj.use?.kind !== 'jukebox') return this.onPick?.(null);
     if (obj) return this.onPick?.({ kind: 'object', id: obj.id });
@@ -868,25 +881,23 @@ export class Engine {
 
   // ---------- render ----------
   private touched = () => { this.lastInput = performance.now(); };
-  /** Cap the redraw rate: 60 fps while anything moves or the user is interacting (ProMotion would otherwise draw 120), 30 when the floor is still. */
+  /** Cap the redraw rate: 60 fps while anything moves or the user is interacting (ProMotion would otherwise draw 120), 30 when the floor is still (2 when covered). */
   private skipFrame(ms: number) {
     const gap = ms - this.lastDraw;
     if (isCovered()) { if (gap < 490) return true; } // the Mac app's view is behind other windows: ~2 fps
     else if (gap < 15) return true;
-    else if (gap < 49) { // three tiers: 60 while busy, 30 while something small animates, 20 when the floor is still
+    else if (gap < 49) { // 60 while busy, otherwise 30
       const now = this.store.now(), users = [...this.store.users.values()];
       const busy = this.glide || this.editing || ms - this.lastInput < 1500 || this.store.version !== this.drawnVersion || this.store.portalFx.some(f => ms - f.at < PORTAL_MS)
-        || users.some(u => { if (!u.move) return false; const p = this.store.pose(u, now); return p.walking && this.visible(u) && this.onScreen(p.x * TS - TS, p.y * TS - TS, 3 * TS, 3 * TS); });
-      if (!busy) {
-        if (gap < 31) return true;
-        const lively = this.store.reactions.length || this.store.dungeonFx.length || users.some(u => this.visible(u) && this.isSpeaking(u));
-        if (!lively) return true;
-      }
+        || users.some(u => { if (!u.move) return false; const p = this.store.pose(u, now); return p.walking && this.visible(u) && this.onScreen(p.x * TS - TS, p.y * TS - TS, 3 * TS, 3 * TS); })
+        || (!this.areaDown && !this.store.users.get(this.store.me)?.instance && [...this.store.creatures.values()].some(c => { if (!c.walk) return false; const p = creaturePose(c, now); return p.walking && this.onScreen(p.x * TS - TS, p.y * TS - TS, 3 * TS, 3 * TS); }));
+      if (!busy && gap < 31) return true;
     }
     this.lastDraw = ms;
     return false;
   }
   private drawnVersion = -1;
+  private lastFrameMs = 0;
   /** Visible world rect (a tile of margin): anything wholly outside it is not drawn. */
   private vis = { x0: -1e9, y0: -1e9, x1: 1e9, y1: 1e9 };
   private onScreen(x: number, y: number, w: number, h: number) {
@@ -895,9 +906,10 @@ export class Engine {
   private frame = (ms: number) => {
     this.raf = requestAnimationFrame(this.frame);
     if (document.hidden || this.skipFrame(ms)) return;
+    const prevMs = this.lastFrameMs; this.lastFrameMs = ms;
     if (this.layoutSeen !== this.store.layoutVersion) this.refreshLayout();
     this.syncArea(); this.keyboardStep();
-    const ctx = this.ctx, t = this.store.now();
+    const ctx = this.ctx, t = this.store.now(), now = new Date(), hour = now.getHours() + now.getMinutes() / 60;
     const me = this.store.users.get(this.store.me);
     if (this.areaDown && me && this.store.dungeon) {
       const others = [...this.store.users.values()].filter(u => u.id !== me.id && underground(u) && u.presence !== 'offline').map(u => this.store.pose(u, t).tile);
@@ -929,7 +941,7 @@ export class Engine {
       const target = me.instance && !this.areaDown // a meeting's room: keep the room in the middle
         ? this.clampCam((MEETING.x + MEETING.w / 2) * TS - this.viewW / 2, (MEETING.y + MEETING.h / 2) * TS - this.viewH / 2)
         : this.clampCam(p.x * TS + 8 - this.viewW / 2, p.y * TS - this.viewH / 2);
-      const k = this.snapped ? 0.12 : 1; this.snapped = true;
+      const dt = Math.min(100, ms - prevMs), k = this.snapped ? 1 - Math.pow(0.88, dt / 16.7) : 1; this.snapped = true; // 0.12 per 60 fps frame, whatever the frame rate
       this.cam.x += (target.x - this.cam.x) * k; this.cam.y += (target.y - this.cam.y) * k;
     }
     const camX = Math.round(this.cam.x * this.px) / this.px, camY = Math.round(this.cam.y * this.px) / this.px;
@@ -972,6 +984,9 @@ export class Engine {
       if (op && !op.walking && op.tile.x === dx && op.tile.y === dy) continue; // they're sitting on it
       this.drawDeskTag(owner, dx, dy);
     }
+
+    this.parties.length = 0;
+    if (!this.areaDown) for (const j of this.jukeboxes) if (j.room && this.playing(j.o)) this.parties.push(j.room);
 
     // y-sorted drawables: furniture is sorted per layout (refreshLayout); people and plants are sorted here and merged in
     if (this.plantsVersion !== this.store.version) { this.plants = me?.instance ? [] : this.placePlants(); this.plantsVersion = this.store.version; }
@@ -1019,7 +1034,7 @@ export class Engine {
       while (di < ds.length && ds[di].base <= f.base) drawD(ds[di++]);
       const ff = this.f(f.o.type);
       if (!this.onScreen(f.x - 2, f.y - 2, ff.w + 4, ff.h + 4)) continue;
-      this.blit(ctx, f.o.use?.kind === 'retro' && this.store.retroCabinets.some(c => c.cabinet === f.o.id && c.player) ? `${f.o.type}_on` : f.o.type === 'arcade' && this.store.cabinets.some(c => c.cabinet === f.o.id) ? `arcade_on_${1 + Math.floor(ms / 320) % 2}` : f.o.use?.kind === 'toilet' ? this.toiletFrame(f.o.id)
+      this.blit(ctx, f.o.use?.kind === 'retro' && this.store.retroCabinets.some(c => c.cabinet === f.o.id && c.player) ? `${f.o.type}_on` : f.o.type === 'game_table' && [...this.store.users.values()].some(u => u.table?.objectId === f.o.id && u.table.running) ? 'game_table_on' : f.o.type === 'arcade' && this.store.cabinets.some(c => c.cabinet === f.o.id) ? `arcade_on_${1 + Math.floor(ms / 320) % 2}` : f.o.use?.kind === 'toilet' ? this.toiletFrame(f.o.id)
         : f.o.type === 'bell' ? this.bellFrame(f.o.id, ms) : f.o.type === 'hat_rack' ? this.hatRackFrame(f.o, ms) : f.o.type === 'reading_table' && this.flickers(f.o, ms) ? 'reading_table_1'
         : f.o.type === 'server_rack' && Math.floor(ms / 500 + f.o.x * 3 + f.o.y) % 2 ? 'server_rack_1' : f.off && !this.isOn(f.o) ? `${f.o.type}_off` : f.o.type, f.x, f.y);
       if (f.o.use?.kind === 'toilet') this.drawStall(ctx, f.o, f.x, f.y);
@@ -1037,7 +1052,10 @@ export class Engine {
       if (o && !(coffeeBusy && o.steam)) this.drawSteam(o, ms);
     }
 
-    for (const o of this.areaDown ? [] : this.sounders) if (o.use?.kind === 'jukebox' && this.store.connected && this.store.jukebox[o.id]?.pausedAt === null) for (let i = 0; i < 3; i++) {
+    // evening in the Music room: it dims, and a disco ball turns while the jukebox plays
+    if (!this.areaDown && !me?.instance) { const dusk = evening(hour); for (const d of this.discos) drawDisco(ctx, this.assets, d, ms, dusk, this.playing(d.jukebox)); }
+
+    for (const o of this.areaDown ? [] : this.sounders) if (o.use?.kind === 'jukebox' && this.playing(o)) for (let i = 0; i < 3; i++) {
       const phase = (ms / 2200 + i / 3) % 1;
       ctx.globalAlpha = 1 - phase;
       this.blit(ctx, i % 2 ? 'note_1' : 'note_2', (o.x + o.w / 2) * TS - 4 + Math.round(Math.sin(phase * 6 + i) * 4), o.y * TS - Math.round(phase * 18));
@@ -1055,7 +1073,8 @@ export class Engine {
     }
     ctx.globalAlpha = 1;
 
-    if (!me?.instance) { this.drawBoardBadges(ctx, ms); this.drawLiveScreen(ctx, ms); }
+    if (!me?.instance) this.drawBoardBadges(ctx, ms);
+    this.drawLiveScreen(ctx, ms); // the store only holds the show of my own scope
 
     // a meeting's own room: the rest of the office fades away
     if (me?.instance && !this.areaDown && !this.falling()) {
@@ -1075,7 +1094,7 @@ export class Engine {
     for (const u of sorted) { const p = poses.get(u.id)!; if (this.onScreen(p.x * TS - 2 * TS, p.y * TS - 3 * TS, 5 * TS, 5 * TS)) this.drawOverlay(u, p, ms); }
     this.drawReactions(poses, ms);
     if (!this.areaDown && !me?.instance) this.drawClub(ctx, ms);
-    if (!this.areaDown) this.drawAmbient(ctx, camX, camY, ms);
+    if (!this.areaDown) this.drawAmbient(ctx, camX, camY, ms, hour);
     // labels switch the canvas to screen space, so everything drawn in world space (the tint above) comes first
     if (!this.areaDown && !me?.instance) { this.drawBellDings(poses, camX, camY, ms); this.drawHatNudge(me, poses, camX, camY, ms); }
     if (this.editing) this.drawEdit(ctx, camX, camY, ms);
@@ -1099,9 +1118,11 @@ export class Engine {
       const instrumentTip = o.use?.kind === 'instrument' ? `${INSTRUMENTS[o.use.instrument].name} · ${this.store.seat === o.id ? "you're playing · Esc to stand up" : player === this.store.me ? "you're playing in another tab" : player ? `${this.store.name(player).split(' ')[0]} is playing` : 'click to play'}` : '';
       const retro = o.use?.kind === 'retro' ? this.store.retroCabinets.find(c => c.cabinet === o.id) : null;
       const retroTip = o.use?.kind === 'retro' ? retro?.broken ? 'Out of order' : `${o.use.label} · ${retro?.player ? `${this.store.name(retro.player)} is playing · ${retro.watchers} watching` : 'free'}` : '';
-      const what = retroTip || instrumentTip || (o.use?.kind === 'arcade' ? this.store.gameDescription(o.id) : o.use?.kind === 'records' ? 'Arcade boards · weekly scores and records' : o.use?.kind === 'jukebox' ? !jukebox ? 'Jukebox · Reconnecting…' : jukebox.pausedAt !== null ? 'Jukebox · paused' : `Jukebox · ♪ ${track?.title ?? jukebox.track} — ${track?.artist ?? ''}` : o.use?.kind === 'toggle' ? `${o.use.label[0].toUpperCase()}${o.use.label.slice(1)} · ${this.isOn(o) ? 'on' : 'off'}`
+      const what = retroTip || instrumentTip || (o.use?.kind === 'table' ? this.store.tableDescription(o.id) : o.use?.kind === 'arcade' ? this.store.gameDescription(o.id) : o.use?.kind === 'records' ? 'Arcade boards · weekly scores and records' : o.use?.kind === 'jukebox' ? !jukebox ? 'Jukebox · Reconnecting…' : jukebox.pausedAt !== null ? 'Jukebox · paused' : `Jukebox · ♪ ${track?.title ?? jukebox.track} — ${track?.artist ?? ''}` : o.use?.kind === 'toggle' ? `${o.use.label[0].toUpperCase()}${o.use.label.slice(1)} · ${this.isOn(o) ? 'on' : 'off'}`
         : o.use?.kind === 'calendar' ? 'Calendar · your week' : o.use?.kind === 'achievements' ? 'Notice board · your plant and achievements' : o.use?.kind === 'link' ? `Vault 13 · click to open the ${o.use.label}` : o.use?.kind === 'meetings' ? `Meetings · ${this.store.meetingRooms.length || 'none'} on now`
-        : o.use?.kind === 'presentation' ? (this.store.presentation?.objectId === o.id ? `Screen · LIVE: ${this.store.presentation.deck.title}` : 'Screen · click to present slides') : o.use?.kind === 'clock' ? `Clock · ${o.use.city}, ${zoneTime(o.use.tz)} · click for all our cities` : o.sit ? `${o.type === 'bench' ? 'Bench' : 'Sofa'} · click to sit` : o.type === 'coffee_machine' ? 'Coffee machine' : o.type === 'fridge' ? 'Fridge' : o.use?.kind === 'toilet' ? this.toiletTip(o.id) : o.use?.kind === 'bell' ? 'Reception bell · click to ring' : o.type === 'reading_table' || o.type === 'reading_desk' ? 'Reading table · take a book from the shelf' : o.use?.kind === 'library' ? 'Library shelf · publish or borrow an article' : o.use?.kind === 'dealer' ? (o.type === 'bouncer' ? 'Bouncer · knows a guy' : 'Hat stand · pick a hat for your pockets') : objectName(o.type));
+        : o.use?.kind === 'youtube' ? `${o.use.label} · click to watch`
+        : o.use?.kind === 'room_start' ? 'Start a private room · click to walk over'
+        : o.use?.kind === 'presentation' ? (this.store.presentation?.objectId === o.id ? `Screen · LIVE: ${this.store.presentation.deck?.title ?? `${this.store.name(this.store.presentation.presenter).split(' ')[0]}'s screen`}` : 'Screen · click to present slides') : o.use?.kind === 'clock' ? `Clock · ${o.use.city}, ${zoneTime(o.use.tz)} · click for all our cities` : o.sit ? `${o.type === 'bench' ? 'Bench' : 'Sofa'} · click to sit` : o.type === 'coffee_machine' ? 'Coffee machine' : o.type === 'fridge' ? 'Fridge' : o.use?.kind === 'toilet' ? this.toiletTip(o.id) : o.use?.kind === 'bell' ? 'Reception bell · click to ring' : o.type === 'reading_table' || o.type === 'reading_desk' ? 'Reading table · take a book from the shelf' : o.use?.kind === 'library' ? 'Library shelf · publish or borrow an article' : o.use?.kind === 'dealer' ? (o.type === 'bouncer' ? 'Bouncer · knows a guy' : 'Hat stand · pick a hat for your pockets') : objectName(o.type));
       this.drawLabel(what, (o.x + o.w / 2) * TS, (o.y + o.h) * TS - fr.h + 4, camX, camY);
     }
     else if (this.hoverCup && this.store.cups.some(c => c.id === this.hoverCup!.id)) { // gone: the label goes with it
@@ -1163,11 +1184,16 @@ export class Engine {
       ctx.fillStyle = 'rgba(40,20,25,0.28)';
       ctx.beginPath(); ctx.ellipse(x + 8, baseY - 1.5, 5.5, 2, 0, 0, Math.PI * 2); ctx.fill();
     }
-    let frame = 0, bob = 0;
+    let frame = 0, bob = 0, dx = 0;
+    const presenting = this.store.presentation?.presenter === u.id && !this.store.presentation.away;
+    const step = !p.walking && !presenting && u.presence !== 'away' && !u.door && this.dancing(u, p.tile) ? dance(Date.now(), hash(u.id), !!seat, this.dancer) : null;
     if (p.walking) frame = 1 + (Math.floor((ms / 1000) * WALK_FPS * WALK_MS_PER_TILE / (u.move?.ms ?? WALK_MS_PER_TILE)) % 4); // quicker steps when quicker
     else if (seat) { frame = SIT_FRAME; p = { ...p, dir: seat.dir }; }
-    else if (this.store.presentation?.presenter === u.id && !this.store.presentation.away) p = { ...p, dir: 'down' }; // presenting: face the room, back to the board
-    else {
+    else if (presenting) p = { ...p, dir: 'down' }; // presenting: face the room, back to the board
+    if (step) { // the jukebox is on: dance a little
+      bob = step.dy; dx = step.dx;
+      if (step.turn && !seat && (p.dir === 'down' || p.dir === 'up')) p = { ...p, dir: step.turn < 0 ? 'left' : 'right' };
+    } else if (!p.walking && !seat && !presenting) {
       const phase = (ms + hash(u.id) * 37) % 1800;
       bob = u.presence === 'away' ? (phase < 900 ? 1 : 0) : phase < 300 ? 1 : 0; // tiny breathing bob
     }
@@ -1177,7 +1203,7 @@ export class Engine {
     const hand = BAG_HAND[p.dir] ?? BAG_HAND.down;
     const swing = p.walking && frame % 2 ? 1 : 0;
     const carrying = u.door === 'arriving' || u.door === 'leaving';
-    const drawBag = () => this.blit(ctx, 'bag', x + hand.dx, baseY - 13 + swing);
+    const drawBag = () => this.blit(ctx, 'bag', x + dx + hand.dx, baseY - 13 + swing);
     if (u.door === 'thinking') this.blit(ctx, 'bag', x + 11, baseY - 9);
     if (carrying && hand.behind) drawBag();
     // effects: a sway for the whole figure, then layers behind and in front of the body (see effects.ts)
@@ -1185,11 +1211,11 @@ export class Engine {
     const sway = fx ? effectSway(fx, ms, seed, p) : null;
     if (sway && (sway.dx || sway.rot || sway.dy)) { ctx.save(); ctx.translate(x + 8 + sway.dx, baseY + sway.dy); ctx.rotate(sway.rot); ctx.translate(-x - 8, -baseY); }
     const top = baseY - c.frameH + bob + walkBob - 1 + (seat ? 2 : 0);
-    const fxCtx = fx && { ctx, x, top, baseY, ms, seed, p, blit: (n: string, bx: number, by: number) => this.blit(ctx, n, Math.round(bx), Math.round(by)), has: (n: string) => !!this.f(n) };
+    const fxCtx = fx && { ctx, x: x + dx, top, baseY, ms, seed, p, blit: (n: string, bx: number, by: number) => this.blit(ctx, n, Math.round(bx), Math.round(by)), has: (n: string) => !!this.f(n) };
     if (fxCtx) drawEffects('back', fxCtx, fx);
     // at the door: already half out
     ctx.globalAlpha = u.door === 'leaving' && !p.walking ? 0.45 : u.presence === 'away' ? 0.8 : 1;
-    ctx.drawImage(sheet, frame * c.frameW, row * c.frameH, c.frameW, c.frameH, x, baseY - c.frameH + bob + walkBob - 1, c.frameW, c.frameH);
+    ctx.drawImage(sheet, frame * c.frameW, row * c.frameH, c.frameW, c.frameH, x + dx, baseY - c.frameH + bob + walkBob - 1, c.frameW, c.frameH);
     if (carrying && !hand.behind) drawBag();
     ctx.globalAlpha = 1;
     if (fxCtx) drawEffects('front', fxCtx, fx);
@@ -1198,7 +1224,7 @@ export class Engine {
     if (icon) {
       const ih = seat ? ITEM_HAND.down : ITEM_HAND[p.dir] ?? ITEM_HAND.down;
       ctx.fillStyle = '#000'; ctx.font = '7px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; // emoji take the fill alpha
-      ctx.fillText(icon, x + ih.dx, baseY + ih.dy + bob + (p.walking ? swing : 0));
+      ctx.fillText(icon, x + dx + ih.dx, baseY + ih.dy + bob + (p.walking ? swing : 0));
       ctx.textAlign = 'start'; ctx.textBaseline = 'alphabetic';
     }
     if (u.reading && seat && this.f('reading_book')) this.blit(ctx, 'reading_book', Math.round(x + 2), Math.round(baseY - 16 + bob)); // holding up the book
@@ -1230,6 +1256,7 @@ export class Engine {
     if (u.door === 'leaving') return null;
     if (u.emote === 'knock') return 'bubble_bang';
     // in the Arcade's open voice everyone is in the room call: show the joystick/eyes unless they're talking
+    if (u.table && !u.speaking && (!u.callId || u.callId.startsWith('room:'))) return u.table.role === 'watcher' || u.table.running && !u.table.players.includes(u.id) ? 'bubble_watch' : 'bubble_game';
     if (u.game && !u.speaking && (!u.callId || u.callId.startsWith('room:'))) return u.game.role === 'player' ? 'bubble_game' : 'bubble_watch';
     if (u.callId) return u.deafened ? u.muted ? 'bubble_mute_deaf' : 'bubble_deaf' : 'bubble_talk';
     if (!underground(u) && (u.instance || u.meeting)) return 'bubble_meeting'; // a real calendar meeting, not just standing in the Meeting room; beats a manual "In a call"
@@ -1279,6 +1306,16 @@ export class Engine {
       ctx.restore();
     }
 
+    if (u.listening === 'lofi') {
+      const w = 51, bx = x + 8 - Math.floor(w / 2), by = baseY - 55;
+      ctx.fillStyle = '#513b36'; ctx.fillRect(bx - 1, by - 1, w + 2, 17);
+      ctx.fillStyle = '#281f26'; ctx.fillRect(bx, by, w, 15);
+      drawText(ctx, 'LISTENING TO', bx + 4, by + 2, '#d9bfa4');
+      ctx.fillStyle = '#e33a47'; ctx.fillRect(bx + 3, by + 8, 8, 5);
+      ctx.fillStyle = '#fff4e0'; ctx.fillRect(bx + 6, by + 9, 1, 3); ctx.fillRect(bx + 7, by + 10, 1, 1);
+      drawText(ctx, 'LOFI GIRL', bx + 13, by + 8, '#fff4e0');
+    }
+
     // emote bubble with a 2-frame pop
     const kind = this.bubbleFor(u, p);
     const st = this.bubbleState.get(u.id);
@@ -1298,7 +1335,7 @@ export class Engine {
   }
 
   /** Fake turn-taking for two people on a call, from server time so every viewer sees the same conversation. */
-  private isSpeaking(u: ClientUser) {
+  isSpeaking(u: ClientUser) {
     if (!u.callId || u.muted || u.deafened) return false;
     if (!u.bot) return !!u.speaking; // real people: their actual mic activity (voice calls)
     const members = [u, ...this.store.callPeers(u)].map(m => m.id).sort();
@@ -1306,6 +1343,13 @@ export class Engine {
     const h = hash(`${u.callId}|${turn}`);
     if (h % 6 === 0) return false; // a beat of silence now and then
     return members[(h >> 3) % members.length] === u.id;
+  }
+
+  private playing(o?: MapObject) { return !!o && this.store.connected && this.store.jukebox[o.id]?.pausedAt === null; }
+  /** In a room whose jukebox plays; not Berghain's floor, where the `dance` effect has its own routine. */
+  private dancing(u: ClientUser, t: Tile) {
+    if (!this.parties.length || u.effects?.some(e => e.kind === 'dance')) return false;
+    const r = roomAt(MAP, t.x, t.y); return !!r && r.id !== DANCE_ROOM && this.parties.includes(r.id);
   }
 
   private isOn(o: MapObject) { return o.use?.kind !== 'toggle' || (this.store.objects[o.id]?.on ?? o.on ?? true); }
@@ -1443,8 +1487,7 @@ export class Engine {
       ctx.restore();
     }
   }
-  private drawAmbient(ctx: CanvasRenderingContext2D, camX: number, camY: number, ms: number) {
-    const now = new Date(); const h = now.getHours() + now.getMinutes() / 60;
+  private drawAmbient(ctx: CanvasRenderingContext2D, camX: number, camY: number, ms: number, h: number) {
     // [hour, r,g,b, alpha] keyframes for a multiply tint
     const K: [number, number, number, number, number][] = [
       [0, 40, 50, 110, 0.5], [5.5, 40, 50, 110, 0.5], [7, 255, 190, 170, 0.18], [9, 255, 255, 255, 0],
@@ -1589,6 +1632,7 @@ export class Engine {
       : underground(u) ? 'somewhere underground' : u.instance ? 'in the meeting' : u.meeting ? `in a meeting until ${this.store.clock(u.meeting)}`
       : u.eating ? `eating ${ITEMS.get(u.eating.item)?.label.toLowerCase() ?? 'lunch'}${u.eating.open ? ' · open to talk' : ''}` : u.callId ? `talking with ${this.store.names(this.store.callPeers(u))}` : u.presence === 'in_call' ? 'in a call' : u.presence === 'away' ? 'away' : room?.rules.occupantLabel ?? 'around';
     const lines = [`${u.name}${u.id === this.store.me ? ' (you)' : ''} · ${presence}`];
+    if (u.table) lines.push(this.store.tableDescription(u.table.objectId, u.id));
     if (u.game) lines.push(this.store.gameDescription(u.game.cabinet, u.id));
     if (u.status) lines.push(`“${u.status}”`);
     if (u.tz && u.id !== this.store.me) lines.push(localTime(u.tz));

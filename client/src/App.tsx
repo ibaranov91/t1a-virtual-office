@@ -1,21 +1,32 @@
+import { Sidebar } from './sidebar/Sidebar';
+import { PersonCard, type PersonAnchor } from './sidebar/PersonCard';
+import { RoomMenu, type RoomAnchor } from './sidebar/RoomMenu';
+import { PRESENCE_COLOR } from './sidebar/model';
+import { COMPACT, useMedia } from './sidebar/hooks';
+import { IdentityPill, VoiceIcons, CallChip, RoomVoiceChip, voiceState } from './sidebar/SelfPanel';
 import { RetroOverlay } from './retro/RetroOverlay';
 import { INSTRUMENTS, DRUM_PADS, VELOCITIES, VELOCITY_START, keyNote, noteName, type InstrumentKind } from '../../shared/instruments';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { loadAssets, type Assets } from './assets';
 import { Engine, type Pick } from './engine';
 import { Voice } from './voice';
+import { TableOverlay } from './table/TableOverlay';
 import { ArcadeOverlay, RecordsPopover } from './park/ArcadeOverlay';
+import { LofiTV } from './LofiTV';
 import { Soundscape } from './soundscape';
 import { needsGesture, resume } from './audio';
-import { prefs, savePrefs, type Category } from './prefs';
+import { prefs, savePrefs } from './prefs';
 import { ITEMS, MAP, Store, type ClientUser } from './net';
 import { inNativeApp, syncNative } from './native';
+import { ExternalLink } from './links';
+import { fakeShare } from './share';
 import { LiveChip, PresentPanel, SlideOverlay } from './Presentation';
+import { RoomPopup } from './RoomPopup';
 import { LibraryPanel, ReadingOverlay } from './Library';
-import { ACHIEVEMENTS, underground, dayNumber, JUKEBOX_PER_PERSON, JUKEBOX_QUEUE_MAX, MAX_CHAT_LEN, MEET_LINK_RE, meetAs, normalizeMeetLink, kindName, PLANT_DIES_DAYS, PLANT_KINDS, PLANT_REVEAL, PLANT_STAGES, plantDead, plantName, REACTIONS, TOILET_CAPACITY, TOILET_SHELF_ITEM, TOILET_SHELF_MAX, TOILET_USE_MS, toiletFull, type JukeboxState, type Plant } from '../../shared/protocol';
+import { ACHIEVEMENTS, underground, dayNumber, JUKEBOX_PER_PERSON, JUKEBOX_QUEUE_MAX, MAX_CHAT_LEN, ROOM_VOICE_MAX, MEET_LINK_RE, meetAs, normalizeMeetLink, kindName, PLANT_DIES_DAYS, PLANT_KINDS, PLANT_REVEAL, PLANT_STAGES, plantDead, plantName, REACTIONS, TOILET_CAPACITY, TOILET_SHELF_ITEM, TOILET_SHELF_MAX, TOILET_USE_MS, toiletFull, type JukeboxState, type Plant } from '../../shared/protocol';
 import { jukeboxPosition, TRACK, tracksFor } from '../../shared/music';
 import { ALL_HATS, DANCE_ROOM, EFFECTS, HAT_NAMES, effectOf, hatItem, hatOf } from '../../shared/effects';
-import { FIXED_TYPES, KEEP_TYPES, objectName, RUG_COLORS, RUG_MAX, RUG_MIN, RUG_PATTERNS, routes, rugFrame, seatAt } from '../../shared/map';
+import { FIXED_TYPES, KEEP_TYPES, objectName, RUG_COLORS, RUG_MAX, RUG_MIN, RUG_PATTERNS, SEAT_TYPES, routes, rugFrame, seatAt } from '../../shared/map';
 import { LUNCH_MS, picnicSeat } from '../../shared/lunch';
 
 // Dev server: sign in automatically as ?as=<name> (default "Dev"); each name keeps its own session,
@@ -23,7 +34,6 @@ import { LUNCH_MS, picnicSeat } from '../../shared/lunch';
 const DEV_AS = import.meta.env.DEV ? (new URLSearchParams(location.search).get('as')?.trim() || 'Dev') : null;
 const SESSION_KEY = DEV_AS ? `deck.session.dev.${DEV_AS.toLowerCase()}` : 'deck.session';
 /** Phones and small windows: a thumb dock and bottom sheets (keep in step with styles.css). */
-const COMPACT = '(max-width: 560px), (max-height: 500px)';
 const compact = () => window.matchMedia(COMPACT).matches;
 
 export default function App() {
@@ -114,13 +124,17 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
   const [assets, setAssets] = useState<Assets | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const chromeRef = useRef<HTMLDivElement>(null);
-  useLayoutEffect(() => { if (chromeRef.current) chromeRef.current.inert = store.gameOpen; }, [store.gameOpen]);
+  useLayoutEffect(() => { if (chromeRef.current) chromeRef.current.inert = store.gameOpen || !!store.table; }, [store.gameOpen, store.table]);
   const engineRef = useRef<Engine | null>(null);
-  const [showRooms, setShowRooms] = useState(() => window.innerWidth > 900);
+  const [showRooms, setShowRooms] = useState(false);
+  const isCompact = useMedia(COMPACT);
+  const sidebarRef = useRef<{ close: () => void }>(null);
+  const [roomMenu, setRoomMenu] = useState<RoomAnchor | null>(null);
   const [showMeet, setShowMeet] = useState(false);
+  const [tv, setTv] = useState<string | null>(null);
   const [pick, setPick] = useState<Pick | null>(null);
-  const [personMenu, setPersonMenu] = useState<PersonMenuAt | null>(null);
-  const openPerson = (at: PersonMenuAt) => { setPick(null); setPersonMenu(at); };
+  const [personMenu, setPersonMenu] = useState<PersonAnchor | null>(null);
+  const openPerson = (at: PersonAnchor) => { setPick(null); setRoomMenu(null); setPersonMenu(at); };
   const [showAppearance, setShowAppearance] = useState(false);
   const [, tick] = useState(0);
   const [engine, setEngine] = useState<Engine | null>(null);
@@ -132,7 +146,7 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
   useEffect(() => { const s = new Soundscape(store); return () => s.destroy(); }, [store]);
   // Receive connections start before microphone permission settles.
   const [voice, setVoice] = useState<Voice | null>(null);
-  useEffect(() => syncNative(store), [store]);
+  useEffect(() => syncNative(store, voice), [store, voice]);
   useEffect(() => {
     let v: Voice | null = null, unsub = () => {}, cancelled = false;
     fetch('/api/config').then(r => r.json()).then(c => {
@@ -152,9 +166,11 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
       // a wall calendar opens your calendar right away (nothing to walk over for)
       const use = p?.kind === 'object' ? MAP.objects.find(o => o.id === p.id)?.use : undefined;
       if (use?.kind === 'instrument' && p) { setPick(null); return store.playInstrument(p.id); }
+      if (use?.kind === 'table' && p) { setPick(null); return store.use(p.id); }
       if ((use?.kind === 'arcade' || use?.kind === 'retro') && p) { setPick(null); return store.use(p.id); }
       if (use?.kind === 'dance' && p) { setPick(null); return store.dance(p.id); }
       if (use?.kind === 'records') { setPick(null); return store.openRecords(); }
+      if (use?.kind === 'youtube' && p) { setPick(null); return setTv(p.id); }
       if (use?.kind === 'jukebox' && p) { setPick(null); return store.openJukebox(p.id); }
       if (use?.kind === 'bell' && p) { setPick(null); return store.ring(p.id); }
       if (use?.kind === 'library') { setPick(null); return store.openLibrary(); }
@@ -163,13 +179,14 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
       if (use?.kind === 'meetings') { setPick(null); return store.openMeetings(); }
       if (use?.kind === 'achievements') { setPick(null); return store.openAchievements(); }
       if (use?.kind === 'presentation' && p) { setPick(null); return store.use(p.id); } // walks to the board; the server opens the panel on arrival
+      if (use?.kind === 'room_start' && p) { setPick(null); return store.use(p.id); } // walks to the sign; the server sends room_open on arrival
       if (use?.kind === 'link') { setPick(null); return store.openLink(use); } // a panel, like the calendar: its link is a real tap
       setPick(cur => (p && cur?.kind === p.kind && cur.id === p.id ? null : p)); // same target again: close
     };
     e.onZoom = () => tick(n => n + 1);
     e.onEditChange = () => { setEditing(e.editing); tick(n => n + 1); };
     engineRef.current = e; setEngine(e);
-    if (import.meta.env.DEV) Object.assign(window, { __deck: { store, engine: e } });
+    if (import.meta.env.DEV) Object.assign(window, { __deck: { store, engine: e, share: { fake: (id?: string) => fakeShare(store, id) } } });
     return () => { e.destroy(); setEngine(null); };
   }, [assets, store]);
   useEffect(() => { const i = setInterval(() => { tick(n => n + 1); store.checkAgenda(); }, 1000); return () => clearInterval(i); }, [store]);
@@ -191,29 +208,34 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
   return (
     <div className="office">
       <div className="office-chrome" ref={chromeRef}>
-      <TopBar store={store} voice={voice} roomName={myRoom?.name} onToggleRooms={() => setShowRooms(s => !s)} onLogout={onLogout}
+      <TopBar store={store} voice={voice} roomName={myRoom?.name} onLogout={onLogout}
         onToggleMeet={() => setShowMeet(s => !s)} onToggleAppearance={() => setShowAppearance(s => me?.lookSet ? !s : true)}
         editing={editing} onToggleEdit={() => setEditing(e => !e)} gmOpen={gmOpen} onToggleGm={() => { setGmOpen(o => !o); setPocketsOpen(false); }}
         pocketsOpen={pocketsOpen} onTogglePockets={() => { setPocketsOpen(o => !o); setGmOpen(false); }} />
+      <div className="workspace">
+        {!isCompact && <Sidebar ref={sidebarRef} store={store} voice={voice} engine={engine} assets={assets} onPerson={openPerson}
+          onRoom={at => { setPersonMenu(null); setRoomMenu(at); }} surfaceOpen={!!(personMenu || roomMenu)} />}
       <div className={`stage${editing && store.admin && !down && engine ? ' editing' : ''}`}>
         <div className="canvas-wrap"><canvas ref={canvasRef} /></div>
         {engine && <ZoomCluster engine={engine} />}
         {!assets && <div className="loading">Unlocking the door…</div>}
         {!store.connected && assets && <div className="loading small">Reconnecting…</div>}
         {store.presentation && store.inPresentationRoom() && !store.slidesHidden && <SlideOverlay store={store} />}
-        {showRooms && <RoomList store={store} onPerson={openPerson} onClose={() => setShowRooms(false)}
-          onPick={id => { engineRef.current?.walkToUser(id); if (compact()) setShowRooms(false); }}
-          onRoom={id => { engineRef.current?.walkToRoom(id); if (compact()) setShowRooms(false); }} />}
+        {isCompact && <Sidebar ref={sidebarRef} store={store} voice={voice} engine={engine} assets={assets} sheetOpen={showRooms}
+          onCloseSheet={() => setShowRooms(false)} onPerson={openPerson} onRoom={at => { setPersonMenu(null); setRoomMenu(at); }} surfaceOpen={!!(personMenu || roomMenu)} />}
         {editing && store.admin && !down && engine && <EditPanel store={store} engine={engine} assets={assets} onDone={() => setEditing(false)} />}
         {gmOpen && store.admin && !editing && <GmPanel store={store} picked={pick?.kind === 'user' ? pick.id : null} assets={assets} onClose={() => setGmOpen(false)} />}
         {pocketsOpen && me && <PocketsPanel store={store} me={me} assets={assets} onClose={() => setPocketsOpen(false)} />}
         {store.calendarOpen && <CalendarPanel store={store} />}
+        {store.laterOpen && <LaterPanel store={store} />}
         {store.meetingsOpen && <MeetingsPanel store={store} />}
         {store.libraryOpen && <LibraryPanel store={store} />}
         {me?.reading && <ReadingOverlay key={me.reading} store={store} articleId={me.reading} />}
+        {tv && <LofiTV store={store} id={tv} onClose={() => setTv(null)} />}
         {store.jukeboxOpen && <JukeboxPanel key={store.jukeboxOpen} store={store} id={store.jukeboxOpen} />}
         {store.recordsOpen && <RecordsPopover store={store} />}
         {store.linkOpen && <LinkPanel store={store} />}
+        {store.roomOpen && <RoomPopup store={store} />}
         {store.presentOpen && <PresentPanel key={store.presentOpen} store={store} id={store.presentOpen} />}
         {store.clockOpen && <ClockPanel store={store} />}
         {store.achievementsOpen && me && <AchievementsPanel store={store} me={me} assets={assets} />}
@@ -221,12 +243,12 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
         {showAppearance && me && <AppearanceMenu key={me.id} look={me.look} name={me.name} assets={assets} firstTime={!me.lookSet} store={store}
           onSave={(look, name) => { store.setLook(look, name); setShowAppearance(false); }} onClose={() => setShowAppearance(false)} />}
         <div className="chips">
-          <MeetingChip store={store} />
+          <MeetingChip store={store} voice={voice} />
           <LiveChip store={store} onGo={room => engineRef.current?.walkToRoom(room)} />
           <NowPlayingChip store={store} />
           <DungeonChip store={store} />
-          {me?.callId && !store.roomCallOf(me) && store.voiceOwner && <CallChip store={store} voice={voice} />}
-          <RoomVoiceChip store={store} voice={voice} />
+          {isCompact && me?.callId && !me.instance && !store.roomCallOf(me) && store.voiceOwner && <CallChip store={store} voice={voice} />}
+          {isCompact && <RoomVoiceChip store={store} voice={voice} />}
           <DeskChip store={store} />
         </div>
         <Toasts store={store} />
@@ -234,12 +256,18 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
         <div className="self-stack">
           {store.chatWith && <ChatPanel key={store.chatWith} store={store} withId={store.chatWith} />}
         </div>
-        {personMenu && <PersonMenu key={personMenu.id} store={store} at={personMenu} onClose={() => setPersonMenu(null)} />}
+        {personMenu && <PersonCard key={personMenu.id} store={store} engine={engine} assets={assets} at={personMenu} compact={isCompact}
+          onClose={() => setPersonMenu(null)} onAction={() => { setPersonMenu(null); setShowRooms(false); sidebarRef.current?.close(); }}
+          onAppearance={() => setShowAppearance(s => me?.lookSet ? !s : true)} />}
+        {roomMenu && <RoomMenu key={roomMenu.id} store={store} engine={engine} at={roomMenu} compact={isCompact} onTv={setTv}
+          onClose={() => setRoomMenu(null)} onAction={() => { setRoomMenu(null); setShowRooms(false); sidebarRef.current?.close(); }} />}
         {store.seat && <InstrumentPanel key={store.seat} store={store} id={store.seat}
-          dialogOpen={!!(showAppearance || showMeet || store.pendingKnock || store.calendarOpen || store.meetingsOpen || store.clockOpen || store.jukeboxOpen || store.libraryOpen || !!me?.reading || store.achievementsOpen || store.presentOpen || store.chatWith || personMenu || pick)} />}
+          dialogOpen={!!(store.table || showAppearance || showMeet || store.pendingKnock || store.calendarOpen || store.laterOpen || store.meetingsOpen || store.clockOpen || store.jukeboxOpen || store.libraryOpen || !!me?.reading || store.achievementsOpen || store.presentOpen || store.roomOpen || store.chatWith || personMenu || roomMenu || pick)} />}
         <Dock store={store} voice={voice} engine={engine} roomsOpen={showRooms} onRooms={() => setShowRooms(s => !s)} />
       </div>
       </div>
+      </div>
+      {store.table && assets && <TableOverlay store={store} assets={assets} />}
       {store.retro && <RetroOverlay store={store} />}
       {store.arcadeOpen && assets && store.park && <ArcadeOverlay store={store} assets={assets} voice={voice} />}
     </div>
@@ -326,12 +354,13 @@ function InstrumentPanel({ store, id, dialogOpen }: { store: Store; id: string; 
   </section>;
 }
 
-function TopBar({ store, voice, roomName, onToggleRooms, onToggleMeet, onToggleAppearance, onLogout, editing, onToggleEdit, gmOpen, onToggleGm, pocketsOpen, onTogglePockets }: {
-  store: Store; voice: Voice | null; roomName?: string; onToggleRooms: () => void; onToggleMeet: () => void; onToggleAppearance: () => void; onLogout: () => void;
+function TopBar({ store, voice, roomName, onToggleMeet, onToggleAppearance, onLogout, editing, onToggleEdit, gmOpen, onToggleGm, pocketsOpen, onTogglePockets }: {
+  store: Store; voice: Voice | null; roomName?: string; onToggleMeet: () => void; onToggleAppearance: () => void; onLogout: () => void;
   editing: boolean; onToggleEdit: () => void; gmOpen: boolean; onToggleGm: () => void; pocketsOpen: boolean; onTogglePockets: () => void;
 }) {
   const me = store.users.get(store.me);
   const [more, setMore] = useState(false);
+  const isCompact = useMedia(COMPACT);
   useEffect(() => { // the ⋯ menu closes on a tap anywhere else
     if (!more) return;
     const off = (e: PointerEvent) => { if (!(e.target as HTMLElement).closest('.topbar')) setMore(false); };
@@ -342,17 +371,17 @@ function TopBar({ store, voice, roomName, onToggleRooms, onToggleMeet, onToggleA
     <header className="topbar">
       <div className="top-left">
         <span className="brand">The Deck</span>
-        {me && <IdentityPill store={store} roomName={roomName} />}
+        {isCompact && me && <IdentityPill store={store} roomName={roomName} />}
       </div>
       <div className="top-right">
-        <VoiceIcons store={store} voice={voice} />
+        {isCompact && <VoiceIcons store={store} voice={voice} />}
         <UnreadButton store={store} />
+        <LaterButton store={store} />
         <button className="chip ghost more-btn" aria-label="More" aria-expanded={more} onClick={() => setMore(m => !m)}>⋯</button>
         <div className={`top-more${more ? ' open' : ''}`} onClick={e => { if (!(e.target as HTMLElement).closest('.mac-app')) setMore(false); }}>
           <button onClick={onToggleMeet} className={`chip meet-btn${store.meetLink === '' && !store.google ? ' unset' : ''}`}
             title={store.google ? `Google connected: ${store.google}` : store.meetLink ? `Your Meet room: ${store.meetLink}` : 'Set up Google Meet'}>Meet</button>
           <MacAppButton />
-          <button onClick={onToggleRooms} title="Who's where: click a room or a person to walk there" className="chip rooms-btn">People</button>
           <button onClick={onLogout} title="Sign out" className="chip ghost">Leave</button>
         </div>
         <div className="hangers">
@@ -409,7 +438,7 @@ function AppearanceMenu({ look, name, assets, firstTime, store, onSave, onClose 
 }) {
   const [draft, setDraft] = useState(look);
   const [nameDraft, setNameDraft] = useState(name);
-  const [tab, setTab] = useState<'body' | 'clothes'>('body');
+  const [tab, setTab] = useState<'body' | 'clothes' | 'accessories'>('body');
   const previewRef = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
     const canvas = previewRef.current;
@@ -429,12 +458,13 @@ function AppearanceMenu({ look, name, assets, firstTime, store, onSave, onClose 
         style={{ backgroundColor: color }} title={color} aria-label={`${label} ${color}`} aria-pressed={draft[key] === color} onClick={() => set(key, color)} />)}
     </div></fieldset>
   );
-  const select = (label: string, value: number, options: string[], key: 'style' | 'top' | 'bottom' | 'glasses' | 'hat') => (
+  const select = (label: string, value: number, options: string[], key: 'style' | 'top' | 'bottom' | 'glasses' | 'hat' | 'beard' | 'mustache') => (
     <label className="look-select">{label}<select value={value} onChange={e => set(key, Number(e.target.value))}>
       {options.map((option, i) => <option value={i} key={option}>{option}</option>)}
     </select></label>
   );
-  const styles = (assets?.atlas.character.styles ?? ['short', 'long', 'ponytail']).map(s => s[0].toUpperCase() + s.slice(1));
+  const styleLabels: Record<string, string> = { short: 'Short', long: 'Long', ponytail: 'Short ponytail', bald: 'Bald', receding: 'Receding hairline' };
+  const styles = (assets?.atlas.character.styles ?? ['short', 'long', 'ponytail', 'bald', 'receding']).map(s => styleLabels[s] ?? s[0].toUpperCase() + s.slice(1));
   const tops = assets?.atlas.character.tops ?? ['T-shirt', 'Button-up shirt', 'Sweater'];
   const bottoms = assets?.atlas.character.bottoms ?? ['Trousers', 'Skirt', 'Shorts'];
   return (
@@ -442,21 +472,28 @@ function AppearanceMenu({ look, name, assets, firstTime, store, onSave, onClose 
       <section className="appearance-panel" role="dialog" aria-modal="true" aria-labelledby="appearance-title">
         <header className="appearance-head"><div><h2 id="appearance-title">Your character</h2><p>{firstTime ? 'Choose your look before stepping into the office.' : 'Make the office feel a little more like you.'}</p></div>
           {!firstTime && <button className="ghost" onClick={onClose} aria-label="Close appearance settings">×</button>}</header>
-        <div className="appearance-preview"><div className="avatar-frame"><canvas ref={previewRef} /></div><span>{styles[draft.style]} hair</span>
+        <div className="appearance-preview"><div className="avatar-frame"><canvas ref={previewRef} /></div>
           <label className="look-select">Name<input value={nameDraft} maxLength={24} placeholder="First Las" onChange={e => setNameDraft(e.target.value)} /></label></div>
         <nav className="appearance-tabs" aria-label="Appearance categories">
           <button className={tab === 'body' ? 'active' : ''} onClick={() => setTab('body')}>Body</button>
           <button className={tab === 'clothes' ? 'active' : ''} onClick={() => setTab('clothes')}>Clothes</button>
+          <button className={tab === 'accessories' ? 'active' : ''} onClick={() => setTab('accessories')}>Accessories</button>
         </nav>
         <div className="appearance-options">
           {tab === 'body' ? <>
             {select('Hairstyle', draft.style, styles, 'style')}
             {colors('Hair color', 'hair')}{colors('Skin tone', 'skin')}{colors('Eye color', 'eyes')}
-          </> : <>
+          </> : tab === 'clothes' ? <>
             {select('Top', draft.top, tops, 'top')}{colors('Top color', 'shirt')}
             {select('Bottom', draft.bottom, bottoms, 'bottom')}{colors('Bottom color', 'pants')}
             {colors('Shoe color', 'shoes')}
             <p className="small">Hats are in your pockets 🎒 (take one from the Lobby hat stand)</p>
+          </> : <>
+            {select('Glasses', draft.glasses, ['None', 'Round', 'Black sunglasses'], 'glasses')}
+            {select('Beard', draft.beard, ['None', 'Beard'], 'beard')}
+            {select('Mustache', draft.mustache, ['None', 'Mustache'], 'mustache')}
+            {draft.glasses === 1 && colors('Glasses color', 'glassesColor')}
+            <p className="small">Beard and mustache use your hair color.</p>
           </>}
         </div>
         <footer className="appearance-actions">
@@ -470,60 +507,6 @@ function AppearanceMenu({ look, name, assets, firstTime, store, onSave, onClose 
 }
 
 type PublicLook = import('../../shared/protocol').Look;
-
-const PRESENCE_COLOR: Record<string, string> = { online: '#7cc87c', away: '#e0b050', in_call: '#d86a5a', offline: '#666' };
-
-type PersonMenuAt = { id: string; x: number; y: number };
-
-function RoomList({ store, onPick, onRoom, onPerson, onClose }: {
-  store: Store; onPick: (id: string) => void; onRoom: (id: string) => void; onPerson: (at: PersonMenuAt) => void; onClose: () => void;
-}) {
-  const menu = (u: ClientUser, e: React.MouseEvent) => { e.preventDefault(); e.stopPropagation(); if (u.id !== store.me) onPerson({ id: u.id, x: e.clientX, y: e.clientY }); };
-  const more = (u: ClientUser) => u.id !== store.me && <button className="ghost person-more" aria-label={`Actions for ${u.name}`} aria-haspopup="dialog"
-    onClick={e => { const r = e.currentTarget.getBoundingClientRect(); e.stopPropagation(); onPerson({ id: u.id, x: r.left, y: r.bottom }); }}>⋯</button>;
-  const byRoom = new Map<string, string[]>();
-  for (const u of store.users.values()) {
-    if (u.presence === 'offline') continue;
-    const r = underground(u) ? 'underground' : u.instance ? 'meetings' : store.roomOf(u)?.id ?? 'hall'; // instances have their own groups
-    byRoom.set(r, [...(byRoom.get(r) ?? []), u.id]);
-  }
-  const offline = [...store.users.values()].filter(u => u.presence === 'offline');
-  return (
-    <aside className="rooms">
-      <div className="rooms-head"><span>People</span><button className="ghost" onClick={onClose}>×</button></div>
-      {[...MAP.rooms, { id: 'meetings', name: 'In meetings', rules: { label: 'calendar meetings' }, capacity: 0 } as const,
-        { id: 'underground', name: 'Underground', rules: { label: 'somewhere underground' }, capacity: 0 } as const,
-        { id: 'hall', name: 'Hallway', rules: { label: 'passing through' }, capacity: 0 } as const].map(r => {
-        const ids = byRoom.get(r.id) ?? [];
-        const jukebox = MAP.objects.find(o => o.use?.kind === 'jukebox' && store.jukeboxRoom(o.id)?.id === r.id);
-        const state = jukebox && store.jukebox[jukebox.id];
-        const subtitle = state && r.rules.label ? r.rules.label.replace(/^jukebox/, state.pausedAt !== null ? 'paused' : `♪ ${TRACK.get(state.track)?.title ?? state.track}`) : r.rules.label;
-        if ((r.id === 'hall' || r.id === 'meetings' || r.id === 'underground') && !ids.length) return null;
-        return (
-          <section key={r.id}>
-            <h3 onClick={MAP.rooms.some(m => m.id === r.id) ? () => onRoom(r.id) : undefined} title={MAP.rooms.some(m => m.id === r.id) ? `Walk to ${r.name}` : undefined}>{r.name} <small>{ids.length}{r.capacity ? `/${r.capacity}` : ''} · {subtitle}</small></h3>
-            <ul>
-              {ids.map(id => {
-                const u = store.users.get(id)!;
-                return (
-                  <li key={id} onContextMenu={e => menu(u, e)} title={underground(u) ? 'somewhere underground' : u.status || undefined}>
-                    <i style={{ background: PRESENCE_COLOR[u.presence] }} />
-                    <button className={`ghost person-name${id === store.me ? ' me' : ''}`} onClick={() => onPick(id)} title={underground(u) ? 'somewhere underground' : id === store.me ? 'Show me' : `Walk to ${u.name}`}>{u.name}{u.game ? u.game.role === 'player' ? ' 🕹' : ' 👀' : ''}{store.roomCallOf(u) ? ` 🎙${userIcons(u)}` : ''}{instrumentIcon(store, u.id)}</button>
-                    {more(u)}
-                    {!!store.unread.get(id) && <b className="unread" title="Unread messages" onClick={e => { e.stopPropagation(); store.openChat(id); }}>💬 {store.unread.get(id)}</b>}
-                    {underground(u) ? <em>somewhere underground</em> : u.door ? <em>{{ arriving: 'just arrived', thinking: 'packing up…', leaving: 'heading out' }[u.door]}</em>
-                      : u.meeting ? <em>in a meeting until {store.clock(u.meeting)}</em> : u.status && <em>{u.status}</em>}
-                  </li>
-                );
-              })}
-            </ul>
-          </section>
-        );
-      })}
-      {offline.length > 0 && <section><h3>Offline <small>{offline.length}</small></h3><ul>{offline.map(u => <li key={u.id} className="off" onContextMenu={e => menu(u, e)}><i style={{ background: PRESENCE_COLOR.offline }} /><span>{u.name}</span>{more(u)}</li>)}</ul></section>}
-    </aside>
-  );
-}
 
 /** Meet room setup: from the Meet button, or as a guided step the first time you knock without one. */
 function MeetSetup({ store, onClose }: { store: Store; onClose: () => void }) {
@@ -592,7 +575,7 @@ const parseWhen = (s: string, allDay: boolean) => (allDay ? new Date(`${s}T00:00
 const hm = (d: Date) => d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
 /** In a meeting's own room: what it is, its call link, and the way back. */
-function MeetingChip({ store }: { store: Store }) {
+function MeetingChip({ store, voice }: { store: Store; voice: Voice | null }) {
   const me = store.users.get(store.me);
   if (!me || underground(me)) return null;
   if (!me.instance) { // out of the room but still in the meeting: rejoin, or leave it for good
@@ -606,8 +589,22 @@ function MeetingChip({ store }: { store: Store }) {
   }
   const m = store.myMeeting, room = store.meetingRooms.find(r => r.id === me.instance);
   const others = (room?.members ?? []).filter(id => id !== me.id).map(id => store.users.get(id)).filter((u): u is ClientUser => !!u);
+  const talking = store.inRoomVoice && !!voice && store.voiceOwner, onCall = room?.voice.length ?? 0, waiting = store.voiceWait === me.instance, full = onCall >= ROOM_VOICE_MAX && !talking;
+  const meet = m?.adhoc && store.roomMeetLink?.instance === me.instance ? store.roomMeetLink.link : null;
   return <div className="desk-chip call-chip meeting-chip">
-    <span>📅 <b>{m?.title ?? 'Meeting'}</b> <small>· until {store.clock(room?.until ?? m?.end ?? 0)}{others.length ? ` · with ${store.names(others)}` : ' · waiting for the others'}</small></span>
+    <span>{m?.adhoc ? '🔒' : '📅'} <b>{m?.title ?? 'Meeting'}</b> <small>{m?.adhoc && m.from ? `· ${m.from.split(' ')[0]}'s room` : ''} · until {store.clock(room?.until ?? m?.end ?? 0)}{others.length ? ` · with ${store.names(others)}` : ' · waiting for the others'}</small></span>
+    {m?.adhoc && <button onClick={() => store.openRoom(true)}>Invite</button>}
+    {talking ? <>
+      <span className={`dot ${voiceState(voice) === 'live' ? 'live' : ''}`} title={`Voice in this room · ${voiceState(voice)}`} />
+      {voice!.deafened ? <button className="ghost" onClick={() => voice!.toggleDeafen()}>Hear again</button>
+        : voice!.micError ? <small>listen-only</small>
+        : voice!.muted ? <button onClick={() => voice!.setMuted(false)}>🎙 Unmute</button>
+        : <button className="ghost" onClick={() => voice!.setMuted(true)}>Mute</button>}
+      <button className={me.hand ? '' : 'ghost'} title={me.hand ? 'Lower your hand' : 'Raise your hand'} onClick={() => store.setHand(!me.hand)}>✋</button>
+      <button className="ghost" title="Stop hearing and talking in this room (the room stays open)" onClick={() => store.roomVoice(false)}>Leave voice</button>
+    </> : waiting ? <button className="ghost" title="Voice is full: you'll join when a place frees up" onClick={() => store.roomVoice(false)}>In line · cancel</button>
+      : <button disabled={!store.voiceOwner} title={full ? `Voice is full (${ROOM_VOICE_MAX}): you'll wait in line · or use Meet` : 'Talk with the others in this room'} onClick={() => store.roomVoice(true)}>🎙 Talk{onCall ? ` (${onCall}/${ROOM_VOICE_MAX})` : ''}</button>}
+    {m?.adhoc && (meet ? <ExternalLink href={meetAs(meet, store.meetAccount)}>Join Meet</ExternalLink> : <button className="ghost" title="Make a Google Meet room for everyone in here" onClick={() => store.useRoomMeet()}>Use Meet</button>)}
     {m?.link && <ExternalLink href={meetAs(m.link, store.meetAccount)}>Join call</ExternalLink>}
     <button className="end" onClick={() => store.leaveMeeting()}>Leave</button>
   </div>;
@@ -629,7 +626,8 @@ function NowPlayingChip({ store }: { store: Store }) {
   const o = MAP.objects.find(o => o.use?.kind === 'jukebox' && store.inJukeboxRoom(o.id));
   const state = o && store.jukebox[o.id], track = state && TRACK.get(state.track);
   if (!o || !state || !track) return null;
-  const label = `♪ ${track.title} — ${track.artist} · ${musicTime(musicPosition(store, state))} / ${musicTime(track.duration)}`;
+  const loading = store.soundscape?.jukeboxLoading(o.id) ?? false;
+  const label = `♪ ${track.title} — ${track.artist} · ${loading ? 'Loading…' : `${musicTime(musicPosition(store, state))} / ${musicTime(track.duration)}`}`;
   return <div className="desk-chip jukebox-chip" onClick={() => store.openJukebox(o.id)}>
     <button className="ghost jukebox-chip-title" title={label} onClick={e => { e.stopPropagation(); store.openJukebox(o.id); }}>{label}</button>
     <div className="jukebox-controls" onClick={e => e.stopPropagation()}>
@@ -656,7 +654,7 @@ function JukeboxPanel({ store, id }: { store: Store; id: string }) {
   const onKey = (e: React.KeyboardEvent) => {
     if (e.key === 'Escape') { e.stopPropagation(); close(); }
     if (e.key !== 'Tab') return;
-    const controls = [...(panel.current?.querySelectorAll<HTMLElement>('button:not(:disabled), a[href]') ?? [])];
+    const controls = [...(panel.current?.querySelectorAll<HTMLElement>('button:not(:disabled), a[href], input:not(:disabled)') ?? [])];
     const first = controls[0], end = controls[controls.length - 1];
     if (e.shiftKey && (document.activeElement === first || document.activeElement === panel.current)) { e.preventDefault(); end?.focus(); }
     else if (!e.shiftKey && document.activeElement === end) { e.preventDefault(); first?.focus(); }
@@ -666,12 +664,16 @@ function JukeboxPanel({ store, id }: { store: Store; id: string }) {
       <div className="rooms-head"><span>🎵 {box?.kind === 'jukebox' ? box.label.replace(/^./, c => c.toUpperCase()) : 'Jukebox'}</span><button className="ghost" aria-label="Close jukebox" onClick={close}>×</button></div>
       {!known && <p role="status">Reconnecting…</p>}
       {!inside && <div className="jukebox-walk"><span>Walk into {room?.name ?? 'the room'} to pick music</span><button disabled={!known} onClick={() => store.walkToJukebox(id)}>Walk over</button></div>}
+      <label className="volume-control jukebox-volume"><span>Volume for me</span>
+        <input type="range" min="0" max="100" step="5" value={Math.round((prefs.jukeboxVolumes[id] ?? 1) * 100)} aria-label="Jukebox volume for me"
+          onChange={e => { prefs.jukeboxVolumes[id] = Number(e.target.value) / 100; savePrefs(); }} /><output>{Math.round((prefs.jukeboxVolumes[id] ?? 1) * 100)}%</output>
+      </label>
       <section>
         <h3>Now playing</h3>
         {state && track && <>
           <b>{track.title}</b><p className="small">{track.artist} · {track.genre}</p>
           <progress className="jukebox-progress" aria-label="Track progress" max={track.duration} value={position} />
-          <div className="jukebox-times"><span>{musicTime(position)}</span><span>{musicTime(track.duration)}</span></div>
+          <div className="jukebox-times"><span role="status">{store.soundscape?.jukeboxLoading(id) ? 'Loading…' : musicTime(position)}</span><span>{musicTime(track.duration)}</span></div>
           <p className="small">{state.by ? `picked by ${store.name(state.by)}` : 'shuffle'}</p>
           {last && <p className="small" role="status">{{ pause: 'Paused', play: 'Resumed', skip: 'Skipped' }[last.kind]} by {store.name(last.by)}</p>}
           <div className="jukebox-controls"><JukeboxControls store={store} id={id} state={state} disabled={disabled} /></div>
@@ -727,7 +729,7 @@ function EditPanel({ store, engine, assets, onDone }: { store: Store; engine: En
   return (
     <div className="edit-panel">
       <div className="rooms-head"><span>Rearrange the office</span><button onClick={onDone}>Done</button></div>
-      <p className="hint">Drag furniture or rugs to move them. Arrows nudge, Delete removes, Esc lets go. Everyone sees changes right away.</p>
+      <p className="hint">Drag furniture or rugs to move them. Arrows nudge, R turns a chair, Delete removes, Esc lets go. Everyone sees changes right away.</p>
       {sel && <section className="edit-sel">
         <h3>{sel.type ? objectName(sel.type) : 'Rug'}</h3>
         {sel.color && <>
@@ -743,6 +745,7 @@ function EditPanel({ store, engine, assets, onDone }: { store: Store; engine: En
             <button onClick={() => resize(0, 1)} disabled={sel.h >= RUG_MAX} title="Longer (shift ↓)">↕+</button>
           </div>
         </>}
+        {sel.type && SEAT_TYPES.has(sel.type) && <button onClick={() => store.edit({ op: 'rotate', id: sel.id })} title="Turn (R)">⟳ Turn</button>}
         {sel.type && FIXED_TYPES.has(sel.type) ? <p className="hint">This one stays where it is.</p>
           : sel.type && KEEP_TYPES.has(sel.type) ? <p className="hint">The office needs this one: move it, but it stays.</p>
           : <button className="danger" onClick={() => store.edit({ op: 'remove', id: sel.id })}>Remove</button>}
@@ -1084,6 +1087,7 @@ function Dock({ store, voice, engine, roomsOpen, onRooms }: { store: Store; voic
       <button onClick={() => engine?.recenter()}><span className="ic">📍</span><small>Me</small></button>
       <button onClick={() => (chatWith ? store.openChat(chatWith) : onRooms())} title={chatWith ? undefined : 'Pick someone in People to message'}>
         <span className="ic">💬</span>{total > 0 && <b className="badge">{total}</b>}<small>Chat</small></button>
+      {store.later.length > 0 && <button onClick={() => store.openLater()} title="Knocks you missed"><span className="ic">🔔</span><b className="badge">{store.later.length}</b><small>Later</small></button>}
       <VoiceIcons store={store} voice={voice} dock />
     </nav>
   );
@@ -1097,6 +1101,36 @@ function UnreadButton({ store }: { store: Store }) {
   return (
     <button className="chip unread-btn" onClick={() => store.openChat(senders[0])}
       title={`Unread from ${store.names(senders.map(id => store.users.get(id)!).filter(Boolean))}`}>💬 {total}</button>
+  );
+}
+
+/** 🔔 N in the top bar while knocks sit in your Later list. */
+function LaterButton({ store }: { store: Store }) {
+  if (!store.later.length) return null;
+  return <button className="chip unread-btn later-btn" onClick={() => store.openLater()} title="Knocks you missed">🔔 {store.later.length}</button>;
+}
+
+const ago = (at: number) => { const m = Math.floor((Date.now() - at) / 60_000); return m < 1 ? 'just now' : m < 60 ? `${m} min ago` : `${Math.floor(m / 60)} h ago`; };
+function LaterPanel({ store }: { store: Store }) {
+  return (
+    <div className="modal-backdrop" {...backdropClose(() => store.closeLater())}>
+      <div className="meet-panel guided later-panel">
+        <div className="rooms-head">
+          <span>🔔 Missed knocks</span>
+          <button type="button" className="ghost" onClick={() => store.closeLater()}>×</button>
+        </div>
+        <ul className="later-list">
+          {store.later.map(i => (
+            <li key={i.id}>
+              <span className="txt"><b>{store.name(i.fromId)}</b> · {ago(i.at)} · {i.why}</span>
+              <button onClick={() => store.laterKnockBack(i.fromId)}>Knock back</button>
+              <button className="ghost x" aria-label="Dismiss" onClick={() => store.laterDismiss(i.id)}>×</button>
+            </li>
+          ))}
+        </ul>
+        <div className="row"><button className="ghost" onClick={() => store.laterClear()}>Clear all</button></div>
+      </div>
+    </div>
   );
 }
 
@@ -1136,71 +1170,7 @@ function backdropClose(close: () => void) {
   };
 }
 
-/** Always opens in a new tab — never replaces the office (some shells ignore target=_blank; the Mac app hands it to the browser). */
-function openExternal(href: string) {
-  const w = window.open(href, '_blank');
-  if (w) { w.opener = null; return; }
-  if (inNativeApp()) return; // the Mac app opened it in the system browser and gave us nothing back
-  // popup blocked: fall back to a real new-tab anchor click
-  const a = document.createElement('a');
-  a.href = href; a.target = '_blank'; a.rel = 'noopener noreferrer'; a.click();
-}
-function ExternalLink({ href, onOpen, className, children }: { href: string; onOpen?: () => void; className?: string; children: React.ReactNode }) {
-  const open = (e: React.MouseEvent) => { e.preventDefault(); openExternal(href); onOpen?.(); };
-  return <a href={href} target="_blank" rel="noopener noreferrer" className={className} onClick={open}>{children}</a>;
-}
 
-const userIcons = (u: ClientUser) => `${u.muted ? ' 🔇' : ''}${u.deafened ? ' 🎧' : ''}${u.hand ? ' ✋' : ''}`;
-
-function EnableSound() {
-  return needsGesture() ? <button onClick={() => void resume()}>Enable sound</button> : null;
-}
-
-function PersonMenu({ store, at, onClose }: { store: Store; at: PersonMenuAt; onClose: () => void }) {
-  const ref = useRef<HTMLDivElement>(null);
-  const u = store.users.get(at.id);
-  useLayoutEffect(() => {
-    const el = ref.current; if (!el) return;
-    const r = el.getBoundingClientRect();
-    el.style.left = `${Math.max(8, Math.min(at.x, window.innerWidth - r.width - 8))}px`;
-    el.style.top = `${Math.max(8, Math.min(at.y, window.innerHeight - r.height - 8))}px`;
-  });
-  useEffect(() => {
-    const previous = document.activeElement;
-    ref.current?.querySelector('input')?.focus();
-    const outside = (e: PointerEvent) => { if (e.target instanceof Node && !ref.current?.contains(e.target)) onClose(); };
-    const key = (e: KeyboardEvent) => { if (!store.gameOpen && e.key === 'Escape') { e.stopPropagation(); onClose(); if (previous instanceof HTMLElement && previous.isConnected) previous.focus(); } };
-    window.addEventListener('pointerdown', outside); window.addEventListener('keydown', key);
-    return () => { window.removeEventListener('pointerdown', outside); window.removeEventListener('keydown', key); };
-  }, [at.id]);
-  if (!u) return null;
-  const reason = store.knockReason(u), away = u.presence === 'offline' || u.door === 'thinking' || u.door === 'leaving';
-  const dungeon = store.dungeonReason(u);
-  const following = store.users.get(store.me)?.following === u.id;
-  const value = Math.round((prefs.volumes[u.id] ?? 1) * 100);
-  const act = (fn: () => void) => { fn(); onClose(); };
-  return <div ref={ref} className="person-menu" role="dialog" aria-label={`${u.name} actions`} style={{ left: at.x, top: at.y }}>
-    <div className="rooms-head"><span>{u.name}</span><button className="ghost" aria-label="Close person menu" onClick={onClose}>×</button></div>
-    <label className="volume-control"><span>Volume</span><input type="range" min="0" max="200" step="5" value={value} aria-label={`${u.name} volume`}
-      onChange={e => { prefs.volumes[u.id] = Number(e.target.value) / 100; savePrefs(); }} /><output>{value}%</output></label>
-    <button className={prefs.localMuted[u.id] ? 'muted-btn' : 'ghost'} aria-pressed={!!prefs.localMuted[u.id]}
-      onClick={() => { if (prefs.localMuted[u.id]) delete prefs.localMuted[u.id]; else prefs.localMuted[u.id] = true; savePrefs(); }}>Mute for me</button>
-    <div className="person-actions">
-      <button className="ghost" onClick={() => act(() => store.openChat(u.id))}>Message</button>
-      <button className="ghost" disabled={away || !!dungeon} title={dungeon ?? undefined} onClick={() => act(() => store.follow(following ? null : u.id))}>{following ? 'Unfollow' : 'Follow'}</button>
-      <button className="ghost" disabled={!!reason} title={reason ?? 'Knock for a voice call'} onClick={() => act(() => store.requestKnock(u.id))}>Knock</button>
-    </div>
-  </div>;
-}
-
-/** "Within earshot" for the room tooltip. */
-function earshotLine(store: Store) {
-  const me = store.users.get(store.me), room = store.roomCallOf(me);
-  if (!me || !room) return me?.callId ? `Talking with ${store.names(store.callPeers(me))}` : '';
-  const inside = !me.instance && store.roomOf(me)?.id === room.id;
-  const near = store.callPeers(me).filter(u => !u.bot && u.presence !== 'offline' && inside && u.instance === me.instance && store.roomOf(u)?.id === room.id);
-  return `In ${room.name} · ${near.length ? `within earshot: ${near.map(u => u.name.split(' ')[0]).join(', ')}` : 'nobody within earshot'}`;
-}
 
 /** −, + and ⤢ in the floor's bottom-right corner. */
 function ZoomCluster({ engine }: { engine: Engine }) {
@@ -1210,182 +1180,6 @@ function ZoomCluster({ engine }: { engine: Engine }) {
     <button className="chip" onClick={() => engine.zoomIn()} disabled={!z.canIn} title="Zoom in (+, ⌘ scroll or pinch)" aria-label="Zoom in">+</button>
     <button onClick={() => engine.toggleOverview()} className={`chip${z.overview ? ' on' : ''}`} aria-pressed={z.overview}
       title={z.overview ? 'Back to where you were (M)' : 'Whole floor (M)'}>⤢</button>
-  </div>;
-}
-
-const PRESENCES = [['online', 'Online'], ['away', 'Away'], ['in_call', 'In a call']] as const;
-
-/** You, as one pill: presence dot (opens a presence menu), name, room (earshot tooltip) and status (opens the status popover). */
-function IdentityPill({ store, roomName }: { store: Store; roomName?: string }) {
-  const me = store.users.get(store.me);
-  const [open, setOpen] = useState<'status' | 'presence' | null>(null);
-  const [draft, setDraft] = useState<string | null>(null);
-  const ref = useRef<HTMLDivElement>(null);
-  const draftRef = useRef(draft); draftRef.current = draft;
-  const close = (save: boolean) => {
-    if (save && draftRef.current !== null) store.setStatus(draftRef.current);
-    setDraft(null); setOpen(null);
-  };
-  useEffect(() => {
-    if (!open) return;
-    const outside = (e: PointerEvent) => { if (e.target instanceof Node && !ref.current?.contains(e.target)) close(true); };
-    const key = (e: KeyboardEvent) => { if (e.key === 'Escape') close(false); };
-    window.addEventListener('pointerdown', outside); window.addEventListener('keydown', key);
-    return () => { window.removeEventListener('pointerdown', outside); window.removeEventListener('keydown', key); };
-  }, [open]);
-  if (!me) return null;
-  const text = me.status ?? '';
-  const shown = text.length > 24 ? `${text.slice(0, 23)}…` : text;
-  const presence = me.presence === 'offline' ? 'online' : me.presence;
-  return <div className="id-wrap" ref={ref}>
-    <div className="chip id-pill">
-      <button className="id-dot" aria-label={`Presence: ${PRESENCES.find(p => p[0] === presence)?.[1]}`} aria-haspopup="menu" aria-expanded={open === 'presence'}
-        title="Change presence" onClick={() => (open === 'presence' ? close(true) : (close(true), setOpen('presence')))}>
-        <i className="dot" style={{ background: PRESENCE_COLOR[me.presence] }} />
-      </button>
-      <button className="id-main" aria-haspopup="dialog" aria-expanded={open === 'status'} aria-label={`Status: ${text || 'none'} · click to change`}
-        onClick={() => (open === 'status' ? close(true) : setOpen('status'))}>
-        <b>{me.name}</b>
-        <span className="id-room" title={earshotLine(store)}>· {roomName ? `in ${roomName}` : 'in the hallway'}</span>
-        <span className={`id-status${text ? '' : ' muted'}`} title={text ? `${text} · click to change` : 'Set a status (waters your plant)'}>· {shown || 'Set a status'}</span>
-      </button>
-    </div>
-    {open === 'presence' && <div className="presence-pop" role="menu" aria-label="Presence">
-      {PRESENCES.map(([id, label]) => <button key={id} role="menuitemradio" aria-checked={presence === id} className={presence === id ? 'on' : 'ghost'}
-        onClick={() => { store.setPresence(id); setOpen(null); }}>
-        <i className="dot" style={{ background: PRESENCE_COLOR[id] }} />{label}</button>)}
-    </div>}
-    {open === 'status' && <div className="status-pop" role="dialog" aria-label="Status">
-      <form onSubmit={e => { e.preventDefault(); close(true); }}>
-        <input autoFocus value={draft ?? text} maxLength={80} placeholder="What are you on? (waters your plant)" onChange={e => setDraft(e.target.value)}
-          onKeyDown={e => { if (e.key === 'Escape') { e.stopPropagation(); close(false); } }} />
-      </form>
-      <div className="status-row">
-        <button className="ghost" disabled={!text && !draft} onClick={() => { store.setStatus(''); close(false); }}>Clear</button>
-      </div>
-    </div>}
-  </div>;
-}
-
-/** A toothed cog (Material "settings" outline), filled; the sun-like line gear read as a brightness control. */
-const COG = 'M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.488.488 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 0 0-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z';
-
-/** One line-art icon set for the voice buttons, same stroke style as the hanger buttons. `off` draws the same icon crossed out. */
-function VIcon({ name, off }: { name: 'mic' | 'speaker' | 'hand' | 'gear' | 'swap'; off?: boolean }) {
-  const d = {
-    mic: 'M12 3a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V6a3 3 0 0 1 3-3ZM6 11a6 6 0 0 0 12 0M12 17v4M9 21h6',
-    speaker: 'M4 10v4h3l5 4V6L7 10H4ZM15.5 9.5a3.5 3.5 0 0 1 0 5M18 7a7 7 0 0 1 0 10',
-    hand: 'M8 12V5.5a1.5 1.5 0 0 1 3 0V11M11 5a1.5 1.5 0 0 1 3 0v6M14 6.5a1.5 1.5 0 0 1 3 0V12M8 12l-2-2.5a1.5 1.5 0 0 0-2.4 1.8L7 17.5c1.2 2 3 3.5 6 3.5 3.3 0 5.5-2.2 5.5-5.5V12',
-    gear: '',
-    swap: 'M4 7h11l-3-3M20 17H9l3 3',
-  }[name];
-  if (name === 'gear') return <svg viewBox="0 0 24 24" aria-hidden="true"> {/* sound settings: a speaker with a cog in the corner */}
-    <path d="M2.5 8.5v5h3l4.5 3.5V5L5.5 8.5h-3ZM13.5 8.5a3 3 0 0 1 0 5" />
-    <path className="cog" d={COG} transform="translate(12.5 12.5) scale(0.48)" />
-  </svg>;
-  return <svg viewBox="0 0 24 24" aria-hidden="true"><path d={d} />{off && <path className="slash" d="M4 4l16 16" />}</svg>;
-}
-
-/** Mic, deafen, hand and sound settings as icon buttons (top bar; the dock on phones). */
-function VoiceIcons({ store, voice, dock }: { store: Store; voice: Voice | null; dock?: boolean }) {
-  const [pop, setPop] = useState<'settings' | 'claim' | null>(null);
-  const settings = pop === 'settings';
-  const ref = useRef<HTMLDivElement>(null);
-  const me = store.users.get(store.me), room = store.roomCallOf(me), owner = store.connected && store.voiceOwner;
-  const elsewhere = store.connected && !store.voiceOwner; // another tab has voice: same four slots, disabled, a badge on the mic
-  useEffect(() => {
-    if (!pop) return;
-    const outside = (e: PointerEvent) => { if (e.target instanceof Node && !ref.current?.contains(e.target)) setPop(null); };
-    const key = (e: KeyboardEvent) => { if (!store.gameOpen && e.key === 'Escape') setPop(null); };
-    window.addEventListener('pointerdown', outside); window.addEventListener('keydown', key);
-    return () => { window.removeEventListener('pointerdown', outside); window.removeEventListener('keydown', key); };
-  }, [pop]);
-  useEffect(() => { if (!elsewhere && pop === 'claim') setPop(null); }, [elsewhere]);
-  const err = voice?.micError ?? null;
-  const muted = voice?.muted ?? true, deaf = voice?.deafened ?? prefs.deafened, ptt = (voice?.mode ?? prefs.mode) === 'ptt';
-  const btn = (cls: string, icon: React.ReactNode, label: string, title: string, short: string, onClick: () => void, extra: { disabled?: boolean; pressed?: boolean; badge?: boolean } = {}) =>
-    <button className="vbtn chip" data-state={cls} disabled={extra.disabled} aria-label={label} aria-pressed={extra.pressed} title={title} onClick={onClick}>
-      {icon}{extra.badge && <b className="vbadge" aria-hidden="true" />}{dock && <small>{short}</small>}</button>;
-  const waiting = store.voiceWait ? `Waiting for a spot in ${MAP.rooms.find(r => r.id === store.voiceWait)?.name ?? 'room'} voice` : null;
-  const away = 'Voice is on in another tab';
-  return <div className={`voice-icons${dock ? ' in-dock' : ''}`} ref={ref} role="group" aria-label="Your voice controls">
-    {elsewhere
-      ? btn('off elsewhere', <VIcon name="mic" off={muted} />, 'Voice is in another tab', `${away} · click to use voice here`, 'Voice',
-        () => setPop(p => (p === 'claim' ? null : 'claim')), { pressed: pop === 'claim', badge: true })
-      : !me?.callId ? btn('idle', <VIcon name="mic" />, 'Microphone not in use', 'Mic not in use · knock on someone or walk into Coffee or the Arcade to talk', 'Mic', () => {}, { disabled: true })
-      : btn(err ? 'err' : muted ? 'muted' : 'live', <VIcon name="mic" off={muted} />, muted ? 'Unmute' : 'Mute',
-        err ?? (muted ? 'Muted · click to unmute' : ptt ? 'Mic on · hold Space to talk (click to mute)' : 'Mic live · click to mute') + (ptt && muted ? ' · Space to talk once unmuted' : ''),
-        muted ? 'Unmute' : 'Mic', () => voice?.toggleMute(), { disabled: !owner || !voice, pressed: muted })}
-    {btn(elsewhere ? 'off' : deaf ? 'off' : 'live', <VIcon name="speaker" off={deaf} />, deaf ? 'Undeafen' : 'Deafen', elsewhere ? away : deaf ? 'Deafened · click to hear again' : 'Hearing everyone · click to deafen',
-      deaf ? 'Deaf' : 'Hear', () => voice?.toggleDeafen(), { disabled: !owner || !voice, pressed: deaf })}
-    {btn(me?.hand && room ? 'live' : 'off', <VIcon name="hand" />, me?.hand ? 'Lower hand' : 'Raise hand',
-      elsewhere ? away : !room ? 'Raise your hand (in a room call)' : me?.hand ? 'Lower your hand' : 'Raise your hand',
-      'Hand', () => store.setHand(!me?.hand), { disabled: !owner || !room, pressed: !!me?.hand && !!room })}
-    {btn(err ? 'err' : 'off', <VIcon name="gear" />, 'Sound settings', elsewhere ? away : 'Sound settings', 'Sound', () => setPop(p => (p === 'settings' ? null : 'settings')),
-      { pressed: settings, disabled: elsewhere })}
-    {pop === 'claim' && <div className="settings-pop" role="dialog" aria-label="Voice in another tab">
-      <small>{away}.</small>
-      <button onClick={() => { setPop(null); store.claimVoice(); }}>Use voice here</button>
-    </div>}
-    {settings && <div className="settings-pop" role="dialog" aria-label="Sound settings">
-      <div className="rooms-head"><span>Sound settings</span><button className="ghost" aria-label="Close sound settings" onClick={() => setPop(null)}>×</button></div>
-      {err && <small className="warn">{err}</small>}
-      {waiting && <small>{waiting}</small>}
-      <EnableSound />
-      <label className="input-mode">Input mode<select value={voice?.mode ?? prefs.mode} disabled={!owner || !voice}
-        onChange={e => { if (voice && e.target.value !== voice.mode) voice.toggleMode(); }}>
-        <option value="voice">Voice activity</option><option value="ptt">Push-to-talk (hold Space)</option>
-      </select></label>
-      {(['voice', 'music', 'effects'] as Category[]).map(id => <label className="volume-control" key={id}>
-        <span>{{ voice: 'Voices', music: 'Music', effects: 'Effects' }[id]}</span>
-        <input type="range" min="0" max="100" step="5" value={Math.round(prefs.mix[id] * 100)} aria-label={`${id} volume`}
-          onChange={e => { prefs.mix[id] = Number(e.target.value) / 100; savePrefs(); }} /><output>{Math.round(prefs.mix[id] * 100)}%</output>
-      </label>)}
-    </div>}
-  </div>;
-}
-
-function voiceState(voice: Voice | null) {
-  if (!voice) return 'connecting…';
-  if (voice.deafened) return 'deafened';
-  if (voice.micError) return 'listen-only';
-  if (voice.muted) return 'muted';
-  if (voice.connectedCount() < voice.peerCount()) return 'connecting…';
-  if (voice.mode === 'ptt') return 'hold Space to talk';
-  return 'live';
-}
-
-/** Knock calls keep the shared Meet link. */
-function CallChip({ store, voice }: { store: Store; voice: Voice | null }) {
-  const me = store.users.get(store.me); if (!me?.callId) return null;
-  const state = voiceState(voice), peers = store.callPeers(me);
-  const meet = store.callLink && MEET_LINK_RE.test(store.callLink) ? store.callLink : null;
-  return <div className="desk-chip call-chip knock-panel">
-    <span className={`dot ${state === 'live' ? 'live' : ''}`} />
-    <span>Talking with {store.names(peers)} <small>· {state}</small></span>
-    <button className="end" onClick={() => store.endCall()}>Leave</button>
-    {meet && <ExternalLink href={meetAs(meet, store.meetAccount)} onOpen={() => store.moveToMeet()}>Move to Meet</ExternalLink>}
-  </div>;
-}
-
-/** In an open-voice room: always say plainly whether the room can hear you, with the one button that changes it. */
-function RoomVoiceChip({ store, voice }: { store: Store; voice: Voice | null }) {
-  const me = store.users.get(store.me), room = store.roomCallOf(me);
-  if (!me || !room || !voice?.inRoomCall || !store.voiceOwner || me.instance || store.roomOf(me)?.id !== room.id) return null;
-  const others = store.callPeers(me).filter(u => !u.bot && u.presence !== 'offline' && !u.instance && store.roomOf(u)?.id === room.id);
-  const who = others.length ? others.map(u => u.name.split(' ')[0]).join(', ') : 'nobody yet';
-  const [state, text] = voice.deafened ? ['off', `Deafened in ${room.name}`]
-    : voice.micError ? ['off', `Listen-only in ${room.name}`]
-    : voice.muted ? ['off', `Muted in ${room.name} · nobody hears you`]
-    : voice.mode === 'ptt' ? voice.spaceHeld ? ['live', `Talking in ${room.name}`] : ['ptt', `Push-to-talk in ${room.name} · hold Space`]
-    : ['live', `Live in ${room.name} · everyone here hears you`];
-  return <div className={`desk-chip call-chip room-voice ${state}`} role="status">
-    <span className={`dot ${state === 'live' ? 'live' : ''}`} />
-    <span>{text} <small>· here: {who}</small></span>
-    {voice.deafened ? <button className="ghost" onClick={() => voice.toggleDeafen()}>Hear again</button>
-      : voice.micError ? null
-      : voice.muted ? <button onClick={() => voice.setMuted(false)}>🎙 Unmute</button>
-      : <button className="ghost" onClick={() => voice.setMuted(true)}>Mute</button>}
   </div>;
 }
 
@@ -1437,7 +1231,7 @@ function Toasts({ store }: { store: Store }) {
 type WheelItem = { icon: string; label: string; onClick: () => void; disabled?: boolean; title?: string; active?: boolean; hat?: string }; // hat: draw that hat's sprite instead of the icon
 
 /** Click a person or a thing: a ring of actions around it, following it as it moves. */
-function ActionWheel({ store, engine, pick, assets, onPerson, onClose }: { store: Store; engine: Engine; pick: Pick; assets: Assets | null; onPerson: (at: PersonMenuAt) => void; onClose: () => void }) {
+function ActionWheel({ store, engine, pick, assets, onPerson, onClose }: { store: Store; engine: Engine; pick: Pick; assets: Assets | null; onPerson: (at: PersonAnchor) => void; onClose: () => void }) {
   const ref = useRef<HTMLDivElement>(null);
   const isMe = pick.kind === 'user' && pick.id === store.me;
   const [emoji, setEmoji] = useState(isMe);
@@ -1462,7 +1256,7 @@ function ActionWheel({ store, engine, pick, assets, onPerson, onClose }: { store
     if (emoji) {
       items = REACTIONS.map(e => ({ icon: e, label: '', onClick: act(() => store.react(u.id, e)) }));
       const held = isMe && me?.holding ? ITEMS.get(me.holding) : undefined;
-      if (isMe && me?.eating) items.push({ icon: me.eating.open ? '🔕' : '💬', label: me.eating.open ? 'Closed' : 'Open', title: me.eating.open ? 'Not up for company: knocks go to Later' : 'Open to talk: anyone at your table can knock', onClick: act(() => store.lunchOpen(!me.eating!.open)) });
+      if (isMe && me?.eating) items.push({ icon: me.eating.open ? '🔕' : '💬', label: me.eating.open ? 'Quiet' : 'Chat', title: me.eating.open ? 'Go quiet: knocks go to Later' : 'Open to chat: anyone at the table can knock', onClick: act(() => store.lunchOpen(!me.eating!.open)) });
       if (!isMe) items.push({ icon: '↩', label: 'Back', onClick: () => setEmoji(false) });
       else if (held) items.push({ icon: held.icon, label: 'Finish', title: `Finish your ${held.label.toLowerCase()}`, onClick: act(() => store.drop()) });
       if (isMe && me?.following) items.push({ icon: '🛑', label: 'Stop following', onClick: act(() => store.follow(null)) });
@@ -1479,6 +1273,7 @@ function ActionWheel({ store, engine, pick, assets, onPerson, onClose }: { store
       ];
       if (isMe && (store.dancing || (store.roomOf(u)?.id === DANCE_ROOM && !u.instance))) items.push({ icon: '💃', label: store.dancing ? 'Stop dancing' : 'Dance', onClick: act(() => store.dance()) });
       if (me?.callId && me.callId === u.callId) items.push({ icon: '🔊', label: 'Volume', onClick: act(() => { if (at) onPerson({ id: u.id, x, y }); }) });
+      if (!isMe && !away) { const why = store.roomReason(u); if (!why) items.push({ icon: '🔒', label: 'Private room', title: `Take ${u.name.split(' ')[0]} to a private room`, onClick: act(() => store.createRoom([u.id])) }); }
       if (store.admin && me && !me.instance && !u.instance && !away) items.push({ icon: '🌀', label: 'Teleport', title: `Step through a portal to ${u.name.split(' ')[0]}`, onClick: act(() => store.teleport(u.id)) });
       if (store.admin && !u.bot) items.push({ icon: '✏️', label: 'Rename', title: `Give ${u.name.split(' ')[0]} another name`, onClick: act(() => { const v = window.prompt(`New name for ${u.name}`, u.name); if (v?.trim()) store.rename(u.id, v); }) });
       const held = me?.holding ? ITEMS.get(me.holding) : undefined;
@@ -1491,8 +1286,8 @@ function ActionWheel({ store, engine, pick, assets, onPerson, onClose }: { store
     const meal = o?.type === 'chair' && me?.holding ? ITEMS.get(me.holding) : undefined;
     if (o && meal && picnicSeat(MAP, o)) { // a chair at a picnic table, food in hand
       title = `${meal.icon} Eat lunch here`;
-      items = [{ icon: '🍽', label: 'Eat', title: `Eat your ${meal.label.toLowerCase()} here (${LUNCH_MS / 60_000} min)`, onClick: act(() => store.lunch({ x: o.x, y: o.y }, false)) },
-        { icon: '💬', label: 'Open', title: 'Eat here, and welcome anyone at the table to knock', onClick: act(() => store.lunch({ x: o.x, y: o.y }, true)) }];
+      items = [{ icon: '🔕', label: 'Eat quietly', title: 'Eat here; knocks go to Later', onClick: act(() => store.lunch({ x: o.x, y: o.y }, false)) },
+        { icon: '💬', label: 'Eat & chat', title: 'Eat here; anyone at the table can knock', onClick: act(() => store.lunch({ x: o.x, y: o.y }, true)) }];
     } else if (!o || !routes(o.use, 'wheel')) return null; // the other kinds act on the click (e.onPick above)
     else if (o.use.kind === 'toilet') {
       const s = store.toilets[o.id], full = toiletFull(s), inside = !!s?.in.includes(store.me), queued = s?.queue.indexOf(store.me) ?? -1;

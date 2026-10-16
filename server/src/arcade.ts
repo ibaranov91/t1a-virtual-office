@@ -235,6 +235,14 @@ export class Arcade {
     else if (view.screen === 'bonus') this.screen(s, 'awards', 10000, { standings: standings(set), awards: awards(set), totals: { ...set.points } }, now);
     else if (view.screen === 'awards') { this.commit(set); s.set = null; this.startEpoch(s, 0, now); }
   }
+  commitTable(id: string, game: import('../../shared/table/types').TableGameId, winner: string | null) {
+    this.rollover(); if (this.committed.includes(id)) return;
+    this.committed.push(id);
+    if (winner !== null) {
+      const wins = this.board.week.table[game] ??= {}; wins[winner] = (wins[winner] ?? 0) + 1;
+    }
+    this.publishBoards();
+  }
   private commit(set: BreakSet) {
     this.rollover(); if (this.committed.includes(set.id)) return;
     const standing = new Set(set.players.filter(p => !p.left).map(p => p.userId));

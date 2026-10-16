@@ -103,6 +103,37 @@ export function playDoorOpen(dest: AudioNode = categoryOutput('effects')) {
 export function playDoorClose(dest: AudioNode = categoryOutput('effects')) {
   const c = audio(); tap(c, c.currentTime + .01, 130, .09, dest);
 }
+/** An espresso moment as long as the brew (~1.2 s): a soft pump hum, a little hiss and two drips, then a tiny "ready" ding.
+ *  Levels put its loudest moment (A-weighted) level with the door creak. */
+export function playCoffeeBrew(pan = 0) {
+  try {
+    const c = audio(), at = c.currentTime + .01, p = c.createStereoPanner();
+    p.pan.value = pan; p.connect(categoryOutput('effects'));
+    window.setTimeout(() => p.disconnect(), 1800);
+    // pump: a low buzz (its harmonics carry on small speakers), swelling in and settling out by 0.8 s
+    const pump = c.createOscillator(), lp = c.createBiquadFilter(), hum = c.createGain();
+    pump.type = 'sawtooth'; pump.frequency.setValueAtTime(64, at); pump.frequency.linearRampToValueAtTime(58, at + .8);
+    lp.type = 'lowpass'; lp.frequency.value = 260; lp.Q.value = .7;
+    hum.gain.value = 0; hum.gain.setValueAtTime(0, at); hum.gain.linearRampToValueAtTime(.0105, at + .12);
+    hum.gain.setValueAtTime(.0105, at + .55); hum.gain.exponentialRampToValueAtTime(.0001, at + .82);
+    pump.connect(lp).connect(hum).connect(p); pump.start(at); pump.stop(at + .85);
+    pump.onended = () => { pump.disconnect(); lp.disconnect(); hum.disconnect(); };
+    // hiss: steam through the spout, rising as the pump settles and fading under the drips
+    const len = Math.floor(c.sampleRate * .7), buf = c.createBuffer(1, len, c.sampleRate), d = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+    const noise = c.createBufferSource(), bp = c.createBiquadFilter(), hiss = c.createGain(), t = at + .45;
+    noise.buffer = buf; bp.type = 'bandpass'; bp.frequency.value = 3200; bp.Q.value = .9;
+    hiss.gain.value = 0; // silent from now, not just from t: the noise can start a sample early, which would click
+    hiss.gain.setValueAtTime(0, t); hiss.gain.linearRampToValueAtTime(.0028, t + .2); hiss.gain.exponentialRampToValueAtTime(.0001, t + .68);
+    noise.connect(bp).connect(hiss).connect(p); noise.start(t);
+    noise.onended = () => { noise.disconnect(); bp.disconnect(); hiss.disconnect(); };
+    // drips, then the ready ding
+    tone(c, p, at + .86, { hz: 720, to: 1250, glide: .03, level: .0034, attack: .003, decay: .07 });
+    tone(c, p, at + 1.0, { hz: 660, to: 1150, glide: .03, level: .0025, attack: .003, decay: .07 });
+    tone(c, p, at + 1.16, { hz: 1319, level: .0015, attack: .005, decay: .4 });
+    tone(c, p, at + 1.16, { hz: 1319 * 2.76, level: .00025, attack: .005, decay: .12 });
+  } catch { /* audio unavailable: stay silent */ }
+}
 export function playHand() {
   const dest = categoryOutput('effects'), c = audio(), t = c.currentTime + .02;
   for (const [delay, hz] of [[0, 660], [.12, 880]])
@@ -133,6 +164,9 @@ export function playPark(kind: string) {
     jump: [260, 520], coin: [880, 1320], key: [660, 990, 1320], door: [220, 330, 440],
     button: [180, 240], stomp: [180, 100], death: [320, 200, 100], respawn: [330, 440, 660],
     vote: [660, 880], crack: [140, 90], tackle: [180, 320], crown: [880, 1175], steal: [440, 880, 1175],
+    arrow: [740, 370], arrowstick: [180, 120], pickup: [660, 990], heat: [523, 784, 1047],
+    rundash: [180, 520], shove: [180, 270], volleyhit: [420, 600], volleyspike: [260, 130], volleypoint: [523, 659, 880],
+    bikejump: [330, 660], bikeboost: [220, 440], bikecrash: [180, 90], skybounce: [390, 580], skyspring: [520, 1040], skybreak: [190, 110],
     title: [330, 660], scores: [523, 659], favourite: [660, 784], bonus: [784, 988, 1175], awards: [523, 659, 784, 1047],
     clear: [523, 659, 784, 1047], select: [440, 660], cheer: [520, 880],
   };
@@ -157,4 +191,13 @@ export function playDungeon(event: 'fell' | 'key' | 'locked' | 'opening' | 'esca
     else if (event === 'opening') { tap(c, t, 420, .055, dest); note(.06, 140, 75, .35, .03, 'triangle'); }
     else [523, 659, 784].forEach((hz, i) => note(i * .11, hz, hz, .23, .045));
   } catch { /* audio unavailable: stay silent */ }
+}
+
+// ---------- game table (Effects bus) ----------
+export function playTable(finished = false) {
+  try {
+    const c = audio(), at = c.currentTime + .01, out = categoryOutput('effects');
+    tone(c, out, at, { hz: finished ? 440 : 220, to: finished ? 660 : 160, level: .065, attack: .004, decay: .12, type: 'triangle' });
+    if (finished) tone(c, out, at + .12, { hz: 880, level: .045, attack: .008, decay: .22 });
+  } catch { /* audio unavailable */ }
 }

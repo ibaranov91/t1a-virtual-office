@@ -429,6 +429,42 @@ for (const n of [1, 2]) {
   else { t.hline(4, 1, 3, c); t.vline(6, 1, 4, c); t.px(5, 5, c); }
   frames[`note_${n}`] = t.outline();
 }
+// disco ball for the Music room's evenings: mirror facets lit from the upper left; each frame turns it half a facet
+{
+  const DISCO = ['#2c2840', '#46405e', '#666684', '#8e90ae', '#b8bcd4', '#dfe3f0', '#ffffff'];
+  for (let f = 0; f < 4; f++) {
+    const t = new Img(16, 16), c = 8, r = 7;
+    for (let y = 1; y < 15; y++) for (let x = 1; x < 15; x++) {
+      const nx = (x + 0.5 - c) / r, ny = (y + 0.5 - c) / r, d = nx * nx + ny * ny;
+      if (d > 1) continue;
+      const nz = Math.sqrt(1 - d), light = Math.max(0, -0.5 * nx - 0.55 * ny + 0.67 * nz);
+      const u = Math.atan2(nx, nz) / Math.PI * 7 + f / 4 + 7, v = Math.asin(ny) / Math.PI * 6 + 6;
+      const grout = u % 1 < 0.3 || v % 1 < 0.3; // the gaps between mirrors
+      t.px(x, y, DISCO[Math.max(0, Math.min(DISCO.length - 1, Math.round(light * (DISCO.length - 1) + 0.4) - (grout ? 2 : 0)))]);
+    }
+    t.px(4, 4, '#ffffff'); t.px(5, 4, '#ffffff'); t.px(4, 5, '#ffffff'); t.px(6, 3, '#ffffff'); // the window's reflection stays put
+    t.outline();
+    t.hline(7, 0, 2, '#8a8aa2'); // where the string ties on
+    frames[`disco_${f}`] = t;
+  }
+  const s = new Img(1, 12); // the string, fading up into the dark
+  for (let y = 0; y < 12; y++) s.px(0, y, [150, 144, 170, Math.round(220 * ((y + 1) / 12) ** 1.5)]);
+  frames.disco_string = s;
+  const g = new Img(5, 5); // a glint off a facet
+  g.px(2, 2, '#ffffff'); for (const [x, y] of [[2, 0], [2, 1], [2, 3], [2, 4], [0, 2], [1, 2], [3, 2], [4, 2]]) g.px(x, y, [235, 230, 255, Math.abs(x - 2) + Math.abs(y - 2) > 1 ? 110 : 220]);
+  frames.disco_glint = g;
+  // the spots it throws: soft pixel blobs, a white-hot middle
+  for (const [i, c] of ['#ff6ec4', '#6ad8ff', '#ffd860', '#b088ff', '#78f0a8'].entries()) {
+    const t = new Img(13, 8), [cr, cg, cb] = hex(c);
+    for (let y = 0; y < 8; y++) for (let x = 0; x < 13; x++) {
+      const dx = (x + 0.5 - 6.5) / 6.5, dy = (y + 0.5 - 4) / 4, d = dx * dx + dy * dy;
+      if (d > 1) continue;
+      const w = d < 0.15 ? 0.35 : 0, a = d < 0.15 ? 255 : d < 0.5 ? 210 : 110;
+      t.px(x, y, [cr + (255 - cr) * w, cg + (255 - cg) * w, cb + (255 - cb) * w, a].map(Math.round));
+    }
+    frames[`disco_spot_${i}`] = t;
+  }
+}
 
 // ---------- wall decor ----------
 {
@@ -500,6 +536,13 @@ for (const n of [1, 2]) {
   t.rect(4, 6, 72, 3, '#2e5488'); t.hline(8, 12, 22, '#4a78b0'); t.hline(8, 15, 36, '#3a6498'); t.hline(8, 17, 14, '#3a6498');
   t.px(72, 20, '#7cc87c'); t.rect(36, 22, 8, 3, '#4a4652'); t.rect(30, 25, 20, 1, '#4a4652');
   frames.screen = t.outline();
+}
+{
+  const t = new Img(16, 16); // "start private room" sign: a little wooden door on a brass plate
+  t.rect(2, 2, 12, 12, '#b08a4a'); t.rect(3, 3, 10, 10, '#f2e8d4');
+  t.rect(5, 5, 6, 8, '#6a4a2e'); t.rect(6, 6, 4, 6, '#8c6240'); t.px(9, 9, '#f0c040');
+  t.px(4, 4, '#c8b080'); t.px(11, 4, '#c8b080');
+  frames.room_start = t.outline();
 }
 {
   const t = new Img(16, 16); // exit door (sits on the short wall face) with a green EXIT sign
@@ -600,12 +643,12 @@ const K = {
   eyes: '#2b1d1f', shoes: '#4a3028',
 };
 const SHOE = K.shoes, EYE = K.eyes, BLUSH = '#ec9a8a';
-const STYLES = ['short', 'long', 'ponytail'];
+const STYLES = ['short', 'long', 'ponytail', 'bald', 'receding'];
 const TOPS = ['T-shirt', 'Button-up shirt', 'Sweater'];
 const BOTTOMS = ['Pants', 'Skirt', 'Shorts'];
 const DIRS = ['down', 'left', 'right', 'up'];
 const ACCESSORY_KEYS = { primary: '#ff00ff', highlight: '#00ffff' };
-const ACCESSORY_ITEMS = ['round_glasses', 'rectangular_glasses', 'cap', 'bowler'];
+const ACCESSORY_ITEMS = ['round_glasses', 'beard', 'mustache', 'sunglasses'];
 
 function drawChar(style, dir, f, top = 0, bottom = 0) {
   const t = new Img(16, 24);
@@ -635,27 +678,42 @@ function drawChar(style, dir, f, top = 0, bottom = 0) {
     // head
     const hy = 2 + bob;
     t.rect(3, hy + 2, 10, 9, K.skin); t.hline(4, hy + 1, 8, K.skin); t.hline(4, hy + 11, 8, K.skinShade);
-    if (dir === 'down') {
+    if (dir === 'down' && style === 'bald') {
+      // Keep the scalp clear while retaining the face.
+    } else if (dir === 'down' && style === 'receding') {
+      t.vline(2, hy + 2, 7, K.hair); t.vline(3, hy + 3, 6, K.hairShade);
+      t.vline(12, hy + 2, 7, K.hair); t.vline(13, hy + 3, 6, K.hairShade);
+    } else if (dir === 'down') {
       // hair cap + bangs + sides
       t.hline(4, hy - 1, 8, K.hair); t.rect(3, hy, 10, 3, K.hair); t.hline(2, hy + 1, 12, K.hairShade);
       t.rect(2, hy + 1, 12, 2, K.hair);
       t.rect(3, hy + 3, 3, 1, K.hair); t.rect(9, hy + 3, 4, 1, K.hair); t.px(6, hy + 3, K.hairShade);
       t.vline(2, hy + 3, 5, K.hairShade); t.vline(13, hy + 3, 5, K.hairShade);
       t.hline(3, hy + 4, 10, K.skinShade); t.rect(4, hy + 4, 8, 1, K.skin);
-      t.vline(5, hy + 6, 2, EYE); t.vline(10, hy + 6, 2, EYE);
-      t.px(4, hy + 8, BLUSH); t.px(11, hy + 8, BLUSH);
-      t.hline(7, hy + 9, 2, K.skinShade);
+    } else if (style === 'bald') {
+      // No hair is visible from behind either.
+    } else if (style === 'receding') {
+      t.vline(2, hy + 2, 8, K.hair); t.vline(3, hy + 4, 6, K.hairShade);
+      t.vline(12, hy + 2, 8, K.hair); t.vline(13, hy + 4, 6, K.hairShade);
+      t.rect(3, hy + 4, 10, 6, K.hair);
+      t.vline(3, hy + 5, 4, K.hairShade); t.vline(12, hy + 5, 4, K.hairShade);
+      t.hline(4, hy + 9, 8, K.hairShade);
     } else {
       t.hline(4, hy - 1, 8, K.hair); t.rect(2, hy, 12, 10, K.hair);
       t.vline(2, hy + 1, 9, K.hairShade); t.vline(13, hy + 1, 9, K.hairShade); t.hline(3, hy + 9, 10, K.hairShade);
       t.px(5, hy + 2, K.hairShade); t.px(9, hy + 4, K.hairShade);
+    }
+    if (dir === 'down') {
+      t.vline(5, hy + 6, 2, EYE); t.vline(10, hy + 6, 2, EYE);
+      t.px(4, hy + 8, BLUSH); t.px(11, hy + 8, BLUSH);
+      t.hline(7, hy + 9, 2, K.skinShade);
     }
     if (style === 'long') {
       if (dir === 'down') { t.rect(2, hy + 3, 2, 10, K.hair); t.rect(12, hy + 3, 2, 10, K.hair); t.vline(2, hy + 3, 10, K.hairShade); t.vline(13, hy + 3, 10, K.hairShade); }
       else { t.rect(3, hy + 9, 10, 5, K.hair); t.hline(3, hy + 13, 10, K.hairShade); }
     }
     if (style === 'ponytail' && dir === 'up') {
-      t.rect(6, hy + 8, 4, 6, K.hair); t.vline(9, hy + 9, 4, K.hairShade);
+      t.rect(6, hy + 8, 4, 3, K.hair); t.vline(9, hy + 9, 2, K.hairShade);
       t.hline(6, hy + 7, 4, '#b4534a');
     }
   } else { // left (right is mirrored)
@@ -675,23 +733,34 @@ function drawChar(style, dir, f, top = 0, bottom = 0) {
     const hy = 2 + bob;
     t.rect(3, hy + 2, 10, 9, K.skin); t.hline(4, hy + 1, 8, K.skin); t.hline(4, hy + 11, 8, K.skinShade);
     t.px(2, hy + 6, K.skin); // nose
-    t.hline(4, hy - 1, 8, K.hair); t.rect(3, hy, 10, 3, K.hair); t.rect(2, hy + 1, 3, 2, K.hair);
-    t.rect(8, hy + 2, 5, 7, K.hair); t.vline(13, hy + 1, 8, K.hairShade); t.hline(8, hy + 9, 5, K.hairShade);
+    if (style === 'receding') {
+      t.rect(11, hy + 3, 3, 6, K.hair); t.vline(13, hy + 3, 6, K.hairShade);
+      t.rect(10, hy + 8, 4, 2, K.hair);
+    } else if (style !== 'bald') {
+      t.hline(4, hy - 1, 8, K.hair); t.rect(3, hy, 10, 3, K.hair); t.rect(2, hy + 1, 3, 2, K.hair);
+      t.rect(8, hy + 2, 5, 7, K.hair); t.vline(13, hy + 1, 8, K.hairShade); t.hline(8, hy + 9, 5, K.hairShade);
+    }
     t.px(9, hy + 6, K.skin); t.px(9, hy + 7, K.skinShade); // ear
     t.vline(4, hy + 5, 2, EYE); t.px(5, hy + 8, BLUSH);
     if (style === 'long') { t.rect(9, hy + 9, 4, 6, K.hair); t.vline(12, hy + 9, 6, K.hairShade); }
     if (style === 'ponytail') {
-      t.rect(12, hy + 9, 3, 5, K.hair); t.vline(14, hy + 10, 4, K.hairShade);
+      t.rect(12, hy + 9, 3, 2, K.hair); t.vline(14, hy + 10, 1, K.hairShade);
       t.hline(12, hy + 8, 3, '#b4534a');
     }
   }
   if (top === 1 && dir === 'down') { // front-facing button-up; the neck stays like the T-shirt
     t.px(7, 14 + bob, '#e8dcc8');
     t.px(7, 16 + bob, '#e8dcc8');
-  } else if (top === 2) { // sweater band and cuffs
+  } else if (top === 2) { // sweater stripes, band and cuffs
+    const sx = dir === 'down' || dir === 'up' ? 4 : 5, sw = dir === 'down' || dir === 'up' ? 8 : 6;
+    t.hline(sx, 15 + bob, sw, K.shirtShade); t.hline(sx, 17 + bob, sw, K.shirtShade);
     t.hline(dir === 'down' || dir === 'up' ? 4 : 5, 18 + bob, dir === 'down' || dir === 'up' ? 8 : 6, K.shirtShade);
     t.px(dir === 'down' ? 3 : 6, 16 + bob, K.shirt);
     t.px(dir === 'down' ? 12 : 10, 16 + bob, K.shirt);
+    if (dir === 'left' || dir === 'right') {
+      const ax = sit ? 6 : stepA ? 9 : stepB ? 6 : 7;
+      t.rect(ax, 14 + bob, 2, 3, K.shirtShade); t.hline(ax, 17 + bob, 2, K.skin);
+    }
   }
   if (bottom === 1) { // skirt silhouette over the legs
     if (dir === 'down' || dir === 'up') {
@@ -711,6 +780,24 @@ const chars = new Img(CW * FPD, CH * DIRS.length * STYLES.length * TOPS.length *
 const accessories = new Img(CW, CH * ACCESSORY_ITEMS.length * DIRS.length);
 function drawAccessory(item, dir) {
   const a = new Img(CW, CH), primary = ACCESSORY_KEYS.primary, light = ACCESSORY_KEYS.highlight;
+  if (item === 'sunglasses') {
+    if (dir === 'down') {
+      a.hline(2, 6, 12, primary); a.rect(2, 7, 5, 2, primary); a.rect(9, 7, 5, 2, primary);
+      a.hline(7, 7, 2, primary); a.px(3, 9, primary); a.px(4, 9, primary); a.px(11, 9, primary); a.px(12, 9, primary);
+      a.px(3, 7, light); a.px(4, 7, light); a.px(4, 8, light); a.px(5, 8, light);
+      a.px(10, 7, light); a.px(11, 7, light); a.px(11, 8, light); a.px(12, 8, light);
+    } else if (dir === 'left' || dir === 'right') {
+      const x = dir === 'left' ? 2 : 7;
+      a.hline(x, 6, 7, primary); a.rect(x, 7, 6, 2, primary); a.hline(x + 1, 9, 4, primary);
+      a.px(x + 1, 7, light); a.px(x + 2, 7, light); a.px(x + 2, 8, light); a.px(x + 3, 8, light);
+    }
+    const lowered = new Img(CW, CH);
+    for (let y = 0; y < CH - 1; y++) for (let x = 0; x < CW; x++) {
+      const pixel = a.get(x, y);
+      if (pixel[3]) lowered.px(x, y + 1, [...pixel]);
+    }
+    return lowered;
+  }
   if (item.endsWith('glasses')) {
     const round = item === 'round_glasses';
     if (dir === 'down') {
@@ -727,6 +814,29 @@ function drawAccessory(item, dir) {
       a.hline(x, 7, 4, primary); a.vline(x, 8, 2, primary); a.vline(x + 3, 8, 2, primary); a.hline(x, 10, 4, primary);
       a.hline(x + 1, 8, 2, light); a.px(dir === 'left' ? 7 : 8, 8, primary);
       if (round) { a.px(x, 9, light); a.px(x + 3, 9, light); }
+    }
+    return a;
+  }
+  if (item === 'beard') {
+    if (dir === 'down') {
+      a.hline(5, 10, 6, OUT); a.hline(4, 11, 8, OUT); a.hline(4, 12, 8, OUT); a.hline(5, 13, 6, OUT);
+      a.hline(5, 10, 6, primary); a.hline(4, 11, 8, primary); a.hline(5, 12, 6, primary); a.hline(6, 13, 4, light);
+    } else if (dir === 'left' || dir === 'right') {
+      a.hline(4, 9, 5, OUT); a.rect(3, 10, 7, 4, OUT); a.hline(4, 14, 5, OUT);
+      a.hline(4, 9, 4, primary); a.rect(4, 10, 5, 3, primary); a.hline(5, 13, 3, light);
+      return dir === 'right' ? a.mirror() : a;
+    }
+    return a;
+  }
+  if (item === 'mustache') {
+    if (dir === 'down') {
+      a.hline(6, 10, 4, OUT); a.hline(5, 11, 6, OUT);
+      a.hline(6, 10, 4, primary); a.hline(6, 11, 4, light);
+      a.px(5, 11, primary); a.px(10, 11, primary);
+    } else if (dir === 'left' || dir === 'right') {
+      a.hline(2, 9, 4, OUT); a.hline(2, 10, 3, OUT);
+      a.hline(2, 9, 3, primary); a.hline(2, 10, 2, light);
+      return dir === 'right' ? a.mirror() : a;
     }
     return a;
   }
@@ -1683,7 +1793,30 @@ for (const axis of ['h', 'v']) { // a room door only admins open: the closed doo
   make('record_wall', 16, 16, t => { t.rect(2, 2, 12, 12, '#2e3640'); t.ellipse(8, 8, 5, 5, '#1a1e24'); t.ellipse(8, 8, 2, 2, '#b4534a'); t.px(8, 8, '#f4f0e6'); t.hline(5, 6, 2, '#56606c'); t.hline(9, 10, 2, '#56606c'); });
 }
 
-// ---------- Break Set: pads, cursors, cards, awards and the first versus games ----------
+// ---------- Lofi Girl TV: a big wall screen, with a YouTube badge and pixel lettering ----------
+{
+  const t = new Img(64, 32);
+  t.rect(1, 1, 62, 29, '#17171e'); t.hline(3, 1, 58, '#5a5362');
+  t.rect(4, 4, 56, 22, '#263344'); t.rect(5, 5, 54, 20, '#38465a');
+  // a warm study room behind the station title: city window, desk and a lamp
+  t.rect(6, 6, 15, 15, '#687e94'); t.vline(13, 6, 15, '#293344'); t.hline(6, 13, 15, '#293344');
+  for (const [x, y, h] of [[7, 16, 5], [10, 12, 9], [15, 15, 6], [18, 10, 11]]) t.rect(x, y, 2, h, '#3a485f');
+  t.rect(5, 22, 54, 3, '#a96c48'); t.rect(18, 17, 7, 5, '#d2a16b'); t.hline(16, 16, 11, '#eac48c');
+  t.rect(7, 7, 12, 8, '#e53843');
+  for (let y = 0; y < 5; y++) t.hline(11, 9 + y, 4 - Math.abs(2 - y), '#fff3dd');
+  const font = {
+    L: ['100','100','100','100','111'], O: ['111','101','101','101','111'], F: ['111','100','110','100','100'],
+    I: ['111','010','010','010','111'], G: ['111','100','101','101','111'], R: ['110','101','110','101','101'],
+    V: ['101','101','101','101','010'], E: ['111','100','110','100','111'], ' ': ['000','000','000','000','000'],
+  };
+  const text = (str, x, y, color) => [...str].forEach((ch, k) => font[ch].forEach((row, j) => [...row].forEach((v, i) => { if (v === '1') t.px(x + k * 4 + i, y + j, color); })));
+  text('LOFI GIRL', 24, 7, '#fff0cd');
+  t.rect(35, 16, 22, 7, '#a82c39'); t.rect(37, 18, 2, 2, '#fff3dd'); text('LIVE', 41, 17, '#fff3dd');
+  t.rect(27, 30, 10, 1, '#55505c'); t.px(58, 28, '#a7d88c');
+  frames.lofi_tv = t.outline();
+}
+
+// ---------- Break Set: pads, cursors, cards, awards and versus games ----------
 {
   const make = (name, w, h, draw) => { const t = new Img(w, h); draw(t); frames[`party_${name}`] = t.outline(); };
   const colors = ['#f08a80', '#80b8f0', '#a0d880', '#f2d060'];
@@ -1708,19 +1841,82 @@ for (const axis of ['h', 'v']) { // a room door only admins open: the closed doo
   make('star', 16, 16, t => { for (const [y, x, w] of [[2, 7, 2], [3, 6, 4], [4, 6, 4], [5, 3, 10], [6, 2, 12], [7, 4, 8], [8, 5, 6], [9, 4, 8], [10, 4, 3], [10, 9, 3], [11, 3, 3], [11, 10, 3]]) t.hline(x, y, w, '#f2d060'); t.px(7, 5, '#fff0a0'); });
   make('award', 12, 16, t => { t.rect(3, 2, 6, 6, '#f2d060'); t.hline(1, 3, 10, '#f2d060'); t.vline(1, 3, 4, '#b88a20'); t.vline(10, 3, 4, '#b88a20'); t.rect(5, 8, 2, 4, '#f2d060'); t.hline(2, 13, 8, '#b88a20'); });
   make('favourite', 16, 16, t => { t.hline(3, 3, 4, '#f08a80'); t.hline(9, 3, 4, '#f08a80'); for (const [y, x, w] of [[4, 2, 12], [5, 2, 12], [6, 2, 12], [7, 3, 10], [8, 4, 8], [9, 5, 6], [10, 6, 4], [11, 7, 2]]) t.hline(x, y, w, '#f08a80'); });
-  for (const game of ['crumble', 'crown', 'park', 'surprise']) make(`card_${game}`, 32, 32, t => {
+  make('quiver_stone', 16, 16, t => { t.rect(0,0,16,16,'#616980'); t.hline(0,0,16,'#9cacc0'); t.hline(0,7,16,'#3e4559'); t.hline(0,15,16,'#30384b'); t.vline(7,0,7,'#3e4559'); t.vline(3,8,7,'#3e4559'); });
+  make('bow', 8, 12, t => { t.vline(1,1,10,'#ead5a0'); t.vline(5,3,6,'#b87947'); t.px(3,1,'#d9a65f'); t.px(4,2,'#d9a65f'); t.px(4,9,'#d9a65f'); t.px(3,10,'#d9a65f'); t.hline(0,5,8,'#e5e2cd'); });
+  for (const stuck of [false,true]) make(stuck ? 'arrow_stuck' : 'arrow',10,4,t => { t.hline(1,2,8,stuck ? '#d5ba8f' : '#fff4e0'); t.px(7,1,'#b2c3d0'); t.px(7,3,'#b2c3d0'); t.px(1,1,'#f08a80'); t.px(0,0,'#f08a80'); });
+  make('quiver_spikes',16,8,t => { for (let x=0;x<16;x+=4) { t.px(x+2,0,'#e2c8cf'); t.hline(x+1,2,3,'#e2c8cf'); t.rect(x,4,4,4,'#b55368'); } });
+  make('run_window',16,24,t => { t.rect(1,1,14,22,'#253848'); t.rect(3,3,10,17,'#6b8097'); t.vline(7,3,17,'#33485b'); t.hline(3,10,10,'#33485b'); t.hline(3,4,4,'#aec8cf'); t.hline(0,22,16,'#92a0ab'); });
+  make('run_floor',16,16,t => { t.rect(0,0,16,16,'#5d6972'); t.hline(0,0,16,'#d2c69d'); t.hline(0,3,16,'#e7ba60'); t.hline(0,5,16,'#343f50'); t.rect(4,9,7,2,'#424d60'); });
+  make('run_dash',24,8,t => { for (const [x,y,w] of [[0,1,16],[5,3,19],[0,6,13]]) t.hline(x,y,w,'#bfe8df'); t.hline(14,4,8,'#f2d060'); });
+  make('volley_floor',16,16,t => { t.rect(0,0,16,16,'#b58c65'); t.hline(0,0,16,'#f4d5a1'); t.hline(0,2,16,'#dfb881'); t.vline(7,3,13,'#91704f'); t.hline(1,9,5,'#c79e74'); });
+  make('volley_net',4,16,t => { t.rect(0,0,4,16,'#cee1d7'); t.vline(1,0,16,'#344b50'); for (let y=2;y<16;y+=4) t.hline(0,y,4,'#344b50'); });
+  make('volley_ball',8,8,t => { t.ellipse(3.5,3.5,3.5,3.5,'#fff4e0'); t.vline(3,1,6,'#d99259'); t.hline(1,3,6,'#5f91bb'); t.px(2,1,'#fff'); });
+  make('volley_impact',16,16,t => { for (const [x,y] of [[2,2],[12,2],[1,8],[13,8],[3,12],[11,12]]) { t.rect(x,y,2,2,'#f2d060'); } t.hline(6,0,3,'#fff4e0'); });
+  colors.forEach((c,slot) => {
+    make(`trail_${slot}`,5,5,t => { t.rect(0,0,5,5,c); t.hline(1,2,3,'#fff4e0'); });
+    make(`bike_${slot}`,7,5,t => { t.rect(1,1,5,3,c); t.px(6,2,'#fff4e0'); t.px(1,0,'#a6c6cc'); t.px(1,4,'#a6c6cc'); t.hline(2,2,2,'#273446'); });
+  });
+  make('sky_cloud',24,8,t => { t.ellipse(7,4,6,3,'#aec8cf'); t.ellipse(14,3,5,3,'#c7dfe0'); t.ellipse(19,5,4,2,'#aec8cf'); });
+  for (const kind of ['normal','moving','breaking','spring']) make(`sky_${kind}`,24,kind === 'spring' ? 8 : 6,t => {
+    const c = { normal:'#91b77e', moving:'#80b8f0', breaking:'#dc9d7c', spring:'#f2d060' }[kind];
+    t.rect(0,0,24,5,c); t.hline(1,0,22,'#eef4d7'); t.hline(0,4,24,'#3d5961');
+    if (kind === 'moving') { t.hline(6,2,12,'#3d5961'); t.px(5,2,'#fff4e0'); t.px(18,2,'#fff4e0'); }
+    if (kind === 'breaking') { t.px(10,0,'#70564c'); t.px(11,1,'#70564c'); t.px(10,2,'#70564c'); t.px(9,3,'#70564c'); }
+    if (kind === 'spring') { t.hline(8,1,8,'#b55c74'); t.hline(9,3,6,'#b55c74'); t.hline(8,6,8,'#b55c74'); }
+  });
+  for (const game of ['crumble', 'crown', 'park', 'surprise', 'quiver', 'screenrun', 'volley', 'trails', 'skylanes']) make(`card_${game}`, 32, 32, t => {
     t.rect(1, 1, 30, 30, '#4f7772'); t.hline(2, 1, 28, '#a0d8b0');
     if (game === 'crumble') { t.blit(frames.party_crumble, 3, 4); t.blit(frames.party_crumble_crack_2, 13, 16); }
     if (game === 'crown') { t.blit(frames.party_stapler, 8, 10); t.blit(frames.party_star, 1, 1); }
     if (game === 'park') { t.blit(frames.park_key, 3, 9); t.blit(frames.park_door_open, 17, 0); }
+    if (game === 'quiver') { t.blit(frames.party_bow,8,9); t.blit(frames.party_arrow,14,13); t.blit(frames.party_quiver_spikes,8,23); }
+    if (game === 'screenrun') { t.blit(frames.party_run_window,3,3); t.blit(frames.party_run_dash,4,15); t.blit(frames.party_run_floor,15,25); }
+    if (game === 'volley') { t.blit(frames.party_volley_net,15,15); t.blit(frames.party_volley_ball,19,5); t.hline(3,27,26,'#f4d5a1'); }
+    if (game === 'trails') { t.rect(5,7,3,19,colors[0]); t.rect(7,23,14,3,colors[0]); t.blit(frames.party_bike_0,20,22); t.rect(17,5,3,11,colors[1]); t.blit(frames.party_bike_1,16,14); }
+    if (game === 'skylanes') { t.blit(frames.party_sky_cloud,4,3); t.blit(frames.party_sky_normal,2,23); t.blit(frames.party_sky_spring,7,12); }
     if (game === 'surprise') { t.hline(12, 7, 8, '#f2d060'); t.vline(19, 8, 6, '#f2d060'); t.hline(14, 14, 6, '#f2d060'); t.vline(14, 14, 4, '#f2d060'); t.rect(14, 22, 2, 2, '#f2d060'); }
   });
-  for (const control of ['move', 'jump', 'action']) make(`control_${control}`, 16, 16, t => {
+  for (const control of ['move', 'aim', 'jump', 'action']) make(`control_${control}`, 16, 16, t => {
     t.rect(1, 1, 14, 14, '#e8dcc8');
     if (control === 'move') { t.hline(3, 7, 10, '#355451'); t.vline(7, 3, 10, '#355451'); }
+    if (control === 'aim') { t.ellipse(7,7,4,4,'#5577a8'); t.ellipse(7,7,2,2,'#e8dcc8'); t.hline(3,7,9,'#355451'); t.vline(7,3,9,'#355451'); }
     if (control === 'jump') { t.vline(7, 4, 8, '#355451'); t.hline(5, 6, 5, '#355451'); t.px(6, 5, '#355451'); t.px(8, 5, '#355451'); }
     if (control === 'action') for (let i = 0; i < 7; i++) { t.px(4 + i, 4 + i, '#b4534a'); t.px(10 - i, 4 + i, '#b4534a'); }
   });
+}
+
+// ---------- game table (fixed pixels; no shared random calls) ----------
+{
+  for (const running of [false, true]) {
+    const t = new Img(32, 24);
+    t.rect(3, 15, 3, 8, '#594035'); t.rect(26, 15, 3, 8, '#594035');
+    t.rect(1, 2, 30, 15, '#9a6c47'); t.rect(2, 3, 28, 11, '#b98b5d'); t.hline(2, 3, 28, '#dfb87d');
+    t.rect(4, 5, 24, 8, '#42675a');
+    if (running) {
+      for (let y = 0; y < 4; y++) for (let x = 0; x < 8; x++) t.rect(8 + x * 2, 5 + y * 2, 2, 2, (x + y) % 2 ? '#42675a' : '#e6d6af');
+      for (const [x, y, c] of [[9,6,'#fff0d3'],[13,8,'#fff0d3'],[19,10,'#302a35'],[21,6,'#302a35']]) t.px(x,y,c);
+    } else { t.rect(9,6,5,5,'#e6d6af'); t.rect(18,6,5,5,'#302a35'); }
+    frames[running ? 'game_table_on' : 'game_table'] = t.outline();
+  }
+  for (const colour of ['w','b']) {
+    const body = colour === 'w' ? '#fff0d3' : '#494152', shade = colour === 'w' ? '#c6aa82' : '#302a35', shine = colour === 'w' ? '#fff9e9' : '#8a7d96';
+    for (const piece of ['p','r','n','b','q','k']) {
+      const t = new Img(16,16);
+      t.rect(3,12,10,2,shade); t.hline(4,11,8,body); t.rect(6,8,4,3,body);
+      if (piece === 'p') { t.ellipse(8,5,3,3,body); t.hline(7,3,3,shine); }
+      if (piece === 'r') { t.rect(4,4,8,5,body); for (let x=4;x<12;x+=3) t.rect(x,2,2,3,body); t.hline(5,5,6,shine); }
+      if (piece === 'n') { t.rect(5,4,6,5,body); t.rect(3,6,4,2,body); t.rect(8,2,2,3,body); t.px(6,5,shade); t.hline(6,3,3,shine); }
+      if (piece === 'b') { t.ellipse(8,5,3,4,body); t.px(8,1,shine); t.px(8,4,shade); t.px(9,3,shade); }
+      if (piece === 'q') { t.rect(5,5,6,4,body); for (const x of [3,7,11]) { t.rect(x,2,2,4,body); t.px(x,1,shine); } t.hline(5,7,6,shade); }
+      if (piece === 'k') { t.rect(5,5,6,4,body); t.rect(7,0,2,5,body); t.hline(5,2,6,shine); }
+      frames[`chess_${colour}_${piece}`] = t.outline();
+    }
+    for (const king of [false,true]) {
+      const t = new Img(16,16); t.ellipse(8,10,6,3,shade); t.ellipse(8,8,6,3,body); t.hline(5,6,6,shine);
+      if (king) { t.hline(5,9,6,shade); for (const x of [5,8,10]) { t.px(x,7,shade); t.px(x,8,shade); } }
+      frames[`checkers_${colour}_${king ? 'king' : 'man'}`] = t.outline();
+    }
+  }
 }
 
 // ---------- retro cabinets ----------

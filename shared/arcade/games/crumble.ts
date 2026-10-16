@@ -1,6 +1,7 @@
 import { arenaEvents, fighter, move, stats, teamOrder, tile, TILE, SUB, PLAYER_H, PLAYER_W, type ArenaState } from '../arena';
 import { shuffle } from '../rng';
 import type { GameDef } from '../types';
+export const CRUMBLE_DELAY = 45; // frames a cracked tile holds before it drops
 export interface CrumbleState extends ArenaState { tiles: { x: number; y: number; crackAt: number; owner: number; gone: boolean }[]; pounding: boolean[] }
 export const crumble: GameDef<CrumbleState, { mode: string }> = {
   id: 'crumble', name: 'Crumble Tower', goal: 'Keep moving. The floor disappears. Be the last one standing.', controls: ['move', 'jump', 'action'], players: [2, 4], modes: { ffa: [2, 3, 4], teams: true },
@@ -17,7 +18,7 @@ export const crumble: GameDef<CrumbleState, { mode: string }> = {
       if (slot >= 0) s.players[slot].stats.tiles = (s.players[slot].stats.tiles ?? 0) + 1;
       s.fx.push({ frame: s.frame, slot, kind: 'crack' });
     };
-    s.tiles.forEach((t, i) => { if (t.crackAt >= 0 && s.frame >= t.crackAt + 30) breakTile(i, t.owner); });
+    s.tiles.forEach((t, i) => { if (t.crackAt >= 0 && s.frame >= t.crackAt + CRUMBLE_DELAY) breakTile(i, t.owner); });
     const outs: number[] = [];
     for (const [slot, p] of s.players.entries()) {
       if (!p.present || !p.alive) continue;

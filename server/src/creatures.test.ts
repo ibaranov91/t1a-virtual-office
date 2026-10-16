@@ -38,7 +38,7 @@ test('cups vanish on their own after a while', () => {
 test('the cleaner walks to a settled cup by a path of walkable tiles, pauses, takes it, and goes home', () => {
   const { c, sent } = setup();
   const home = c.base(), may = new Date(2026, 4, 1);
-  const lady = c.add('cleaner', 'Valentina', home);
+  const lady = c.add('cleaner', 'Cleaning lady', home);
   const cup = c.addCup(tableTiles[3], 'coffee', 0);
   assert.ok(typeof cup === 'object');
   c.tick(1000, may);
@@ -65,7 +65,7 @@ test('the cleaner walks to a settled cup by a path of walkable tiles, pauses, ta
 
 test('the cleaner gives up on a cup that went before she got there', () => {
   const { c } = setup();
-  const lady = c.add('cleaner', 'Valentina', c.base()), may = new Date(2026, 4, 1);
+  const lady = c.add('cleaner', 'Cleaning lady', c.base()), may = new Date(2026, 4, 1);
   const cup = c.addCup(tableTiles[0], 'tea', 0);
   assert.ok(typeof cup === 'object');
   c.tick(CUP_LINGER_MS, may);
@@ -170,7 +170,7 @@ test('the cleaner scrubs an out-of-order toilet stall and puts it back in order'
   const cleaned: string[] = [];
   const c = new Creatures({ map: () => map, broadcast: () => {}, people: () => [],
     fullStalls: () => dirty ? [{ id: stall.id, door }] : [], cleanStall: id => { cleaned.push(id); dirty = false; } });
-  const lady = c.add('cleaner', 'Valentina', c.base());
+  const lady = c.add('cleaner', 'Cleaning lady', c.base());
   let now = 0;
   for (let i = 0; !lady.cleaning && i < 20; i++) { now = Math.max(now, lady.until); c.tick(now, may); }
   assert.equal(lady.cleaning, `stall:${stall.id}`);

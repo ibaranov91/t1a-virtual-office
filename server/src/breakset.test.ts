@@ -68,11 +68,11 @@ test('weeks: Warsaw Monday midnight and DST boundaries use calendar dates; rollo
   rollover(boards, Date.parse('2026-11-02T00:00:00Z')); assert.equal(boards.hall.length, 2);
   assert.deepEqual(ranked({ a: 5, b: 5, c: 3 }).map(r => r.rank), [1, 1, 3]);
 });
-test('ballots: only shipped eligible games; fallback excludes previous, 2v2 shrinks to one choice', () => {
+test('ballots: expanded eligible pool excludes the last two games and keeps Park out of 2v2', () => {
   const initial = ballot({ rng: 10 }, 4, 'ffa', []); assert.equal(initial.length, 3); assert.equal(initial[2].game, 'surprise');
-  const second = ballot({ rng: 10 }, 4, 'ffa', ['crown']); assert.equal(second.length, 2); assert.ok(second.every(c => c.resolves !== 'crown'));
-  const third = ballot({ rng: 10 }, 4, 'ffa', ['crown', 'crumble']); assert.equal(third.length, 2); assert.ok(third.every(c => c.resolves !== 'crumble'));
-  const teams = ballot({ rng: 10 }, 4, '2v2', ['crown']); assert.equal(teams.length, 2); assert.ok(teams.every(c => c.resolves !== 'park'));
+  const second = ballot({ rng: 10 }, 4, 'ffa', ['crown']); assert.equal(second.length, 3); assert.ok(second.every(c => c.resolves !== 'crown'));
+  const third = ballot({ rng: 10 }, 4, 'ffa', ['crown', 'crumble']); assert.equal(third.length, 3); assert.ok(third.every(c => c.resolves !== 'crumble' && c.resolves !== 'crown'));
+  const teams = ballot({ rng: 10 }, 4, '2v2', ['crown']); assert.equal(teams.length, 3); assert.ok(teams.every(c => c.resolves !== 'park'));
 });
 
 type Gamer = Pick<PublicUser, 'id' | 'name' | 'bot' | 'game'>;
@@ -89,7 +89,15 @@ function harness(n: number, teams: boolean, leave = false) {
   const users = new Map<string, Gamer>(), wires: { flush(): void }[] = [], checks = new Map<number, Map<number, number>>();
   const all: Runner[] = [], peers = new Map<string, { u: Gamer; runner: Runner; up: Wire<ClientMsg>; down: Wire<ArcadeIncoming>; active: boolean; delivered: Map<number, Map<number, number>> }>();
   const snapshots: Extract<ServerMsg, { t: 'game_session' }>[] = [], boards: ArcadeBoards[] = [], counts = new Map<number, number>();
-  const arcade = new Arcade({ now, timer: false, seed: rand, id: () => `set-${++ids}`, user: id => users.get(id),
+  const arcade = new Arcade({ now, timer: false, seed: () => {
+    // Keep the original reconnect/elimination coverage on the first two games as the ballot pool grows.
+    let candidate = rand(); const session = [...arcade.sessions.values()][0], set = session?.set;
+    if (set && set.round <= 2) {
+      const wanted = set.round === 1 ? 'crumble' : 'crown';
+      while (!ballot({ rng: candidate }, session.players.length, set.mode, set.played).some(card => card.resolves === wanted)) candidate = rand();
+    }
+    return candidate;
+  }, id: () => `set-${++ids}`, user: id => users.get(id),
     broadcast(msg) { if (msg.t === 'arcade_boards') boards.push(structuredClone(msg.boards)); },
     send(id, msg) {
       if (msg.t === 'game_session') snapshots.push(structuredClone(msg));

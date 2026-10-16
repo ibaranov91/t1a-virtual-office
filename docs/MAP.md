@@ -4,7 +4,7 @@
 
 Grid 85×55 tiles of 16px. Office: 0,0 85×34 (camera, overview and edit mode stay inside it). Dungeon: 17,36 31×19, not connected to the office.
 Spawn 7,17, exit 12,13, garden hole 63,25, hatch 20,32.
-Coordinates are tile x,y (x right, y down). Object ids are positional (o1…o287): append new objects at the end of gen-map.mjs so saved layouts keep their ids.
+Coordinates are tile x,y (x right, y down). Object ids are positional (o1…o289): append new objects at the end of gen-map.mjs so saved layouts keep their ids.
 
 Look things up from the shell: `npm run where -- <roomId|objectType|useKind|objectId|x,y>`.
 
@@ -61,8 +61,8 @@ Each room is filled with its letter (table below) and labelled with its id. `#` 
     0         1         2         3         4         5         6         7         8    
     0123456789012345678901234567890123456789012345678901234567890123456789012345678901234
   0 #####################################################################################
-  1 ##################*****###########*##################################################
-  2 ##################*****##############################################################
+  1 ##################*****###########*########################****######################
+  2 ##################*****#*##################################****######################
   3 #X.........XX#X...........#.XXXX*XX.*.X#X...........*#X........X#XXXXX....###########
   4 #.XX.XX.XX...#...h.h.h....#..s.........#.XX.XX.XX.XX.#,**.**.*..#......XX.###########
   5 #..h.h..h....#...XXXXXXh..#......s.....#.h..h..h..h..#X...**...X#X.....h.X###########
@@ -77,7 +77,7 @@ Each room is filled with its letter (table below) and labelled with its id. `#` 
  14 #.........X*X.X#..XX...XX...XX...XX....#.h..h...h..h.#*.*....***#.........###########
  15 #X.........s...#.hXXh.hXXh.hXXh.hXXh...#.............#..........#.****....###########
  16 #....hhh......X#.......................#*............#.s.....s..#*****....###########
- 17 #...s..@s......+.........s.............+..s..hhh.....+..........+.****.s..###########
+ 17 #...s..@s......+.........s.............+..s..hhh.....+....**....+.****.s..###########
  18 #**...X........+...............s.......+..........s..+..........+.........###########
  19 #..s...........#..XX...XX...XX...XX....#.............#....s.....#.s.......###########
  20 #X....s........#.hXXh.hXXh.hXXh.hXXh...#.XX.XX..XX.XX#.........X#.........###########
@@ -136,11 +136,11 @@ A maze under the garden, not connected to the office: you fall in through the ho
 | E | `cowork` | Co-working | cowork | 16,13 23×10 | 16 | allow |  |  | yes | 19 | knock to talk |
 | F | `studio` | Studio | focus | 40,3 13×8 | 8 | disabled |  |  | yes | 9 | quiet · no knocks |
 | G | `desks` | Desks | cowork | 40,13 13×10 | 10 | allow |  |  | yes | 13 | knock to talk |
-| H | `music` | Music | music | 54,3 10×8 | 12 | allow |  |  |  | 3 | jukebox · knock to talk |
+| H | `music` | Music | music | 54,3 10×8 | 12 | allow | open |  |  | 3 | jukebox · open voice · walk in to talk |
 | I | `arcade` | Arcade | arcade | 54,13 10×10 | 12 | allow | open |  |  | 9 | arcade · open voice · walk in to talk |
 | J | `orangery` | Orangery | orangery | 1,25 14×8 | 12 | allow |  |  |  | 3 | plants · knock to talk |
 | K | `garden` | Garden | garden | 16,25 48×8 | 30 | allow |  |  |  | 11 | outside · knock to talk |
-| L | `admin` | Admin | admin | 65,3 9×8 | 4 | allow |  | admins |  | 2 | admins only · knock to talk |
+| L | `admin` | Admin | admin | 65,3 9×8 | 4 | allow |  | admins | yes | 2 | admins only · knock to talk |
 | M | `berghain` | Berghain | club | 65,13 9×10 | 20 | allow |  |  |  | 3 | club · knock to talk |
 | N | `terrace` | Terrace | garden | 28,26 11×6 | 8 | allow |  |  |  | 9 | lunch outside · knock to talk |
 | O | `library` | Library | library | 65,25 9×8 | 14 | later |  |  |  | 16 | in the library · knocks wait for later |
@@ -176,6 +176,7 @@ Every object with a `use` (wall decor counts toward the room below it). Routing 
 | o96 | `meetings_board` | `meetings` | — | 18,12 | 1×1 | cowork | meetings (on a wall) |
 | o118 | `lamp` | `toggle` | wheel use reach | 52,3 | 1×1 | studio | lamp |
 | o138 | `lamp` | `toggle` | wheel use reach | 40,16 | 1×1 | desks | lamp |
+| o140 | `lofi_tv` | `youtube` | — | 59,1 | 4×2 | music | Lofi Girl · YouTube Live (on a wall) |
 | o143 | `arcade` | `arcade` | use reach | 54,13 | 1×2 | arcade | Deck Park |
 | o144 | `arcade` | `arcade` | use reach | 56,13 | 1×2 | arcade | Deck Park |
 | o145 | `arcade` | `arcade` | use reach | 61,13 | 1×2 | arcade | Deck Park |
@@ -196,11 +197,13 @@ Every object with a `use` (wall decor counts toward the room below it). Routing 
 | o206 | `bookshelf_tall` | `library` | reach | 69,25 | 2×1 | library | library |
 | o208 | `dance_floor` | `dance` | — | 66,15 | 4×3 | berghain | dance floor |
 | o221 | `food_cart` | `take` | wheel use reach | 32,31 | 2×1 | terrace | sandwich, ramen, salad, pizza |
-| o222 | `bell` | `bell` | use | 11,14 | 1×1 | lobby | bell |
-| o283 | `lamp` | `toggle` | wheel use reach | 83,26 | 1×1 | bookclub | lamp |
-| o284 | `lamp` | `toggle` | wheel use reach | 75,32 | 1×1 | bookclub | lamp |
-| o286 | `retro_tobu` | `retro` | use reach | 62,13 | 1×2 | arcade | Tobu Tobu Girl |
-| o287 | `retro_lobster` | `retro` | use reach | 63,13 | 1×2 | arcade | Shock Lobster |
+| o222 | `game_table` | `table` | use reach | 58,17 | 2×1 | arcade | Game table |
+| o223 | `bell` | `bell` | use | 11,14 | 1×1 | lobby | bell |
+| o284 | `lamp` | `toggle` | wheel use reach | 83,26 | 1×1 | bookclub | lamp |
+| o285 | `lamp` | `toggle` | wheel use reach | 75,32 | 1×1 | bookclub | lamp |
+| o287 | `room_start` | `room_start` | use reach | 24,2 | 1×1 | meeting | start private room (on a wall) |
+| o288 | `retro_tobu` | `retro` | use reach | 62,13 | 1×2 | arcade | Tobu Tobu Girl |
+| o289 | `retro_lobster` | `retro` | use reach | 63,13 | 1×2 | arcade | Shock Lobster |
 
 Kinds with no object on the map yet: none.
 
@@ -209,14 +212,14 @@ Kinds with no object on the map yet: none.
 | room | objects (type ×count) |
 | --- | --- |
 | `focus` | window ×2, desk ×5, chair ×5, bookshelf, lamp ×2, plant, wall_shelf, wall_ivy, poster |
-| `meeting` | painting, table_long, chair ×8, plant ×2, lamp, screen, poster ×2, wall_ivy |
+| `meeting` | painting, table_long, chair ×8, plant ×2, lamp, screen, poster ×2, wall_ivy, room_start |
 | `coffee` | window ×2, counter ×6, coffee_machine, fridge, plant ×2, table_round ×2, stool ×4, sofa, lamp, calendar, wall_shelf, wall_ivy, poster |
 | `lobby` | noticeboard, painting_small, plant ×3, sofa, table_round, reception, safe, bookshelf, hat_rack, exit_door, lamp, bell, palm, water_cooler, coat_stand, side_table, poster, mirror |
 | `cowork` | clock_nyc, clock_berlin, clock_moscow, table_big ×8, chair ×16, plant ×2, lamp, calendar, meetings_board |
 | `studio` | window ×2, painting, desk ×8, chair ×8, plant ×2, lamp, wall_shelf, poster, wall_ivy |
 | `desks` | painting_small, desk ×8, chair ×8, sofa, plant, lamp |
-| `music` | jukebox, window ×2, plant ×2, keyboard, drum_kit, bass_amp, floor_lamp, palm, poster, wall_ivy |
-| `arcade` | arcade ×3, records, plant, painting_small, sofa ×2, lamp ×2, retro_tobu, retro_lobster |
+| `music` | jukebox, window, lofi_tv, plant ×2, keyboard, drum_kit, bass_amp, floor_lamp, palm, poster, wall_ivy |
+| `arcade` | arcade ×3, records, plant, painting_small, sofa ×2, lamp ×2, game_table, retro_tobu, retro_lobster |
 | `orangery` | plant_shelf ×6, plant ×2, lamp, fern, planter ×2, cactus |
 | `garden` | tree ×7, flowerbed ×4, pond, bench ×2 |
 | `admin` | window, server_rack ×10, desk, chair, plant, palm, floor_lamp, wall_shelf, mirror, poster |
@@ -234,14 +237,14 @@ A 3×3 feature fits where both sides are ≥ 3. `layoutProblem` (shared/map.ts) 
 | room | free rects (x,y w×h) |
 | --- | --- |
 | `focus` | 1,6 6×2 · 4,8 5×2 · 9,5 3×3 |
-| `meeting` | 15,7 3×3 · 21,8 3×3 (rug) · 15,3 2×3 · 23,3 3×2 · 23,6 2×2 (rug) |
+| `meeting` | 15,7 3×3 · 21,8 3×3 (rug) · 15,3 2×3 · 24,4 2×2 · 23,6 2×2 (rug) |
 | `coffee` | 32,7 5×3 (rug) · 37,4 2×3 · 27,4 2×2 · 30,4 2×2 · 34,4 2×2 · 28,7 2×2 (rug) · +1 smaller |
 | `lobby` | 9,16 5×5 (rug) · 2,14 8×2 · 4,18 2×5 (rug) · 7,18 2×5 (rug) |
 | `cowork` | 17,16 8×3 · 26,16 12×2 (rug) · 17,21 10×2 · 29,21 8×2 · 36,14 3×2 · 25,18 3×2 (rug) · +3 smaller |
 | `studio` | 40,6 6×2 · 47,6 6×2 (rug) · 45,8 3×2 |
 | `desks` | 42,15 11×2 · 41,18 4×2 · 46,19 2×4 · 48,17 2×3 (rug) · 42,21 2×2 · 49,21 2×2 |
 | `music` | 61,6 3×5 (rug) · 58,7 2×3 (rug) · 56,9 2×2 (rug) |
-| `arcade` | 57,15 4×4 · 55,17 2×4 · 61,17 2×4 (rug) · 59,19 2×2 |
+| `arcade` | 55,18 3×3 · 60,18 3×3 (rug) · 58,14 2×2 · 58,20 2×2 |
 | `orangery` | 8,31 6×2 · 3,31 4×2 · 8,26 2×3 · 6,28 2×3 |
 | `garden` | 45,29 18×2 · 16,29 12×2 · 39,27 8×2 · 57,26 5×3 · 24,25 3×4 · 52,25 3×4 · +11 smaller |
 | `admin` | 66,4 5×3 · 65,8 5×3 · 71,6 2×4 |

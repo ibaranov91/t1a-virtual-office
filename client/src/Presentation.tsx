@@ -2,8 +2,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { drawText, textWidth } from './font';
 import { MAP, type Store } from './net';
+import { startShare } from './share';
 import { PdfError, renderPdf } from './pdfSlides';
-import { PRESENT_AWAY_MS, PRESENT_MAX_BYTES, PRESENT_MAX_SLIDES, slideUrl, type DeckInfo } from '../../shared/protocol';
+import { PRESENT_AWAY_MS, PRESENT_MAX_BYTES, PRESENT_MAX_SLIDES, slideUrl, type DecksReply, type DeckInfo } from '../../shared/protocol';
 
 /** Chunky text in the office's own 3×5 pixel font, with a hard drop shadow. */
 export function PixelText({ text, scale = 3, color = '#fff', shadow = '#1a0f2e', className }: { text: string; scale?: number; color?: string; shadow?: string; className?: string }) {
@@ -25,28 +26,43 @@ const readBase64 = (f: Blob) => new Promise<string>((ok, fail) => {
   r.readAsDataURL(f);
 });
 
-/** The screen's panel: PIN, slides (images or a PDF), and decks shown before. */
+const mb = (n: number) => (n / 1024 / 1024).toFixed(n < 10 * 1024 * 1024 ? 1 : 0);
+const age = (at: number) => { const m = Math.max(0, Math.round((Date.now() - at) / 60_000)); return m < 60 ? `${m} min` : `${Math.round(m / 60)} h`; };
+/** The screen's panel: slides (images or a PDF), my deck library, and screen share. */
 export function PresentPanel({ store, id }: { store: Store; id: string }) {
-  const [pin, setPin] = useState('');
   const [title, setTitle] = useState('');
   const [files, setFiles] = useState<File[]>([]);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState('');
   const [err, setErr] = useState<string | null>(null);
-  const [decks, setDecks] = useState<DeckInfo[] | null>(null);
-  const live = store.presentation, mine = live?.presenter === store.me;
+  const [lib, setLib] = useState<DecksReply | null>(null);
+  const live = store.presentation, mine = live?.presenter === store.me, taken = !!live && !mine;
   const close = () => store.openPresent(null);
-  useEffect(() => {
-    fetch('/api/present/decks', { headers: { 'x-deck-session': store.sessionId } }).then(r => r.json()).then(d => setDecks(d.decks ?? [])).catch(() => setDecks([]));
-  }, [store]);
+  const headers = { 'x-deck-session': store.sessionId };
+  const refresh = () => fetch('/api/present/decks', { headers }).then(r => r.json()).then(d => setLib({ decks: d.decks ?? [], used: d.used ?? 0, limit: d.limit ?? 0 })).catch(() => setLib({ decks: [], used: 0, limit: 0 }));
+  useEffect(() => { void refresh(); }, [store]); // eslint-disable-line react-hooks/exhaustive-deps
   const call = async (path: string, body: object) => {
     setBusy(true); setErr(null);
     try {
-      const r = await fetch(path, { method: 'POST', headers: { 'content-type': 'application/json', 'x-deck-session': store.sessionId }, body: JSON.stringify({ pin, objectId: id, ...body }) });
+      const r = await fetch(path, { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify({ objectId: id, ...body }) });
       const d = await r.json().catch(() => ({}));
+      if (r.status === 409) { void refresh(); return setErr(d.error ?? 'Someone else is presenting.'); }
       if (!r.ok) return setErr(d.error ?? `Failed (${r.status})`);
+      if (!d.deck) return;
       store.hideSlides(false); close();
     } catch { setErr('Network error. Try again.'); } finally { setBusy(false); }
+  };
+  const remove = async (d: DeckInfo) => {
+    setErr(null);
+    const r = await fetch(`/api/present/${d.id}`, { method: 'DELETE', headers }).catch(() => null);
+    if (!r?.ok) setErr('Couldn\'t delete that deck.');
+    void refresh();
+  };
+  const shareScreen = async () => {
+    setErr(null);
+    const e = await startShare(store, id);
+    if (e) return setErr(e);
+    store.hideSlides(false); close();
   };
   const upload = async () => {
     const size = files.reduce((n, f) => n + f.size, 0);
@@ -64,32 +80,38 @@ export function PresentPanel({ store, id }: { store: Store; id: string }) {
     const data = await Promise.all(slides.map(readBase64)).catch(() => null);
     if (!data) { setBusy(false); return setErr('Couldn\'t read those files.'); }
     await call('/api/present/upload', { title: title || sorted[0].name.replace(/\.[^.]+$/, ''), files: data });
+    void refresh();
   };
-  const pinOk = /^\d{4}$/.test(pin);
+  const watch = () => { store.hideSlides(false); close(); };
   return (
     <div className="modal-backdrop present-backdrop" onClick={e => { if (e.target === e.currentTarget) close(); }}>
       <div className="meet-panel guided present-panel" role="dialog" aria-label="Present slides">
         <div className="rooms-head"><span>📺 Screen</span><button type="button" className="ghost" onClick={close} aria-label="Close">×</button></div>
         {live && <div className="present-live">
-          <span>LIVE: <b>{live.deck.title}</b> · {mine ? 'you\'re presenting' : store.name(live.presenter)}</span>
-          {mine ? <button onClick={() => { store.presentStop(); close(); }}>Stop</button>
-            : <button className="ghost" onClick={() => { store.hideSlides(false); close(); }}>Watch</button>}
+          <span>{taken ? <><b>{store.name(live.presenter)}</b> is presenting <b>{live.deck?.title ?? 'their screen'}</b></> : <>LIVE: <b>{live.deck?.title ?? 'Your screen'}</b> · you're presenting</>}</span>
+          {mine ? <button onClick={() => { store.presentStop(); close(); }}>Stop</button> : <button className="ghost" onClick={watch}>Watch</button>}
         </div>}
-        <p className="small muted">Put slides up for everyone in the {MAP.rooms.find(r => r.id === (live?.room ?? 'meeting'))?.name ?? 'Meeting'} room. PNG or JPG images (one per slide, in file-name order) or one PDF.</p>
-        <form className="present-form" onSubmit={e => { e.preventDefault(); if (pinOk && files.length && !busy) void upload(); }}>
-          <label>PIN <input inputMode="numeric" autoComplete="off" maxLength={4} value={pin} placeholder="••••" onChange={e => setPin(e.target.value.replace(/\D/g, '').slice(0, 4))} autoFocus /></label>
+        <div className="present-tabs">
+          <span className="present-tab-label">Slides</span>
+          <button className="present-share" disabled={taken || busy} onClick={() => void shareScreen()}>🖥 Share screen</button>
+        </div>
+        <p className="small muted">Put slides up for everyone {store.users.get(store.me)?.instance ? 'in this meeting' : `in the ${MAP.rooms.find(r => r.id === (live?.room ?? 'meeting'))?.name ?? 'Meeting'} room`}. PNG or JPG images (one per slide, in file-name order) or one PDF.{taken && ' Uploads are saved to your decks until the screen is free.'}</p>
+        <form className="present-form" onSubmit={e => { e.preventDefault(); if (files.length && !busy) void upload(); }}>
           <label>Title <input value={title} maxLength={60} placeholder="Sprint demo" onChange={e => setTitle(e.target.value)} /></label>
           <label className="present-file">Slides <input type="file" multiple accept="image/png,image/jpeg,application/pdf,.pdf" onChange={e => setFiles([...(e.target.files ?? [])])} /></label>
-          {files.length > 0 && <span className="small muted">{files.length} file{files.length > 1 ? 's' : ''} · {(files.reduce((n, f) => n + f.size, 0) / 1024 / 1024).toFixed(1)} MB</span>}
-          {err && <p className="err">{err}</p>}
-          <div className="row"><button type="submit" disabled={!pinOk || !files.length || busy}>{busy ? (progress || 'Uploading…') : 'Upload & present'}</button></div>
+          {files.length > 0 && <span className="small muted">{files.length} file{files.length > 1 ? 's' : ''} · {mb(files.reduce((n, f) => n + f.size, 0))} MB</span>}
+          <div className="row"><button type="submit" disabled={!files.length || busy}>{busy ? (progress || 'Uploading…') : taken ? 'Upload to my decks' : 'Upload & present'}</button></div>
         </form>
-        {!!decks?.length && <div className="present-decks">
-          <span className="small muted">Shown before{pinOk ? '' : ' (enter the PIN first)'}</span>
-          {decks.map(d => <div key={d.id} className="row">
-            <span className="present-deck-title" title={d.title}>{d.title} · {d.count} slide{d.count > 1 ? 's' : ''}</span>
-            <button className="ghost" disabled={!pinOk || busy} onClick={() => void call('/api/present/start', { deck: d.id })}>Present</button>
+        {err && <p className="err">{err}</p>}
+        {lib && <div className="present-decks">
+          <span className="small muted">My decks (they expire after 24 h)</span>
+          {lib.decks.length === 0 && <span className="small muted">Nothing here yet.</span>}
+          {lib.decks.map(d => <div key={d.id} className="row">
+            <span className="present-deck-title" title={d.title}>{d.title}<span className="muted small"> · {d.count} slide{d.count > 1 ? 's' : ''} · {mb(d.bytes)} MB · {age(d.at)}</span></span>
+            <button className="ghost" disabled={taken || busy} onClick={() => void call('/api/present/start', { deck: d.id })}>Present</button>
+            <button className="ghost" aria-label={`Delete ${d.title}`} onClick={() => void remove(d)}>🗑</button>
           </div>)}
+          {lib.limit > 0 && <div className="present-usage" title="Library space used"><div style={{ width: `${Math.min(100, lib.used / lib.limit * 100)}%` }} /><span>{mb(lib.used)} / {mb(lib.limit)} MB</span></div>}
         </div>}
       </div>
     </div>
@@ -98,7 +120,8 @@ export function PresentPanel({ store, id }: { store: Store; id: string }) {
 
 /** The slides as a page out of a 90s games magazine. The presenter turns pages with ← →. */
 export function SlideOverlay({ store }: { store: Store }) {
-  const live = store.presentation!, deck = live.deck, mine = live.presenter === store.me;
+  const live = store.presentation!, mine = live.presenter === store.me;
+  const shared = !live.deck, deck = live.deck ?? { id: '', title: 'Screen share', count: 1, ext: [], by: live.presenter, at: Date.now(), bytes: 0, key: '' };
   const n = live.slide + 1, total = deck.count;
   const [awaySince, setAwaySince] = useState<number | null>(null);
   useEffect(() => { setAwaySince(live.away ? Date.now() : null); }, [live.away]);
@@ -106,16 +129,16 @@ export function SlideOverlay({ store }: { store: Store }) {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && !mine && !(e.target instanceof Element && e.target.closest('input, textarea, select'))) return store.hideSlides(true);
       if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey || (e.target instanceof Element && e.target.closest('input, textarea, select, [contenteditable], [role="dialog"]'))) return;
-      const step = mine ? ({ ArrowRight: 1, ArrowDown: 1, PageDown: 1, ' ': 1, ArrowLeft: -1, ArrowUp: -1, PageUp: -1 } as Record<string, number>)[e.key] : undefined;
+      const step = mine && !shared ? ({ ArrowRight: 1, ArrowDown: 1, PageDown: 1, ' ': 1, ArrowLeft: -1, ArrowUp: -1, PageUp: -1 } as Record<string, number>)[e.key] : undefined;
       if (step) { e.preventDefault(); store.presentSlide(live.slide + step); }
-      else if (mine && e.key === 'Home') { e.preventDefault(); store.presentSlide(0); }
-      else if (mine && e.key === 'End') { e.preventDefault(); store.presentSlide(total - 1); }
+      else if (mine && !shared && e.key === 'Home') { e.preventDefault(); store.presentSlide(0); }
+      else if (mine && !shared && e.key === 'End') { e.preventDefault(); store.presentSlide(total - 1); }
       else if (e.key === 'Escape' && !mine) store.hideSlides(true);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [store, mine, live.slide, total]);
-  useEffect(() => { if (n < total) new Image().src = slideUrl(deck, n); }, [deck, n, total]); // the next page, ahead of time
+  }, [store, mine, shared, live.slide, total]);
+  useEffect(() => { if (!shared && n < total) new Image().src = slideUrl(deck, n); }, [deck, n, total, shared]); // the next page, ahead of time
   const presenter = store.name(live.presenter).split(' ')[0];
   const left = awaySince === null ? 0 : Math.max(0, Math.ceil((PRESENT_AWAY_MS - (Date.now() - awaySince)) / 1000));
   const issue = String(new Date(deck.at).getMonth() + 1).padStart(2, '0');
@@ -123,17 +146,24 @@ export function SlideOverlay({ store }: { store: Store }) {
     <div className="modal-backdrop watch-backdrop" onClick={e => { if (e.target === e.currentTarget) store.hideSlides(true); }}>
       <div className="watch-modal" role="dialog" aria-label={`Slides: ${deck.title}`}>
         <div className="watch-head">
-          <span><b className="live-dot">● LIVE</b> {deck.title} · {presenter}</span>
+          <span><b className="live-dot">● LIVE</b>{shared ? ' screen' : ` ${deck.title}`} · {presenter}</span>
           <button type="button" className="ghost" onClick={() => store.hideSlides(true)} aria-label="Close">×</button>
         </div>
         <div className="watch-slide">
-          <img key={n} src={slideUrl(deck, live.slide)} alt={`Slide ${n} of ${total}`} draggable={false} />
+          {shared ? (store.frame ? <img src={store.frame.url} alt={`${presenter}'s screen`} draggable={false} /> : <span className="watch-wait">waiting for the first frame…</span>)
+            : <img key={n} src={slideUrl(deck, live.slide)} alt={`Slide ${n} of ${total}`} draggable={false} />}
         </div>
         <div className="watch-foot">
           {live.away && <span className="mag-away">{presenter} lost connection · ends in {left}s</span>}
-          <span className="mag-page">{n} / {total}</span>
+          {!shared && <span className="mag-page">{n} / {total}</span>}
         </div>
       </div>
+    </div>
+  );
+  if (shared) return (
+    <div className="desk-chip live-chip share-card" role="region" aria-label="Sharing your screen">
+      <span><b className="live-dot">● LIVE</b> You're sharing your screen</span>
+      <button className="mag-stop" onClick={() => store.presentStop()}>Stop</button>
     </div>
   );
   return (
@@ -179,7 +209,7 @@ export function LiveChip({ store, onGo }: { store: Store; onGo: (room: string) =
       const live = store.presentation, me = store.users.get(store.me);
       if (!live || !me || me.bot || live.presenter === me.id) { asked.current = null; setAsk(false); return; }
       if (store.inPresentationRoom()) {
-        if (!store.pose(me).walking && asked.current !== live.deck.id) { asked.current = live.deck.id; if (store.slidesHidden) setAsk(true); }
+        if (!store.pose(me).walking && asked.current !== (live.deck?.id ?? live.presenter)) { asked.current = live.deck?.id ?? live.presenter; if (store.slidesHidden) setAsk(true); }
       } else {
         if (!store.slidesHidden) store.hideSlides(true);
         asked.current = null; setAsk(false);
@@ -193,11 +223,12 @@ export function LiveChip({ store, onGo }: { store: Store; onGo: (room: string) =
   if (!live) return null;
   const here = store.inPresentationRoom();
   if (here && !store.slidesHidden) return null;
+  if (!here && store.users.get(store.me)?.instance) return null; // a meeting's screen can't be walked to from elsewhere
   const who = store.name(live.presenter).split(' ')[0];
   const show = () => { setAsk(false); store.hideSlides(false); };
   if (ask && here) return (
     <div className="desk-chip live-chip watch-ask" role="dialog" aria-label="Watch the presentation?">
-      <span><b className="live-dot">● LIVE</b> {who} is presenting '{live.deck.title}'. Watch?</span>
+      <span><b className="live-dot">● LIVE</b> {live.deck ? `${who} is presenting '${live.deck.title}'. Watch?` : `${who} is sharing their screen. Watch?`}</span>
       <button onClick={show}>Watch</button>
       <button className="ghost" onClick={() => setAsk(false)}>Not now</button>
     </div>
@@ -205,7 +236,7 @@ export function LiveChip({ store, onGo }: { store: Store; onGo: (room: string) =
   const go = () => (here ? show() : onGo(live.room));
   return (
     <div className="desk-chip live-chip" onClick={go}>
-      <span><b className="live-dot">● LIVE</b> {live.deck.title} · {who}</span>
+      <span><b className="live-dot">● LIVE</b> {live.deck ? `${live.deck.title} · ${who}` : `${who} is sharing their screen`}</span>
       <button onClick={e => { e.stopPropagation(); go(); }}>{here ? 'Show' : 'Go watch'}</button>
     </div>
   );

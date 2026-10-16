@@ -2,11 +2,11 @@ import { test, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { World, type User } from './world';
-import { Presenter } from './presentation';
-import { findPath, doorwayTiles, pathDuration, reindexMap, roomAt, sampleMove, seatAt, voiceRooms, WALK_MS_PER_TILE, type TileMap, type Tile } from '../../shared/map';
+import { DeckStore, Presenter } from './presentation';
+import { findPath, isWalkable, doorwayTiles, pathDuration, reindexMap, roomAt, sampleMove, seatAt, voiceRooms, WALK_MS_PER_TILE, type TileMap, type Tile } from '../../shared/map';
 import { TRACK, TRACKS } from '../../shared/music';
 import { ADMIN_HAT, EFFECTS, hatItem, SPEED_FACTOR, walkMs } from '../../shared/effects';
-import { PLANT_DIES_DAYS, PLANT_STAGES, plantDead, ROOM_VOICE_MAX, type ClientMsg, type ServerMsg } from '../../shared/protocol';
+import { FRAME_MAX_BYTES, FRAME_MIN_INTERVAL_MS, PLANT_DIES_DAYS, PLANT_STAGES, plantDead, ROOM_VOICE_MAX, MAX_CALL_SIZE, type ClientMsg, type ServerMsg } from '../../shared/protocol';
 const map: TileMap = JSON.parse(readFileSync(new URL('../../shared/tilemap.json', import.meta.url), 'utf8'));
 const coffee = map.rooms.find(r => r.id === 'coffee')!;
 const memberTile = (m: TileMap, t: Tile, r = coffee) => roomAt(m, t.x, t.y)?.id === r.id || doorwayTiles(m, r).some(g => g.some(p => p.x === t.x && p.y === t.y));
@@ -25,6 +25,38 @@ function setup(t: TestContext) {
   return { w, add, settle, join, fill, tick: (ms: number) => t.mock.timers.tick(ms) };
 }
 const voiceChanges = (messages: ServerMsg[]) => messages.filter(m => m.t === 'call' || m.t === 'voice_wait');
+test('Lofi listening is shared, limited to Music, cleared on exit, and never persisted', t => {
+  const { w, add, settle } = setup(t), a = add('A', { x: 58, y: 8 }), b = add('B', { x: 60, y: 8 });
+  w.handle(a.u, { t: 'listening', on: true }, a.socket);
+  assert.equal(a.u.listening, 'lofi');
+  assert.ok(b.messages.some(m => m.t === 'listening' && m.userId === a.u.id && m.on));
+  assert.equal('listening' in w.dump().users.find(u => u.id === a.u.id)!, false);
+  settle(a.u, { x: 58, y: 13 }); w.voiceTick(); assert.equal(a.u.listening, null);
+  w.handle(a.u, { t: 'listening', on: true }, a.socket); assert.equal(a.u.listening, null);
+  settle(a.u, { x: 58, y: 8 }); a.u.instance = 'private';
+  w.handle(a.u, { t: 'listening', on: true }, a.socket); assert.equal(a.u.listening, null);
+});
+test('one tab stopping cannot clear another tab listening; closing the last listening tab clears it', t => {
+  const { w, add } = setup(t), a = add('A', { x: 58, y: 8 });
+  const second = w.connect(a.u.id, () => {});
+  w.handle(a.u, { t: 'listening', on: true }, a.socket);
+  w.handle(a.u, { t: 'listening', on: true }, second.socket);
+  w.handle(a.u, { t: 'listening', on: false }, a.socket); assert.equal(a.u.listening, 'lofi');
+  second.close(); assert.equal(a.u.listening, null);
+  w.handle(a.u, { t: 'listening', on: true }, a.socket); assert.equal(a.u.listening, 'lofi');
+  a.close(); assert.equal(a.u.listening, null);
+});
+test('Music joins visitors into one hall call and removes them when they walk out', t => {
+  const { w, add, settle } = setup(t);
+  const a = add('A', { x: 58, y: 8 }), b = add('B', { x: 60, y: 8 });
+  w.voiceTick();
+  assert.equal(a.u.callId, 'room:music'); assert.equal(b.u.callId, 'room:music');
+  assert.ok(a.messages.some(m => m.t === 'call' && m.userId === b.u.id && m.callId === 'room:music'));
+  settle(a.u, { x: 58, y: 25 }); w.voiceTick();
+  assert.equal(a.u.callId, null); assert.equal(b.u.callId, 'room:music');
+  settle(a.u, { x: 58, y: 8 }); w.voiceTick();
+  assert.equal(a.u.callId, b.u.callId);
+});
 test('250 ms tick joins standing humans outside the door without changing presence or churning', t => {
   const { w, add, tick, settle } = setup(t), a = add('A'); a.u.presence = 'away';
   tick(249); assert.equal(a.u.callId, null); tick(1); assert.equal(a.u.callId, 'room:coffee');
@@ -1185,6 +1217,14 @@ test('a shared time zone reaches everyone, is validated, can be hidden, and is n
   assert.equal(a.u.tz, undefined);
   assert.deepEqual(b.messages.filter(m => m.t === 'tz').pop(), { t: 'tz', userId: a.u.id, tz: null });
 });
+test('a clock ping is answered at once with the server time, only to the socket that sent it', t => {
+  const { w, add } = setup(t), a = add('Ana');
+  const other: ServerMsg[] = [], second = w.connect(a.u.id, m => other.push(m));
+  a.messages.length = 0; other.length = 0;
+  w.handle(a.u, { t: 'ping', id: 7 }, a.socket);
+  assert.deepEqual(a.messages, [{ t: 'pong', id: 7, serverTime: Date.now() }]); assert.deepEqual(other, []);
+  w.handle(a.u, { t: 'ping', id: NaN }, second.socket); assert.deepEqual(other, []);
+});
 
 test('the reception bell rings for everyone, once a second, from beside it, and only for real bells', t => {
   const { w, person } = people(t), bell = w.map.objects.find(o => o.use?.kind === 'bell')!;
@@ -1206,21 +1246,89 @@ test('the reception bell rings for everyone, once a second, from beside it, and 
 
 test('presenting needs standing at the board, walking over opens the panel, and walking away ends it', t => {
   const { w, person } = people(t), board = w.map.objects.find(o => o.use?.kind === 'presentation')!;
-  w.present = new Presenter('/nonexistent-decks', w.map, msg => w.broadcast(msg), (id, obj, settled) => w.isBeside(id, obj, settled));
+  w.present = new Presenter(new DeckStore('/nonexistent-decks'), w.map, { scopeOf: id => w.presentScopeOf(id), beside: (id, obj, settled) => w.isBeside(id, obj, settled), toScope: (s, m, x) => w.toScope(s, m, x), name: id => w.users.get(id)?.name ?? '?' });
   const a = person('A', undefined, { x: 40, y: 12 });
-  assert.throws(() => w.present!.present(a.u.id, { pin: '1234', deck: 'x', objectId: board.id }), /Walk up/, 'too far away');
+  assert.throws(() => w.present!.present(a.u.id, { deck: 'x', objectId: board.id }), /Walk up/, 'too far away');
   w.handle(a.u, { t: 'use', objectId: board.id }, a.socket);
   assert.equal(a.messages.filter(m => m.t === 'present_open').length, 0, 'not there yet');
   t.mock.timers.tick(60_000);
   assert.deepEqual(a.messages.filter(m => m.t === 'present_open'), [{ t: 'present_open', objectId: board.id }], 'panel opens on arrival');
   assert.ok(w.isBeside(a.u.id, board.id));
-  const deck = { id: 'd', title: 'T', count: 1, ext: ['png'], by: a.u.id, at: 0 };
-  w.present.decks.set('d', deck);
-  w.present.present(a.u.id, { pin: '1234', deck: 'd', objectId: board.id });
+  const deck = { id: '0000bbbb-0000-0000-0000-000000000000', title: 'T', count: 1, ext: ['png'], by: a.u.id, at: 0, bytes: 1, key: 'k' };
+  w.present.store.decks.set(deck.id, deck);
+  w.present.present(a.u.id, { deck: deck.id, objectId: board.id });
   assert.ok(w.present.live);
   w.present.tick(); assert.ok(w.present.live, 'still at the board');
   const away = w.walk(a.u, { x: 20, y: 9 }); assert.notEqual(away, null, 'walk started');
   w.present.tick(); assert.equal(w.present.live, null, 'walking away ends it');
+});
+
+function presenting(t: TestContext) {
+  const ctx = people(t), { w } = ctx, board = w.map.objects.find(o => o.use?.kind === 'presentation')!;
+  w.present = new Presenter(new DeckStore('/nonexistent-decks'), w.map, { scopeOf: id => w.presentScopeOf(id), beside: (id, obj, settled) => w.isBeside(id, obj, settled), toScope: (s, m, x) => w.toScope(s, m, x), name: id => w.users.get(id)?.name ?? '?' });
+  const beside = (u: User) => { const r = w.map.rooms.find(r => r.id === 'meeting')!.rect; for (let y = r.y; y < r.y + r.h; y++) for (let x = r.x; x < r.x + r.w; x++) { u.tile = { x, y }; if (isWalkable(w.map, x, y) && w.isBeside(u.id, board.id)) return; } throw new Error('no spot beside the board'); };
+  const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3]).toString('base64');
+  const key = 'evt-p'; w.meetings.poll = async () => {};
+  w.meetings.events.set(key, { key, title: 'Sync', start: Date.now() - 60_000, end: Date.now() + 30 * 60_000, emails: ['a@t1a.com', 'b@t1a.com'], instance: 'inst-p', owners: new Set() });
+  return { ...ctx, board, beside, jpeg, key };
+}
+const frames = (p: { messages: ServerMsg[] }) => p.messages.filter(m => m.t === 'frame');
+const lives = (p: { messages: ServerMsg[] }) => p.messages.filter((m): m is Extract<ServerMsg, { t: 'presentation' }> => m.t === 'presentation');
+
+test('screen share relays frames to the scope, minus the presenter, with rate, size and type limits', t => {
+  const { w, person, tick, board, beside, jpeg } = presenting(t);
+  const a = person('A'), b = person('B'), c = person('C');
+  beside(a.u); a.u.tile = { ...a.u.tile };
+  w.handle(a.u, { t: 'present_share', objectId: board.id }, a.socket);
+  assert.equal(w.present!.live?.deck, null); assert.equal(w.present!.live?.seq, 0);
+  assert.ok(lives(b).at(-1)?.live?.presenter === a.u.id);
+  beside(c.u); w.handle(c.u, { t: 'present_share', objectId: board.id }, c.socket);
+  assert.match((c.messages.filter(m => m.t === 'notice').at(-1) as any).text, /A is presenting/);
+  assert.equal(w.present!.live?.presenter, a.u.id);
+  const send = (seq: number, data = jpeg) => w.handle(a.u, { t: 'present_frame', seq, data }, a.socket);
+  send(1); assert.equal(frames(b).length, 1); assert.equal(frames(a).length, 0);
+  assert.deepEqual(frames(b)[0], { t: 'frame', scope: 'office', seq: 1, data: jpeg });
+  send(2); assert.equal(frames(b).length, 1, 'too fast');
+  tick(FRAME_MIN_INTERVAL_MS + 1);
+  send(2, Buffer.from('not a jpeg').toString('base64')); assert.equal(frames(b).length, 1, 'not a JPEG');
+  send(2, Buffer.concat([Buffer.from([0xff, 0xd8, 0xff]), Buffer.alloc(FRAME_MAX_BYTES)]).toString('base64')); assert.equal(frames(b).length, 1, 'too big');
+  send(1); assert.equal(frames(b).length, 1, 'old seq');
+  send(2); assert.equal(frames(b).length, 2); assert.equal(w.present!.live?.seq, 2);
+  w.handle(b.u, { t: 'present_frame', seq: 9, data: jpeg }, b.socket); assert.equal(w.present!.live?.seq, 2, 'only the presenter');
+  const d = person('D'); assert.deepEqual(frames(d).at(-1), frames(b).at(-1), 'late joiner gets the last frame');
+});
+
+test('office and instance scopes are independent; entering one sends what is on; leaving as presenter stops it', t => {
+  const { w, person, board, beside, jpeg, key } = presenting(t);
+  const a = person('A', 'a@t1a.com'), b = person('B', 'b@t1a.com'), c = person('C');
+  w.enterMeeting(b.u, key); assert.equal(b.u.instance, 'inst-p');
+  beside(a.u); w.handle(a.u, { t: 'present_share', objectId: board.id }, a.socket);
+  w.handle(a.u, { t: 'present_frame', seq: 1, data: jpeg }, a.socket);
+  assert.equal(lives(b).at(-1)?.live, null, 'the office show is not seen in the meeting'); assert.equal(frames(b).length, 0);
+  beside(b.u); w.handle(b.u, { t: 'present_share', objectId: board.id }, b.socket); // its own scope: no clash
+  assert.equal(w.present!.lives.get('inst-p')?.presenter, b.u.id); assert.equal(w.present!.live?.presenter, a.u.id);
+  w.handle(b.u, { t: 'present_frame', seq: 1, data: jpeg }, b.socket);
+  assert.equal(frames(a).length, 0); assert.equal(frames(c).length, 1, 'office frame only');
+  assert.ok(b.u.instance && w.isBeside(b.u.id, board.id), 'beside works inside a meeting');
+  a.u.instance = null; w.enterMeeting(a.u, key); // A joins the meeting: sees B's show and frame; their own office show stops
+  assert.equal(w.present!.live, null); assert.equal(lives(a).at(-1)?.live?.presenter, b.u.id); assert.equal(frames(a).length, 1);
+  assert.equal(lives(c).at(-1)?.live, null);
+  w.leaveMeeting(b.u); assert.equal(w.present!.lives.has('inst-p'), false, 'presenter left: stopped');
+  assert.equal(lives(a).at(-1)?.live, null);
+  w.leaveMeeting(a.u); assert.equal(w.present!.lives.size, 0);
+});
+
+test('a meeting ending takes its screen down, and a swept deck stops its show', async t => {
+  const { w, person, board, beside, key } = presenting(t);
+  const a = person('A', 'a@t1a.com');
+  w.enterMeeting(a.u, key); beside(a.u); w.handle(a.u, { t: 'present_share', objectId: board.id }, a.socket);
+  assert.ok(w.present!.lives.has('inst-p'));
+  w.endMeetings(Date.now() + 3600_000);
+  assert.equal(w.present!.lives.size, 0); assert.equal(a.u.instance, null);
+  const deck = { id: '0000cccc-0000-0000-0000-000000000000', title: 'T', count: 1, ext: ['png'], by: a.u.id, at: 0, bytes: 1, key: 'k' };
+  w.present!.store.decks.set(deck.id, deck); beside(a.u);
+  w.present!.present(a.u.id, { deck: deck.id, objectId: board.id }); assert.ok(w.present!.live);
+  await w.present!.sweep(Date.now() + 1e12); assert.equal(w.present!.live, null);
 });
 
 test('dancing works only on the Berghain floor and ends when you leave', t => {
@@ -1280,7 +1388,7 @@ test('clicking a cup walks you over and clears it; the cleaner praises you (and 
   const counter = { x: 30, y: 3 }, lobby = w.map.rooms.find(r => r.id === 'lobby')!;
   const a = person('A', undefined, { x: 32, y: 8 });
   const cupOn = (tile: Tile, item = 'coffee') => { const c = w.creatures.addCup(tile, item, Date.now()); assert.ok(typeof c === 'object'); return c; };
-  const lady = w.creatures.add('cleaner', 'Valentina', lobby.stand[0]);
+  const lady = w.creatures.add('cleaner', 'Cleaning lady', lobby.stand[0]);
 
   const first = cupOn(counter);
   w.handle(a.u, { t: 'cup_take', cupId: first.id }, a.socket);
@@ -1352,4 +1460,147 @@ test('a broadcast is stringified once for wire listeners; a join sends one user,
   assert.deepEqual(a.messages.map(m => m.t), ['user']);
   const msg = a.messages[0] as Extract<ServerMsg, { t: 'user' }>;
   assert.equal(msg.user.id, b.id); assert.ok(!('email' in msg.user));
+});
+test('private rooms: create, invite, enter, busy, leave/rejoin, expiry and validation', t => {
+  const { w, add, tick } = setup(t), host = add('Host'), b = add('B'), c = add('C'), bot = add('Bot', { x: 32, y: 12 }, true), off = add('Off'); off.u.presence = 'offline';
+  w.meetings.poll = async () => {};
+  const agenda = (x: { messages: ServerMsg[] }) => [...x.messages].reverse().find(m => m.t === 'agenda') as Extract<ServerMsg, { t: 'agenda' }> | undefined;
+  w.handle(host.u, { t: 'room_create', title: `  ${'x'.repeat(60)}  `, invite: [b.u.id, b.u.id, host.u.id, bot.u.id, 'nope', off.u.id] }, host.socket);
+  const m = [...w.meetings.events.values()].find(e => e.adhoc)!;
+  assert.match(m.key, /^adhoc:/); assert.equal(m.title, 'x'.repeat(40)); assert.equal(m.end - m.start, 3 * 3600_000);
+  assert.deepEqual([...m.adhoc!.invited].sort(), [host.u.id, b.u.id, off.u.id].sort());
+  assert.equal(host.u.instance, m.instance); assert.equal(roomAt(w.map, host.u.tile.x, host.u.tile.y)?.id, 'meeting');
+  assert.ok(host.u.meeting); assert.ok(b.u.meeting); assert.equal(c.u.meeting, null); assert.equal(bot.u.meeting, null);
+  const item = agenda(b)!.items[0]; assert.equal(item.adhoc, true); assert.equal(item.from, 'Host'); assert.equal(agenda(c)?.items.length ?? 0, 0);
+  w.handle(b.u, { t: 'meeting_go', key: m.key }, b.socket); assert.equal(b.u.instance, m.instance);
+  w.handle(c.u, { t: 'meeting_go', key: m.key }, c.socket); assert.equal(c.u.instance, null); // not invited
+  // invite: only from inside, never bots
+  w.handle(c.u, { t: 'room_invite', userIds: [c.u.id] }, c.socket); assert.ok(!m.adhoc!.invited.has(c.u.id));
+  w.handle(b.u, { t: 'room_invite', userIds: [c.u.id, bot.u.id] }, b.socket);
+  assert.ok(m.adhoc!.invited.has(c.u.id)); assert.ok(!m.adhoc!.invited.has(bot.u.id)); assert.equal(agenda(c)!.items[0].adhoc, true); assert.ok(c.u.meeting);
+  // knocks go to Later while busy
+  w.handle(c.u, { t: 'meeting_out', key: m.key }, c.socket); assert.equal(c.u.meeting, null);
+  // leave and rejoin
+  w.handle(b.u, { t: 'meeting_leave' }, b.socket); assert.equal(b.u.instance, null); assert.ok(b.u.meeting);
+  w.handle(b.u, { t: 'meeting_out', key: m.key }, b.socket); assert.equal(b.u.meeting, null);
+  w.handle(b.u, { t: 'meeting_go', key: m.key }, b.socket); assert.equal(b.u.instance, m.instance); assert.ok(b.u.meeting);
+  // a calendar poll keeps it
+  delete (w.meetings as { poll?: unknown }).poll; void w.meetings.poll();
+  // expiry
+  tick(3 * 3600_000 + 16_000); w.meetings.tick();
+  assert.equal(w.meetings.events.has(m.key), false); assert.equal(host.u.instance, null); assert.equal(b.u.instance, null); assert.equal(host.u.meeting, null);
+  // validation: invite cap, bots/offline/dungeon can't host
+  const many = Array.from({ length: 35 }, (_, i) => add(`P${i}`).u.id);
+  w.handle(host.u, { t: 'room_create', title: '   ', invite: many }, host.socket);
+  const m2 = [...w.meetings.events.values()].find(e => e.adhoc)!;
+  assert.equal(m2.title, 'Private room'); assert.equal(m2.adhoc!.invited.size, 30);
+  w.handle(bot.u, { t: 'room_create', invite: [] }, bot.socket); assert.equal([...w.meetings.events.values()].filter(e => e.adhoc).length, 1);
+  w.handle(off.u, { t: 'room_create', invite: [] }, off.socket); assert.equal([...w.meetings.events.values()].filter(e => e.adhoc).length, 1);
+});
+
+test('room voice: private rooms join on entry, calendar meetings are opt-in, signaling stays inside, the cap is ROOM_VOICE_MAX', t => {
+  const { w, add } = setup(t), host = add('Host'), out = add('Out'), people = Array.from({ length: ROOM_VOICE_MAX + 1 }, (_, i) => add(`P${i}`));
+  w.meetings.poll = async () => {};
+  const rtc = (x: { messages: ServerMsg[] }) => x.messages.filter(m => m.t === 'rtc').length;
+  w.handle(host.u, { t: 'room_create', invite: people.map(p => p.u.id) }, host.socket);
+  const m = [...w.meetings.events.values()].find(e => e.adhoc)!, id = `room:${m.instance}`;
+  assert.equal(host.u.callId, id, 'ad-hoc rooms start with voice on');
+  assert.equal(host.u.presence, 'online', 'room voice is not a knock call');
+  for (const p of people) w.handle(p.u, { t: 'meeting_go', key: m.key }, p.socket);
+  const call = (w as unknown as { calls: Map<string, { members: Set<string> }> }).calls.get(id)!;
+  assert.equal(call.members.size, ROOM_VOICE_MAX, 'host + 4 fill the call');
+  assert.equal(people[ROOM_VOICE_MAX - 2].u.callId, id); assert.equal(people[ROOM_VOICE_MAX - 1].u.callId, null);
+  assert.ok(people[ROOM_VOICE_MAX - 1].messages.some(x => x.t === 'notice' && x.text.includes('use Meet')), 'the one past the cap is pointed to Meet');
+  assert.equal(w.meetingRooms().find(r => r.id === m.instance)!.voice.length, ROOM_VOICE_MAX);
+  w.voiceTick(); assert.equal(host.u.callId, id, 'the voice sweep leaves meeting-room calls alone');
+  // signaling: members only
+  const [a, b] = people;
+  w.handle(a.u, { t: 'rtc', to: b.u.id, signal: { kind: 'hello', inst: 'x' } }, a.socket); assert.equal(rtc(b), 1);
+  w.handle(a.u, { t: 'rtc', to: people[ROOM_VOICE_MAX - 1].u.id, signal: { kind: 'hello', inst: 'x' } }, a.socket); assert.equal(rtc(people[ROOM_VOICE_MAX - 1]), 0, 'in the room but not on the call');
+  w.handle(out.u, { t: 'rtc', to: a.u.id, signal: { kind: 'hello', inst: 'x' } }, out.socket); assert.equal(rtc(a), 0);
+  w.handle(a.u, { t: 'rtc', to: out.u.id, signal: { kind: 'hello', inst: 'x' } }, a.socket); assert.equal(rtc(out), 0);
+  // a free place: the sixth can try again; leaving voice keeps you in the room and out of the call on re-entry
+  w.handle(b.u, { t: 'room_voice', on: false }, b.socket);
+  assert.equal(b.u.callId, null); assert.equal(b.u.instance, m.instance);
+  w.handle(people[ROOM_VOICE_MAX - 1].u, { t: 'room_voice', on: true }, people[ROOM_VOICE_MAX - 1].socket); assert.equal(people[ROOM_VOICE_MAX - 1].u.callId, id);
+  w.handle(b.u, { t: 'meeting_leave' }, b.socket); w.handle(b.u, { t: 'meeting_go', key: m.key }, b.socket);
+  assert.equal(b.u.callId, null, 'left the voice on purpose: coming back does not put them on air');
+  w.handle(b.u, { t: 'room_voice', on: true }, b.socket); assert.equal(b.u.callId, null, 'full again');
+  // leaving the room leaves the call; voice outside a room does nothing
+  w.handle(a.u, { t: 'meeting_leave' }, a.socket); assert.equal(a.u.callId, null);
+  w.handle(out.u, { t: 'room_voice', on: true }, out.socket); assert.ok(!out.u.callId?.startsWith('room:calinst'));
+  // the last one out closes the call
+  for (const p of [host, ...people]) w.handle(p.u, { t: 'meeting_leave' }, p.socket);
+  assert.equal((w as unknown as { calls: Map<string, unknown> }).calls.has(id), false);
+
+  // calendar meeting: opt-in
+  const now = Date.now(), key = 'cal:1', cm = { key, title: 'Standup', start: now, end: now + 3600_000, emails: [], link: 'https://meet.google.com/abc-defg-hij', instance: 'calinst', owners: new Set([host.u.id, out.u.id]) };
+  w.meetings.events.set(key, cm);
+  w.handle(host.u, { t: 'meeting_go', key }, host.socket); w.handle(out.u, { t: 'meeting_go', key }, out.socket);
+  assert.equal(host.u.instance, 'calinst'); assert.equal(host.u.callId, null); assert.equal(out.u.callId, null);
+  w.handle(host.u, { t: 'room_voice', on: true }, host.socket); w.handle(out.u, { t: 'room_voice', on: true }, out.socket);
+  assert.equal(host.u.callId, 'room:calinst'); assert.equal(out.u.callId, 'room:calinst');
+  w.handle(host.u, { t: 'room_meet' }, host.socket);
+  assert.ok(!host.messages.some(x => x.t === 'room_meet' && x.link), 'calendar meetings keep the event link; no room Meet');
+});
+
+test('room Meet: members only, personal link fallback, late joiners and reloads get it, leaving clears it', t => {
+  const { w, add } = setup(t), host = add('Host'), b = add('B'), c = add('C'), out = add('Out');
+  w.meetings.poll = async () => {};
+  const meetMsgs = (x: { messages: ServerMsg[] }) => x.messages.filter((m): m is Extract<ServerMsg, { t: 'room_meet' }> => m.t === 'room_meet');
+  w.handle(host.u, { t: 'room_create', invite: [b.u.id, c.u.id] }, host.socket);
+  const m = [...w.meetings.events.values()].find(e => e.adhoc)!;
+  w.handle(b.u, { t: 'meeting_go', key: m.key }, b.socket);
+  w.handle(b.u, { t: 'room_meet' }, b.socket);
+  assert.ok(b.messages.some(x => x.t === 'notice' && x.text.includes('No Meet link')), 'nothing to offer without Google or a personal link');
+  host.u.meetLink = 'https://meet.google.com/aaa-bbbb-ccc';
+  w.handle(b.u, { t: 'room_meet' }, b.socket);
+  const link = host.u.meetLink;
+  assert.equal(meetMsgs(host).at(-1)?.link, link, 'the host\'s personal link is shared with everyone inside'); assert.equal(meetMsgs(b).at(-1)?.link, link);
+  assert.equal(meetMsgs(c).length, 0, 'invited but not in the room: not sent'); assert.equal(meetMsgs(out).length, 0);
+  assert.ok(!JSON.stringify(w.meetings.agendaOf(c.u)).includes(link), 'the agenda never carries it');
+  w.handle(c.u, { t: 'meeting_go', key: m.key }, c.socket);
+  assert.equal(meetMsgs(c).at(-1)?.link, link, 'a late joiner gets it on entry');
+  const reload: ServerMsg[] = []; w.connect(c.u.id, x => reload.push(x));
+  assert.ok(reload.some(x => x.t === 'room_meet' && x.link === link), 'a reloaded page gets it back');
+  w.handle(out.u, { t: 'room_meet' }, out.socket); assert.equal(meetMsgs(out).length, 0);
+  w.handle(c.u, { t: 'meeting_leave' }, c.socket);
+  assert.equal(meetMsgs(c).at(-1)?.link, null, 'leaving the room drops it');
+});
+
+test('room voice is a hall: the line fills as places free up, hands go up, leave_room only leaves the voice, two rooms never share a call', t => {
+  const { w, add } = setup(t), host = add('Host'), guests = Array.from({ length: ROOM_VOICE_MAX }, (_, i) => add(`G${i}`)), other = add('Other');
+  w.meetings.poll = async () => {};
+  w.handle(host.u, { t: 'room_create', invite: guests.map(g => g.u.id) }, host.socket);
+  const m = [...w.meetings.events.values()].find(e => e.adhoc)!, id = `room:${m.instance}`;
+  for (const g of guests) w.handle(g.u, { t: 'meeting_go', key: m.key }, g.socket);
+  const last = guests[ROOM_VOICE_MAX - 1];
+  assert.equal(last.u.callId, null); assert.ok(last.messages.some(x => x.t === 'voice_wait' && x.roomId === m.instance), 'in line');
+  w.handle(host.u, { t: 'hand', up: true }, host.socket); assert.equal(host.u.hand, true);
+  const spot = host.u.tile;
+  w.handle(host.u, { t: 'leave_room' }, host.socket);
+  assert.equal(host.u.callId, null); assert.equal(host.u.instance, m.instance, 'still in the meeting room'); assert.deepEqual(host.u.tile, spot); assert.equal(host.u.hand, false);
+  assert.equal(last.u.callId, id, 'the first in line gets the place'); assert.ok(last.messages.some(x => x.t === 'voice_wait' && x.roomId === null));
+  // a second private room has its own hall
+  w.handle(other.u, { t: 'room_create', invite: [] }, other.socket);
+  const m2 = [...w.meetings.events.values()].find(e => e.adhoc && e.key !== m.key)!;
+  assert.equal(other.u.callId, `room:${m2.instance}`); assert.notEqual(other.u.callId, last.u.callId);
+  w.handle(other.u, { t: 'rtc', to: last.u.id, signal: { kind: 'hello', inst: 'x' } }, other.socket);
+  assert.equal(last.messages.filter(x => x.t === 'rtc').length, 0);
+});
+
+test('the board\'s voice list follows a room call even when the sweep, not a click, moves people (reload mid-call)', t => {
+  const { w, add, tick } = setup(t), host = add('Host'), kim = add('Kim'), watcher = add('Watcher');
+  w.meetings.poll = async () => {};
+  w.handle(host.u, { t: 'room_create', invite: [kim.u.id] }, host.socket);
+  const m = [...w.meetings.events.values()].find(e => e.adhoc)!;
+  w.handle(kim.u, { t: 'meeting_go', key: m.key }, kim.socket);
+  const voice = () => [...watcher.messages].reverse().find(x => x.t === 'meetings')?.rooms.find(r => r.id === m.instance)?.voice.length;
+  assert.equal(voice(), 2);
+  kim.close(); w.voiceTick(); // the old page is gone: dropped from the call
+  assert.equal(voice(), 1, 'someone leaving by the sweep shows on the board');
+  const again = w.connect(kim.u.id, () => {}); w.voiceTick(); tick(300); // the reloaded page: put back by the sweep
+  assert.equal(kim.u.callId, `room:${m.instance}`);
+  assert.equal(voice(), 2, 'and so does the rejoin');
+  void again;
 });
