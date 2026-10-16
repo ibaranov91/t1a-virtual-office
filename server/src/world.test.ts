@@ -160,17 +160,15 @@ test('a tick that promotes its current waiter does not mark that member waiting 
   assert.equal(a.messages.some(m => m.t === 'voice_wait' && m.roomId !== null), false);
   a.messages.length = 0; w.voiceTick(); assert.deepEqual(voiceChanges(a.messages), []);
 });
-test('knock call wins outside the rect, then yields inside even when the hall is full', t => {
+test('a knock call stays put inside Coffee, even when the hall is full', t => {
   const { w, add, settle, fill } = setup(t), a = add('A'), b = add('B', { x: 7, y: 17 });
   const knock = w.connectCall(a.u, b.u); w.voiceTick(); assert.equal(a.u.callId, knock.id);
-  w.walk(a.u, { x: 32, y: 8 }); w.voiceTick(); assert.equal(a.u.callId, knock.id);
-  settle(a.u, { x: 32, y: 8 }); w.voiceTick(); assert.equal(a.u.callId, 'room:coffee'); assert.equal(b.u.callId, null);
-  settle(a.u, { x: 32, y: 14 }); w.leaveCall(a.u); fill();
-  const second = w.connectCall(a.u, b.u); w.voiceTick(); assert.equal(a.u.callId, second.id);
-  settle(a.u, { x: 32, y: 8 }); w.voiceTick(); assert.equal(a.u.callId, null); assert.equal(b.u.callId, null);
-  assert.ok(a.messages.some(m => m.t === 'voice_wait' && m.roomId === 'coffee'));
+  settle(a.u, { x: 32, y: 8 }); w.voiceTick(); assert.equal(a.u.callId, knock.id); assert.equal(b.u.callId, knock.id);
+  assert.equal(a.messages.some(m => m.t === 'call_moved') || b.messages.some(m => m.t === 'call_moved'), false);
+  fill(); settle(a.u, { x: 32, y: 14 }); w.voiceTick(); assert.equal(a.u.callId, knock.id);
+  assert.equal(a.messages.some(m => m.t === 'voice_wait' && m.roomId === 'coffee'), false, 'not in the line while on a direct talk');
 });
-test('call_moved reaches only members left behind, even when a singleton ends or the hall is full', t => {
+test('hanging up inside Coffee joins the hall and tells the others; a full hall makes you wait', t => {
   for (const full of [false, true]) {
     const { w, add, settle, fill } = setup(t);
     if (full) fill();
@@ -178,22 +176,33 @@ test('call_moved reaches only members left behind, even when a singleton ends or
     const call = w.connectCall(a.u, b.u); w.connectCall(b.u, c.u);
     for (const person of [a, b, c, outsider]) person.messages.length = 0;
     w.voiceTick(); assert.equal(a.u.callId, call.id);
-    assert.equal(b.messages.some(m => m.t === 'call_moved'), false);
-    settle(a.u, { x: 32, y: 10 }); w.voiceTick();
+    settle(a.u, { x: 32, y: 10 }); w.voiceTick(); assert.equal(a.u.callId, call.id);
+    w.handle(a.u, { t: 'end_call' }, a.socket);
     const notice = { t: 'call_moved', userId: a.u.id, roomId: 'coffee' };
     assert.deepEqual(b.messages.filter(m => m.t === 'call_moved'), [notice]);
     assert.deepEqual(c.messages.filter(m => m.t === 'call_moved'), [notice]);
     for (const person of [a, outsider]) assert.equal(person.messages.some(m => m.t === 'call_moved'), false);
     assert.equal(b.u.callId, call.id); assert.equal(c.u.callId, call.id);
+    w.voiceTick();
     assert.equal(a.u.callId, full ? null : 'room:coffee');
     if (full) assert.ok(a.messages.some(m => m.t === 'voice_wait' && m.roomId === 'coffee'));
-    b.messages.length = 0; c.messages.length = 0;
-    settle(b.u, { x: 32, y: 10 }); w.voiceTick();
-    assert.equal(c.u.callId, null);
-    assert.deepEqual(c.messages.filter(m => m.t === 'call_moved'), [{ t: 'call_moved', userId: b.u.id, roomId: 'coffee' }]);
-    assert.equal(b.messages.some(m => m.t === 'call_moved'), false);
     t.mock.timers.reset();
   }
+});
+test('a lone remaining member also hears call_moved; hanging up outside a hall sends nothing', t => {
+  const { w, add, settle } = setup(t), a = add('A', { x: 32, y: 10 }), b = add('B', { x: 7, y: 17 }), c = add('C', { x: 8, y: 17 }), d = add('D', { x: 9, y: 17 });
+  w.connectCall(a.u, b.u); settle(a.u, { x: 32, y: 10 }); w.voiceTick();
+  w.handle(a.u, { t: 'end_call' }, a.socket);
+  assert.deepEqual(b.messages.filter(m => m.t === 'call_moved'), [{ t: 'call_moved', userId: a.u.id, roomId: 'coffee' }]);
+  assert.equal(b.u.callId, null); w.voiceTick(); assert.equal(a.u.callId, 'room:coffee');
+  w.connectCall(c.u, d.u); w.handle(c.u, { t: 'end_call' }, c.socket);
+  assert.equal(d.messages.some(m => m.t === 'call_moved'), false);
+});
+test('when the others hang up inside Coffee, you fall onto the hall voice', t => {
+  const { w, add, settle } = setup(t), a = add('A', { x: 32, y: 10 }), b = add('B', { x: 7, y: 17 });
+  w.connectCall(a.u, b.u); settle(a.u, { x: 32, y: 10 }); w.voiceTick();
+  w.handle(b.u, { t: 'end_call' }, b.socket); assert.equal(a.u.callId, null);
+  w.voiceTick(); assert.equal(a.u.callId, 'room:coffee');
 });
 test('meeting instances cannot join or wait for office hall voice', t => {
   const { w, add, join } = setup(t), a = add('A');
@@ -253,6 +262,14 @@ test('knocks block into a destination or hall member and out of hall voice', t =
   settle(b.u, { x: 32, y: 8 }); w.knock(a.u, b.u); blocked('B is in Coffee — just walk in');
   join(b.u); settle(b.u, { x: 32, y: 14 }); w.knock(a.u, b.u); blocked('B is in Coffee — just walk in');
   w.leaveCall(b.u); settle(b.u, { x: 8, y: 17 }); join(a.u); w.knock(a.u, b.u); blocked("You're in Coffee voice — step out to knock");
+});
+test('someone in Coffee on a direct talk can be knocked; the knocker joins that call', t => {
+  const { w, add, settle, tick } = setup(t), a = add('A', { x: 7, y: 17 }), b = add('B', { x: 32, y: 10 }), c = add('C', { x: 8, y: 17 });
+  const call = w.connectCall(b.u, c.u); settle(b.u, { x: 32, y: 10 }); w.voiceTick(); assert.equal(b.u.callId, call.id);
+  w.knock(a.u, b.u);
+  const k = [...w['knocks'].values()].find(k => k.fromId === a.u.id)!;
+  assert.notEqual(k.state, 'later'); assert.equal(a.messages.some(m => m.t === 'knock_reply' && m.reply === 'blocked'), false);
+  tick(pathDuration(a.u.path ?? []) + 200); assert.equal(k.state, 'pending'); w.reply(b.u, k.id, 'accept'); assert.equal(a.u.callId, call.id);
 });
 test('all knock guards are rechecked at arrival and accept', t => {
   for (const stage of ['arrival', 'accept']) for (const guard of ['destination', 'source', 'target']) {

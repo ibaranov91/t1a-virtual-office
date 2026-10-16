@@ -38,6 +38,16 @@ const SESSION_KEY = DEV_AS ? `deck.session.dev.${DEV_AS.toLowerCase()}` : 'deck.
 /** Phones and small windows: a thumb dock and bottom sheets (keep in step with styles.css). */
 const compact = () => window.matchMedia(COMPACT).matches;
 
+/** On a direct talk inside a hall or stall: the place is talking too; one button leaves the talk and joins it. */
+function TalkConflictChip({ store }: { store: Store }) {
+  const me = store.users.get(store.me), where = store.talkConflict();
+  if (!me || !where) return null;
+  return <div className="desk-chip call-chip talk-conflict" role="status">
+    <span>On a call with {store.names(store.callPeers(me))} <small>· {where} is talking here</small></span>
+    <button onClick={() => store.endCall()}>{where === 'the stall' ? 'Join the stall' : `Join ${where}`}</button>
+  </div>;
+}
+
 export default function App() {
   const [session, setSession] = useState(() => { try { return localStorage.getItem(SESSION_KEY); } catch { return null; } });
   const [autoLogin, setAutoLogin] = useState(!!DEV_AS);
@@ -254,6 +264,7 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
           <DungeonChip store={store} />
           {isCompact && me?.callId && !me.instance && !store.roomCallOf(me) && store.voiceOwner && <CallChip store={store} voice={voice} />}
           {isCompact && <RoomVoiceChip store={store} voice={voice} />}
+          <TalkConflictChip store={store} />
           <DeskChip store={store} />
         </div>
         <Toasts store={store} />

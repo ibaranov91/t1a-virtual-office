@@ -54,7 +54,7 @@ const SIT_FRAME = 5;
 type PlacedPlant = { u: ClientUser; x: number; y: number; base: number };
 const FRONT: Record<string, [number, number]> = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
 
-type BubbleKind = 'bubble_game' | 'bubble_watch' | 'bubble_bang' | 'bubble_headset' | 'bubble_zzz' | 'bubble_meeting' | 'bubble_think' | 'bubble_talk' | 'bubble_hand' | 'bubble_deaf' | 'bubble_mute_deaf';
+type BubbleKind = 'bubble_game' | 'bubble_watch' | 'bubble_bang' | 'bubble_headset' | 'bubble_zzz' | 'bubble_meeting' | 'bubble_think' | 'bubble_talk' | 'bubble_phone' | 'bubble_hand' | 'bubble_deaf' | 'bubble_mute_deaf';
 // where the bag hangs when carried, per facing; behind = drawn before the body
 const BAG_HAND: Record<string, { dx: number; behind: boolean }> = {
   down: { dx: 10, behind: false }, up: { dx: -3, behind: false }, left: { dx: 7, behind: true }, right: { dx: -1, behind: true },
@@ -1346,6 +1346,28 @@ export class Engine {
     drawText(ctx, label, px + 2, py + 1, '#fff8e8');
   }
 
+  private apartCache = new Map<string, boolean>(); private apartAt = -1;
+  /** A direct talk (knock call, not a 'room:' hall) whose members stand in different places: shown with a phone. */
+  private apartTalk(u: ClientUser): boolean {
+    const id = u.callId; if (!id || id.startsWith('room:')) return false;
+    const now = this.store.now();
+    if (now !== this.apartAt) { this.apartAt = now; this.apartCache.clear(); }
+    const hit = this.apartCache.get(id); if (hit !== undefined) return hit;
+    const places = new Set<string>();
+    for (const m of this.store.users.values()) {
+      if (m.callId !== id || m.presence === 'offline') continue;
+      let place: string;
+      if (m.instance) place = `i:${m.instance}`;
+      else {
+        const stall = Object.entries(this.store.toilets).find(([, s]) => s.in.includes(m.id));
+        if (stall) place = `stall:${stall[0]}`;
+        else { const t = this.store.pose(m).tile; place = `r:${roomAt(MAP, t.x, t.y)?.id ?? 'none'}`; }
+      }
+      places.add(place);
+    }
+    const r = places.size > 1; this.apartCache.set(id, r); return r;
+  }
+
   private bubbleFor(u: ClientUser, p: Pose): BubbleKind | null {
     if (u.hand) return 'bubble_hand';
     if (u.door === 'thinking') return 'bubble_think';
@@ -1354,7 +1376,7 @@ export class Engine {
     // in the Arcade's open voice everyone is in the room call: show the joystick/eyes unless they're talking
     if (u.table && !u.speaking && (!u.callId || u.callId.startsWith('room:'))) return u.table.role === 'watcher' || u.table.running && !u.table.players.includes(u.id) ? 'bubble_watch' : 'bubble_game';
     if (u.game && !u.speaking && (!u.callId || u.callId.startsWith('room:'))) return u.game.role === 'player' ? 'bubble_game' : 'bubble_watch';
-    if (u.callId) return u.deafened ? u.muted ? 'bubble_mute_deaf' : 'bubble_deaf' : 'bubble_talk';
+    if (u.callId) return u.deafened ? u.muted ? 'bubble_mute_deaf' : 'bubble_deaf' : this.apartTalk(u) ? 'bubble_phone' : 'bubble_talk';
     if (!underground(u) && (u.instance || u.meeting)) return 'bubble_meeting'; // a real calendar meeting, not just standing in the Meeting room; beats a manual "In a call"
     if (u.presence === 'in_call') return 'bubble_headset';
     if (u.presence === 'away') return 'bubble_zzz';
@@ -1421,9 +1443,10 @@ export class Engine {
     if (!kind) return;
     const age = ms - (this.bubbleState.get(u.id)?.at ?? 0);
     let dy = age < 70 ? -3 : age < 140 ? 1 : 0;
-    if (kind === 'bubble_talk') {
+    if (kind === 'bubble_talk' || kind === 'bubble_phone') {
       const speaking = this.isSpeaking(u);
-      const frame = u.muted ? 'bubble_muted' : speaking ? (Math.floor(ms / 140) % 2 ? 'bubble_talk_1' : 'bubble_talk_2') : 'bubble_talk_0';
+      const pre = kind === 'bubble_phone' && this.f('bubble_phone_0') ? 'bubble_phone' : 'bubble_talk'; // talk frames until the phone art lands
+      const frame = u.muted ? (pre === 'bubble_phone' ? 'bubble_phone_muted' : 'bubble_muted') : speaking ? (Math.floor(ms / 140) % 2 ? `${pre}_1` : `${pre}_2`) : `${pre}_0`;
       this.blit(ctx, frame, x + 9, baseY - 24 - 12 + dy + (speaking ? -(Math.floor(ms / 280) % 2) : 0));
       return;
     }
