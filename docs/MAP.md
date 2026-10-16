@@ -4,7 +4,7 @@
 
 Grid 85×65 tiles of 16px. Office: 0,0 85×44 (camera, overview and edit mode stay inside it). Dungeon: 17,46 31×19, not connected to the office.
 Spawn 7,17, exit 12,13, garden hole 63,25, hatch 20,32.
-Coordinates are tile x,y (x right, y down). Object ids are positional (o1…o315): append new objects at the end of gen-map.mjs so saved layouts keep their ids.
+Coordinates are tile x,y (x right, y down). Object ids are positional (o1…o316): append new objects at the end of gen-map.mjs so saved layouts keep their ids.
 
 Look things up from the shell: `npm run where -- <roomId|objectType|useKind|objectId|x,y>`.
 
@@ -109,7 +109,7 @@ Each room is filled with its letter (table below) and labelled with its id. `#` 
  36 ^.......^:::::^^^^.....X......X...............X...............X...............X.....^
  37 ^.X...^^^:^^^^^^^^^^..........hh..............hh..............hh..............hh....^
  38 ^.s.^^^^^:::::::::::::s.....s.............s.........s.................s....X........^
- 39 ^X.^^^^^^^^^^^^^^^^^^^^.s...............X.....................==................s...^
+ 39 ^X.^^^^^^^^^^^^^^^^^^^^.s...............X.......XXXXXXX.......==................s...^
  40 ^..........................................................X..==....................^
  41 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~==~~~~~~~~~~~~~~~~~~~~^
  42 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~==~~~~~~~~~~~~~~~~~~~~^
@@ -256,7 +256,7 @@ Kinds with no object on the map yet: none.
 | `library` | bookshelf_tall ×3, reading_desk ×2, chair ×14, reading_table ×6, fern, side_table |
 | `bookclub` | bookshelf_tall ×2, sofa, table_round, chair ×5, lamp ×2, plant |
 | `mountains` | pine ×3, summit_flag |
-| `beach` | palm ×4, lounger ×4, umbrella ×4, hammock, beach_bar, vacation_sign, sandcastle, shells, beach_ball |
+| `beach` | palm ×4, lounger ×4, umbrella ×4, hammock, beach_bar, vacation_sign, sandcastle, shells, beach_ball, out_of_office_sign |
 
 ## Free space
 
@@ -283,7 +283,7 @@ A 3×3 feature fits where both sides are ≥ 3. `layoutProblem` (shared/map.ts) 
 | `library` | 67,28 2×2 (rug) · 70,28 2×2 (rug) |
 | `bookclub` | 76,26 2×6 · 78,31 5×2 (rug) · 78,25 3×2 · 81,27 2×2 |
 | `mountains` | 1,40 24×3 · 3,36 3×2 · 20,36 3×2 · 23,37 2×2 |
-| `beach` | 25,41 59×2 · 36,34 10×4 · 60,39 20×2 · 69,34 9×4 · 41,39 18×2 · 25,39 15×2 · +9 smaller |
+| `beach` | 25,41 59×2 · 36,34 10×4 · 60,39 20×2 · 69,34 9×4 · 25,39 15×2 · 48,36 14×2 · +10 smaller |
 
 ### Room for a new room
 
