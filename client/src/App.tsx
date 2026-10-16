@@ -301,7 +301,7 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
           <TalkConflictChip store={store} />
           <DeskChip store={store} />
         </div>
-        <Toasts store={store} />
+        <Toasts store={store} voice={voice} />
         {pick && engineRef.current && <ActionWheel key={`${pick.kind}:${pick.id}`} store={store} engine={engineRef.current} pick={pick} assets={assets} onPerson={openPerson} onClose={() => setPick(null)} />}
         <div className="self-stack">
           {store.chatWith && <ChatPanel key={store.chatWith} store={store} withId={store.chatWith} />}
@@ -631,6 +631,7 @@ function MeetingChip({ store, voice }: { store: Store; voice: Voice | null }) {
     {m?.adhoc && <button onClick={() => store.openRoom(true)}>Invite</button>}
     {m?.adhoc && m.host && <button className="end" title="Close the room and send everyone back to the office"
       onClick={() => (!others.length || confirm(`End ${m.title} for everyone? ${store.names(others)} will go back to the office.`)) && store.endRoom(m.key)}>End room</button>}
+    {voice?.onMeet && <><span>On Meet</span><button onClick={() => voice.setOnMeet(false)}>Use Deck voice</button></>}
     {talking ? <>
       <span className={`dot ${voiceState(voice) === 'live' ? 'live' : ''}`} title={`Voice in this room · ${voiceState(voice)}`} />
       <VoiceToggle kind="mic" voice={voice} disabled={!store.connected || !store.voiceOwner} />
@@ -639,8 +640,8 @@ function MeetingChip({ store, voice }: { store: Store; voice: Voice | null }) {
       <IconButton icon="disconnect" label="Leave voice" title="Stop hearing and talking in this room (the room stays open)" className="end" onClick={() => store.roomVoice(false)} />
     </> : waiting ? <button className="ghost" title="Voice is full: you'll join when a place frees up" onClick={() => store.roomVoice(false)}>In line · cancel</button>
       : <button disabled={!store.voiceOwner} title={full ? `Voice is full (${ROOM_VOICE_MAX}): you'll wait in line · or use Meet` : 'Talk with the others in this room'} onClick={() => store.roomVoice(true)}><Icon name="mic" /> Talk{onCall ? ` (${onCall}/${ROOM_VOICE_MAX})` : ''}</button>}
-    {m?.adhoc && (meet ? <ExternalLink href={meetAs(meet, store.meetAccount)}>Join Meet</ExternalLink> : <button className="ghost" title="Make a Google Meet room for everyone in here" onClick={() => store.useRoomMeet()}>Use Meet</button>)}
-    {m?.link && <ExternalLink href={meetAs(m.link, store.meetAccount)}>Join call</ExternalLink>}
+    {m?.adhoc && (meet ? <ExternalLink href={meetAs(meet, store.meetAccount)} onOpen={() => voice?.setOnMeet()}>Join Meet</ExternalLink> : <button className="ghost" title="Make a Google Meet room for everyone in here" onClick={() => store.useRoomMeet()}>Use Meet</button>)}
+    {m?.link && <ExternalLink href={meetAs(m.link, store.meetAccount)} onOpen={() => voice?.setOnMeet()}>Join call</ExternalLink>}
     <button className="end" onClick={() => store.leaveMeeting()} aria-label="Leave room" title="Leave room"><Icon name="logout" /></button>
   </div>;
 }
@@ -1197,7 +1198,7 @@ function DeskChip({ store }: { store: Store }) {
   );
 }
 
-function Toasts({ store }: { store: Store }) {
+function Toasts({ store, voice }: { store: Store; voice: Voice | null }) {
   return (
     <div className="toasts">
       {store.toasts.map(t => (
@@ -1220,8 +1221,8 @@ function Toasts({ store }: { store: Store }) {
           {t.actions?.map(a => <button key={a.label} className={a.ghost ? 'ghost' : ''} onClick={() => { store.dismiss(t.id); a.run(); }}>{a.label}</button>)}
           {t.kind === 'chat' && t.userId && <button onClick={() => store.openChat(t.userId!)}>Reply</button>}
           {t.kind === 'meeting' && t.meetingKey && <button onClick={() => store.goToMeeting(t.meetingKey!)}>Go</button>}
-          {t.kind === 'meeting' && t.link && <ExternalLink href={meetAs(t.link, store.meetAccount)}>Join call</ExternalLink>}
-          {t.kind === 'link' && t.link && <ExternalLink href={meetAs(t.link, store.meetAccount)} onOpen={() => store.dismiss(t.id)}>Join Meet</ExternalLink>}
+          {t.kind === 'meeting' && t.link && <ExternalLink href={meetAs(t.link, store.meetAccount)} onOpen={() => voice?.setOnMeet()}>Join call</ExternalLink>}
+          {t.kind === 'link' && t.link && <ExternalLink href={meetAs(t.link, store.meetAccount)} onOpen={() => { voice?.setOnMeet(); store.dismiss(t.id); }}>Join Meet</ExternalLink>}
           {t.kind !== 'knock_in' && t.kind !== 'knock_out' && <IconButton icon="close" label="Close" className="ghost x" onClick={() => store.dismiss(t.id)} />}
         </div>
       ))}

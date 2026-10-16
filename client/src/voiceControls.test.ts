@@ -19,11 +19,11 @@ test('microphone and headphones have independent mute states', () => {
   assert.equal(voiceControlState('headphones', voice).action, 'toggleDeafen');
 });
 
-test('a blocked microphone is shown off without implying a mute click fixes permission', () => {
+test('a blocked microphone is shown off and its control retries capture', () => {
   const mic = voiceControlState('mic', { ...live, micError: 'Microphone blocked' });
   assert.equal(mic.off, true);
   assert.equal(mic.state, 'err');
-  assert.equal(mic.label, 'Microphone unavailable');
+  assert.equal(mic.label, 'Retry microphone');
   assert.equal(mic.title, 'Microphone blocked');
 });
 

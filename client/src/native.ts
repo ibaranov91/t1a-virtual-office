@@ -49,7 +49,7 @@ export function syncNative(store: Store, voice: Voice | null) {
       type: 'state', connected: store.connected,
       inCall: !!me?.callId,
       // the same states as the mic and speaker buttons (VoiceIcons in App.tsx)
-      mic: !store.connected || !store.voiceOwner ? 'off' : !me?.callId ? 'idle' : voice?.micError ? 'err' : (voice?.muted ?? true) || (voice?.deafened ?? prefs.deafened) ? 'muted' : 'live', // deafened silences the mic too
+      mic: !store.connected || !store.voiceOwner ? 'off' : !me?.callId ? 'idle' : voice?.micError ? 'err' : voice?.transmitting ? 'live' : 'muted', // deafened silences the mic too
       speaker: !store.connected || !store.voiceOwner ? 'off' : (voice?.deafened ?? prefs.deafened) ? 'deafened' : 'live',
       busy: me?.presence === 'away' || !!me?.callId || !!me?.vacation, // quiet mode: icon only, no knock card
       knocks: store.toasts.filter(t => t.kind === 'knock_in').map(t => ({ id: t.knockId, text: t.text })),

@@ -7,7 +7,7 @@ import {
   type MapObject, type Dir, type Layout, type Room, type Spot, type TileMap, type Tile,
 } from '../../shared/map';
 import {
-  NOTE_RATE, NOTE_BURST, ITEMS_MAX, TOILET_SHELF_ITEM, toiletFull, NOTE_HELD_MAX, SEAT_CHANGES_PER_10S, DUNGEON_INSTANCE, goingOut, LOOK_COLORS, underground, MAX_CALL_SIZE, LATER_MAX, MEETING_ROOM_ID, MAX_CHAT_LEN, normalizeMeetLink, REACTIONS, ROOM_VOICE_MAX,
+  CALL_SILENCE_MS, NOTE_RATE, NOTE_BURST, ITEMS_MAX, TOILET_SHELF_ITEM, toiletFull, NOTE_HELD_MAX, SEAT_CHANGES_PER_10S, DUNGEON_INSTANCE, goingOut, LOOK_COLORS, underground, MAX_CALL_SIZE, LATER_MAX, MEETING_ROOM_ID, MAX_CHAT_LEN, normalizeMeetLink, REACTIONS, ROOM_VOICE_MAX,
   CUP_ITEMS, BOOK_ITEM, BOOKWORM_READS, EDITOR_READERS, dayNumber, isTimeZone, plantDead, BOTANIST_KINDS, PLANT_KINDS, PLANT_STAGES, presentScope, type Plant,
   type ChatMsg, type ClientMsg, type Door, type Effect, type Knock, type LaterItem, type LayoutEdit, type Look, type Presence, type PublicUser, type Reaction, type RtcSignal, type ServerMsg,
 } from '../../shared/protocol';
@@ -108,12 +108,13 @@ export class World {
   users = new Map<string, User>();
   rng: () => number = Math.random; // tests swap in a fixed one (drunk mis-walks)
   knocks = new Map<string, Knock & { timer?: NodeJS.Timeout }>();
-  private sockets = new Map<string, Map<string, Send>>();
+  private sockets = new Map<string, Map<string, Send & { tab: string }>>();
   private owners = new Map<string, string>();
   private waiting = new Map<string, string>();
   private listeners = new Set<{ send: Send; wire?: Wire }>();
   private doorTimers = new Map<string, NodeJS.Timeout>();
-  private callTimers = new Map<string, NodeJS.Timeout>(); // per member: when they hang up
+  private callTimers = new Map<string, NodeJS.Timeout>(); // per bot: when they hang up
+  private callSilenceTimers = new Map<string, NodeJS.Timeout>(); // per knock call
   private holdTimers = new Map<string, NodeJS.Timeout>(); // per person: what happens next to what they hold (auto-sip, empty cup slipping, snack gone)
   private sips = new Map<string, NodeJS.Timeout>();       // per person: a sip under way
   private lastRing = new Map<string, number>();            // per person: when they last rang a bell
@@ -270,12 +271,13 @@ export class World {
   };
 
   /** `wire`, when given, receives broadcasts as one shared JSON string instead of `send` getting the object. */
-  connect(userId: string, send: Send, wire?: Wire) {
+  connect(userId: string, send: Send, wire?: Wire, tab?: string) {
     const u = this.users.get(userId);
     if (!u) throw new Error('unknown user');
     if (!this.sockets.has(userId)) this.sockets.set(userId, new Map());
     const socket = randomUUID();
-    this.sockets.get(userId)!.set(socket, send);
+    const tabId = typeof tab === 'string' && /^[A-Za-z0-9_-]{1,40}$/.test(tab) ? tab : randomUUID();
+    this.sockets.get(userId)!.set(socket, Object.assign((msg: ServerMsg) => send(msg), { tab: tabId }));
     const listener = { send, wire };
     this.listeners.add(listener);
     send({ t: 'hello', you: userId, serverTime: Date.now(), build: this.build });
@@ -309,7 +311,9 @@ export class World {
     if (call) send({ t: 'call', userId: u.id, callId: call.id, link: call.link });
     const inst = u.instance ? this.instances.get(u.instance) : undefined;
     if (inst?.meet) send({ t: 'room_meet', instance: inst.id, link: inst.meet });
-    this.setOwner(userId, socket);
+    const owner = this.owners.get(userId), current = owner ? this.sockets.get(userId)?.get(owner) : undefined;
+    if ((!u.callId && !this.waiting.has(userId)) || !current || current.tab === tabId) this.setOwner(userId, socket);
+    else send({ t: 'voice_owner', owner: false });
     return { socket, close: () => {
       this.listeners.delete(listener);
       const set = this.sockets.get(userId)!; if (!set.delete(socket)) return;
@@ -1428,6 +1432,7 @@ export class World {
     const own = from.meetLink ?? to.meetLink;
     const call: Call = { id: randomUUID().slice(0, 8), members: new Set(), link: own ?? room.meeting.url, fallback: !own };
     this.calls.set(call.id, call);
+    this.armCallSilence(call);
     for (const u of [from, to]) this.joinCall(u, call);
     this.freshRoom(call, from, to);
     return call;
@@ -1751,10 +1756,16 @@ export class World {
     }
     for (const [id] of this.sockets) this.sendTo(id, { t: 'call', userId: u.id, callId: call.id, link: call.members.has(id) ? call.link : undefined });
     if (call.instance) this.broadcast({ t: 'meetings', rooms: this.meetingRooms() }); // the board's voice list follows every join, whoever caused it
-    if (!knockCall(call)) return;
+    if (!knockCall(call) || !u.bot) return;
     const humansThere = [...call.members].some(id => !this.users.get(id)?.bot);
-    const ms = !u.bot ? 2 * 60 * 60_000 : humansThere ? 120_000 + Math.random() * 180_000 : 30_000 + Math.random() * 60_000;
+    const ms = humansThere ? 120_000 + Math.random() * 180_000 : 30_000 + Math.random() * 60_000;
     this.callTimers.set(u.id, setTimeout(() => this.leaveCall(u), ms));
+  }
+  private armCallSilence(call: Call) {
+    clearTimeout(this.callSilenceTimers.get(call.id));
+    this.callSilenceTimers.set(call.id, setTimeout(() => {
+      for (const id of [...call.members]) { const u = this.users.get(id); if (u) this.leaveCall(u); }
+    }, CALL_SILENCE_MS));
   }
   private hallEligible(u: User, room: Room, now: number) {
     if (room.rules.access === 'admins' && !this.isSysadmin(u)) return false;
@@ -1870,6 +1881,7 @@ export class World {
     if (call.room) this.maintainRoom(call, now);
     else if (call.members.size < 2) {
       this.calls.delete(call.id);
+      clearTimeout(this.callSilenceTimers.get(call.id)); this.callSilenceTimers.delete(call.id);
       for (const id of [...call.members]) { const m = this.users.get(id); if (m) this.leaveCall(m, now); }
     }
   }
@@ -2179,8 +2191,25 @@ export class World {
       if (this.owners.get(u.id) === socket) this.arcade.handle(u, msg);
       return;
     }
-    if (['rtc', 'speaking', 'mute', 'deafen', 'hand'].includes(msg.t) && this.owners.get(u.id) !== socket) return;
+    if (['rtc', 'speaking', 'mute', 'deafen', 'hand', 'afk'].includes(msg.t) && this.owners.get(u.id) !== socket) return;
     switch (msg.t) {
+      case 'active':
+        if (u.bot) break;
+        u.afk = false;
+        for (const [id, send] of this.sockets.get(u.id) ?? []) if (id !== socket) send({ t: 'active' });
+        break;
+      case 'afk': {
+        if (u.bot) break;
+        const call = u.callId ? this.calls.get(u.callId) : undefined;
+        if (call?.instance || (u.instance && this.waiting.has(u.id))) this.roomVoice(u, false);
+        else if (call?.room || this.waiting.has(u.id)) this.leaveRoom(u);
+        else if (call && knockCall(call)) {
+          const remaining = [...call.members].filter(id => id !== u.id);
+          u.afk = true; this.leaveCall(u);
+          for (const id of remaining) this.sendTo(id, { t: 'notice', text: `${u.name.split(/\s+/)[0]} stepped away from the call` });
+        }
+        break;
+      }
       case 'listening': this.setLofiListening(u, socket, msg.on === true); break;
       case 'instrument': this.instrument(u, msg, socket); break;
       case 'note': this.note(u, msg, socket); break;
@@ -2308,7 +2337,14 @@ export class World {
         }
         break;
       }
-      case 'speaking': if (u.callId) this.broadcast({ t: 'speaking', userId: u.id, on: !!msg.on }); break;
+      case 'speaking': {
+        const call = u.callId ? this.calls.get(u.callId) : undefined;
+        if (call?.members.has(u.id)) {
+          if (knockCall(call)) this.armCallSilence(call);
+          this.broadcast({ t: 'speaking', userId: u.id, on: !!msg.on });
+        }
+        break;
+      }
       case 'mute': if (u.callId) { u.muted = !!msg.muted; this.broadcast({ t: 'mute', userId: u.id, muted: u.muted }); } break;
       case 'knock': { const to = this.users.get(msg.targetId); if (to) this.knock(u, to); break; }
       case 'later_dismiss': { const id = String(msg.id); const i = this.laterList.get(u.id)?.find(x => x.id === id); if (i) this.clearLater(u, i.fromId); break; }

@@ -78,6 +78,8 @@ export class Store {
   toasts: Toast[] = [];
   connected = false;
   voiceOwner = false;
+  activeAt = Date.now();
+  heardAt = 0;
   voiceWait: string | null = null;
   soundscape?: Soundscape;
   meetLink: string | null = null; // null = not loaded yet, '' = not set
@@ -158,7 +160,9 @@ export class Store {
 
   connect() {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-    const ws = new WebSocket(`${proto}://${location.host}/ws?session=${encodeURIComponent(this.session)}`);
+    let tab = sessionStorage.getItem('deck.tab');
+    if (!tab || !/^[A-Za-z0-9_-]{1,40}$/.test(tab)) { tab = crypto.randomUUID(); sessionStorage.setItem('deck.tab', tab); }
+    const ws = new WebSocket(`${proto}://${location.host}/ws?session=${encodeURIComponent(this.session)}&tab=${encodeURIComponent(tab)}`);
     this.ws = ws;
     ws.onopen = () => { this.connected = true; this.retries = 0; this.emit(); };
     ws.onmessage = (e) => this.onMessage(JSON.parse(e.data));
@@ -946,7 +950,13 @@ export class Store {
         break;
       }
       case 'rtc': this.onRtc?.(msg.from, msg.signal); return; // no re-render needed
-      case 'speaking': { const u = this.users.get(msg.userId); if (u) u.speaking = msg.on; break; }
+      case 'active': this.activeAt = Date.now(); break;
+      case 'speaking': {
+        const u = this.users.get(msg.userId), me = this.users.get(this.me);
+        if (u) u.speaking = msg.on;
+        if (msg.on && u && u.id !== this.me && me?.callId && u.callId === me.callId) this.heardAt = Date.now();
+        break;
+      }
       case 'mute': { const u = this.users.get(msg.userId); if (u) { u.muted = msg.muted; if (msg.muted) u.speaking = false; } break; }
       case 'status': { const u = this.users.get(msg.userId); if (u) u.status = msg.status; break; }
       case 'presentation': {

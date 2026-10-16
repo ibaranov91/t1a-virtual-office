@@ -69,6 +69,12 @@ npm run typecheck    # run before every commit or deploy
   The server relays signaling only between members of the same call. The lower user id makes the offer. Signals carry `conn` (one attempt) and `inst` (one page)
   so stale offers or answers are dropped and reloads reconnect. If you touch this, re-test: two tabs, call, Leave,
   call again (must connect), and reload each side mid-call.
+- **Voice policy** (`client/src/voicePolicy.ts`, spec `docs/superpowers/specs/2026-10-16-voice-policy-design.md`): shared
+  spaces (`room:*`) start muted and open the mic only on the first unmute; knock calls start live. Auto-mute after 1 min
+  of silence alone (at once on switching away) or 5 min with others; "you're muted" hint; ⌘⇧M / ⌘⇧D. Idle = 10 min with
+  no input, no own speech and nobody speaking on your voice → "Still here?" → `afk` 2 min later. `active` clears
+  `u.afk` and is relayed to your other tabs. A new tab takes voice only when you're not in a call (or it's the same
+  `deck.tab`). Knock calls end after `CALL_SILENCE_MS` (2 h) of total silence. Dev: `__voice.timeScale` shortens timers.
 - **Talking bubbles** come from real mic activity (`speaking` messages). Bots fake turn-taking.
 - **Private data never gets broadcast.** `email`, `meetLink` and `google` are stripped in `World.toPublic`. A Meet link
   goes only to the people in that knock or call.

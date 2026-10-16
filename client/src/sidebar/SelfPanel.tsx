@@ -189,6 +189,7 @@ export function VoiceIcons({ store, voice, dock, rail, hand = true }: { store: S
 
 export function voiceState(voice: Voice | null) {
   if (!voice) return 'connecting…';
+  if (voice.onMeet) return 'On Meet';
   if (voice.deafened) return 'deafened';
   if (voice.micError) return 'listen-only';
   if (voice.muted) return 'muted';
@@ -206,7 +207,8 @@ export function CallChip({ store, voice }: { store: Store; voice: Voice | null }
     <span className={`dot ${state === 'live' ? 'live' : ''}`} />
     <span>Talking with {store.names(peers)} <small>· {state}</small></span>
     <VoiceToggle kind="mic" voice={voice} disabled={!store.connected || !store.voiceOwner} /><VoiceToggle kind="headphones" voice={voice} disabled={!store.connected || !store.voiceOwner} savedDeafened={prefs.deafened} /><IconButton icon="disconnect" label="Leave call" className="end" onClick={() => store.endCall()} />
-    {meet && <ExternalLink href={meetAs(meet, store.meetAccount)} onOpen={() => store.moveToMeet()}>Move to Meet</ExternalLink>}
+    {voice?.onMeet && <button onClick={() => voice.setOnMeet(false)}>Use Deck voice</button>}
+    {meet && <ExternalLink href={meetAs(meet, store.meetAccount)} onOpen={() => { voice?.setOnMeet(); store.moveToMeet(); }}>Move to Meet</ExternalLink>}
   </div>;
 }
 
@@ -216,7 +218,7 @@ export function RoomVoiceChip({ store, voice }: { store: Store; voice: Voice | n
   if (!me || !room || !voice?.inRoomCall || !store.voiceOwner || me.instance || store.roomOf(me)?.id !== room.id) return null;
   const others = store.callPeers(me).filter(u => !u.bot && u.presence !== 'offline' && !u.instance && store.roomOf(u)?.id === room.id);
   const who = others.length ? others.map(u => u.name.split(' ')[0]).join(', ') : 'nobody yet';
-  const [state, text] = voice.deafened ? ['off', `Deafened in ${room.name}`]
+  const [state, text] = voice.onMeet ? ['off', 'On Meet'] : voice.deafened ? ['off', `Deafened in ${room.name}`]
     : voice.micError ? ['off', `Listen-only in ${room.name}`]
     : voice.muted ? ['off', `Muted in ${room.name} · nobody hears you`]
     : voice.mode === 'ptt' ? voice.spaceHeld ? ['live', `Talking in ${room.name}`] : ['ptt', `Push-to-talk in ${room.name} · hold Space`]
@@ -224,6 +226,7 @@ export function RoomVoiceChip({ store, voice }: { store: Store; voice: Voice | n
   return <div className={`desk-chip call-chip room-voice ${state}`} role="status">
     <span className={`dot ${state === 'live' ? 'live' : ''}`} />
     <span>{text} <small>· here: {who}</small></span>
+    {voice.onMeet && <button onClick={() => voice.setOnMeet(false)}>Use Deck voice</button>}
     <VoiceToggle kind="mic" voice={voice} disabled={!store.connected} />
     <VoiceToggle kind="headphones" voice={voice} disabled={!store.connected} savedDeafened={prefs.deafened} />
     <IconButton icon="disconnect" label={`Leave ${room.name}`} title={`Leave ${room.name}: stop talking and step out`} className="end" onClick={() => store.leaveRoom()} />
@@ -246,10 +249,10 @@ export function SelfPanel({ store, voice, assets, onProfile }: { store: Store; v
   const connected = (where: string, title: string, leave: () => void, leaveLabel: string, extras: React.ReactNode) => <>
     <div className="sb-voice-top">
       <span className={`sb-voice-tile${connecting ? ' connecting' : ''}`}><Icon name="signal" /></span>
-      <div className="sb-voice-text" title={title}><strong className={connecting ? 'connecting' : ''}>{connecting ? 'Connecting…' : 'Voice Connected'}</strong><small>{where}</small></div>
+      <div className="sb-voice-text" title={title}><strong className={connecting ? 'connecting' : ''}>{voice?.onMeet ? 'On Meet' : connecting ? 'Connecting…' : 'Voice Connected'}</strong><small>{where}</small></div>
       <IconButton icon="disconnect" label={leaveLabel} title={leaveLabel} className="sb-disconnect" onClick={leave} />
     </div>
-    {extras && <div className="sb-voice-actions">{extras}</div>}
+    {(extras || voice?.onMeet) && <div className="sb-voice-actions">{voice?.onMeet && <button onClick={() => voice.setOnMeet(false)}>Use Deck voice</button>}{extras}</div>}
   </>;
   let section: React.ReactNode = null; // MeetingChip owns a meeting room's voice, so nothing here inside one
   if (me?.instance) section = null;
@@ -257,7 +260,7 @@ export function SelfPanel({ store, voice, assets, onProfile }: { store: Store; v
     <span className="sb-voice-text" title="Voice is on in another tab">Voice is on in another tab</span><button onClick={() => store.claimVoice()}>Use voice here</button>
   </div>;
   else if (knockCall) section = connected(`Call with ${store.names(store.callPeers(me!))}`, line, () => store.endCall(), 'Disconnect',
-    meet && <ExternalLink className="sb-voice-action" href={meetAs(meet, store.meetAccount)} onOpen={() => store.moveToMeet()}><Icon name="monitor" />Move to Meet</ExternalLink>);
+    meet && <ExternalLink className="sb-voice-action" href={meetAs(meet, store.meetAccount)} onOpen={() => { voice?.setOnMeet(); store.moveToMeet(); }}><Icon name="monitor" />Move to Meet</ExternalLink>);
   else if (roomVoice) section = connected(`${room!.name} · here: ${who}`, earshotLine(store), () => store.leaveRoom(), `Disconnect: leave ${room!.name}`,
     <button className={`sb-voice-action${me?.hand ? ' on' : ''}`} aria-pressed={!!me?.hand} onClick={() => store.setHand(!me?.hand)}><Icon name="hand" />{me?.hand ? 'Lower hand' : 'Raise hand'}</button>);
   else if (waitRoom) section = <div className="sb-voice-top"><span className="sb-voice-text" title={`Waiting for a spot in ${waitRoom.name} voice`}>Waiting for a spot in {waitRoom.name} voice</span></div>;

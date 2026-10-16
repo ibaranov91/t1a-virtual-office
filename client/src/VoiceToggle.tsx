@@ -8,6 +8,6 @@ export function VoiceToggle({ kind, voice, disabled = false, savedDeafened, capt
   const control = voiceControlState(kind, voice, savedDeafened);
   return <IconButton icon={kind} off={control.off} label={control.label} title={control.title}
     className="vbtn chip" data-state={control.state} aria-pressed={control.off}
-    disabled={disabled || !voice || (kind === 'mic' && !!voice.micError && !voice.deafened)}
+    disabled={disabled || !voice}
     onClick={() => voice?.[control.action]()}>{caption && <small>{control.caption}</small>}</IconButton>;
 }
