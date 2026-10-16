@@ -220,6 +220,7 @@ export type LayoutEdit =
   | { op: 'move'; id: string; x: number; y: number }
   | { op: 'add'; type: string; x: number; y: number }
   | { op: 'remove'; id: string }
+  | { op: 'rotate'; id: string } // a chair or stool, a quarter turn clockwise
   | { op: 'rug_add'; x: number; y: number; color?: string; pattern?: string; w?: number; h?: number }
   | { op: 'rug'; id: string; color?: string; pattern?: string; w?: number; h?: number };
 

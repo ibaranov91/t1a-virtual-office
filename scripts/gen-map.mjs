@@ -75,7 +75,7 @@ const rooms = [
     meeting: { provider: 'meet', url: 'https://meet.google.com/new' } },
   // the far east column: the servers, reached through the club (only admins get past its door), and the club itself
   { id: 'admin', name: 'Admin', type: 'admin', rect: { x: 65, y: 3, w: 9, h: 8 }, capacity: 4,
-    floor: 'raised', rug: 'blue',
+    floor: 'raised', rug: 'blue', homeDesks: true,
     rules: { knock: 'allow', access: 'admins', label: 'admins only · knock to talk' },
     meeting: { provider: 'meet', url: 'https://meet.google.com/new' } },
   { id: 'berghain', name: 'Berghain', type: 'club', rect: { x: 65, y: 13, w: 9, h: 10 }, capacity: 20,
