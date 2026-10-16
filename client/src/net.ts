@@ -2,7 +2,7 @@
 import mapJson from '../../shared/tilemap.json';
 import { applyLayout, besideObject, doorwayTiles, isWalkable, objectById, pathTo, roomAt, sampleMove, type Dir, type Tile, type TileMap } from '../../shared/map';
 import { FOOD_ITEMS } from '../../shared/lunch';
-import { ACHIEVEMENTS, underground, DUNGEON_INSTANCE, PLANT_STAGES, plantName, ROOM_VOICE_MAX, type JukeboxState, type JukeboxAction, type AgendaItem, type LayoutEdit, type CalEvent, type MeetingRoomInfo, type ChatMsg, type LiveDeck, type ObjectState, type ToiletState, type ClientMsg, type PublicUser, type Reaction, type RtcSignal, type ServerMsg, type Creature, type Cup, CUP_ITEMS, type LibraryState } from '../../shared/protocol';
+import { ACHIEVEMENTS, underground, DUNGEON_INSTANCE, PLANT_STAGES, plantName, ROOM_VOICE_MAX, type JukeboxState, type JukeboxAction, type AgendaItem, type LayoutEdit, type CalEvent, type MeetingRoomInfo, type ChatMsg, type LiveDeck, presentScope, type ObjectState, type ToiletState, type ClientMsg, type PublicUser, type Reaction, type RtcSignal, type ServerMsg, type Creature, type Cup, CUP_ITEMS, type LibraryState } from '../../shared/protocol';
 import { ParkLoop } from './park/loop';
 import type { CabinetSummary, ParkRecords } from '../../shared/protocol';
 import { playPark, playHand, playKnock, playPop, playDungeon, playPet } from './sounds';
@@ -397,13 +397,16 @@ export class Store {
   openPresent(id: string | null) { this.presentOpen = id; this.emit(); }
   presentSlide(slide: number) { if (this.presentation?.presenter === this.me) this.send({ t: 'present_slide', slide }); }
   presentStop() { this.send({ t: 'present_stop' }); }
+  presentShare(objectId: string) { this.send({ t: 'present_share', objectId }); }
+  presentFrame(seq: number, data: string) { this.send({ t: 'present_frame', seq, data }); }
+  frame: { seq: number; url: string } | null = null; // screen share: the latest frame (a data: URL)
   hideSlides(hidden: boolean) { this.slidesHidden = hidden; this.emit(); }
   /** For REST calls made as me (uploading slides). */
   get sessionId() { return this.session; }
   /** I'm presenting, or I'm in the screen's room (not in a meeting's copy of it). */
   inPresentationRoom() {
     const l = this.presentation, me = this.users.get(this.me);
-    return !!l && !!me && (l.presenter === me.id || (!me.instance && this.roomOf(me)?.id === l.room));
+    return !!l && !!me && (l.presenter === me.id || (presentScope(me.instance) === l.scope && (!!me.instance || this.roomOf(me)?.id === l.room)));
   }
   openLink(use: { label: string; url: string }) { this.linkOpen = use; this.emit(); }
   closeLink() { this.linkOpen = null; this.emit(); }
@@ -731,8 +734,14 @@ export class Store {
       case 'mute': { const u = this.users.get(msg.userId); if (u) { u.muted = msg.muted; if (msg.muted) u.speaking = false; } break; }
       case 'status': { const u = this.users.get(msg.userId); if (u) u.status = msg.status; break; }
       case 'presentation': {
-        if (msg.live?.deck.id !== this.presentation?.deck.id) this.slidesHidden = msg.live?.presenter !== this.me; // viewers are asked first (LiveChip)
+        if (msg.live?.deck?.id !== this.presentation?.deck?.id || msg.live?.presenter !== this.presentation?.presenter) this.slidesHidden = msg.live?.presenter !== this.me; // viewers are asked first (LiveChip)
+        if (!msg.live || msg.live.presenter !== this.presentation?.presenter || msg.live.deck?.id !== this.presentation.deck?.id) this.frame = null;
         this.presentation = msg.live; break;
+      }
+      case 'frame': {
+        const me = this.users.get(this.me);
+        if (!this.presentation || msg.scope !== this.presentation.scope || msg.scope !== presentScope(me?.instance) || msg.seq <= (this.frame?.seq ?? -1)) return;
+        this.frame = { seq: msg.seq, url: `data:image/jpeg;base64,${msg.data}` }; break;
       }
       case 'tz': { const u = this.users.get(msg.userId); if (u) { if (msg.tz) u.tz = msg.tz; else delete u.tz; } break; }
       case 'look': { const u = this.users.get(msg.userId); if (u) { u.look = msg.look; u.lookSet = msg.lookSet; if (msg.name) u.name = msg.name; } break; }

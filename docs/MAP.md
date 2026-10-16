@@ -140,7 +140,7 @@ A maze under the garden, not connected to the office: you fall in through the ho
 | I | `arcade` | Arcade | arcade | 54,13 10×10 | 12 | allow | open |  |  | 9 | arcade · open voice · walk in to talk |
 | J | `orangery` | Orangery | orangery | 1,25 14×8 | 12 | allow |  |  |  | 3 | plants · knock to talk |
 | K | `garden` | Garden | garden | 16,25 48×8 | 30 | allow |  |  |  | 11 | outside · knock to talk |
-| L | `admin` | Admin | admin | 65,3 9×8 | 4 | allow |  | admins |  | 2 | admins only · knock to talk |
+| L | `admin` | Admin | admin | 65,3 9×8 | 4 | allow |  | admins | yes | 2 | admins only · knock to talk |
 | M | `berghain` | Berghain | club | 65,13 9×10 | 20 | allow |  |  |  | 3 | club · knock to talk |
 | N | `terrace` | Terrace | garden | 28,26 11×6 | 8 | allow |  |  |  | 9 | lunch outside · knock to talk |
 | O | `library` | Library | library | 65,25 9×8 | 14 | later |  |  |  | 16 | in the library · knocks wait for later |

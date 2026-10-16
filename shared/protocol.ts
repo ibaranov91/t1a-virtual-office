@@ -220,16 +220,41 @@ export type LayoutEdit =
   | { op: 'move'; id: string; x: number; y: number }
   | { op: 'add'; type: string; x: number; y: number }
   | { op: 'remove'; id: string }
+  | { op: 'rotate'; id: string } // a chair or stool, a quarter turn clockwise
   | { op: 'rug_add'; x: number; y: number; color?: string; pattern?: string; w?: number; h?: number }
   | { op: 'rug'; id: string; color?: string; pattern?: string; w?: number; h?: number };
 
-/** Presentation mode: a deck of slide images shown on a screen object to everyone in its room. */
-export interface DeckInfo { id: string; title: string; count: number; ext: string[]; by: string; at: number } // ext: each slide's file extension
-export interface LiveDeck { deck: DeckInfo; slide: number; presenter: string; objectId: string; room: string; away?: boolean } // away: presenter disconnected, ends after PRESENT_AWAY_MS
+/** Presentation mode. The Meeting room's wall screen shows one thing at a time to everyone in its *scope*:
+ *  the office floor (`OFFICE_SCOPE`) or one meeting instance (the instance id), each with its own single presenter.
+ *  A show is either a deck of slide images from the presenter's own library, or their screen as a stream of JPEG frames. */
+export const OFFICE_SCOPE = 'office';
+export const presentScope = (instance: string | null | undefined) => instance ?? OFFICE_SCOPE;
+/** A deck in someone's library. `key` is a random token in every slide URL, so viewers can load the slides and nobody can enumerate decks. */
+export interface DeckInfo { id: string; title: string; count: number; ext: string[]; by: string; at: number; bytes: number; key: string } // ext: each slide's file extension
+export interface LiveDeck {
+  scope: string;            // OFFICE_SCOPE or a meeting instance id: only its members get `presentation` and `frame`
+  presenter: string; objectId: string; room: string;
+  away?: boolean;           // presenter disconnected, ends after PRESENT_AWAY_MS
+  deck: DeckInfo | null;    // null: screen share (frames)
+  slide: number;            // deck only
+  seq?: number;             // screen share: the latest frame's sequence number
+}
 export const PRESENT_AWAY_MS = 60_000;
 export const PRESENT_MAX_SLIDES = 60;
 export const PRESENT_MAX_BYTES = 30 * 1024 * 1024; // one upload, all slides together
-export const slideUrl = (d: DeckInfo, i: number) => `/api/present/${d.id}/${i + 1}.${d.ext[i]}`;
+export const PRESENT_USER_QUOTA = 100 * 1024 * 1024; // a person's whole library (env PRESENT_USER_QUOTA_MB overrides)
+export const PRESENT_TTL_MS = 24 * 3600_000;         // decks are swept this long after upload (env PRESENT_TTL_HOURS overrides)
+export const FRAME_MAX_BYTES = 300 * 1024;  // one JPEG frame, decoded
+export const FRAME_MIN_INTERVAL_MS = 400;    // the presenter sends at most this often; the server drops faster ones
+export const FRAME_MAX_SIDE = 1280;          // frames are scaled so the longer side fits this
+export const slideUrl = (d: DeckInfo, i: number) => `/api/present/${d.id}/${i + 1}.${d.ext[i]}?k=${d.key}`;
+/** REST (all with the session in `x-deck-session`; errors are `{ error }`, a busy screen is 409 `{ error, presenter }`):
+ *  GET  /api/present/decks                → DecksReply: my decks only, plus my usage
+ *  POST /api/present/upload               { title, objectId, files: base64 PNG/JPG[] | [one PDF] } → { deck } and it starts, if the screen is free
+ *  POST /api/present/start                { deck, objectId } → { deck }: show one of my decks
+ *  DELETE /api/present/<deckId>           → {}: one of mine; stops it if it's live
+ *  GET  /api/present/<deckId>/<n>.<ext>?k=<key>  a slide (no session needed, the key is the secret) */
+export interface DecksReply { decks: DeckInfo[]; used: number; limit: number }
 
 // server -> client
 export type ServerMsg =
@@ -297,7 +322,8 @@ export type ServerMsg =
   | { t: 'voice_wait'; roomId: string | null }
   | { t: 'voice_owner'; owner: boolean }
   | { t: 'look'; userId: string; look: Look; lookSet: boolean; name?: string }
-  | { t: 'presentation'; live: LiveDeck | null };
+  | { t: 'presentation'; live: LiveDeck | null } // to the scope's members only: what's on their screen (null: nothing). Re-sent when you change scope.
+  | { t: 'frame'; scope: string; seq: number; data: string }; // screen share: one JPEG frame, base64, to the scope's members except the presenter
 
 // client -> server
 export type ClientMsg =
@@ -368,6 +394,8 @@ export type ClientMsg =
   | { t: 'gift_hat'; targetId: string; style: string } // office admins only: put a hat in someone's pockets and on their head
   | { t: 'effect'; targetId: string; kind: string; on: boolean; style?: string }
   | { t: 'present_slide'; slide: number } // presenter only
+  | { t: 'present_share'; objectId: string } // beside the screen: start sharing my screen (a busy screen answers with a `notice`)
+  | { t: 'present_frame'; seq: number; data: string } // presenter only, while sharing: one JPEG frame, base64 (≤ FRAME_MAX_BYTES decoded), at most every FRAME_MIN_INTERVAL_MS
   | { t: 'present_stop' };                // presenter only
 
 /** An IANA zone name this runtime knows ('Europe/Warsaw'), so a client can't put arbitrary text on everyone's screen. */
