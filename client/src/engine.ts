@@ -40,7 +40,7 @@ const SIT_FRAME = 5;
 type PlacedPlant = { u: ClientUser; x: number; y: number; base: number };
 const FRONT: Record<string, [number, number]> = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
 
-type BubbleKind = 'bubble_game' | 'bubble_watch' | 'bubble_bang' | 'bubble_headset' | 'bubble_zzz' | 'bubble_meeting' | 'bubble_think' | 'bubble_talk' | 'bubble_hand' | 'bubble_deaf';
+type BubbleKind = 'bubble_game' | 'bubble_watch' | 'bubble_bang' | 'bubble_headset' | 'bubble_zzz' | 'bubble_meeting' | 'bubble_think' | 'bubble_talk' | 'bubble_hand' | 'bubble_deaf' | 'bubble_mute_deaf';
 // where the bag hangs when carried, per facing; behind = drawn before the body
 const BAG_HAND: Record<string, { dx: number; behind: boolean }> = {
   down: { dx: 10, behind: false }, up: { dx: -3, behind: false }, left: { dx: 7, behind: true }, right: { dx: -1, behind: true },
@@ -1111,7 +1111,7 @@ export class Engine {
     if (u.emote === 'knock') return 'bubble_bang';
     // in the Arcade's open voice everyone is in the room call: show the joystick/eyes unless they're talking
     if (u.game && !u.speaking && (!u.callId || u.callId.startsWith('room:'))) return u.game.role === 'player' ? 'bubble_game' : 'bubble_watch';
-    if (u.callId) return u.deafened ? 'bubble_deaf' : 'bubble_talk';
+    if (u.callId) return u.deafened ? u.muted ? 'bubble_mute_deaf' : 'bubble_deaf' : 'bubble_talk';
     if (!underground(u) && (u.instance || u.meeting)) return 'bubble_meeting'; // a real calendar meeting, not just standing in the Meeting room; beats a manual "In a call"
     if (u.presence === 'in_call') return 'bubble_headset';
     if (u.presence === 'away') return 'bubble_zzz';
@@ -1174,7 +1174,7 @@ export class Engine {
     }
     if (kind === 'bubble_bang') dy += Math.floor(ms / 180) % 2 ? -1 : 0;
     else dy += Math.floor((ms + hash(u.id) * 13) / 600) % 2 ? 0 : -1;
-    this.blit(ctx, kind, x + 9, baseY - 24 - 12 + dy);
+    this.blit(ctx, kind, x + (kind === 'bubble_mute_deaf' ? 4 : 9), baseY - 24 - 12 + dy); // the wide bubble shifts left so its tail stays over the head
   }
 
   /** Fake turn-taking for two people on a call, from server time so every viewer sees the same conversation. */
