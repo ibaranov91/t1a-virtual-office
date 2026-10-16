@@ -10,6 +10,7 @@ import {
 } from '../../shared/protocol';
 import { FOOD_ITEMS, LUNCH_MS, PLATE_PREFIX, picnicSeat, type Eating } from '../../shared/lunch';
 import { INSTRUMENTS, validNote } from '../../shared/instruments';
+import { phrase } from '../../shared/phrases';
 import { ADMIN_HAT, ALL_HATS, BAT_HAT, DANCE_ROOM, EFFECTS, HAT_NAMES, MAX_EFFECTS, RAVER_MS, hatItem, hatOf, walkMs } from '../../shared/effects';
 import { tracksFor } from '../../shared/music';
 import { Arcade } from './arcade';
@@ -590,7 +591,7 @@ export class World {
       else if (current.use.kind === 'dealer') {
         const want = itemId && current.use.items.includes(itemId) ? itemId : current.use.items[0];
         const hat = hatOf(want);
-        if (this.addItem(u, want)) this.sendTo(u.id, { t: 'notice', text: hat ? `${HAT_NAMES[hat] ?? hat} · in your pockets 🎒` : 'The bouncer slips you something 💊' });
+        if (this.addItem(u, want)) this.sendTo(u.id, { t: 'notice', text: hat ? `${HAT_NAMES[hat] ?? hat} · in your pockets 🎒` : phrase('bouncer', 'deal') });
       }
       else if (item) {
         this.setHolding(u, item.id, o.id);
