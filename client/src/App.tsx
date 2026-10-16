@@ -3,6 +3,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalS
 import { loadAssets, type Assets } from './assets';
 import { Engine, type Pick } from './engine';
 import { Voice } from './voice';
+import { TableOverlay } from './table/TableOverlay';
 import { ArcadeOverlay, RecordsPopover } from './park/ArcadeOverlay';
 import { Soundscape } from './soundscape';
 import { needsGesture, resume } from './audio';
@@ -113,7 +114,7 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
   const [assets, setAssets] = useState<Assets | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const chromeRef = useRef<HTMLDivElement>(null);
-  useLayoutEffect(() => { if (chromeRef.current) chromeRef.current.inert = store.gameOpen; }, [store.gameOpen]);
+  useLayoutEffect(() => { if (chromeRef.current) chromeRef.current.inert = store.gameOpen || !!store.table; }, [store.gameOpen, store.table]);
   const engineRef = useRef<Engine | null>(null);
   const [showRooms, setShowRooms] = useState(() => window.innerWidth > 900);
   const [showMeet, setShowMeet] = useState(false);
@@ -151,6 +152,7 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
       // a wall calendar opens your calendar right away (nothing to walk over for)
       const use = p?.kind === 'object' ? MAP.objects.find(o => o.id === p.id)?.use : undefined;
       if (use?.kind === 'instrument' && p) { setPick(null); return store.playInstrument(p.id); }
+      if (use?.kind === 'table' && p) { setPick(null); return store.use(p.id); }
       if (use?.kind === 'arcade' && p) { setPick(null); return store.use(p.id); }
       if (use?.kind === 'dance' && p) { setPick(null); return store.dance(p.id); }
       if (use?.kind === 'records') { setPick(null); return store.openRecords(); }
@@ -235,10 +237,11 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
         </div>
         {personMenu && <PersonMenu key={personMenu.id} store={store} at={personMenu} onClose={() => setPersonMenu(null)} />}
         {store.seat && <InstrumentPanel key={store.seat} store={store} id={store.seat}
-          dialogOpen={!!(showAppearance || showMeet || store.pendingKnock || store.calendarOpen || store.meetingsOpen || store.clockOpen || store.jukeboxOpen || store.libraryOpen || !!me?.reading || store.achievementsOpen || store.presentOpen || store.chatWith || personMenu || pick)} />}
+          dialogOpen={!!(store.table || showAppearance || showMeet || store.pendingKnock || store.calendarOpen || store.meetingsOpen || store.clockOpen || store.jukeboxOpen || store.libraryOpen || !!me?.reading || store.achievementsOpen || store.presentOpen || store.chatWith || personMenu || pick)} />}
         <Dock store={store} voice={voice} engine={engine} roomsOpen={showRooms} onRooms={() => setShowRooms(s => !s)} />
       </div>
       </div>
+      {store.table && assets && <TableOverlay store={store} assets={assets} />}
       {store.gameOpen && assets && store.park && <ArcadeOverlay store={store} assets={assets} voice={voice} />}
     </div>
   );

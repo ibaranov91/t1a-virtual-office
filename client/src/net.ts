@@ -1,3 +1,5 @@
+import { TABLE_GAMES, type TableView, type TableGameId } from '../../shared/table/types';
+import { playTable } from './sounds';
 // WebSocket client + the client-side mirror of server state.
 import mapJson from '../../shared/tilemap.json';
 import { applyLayout, besideObject, doorwayTiles, isWalkable, objectById, pathTo, roomAt, sampleMove, type Dir, type Tile, type TileMap } from '../../shared/map';
@@ -83,6 +85,7 @@ export class Store {
   arcadeRecords: ParkRecords = {};
   arcadeBoards: ArcadeBoards = { records: {}, week: emptyWeek(''), hall: [] };
   recordsOpen = false;
+  table: TableView | null = null;
   gameCheers = new Map<string, { kind: 0 | 1 | 2; at: number }>();
   chats = new Map<string, ChatMsg[]>(); // by the other person's id
   unread = new Map<string, number>();
@@ -150,6 +153,20 @@ export class Store {
     this.send({ t: 'note', objectId: this.seat, note, on, vel, preset, at });
   }
   // ---------- actions ----------
+  tablePick(game: TableGameId, invite?: string[], rematch = false) { this.send({ t: 'table_pick', game, invite, rematch }); }
+  tableStart() { this.send({ t: 'table_start' }); }
+  tableMove(move: unknown) { const v = this.table; if (v?.match) this.send({ t: 'table_move', matchId: v.match.id, revision: v.revision, move }); }
+  tableDraw(offer: boolean) { const m = this.table?.match; if (m) this.send({ t: 'table_draw', matchId: m.id, offer }); }
+  tableResign() { const m = this.table?.match; if (m) this.send({ t: 'table_resign', matchId: m.id }); }
+  tableLeave() { this.send({ t: 'table_leave' }); }
+  tableDescription(objectId: string, userId?: string) {
+    const status = userId ? this.users.get(userId)?.table : [...this.users.values()].find(u => u.table?.objectId === objectId && u.table.running)?.table;
+    if (!status) return 'Game table · Chess, Checkers, Dominoes, Last Card';
+    const game = status.game ? TABLE_GAMES[status.game] : 'pick a game';
+    if (status.role === 'watcher' || userId && status.running && !status.players.includes(userId)) return `Watching ${game} at the game table`;
+    const peers = status.players.filter(id => id !== userId).map(id => this.name(id));
+    return `At the game table · ${game}${peers.length ? ` with ${peers.join(', ')}` : ''}`;
+  }
   openRecords(open = true) { this.recordsOpen = open; this.emit(); }
   gamePlay() { const s = this.park?.runner.session; if (s) this.send({ t: 'game_play', epoch: s.epoch }); }
   gameLeave() {
@@ -491,6 +508,15 @@ export class Store {
           if (this.gameOpen) playPark('cheer');
         }
         return;
+      case 'table': {
+        const old = this.table; this.table = msg.view;
+        if (msg.view) {
+          this.offset = msg.view.serverNow - Date.now();
+          if (old?.match && old.match.id === msg.view.match?.id && old.revision !== msg.view.revision && old.match.state.ply !== msg.view.match.state.ply) playTable(!!msg.view.match.state.result);
+        }
+        break;
+      }
+      case 'table_status': { const u = this.users.get(msg.userId); if (u) u.table = msg.table; break; }
       case 'arcade': this.cabinets = msg.cabinets; break;
       case 'arcade_boards': this.arcadeBoards = msg.boards; this.arcadeRecords = msg.boards.records; break;
       case 'call_moved':

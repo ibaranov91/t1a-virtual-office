@@ -1,3 +1,5 @@
+import type { TableView, TableGameId, TableStatus } from './table/types';
+export type { TableView, TableGameId } from './table/types';
 import type { GameRole, ArcadeIncoming, ArcadeOutgoing, ArcadeBoards } from './arcade/types';
 export { PARK_FPS, PARK_INPUT_DELAY, PARK_SERVER_LAG, PARK_SPECTATOR_DELAY, PARK_MAX_PLAYERS } from './arcade/types';
 export type { GameRole, GameEvent, GameMember, GameClear, PublicSession, ParkRecord, ParkRecords, CabinetSummary, ArcadeBoards } from './arcade/types';
@@ -138,6 +140,7 @@ export interface PublicUser {
   homeDesk: Tile | null;
   callId: string | null;
   game: { cabinet: string; role: GameRole } | null;
+  table?: TableStatus | null;
   deafened: boolean; hand: boolean;
   muted: boolean;        // mic muted in that call
   following: string | null; // walks along with this person
@@ -229,6 +232,8 @@ export const slideUrl = (d: DeckInfo, i: number) => `/api/present/${d.id}/${i + 
 
 // server -> client
 export type ServerMsg =
+  | { t: 'table'; view: TableView | null } // private: owner socket only
+  | { t: 'table_status'; userId: string; table: TableStatus | null }
   | ArcadeIncoming
   | CreatureServerMsg
   | { t: 'game_status'; userId: string; game: PublicUser['game'] }
@@ -295,6 +300,12 @@ export type ServerMsg =
 
 // client -> server
 export type ClientMsg =
+  | { t: 'table_pick'; game: TableGameId; invite?: string[]; rematch?: boolean } // host invitations, or a rematch proposal
+  | { t: 'table_start' } // invited sitter: Join; host: Start
+  | { t: 'table_move'; matchId: string; revision: number; move: unknown }
+  | { t: 'table_resign'; matchId: string }
+  | { t: 'table_draw'; matchId: string; offer: boolean } // offer, accept opponent's offer, or decline (false)
+  | { t: 'table_leave' }
   | { t: 'crew_name'; name: string }
   | { t: 'game_predict'; epoch: number; userId: string }
   | { t: 'game_favourite'; epoch: number; userId: string }

@@ -1752,6 +1752,40 @@ for (const axis of ['h', 'v']) { // a room door only admins open: the closed doo
   });
 }
 
+// ---------- game table (fixed pixels; no shared random calls) ----------
+{
+  for (const running of [false, true]) {
+    const t = new Img(32, 24);
+    t.rect(3, 15, 3, 8, '#594035'); t.rect(26, 15, 3, 8, '#594035');
+    t.rect(1, 2, 30, 15, '#9a6c47'); t.rect(2, 3, 28, 11, '#b98b5d'); t.hline(2, 3, 28, '#dfb87d');
+    t.rect(4, 5, 24, 8, '#42675a');
+    if (running) {
+      for (let y = 0; y < 4; y++) for (let x = 0; x < 8; x++) t.rect(8 + x * 2, 5 + y * 2, 2, 2, (x + y) % 2 ? '#42675a' : '#e6d6af');
+      for (const [x, y, c] of [[9,6,'#fff0d3'],[13,8,'#fff0d3'],[19,10,'#302a35'],[21,6,'#302a35']]) t.px(x,y,c);
+    } else { t.rect(9,6,5,5,'#e6d6af'); t.rect(18,6,5,5,'#302a35'); }
+    frames[running ? 'game_table_on' : 'game_table'] = t.outline();
+  }
+  for (const colour of ['w','b']) {
+    const body = colour === 'w' ? '#fff0d3' : '#494152', shade = colour === 'w' ? '#c6aa82' : '#302a35', shine = colour === 'w' ? '#fff9e9' : '#8a7d96';
+    for (const piece of ['p','r','n','b','q','k']) {
+      const t = new Img(16,16);
+      t.rect(3,12,10,2,shade); t.hline(4,11,8,body); t.rect(6,8,4,3,body);
+      if (piece === 'p') { t.ellipse(8,5,3,3,body); t.hline(7,3,3,shine); }
+      if (piece === 'r') { t.rect(4,4,8,5,body); for (let x=4;x<12;x+=3) t.rect(x,2,2,3,body); t.hline(5,5,6,shine); }
+      if (piece === 'n') { t.rect(5,4,6,5,body); t.rect(3,6,4,2,body); t.rect(8,2,2,3,body); t.px(6,5,shade); t.hline(6,3,3,shine); }
+      if (piece === 'b') { t.ellipse(8,5,3,4,body); t.px(8,1,shine); t.px(8,4,shade); t.px(9,3,shade); }
+      if (piece === 'q') { t.rect(5,5,6,4,body); for (const x of [3,7,11]) { t.rect(x,2,2,4,body); t.px(x,1,shine); } t.hline(5,7,6,shade); }
+      if (piece === 'k') { t.rect(5,5,6,4,body); t.rect(7,0,2,5,body); t.hline(5,2,6,shine); }
+      frames[`chess_${colour}_${piece}`] = t.outline();
+    }
+    for (const king of [false,true]) {
+      const t = new Img(16,16); t.ellipse(8,10,6,3,shade); t.ellipse(8,8,6,3,body); t.hline(5,6,6,shine);
+      if (king) { t.hline(5,9,6,shade); for (const x of [5,8,10]) { t.px(x,7,shade); t.px(x,8,shade); } }
+      frames[`checkers_${colour}_${king ? 'king' : 'man'}`] = t.outline();
+    }
+  }
+}
+
 // ---------- pack world atlas (shelf packer) ----------
 const names = Object.keys(frames).sort((a, b) => frames[b].h - frames[a].h || frames[b].w - frames[a].w);
 const AW = 256; let x = 0, y = 0, rowH = 0; const rects = {};

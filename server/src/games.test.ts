@@ -58,12 +58,13 @@ for (const id of ['crumble', 'crown'] as const) for (const [n, teams] of [[2, fa
     assert.equal(hash(runner.state), hash(sim)); assert.ok(runner.debug.rollbacks > 0); assert.equal(runner.debug.desyncs, 0);
   });
 }
-test('crumble: cracks stay solid for 30 frames; pound breaks centre and neighbours once', () => {
+test('crumble: cracks stay solid for CRUMBLE_DELAY frames; pound breaks centre and neighbours once', async () => {
   const s = crumble.init(1, roster(2), { mode: 'ffa' });
   for (const p of s.players.filter(p => p.present)) p.x = 5 * TILE;
   crumble.step(s, joins(roster(2)));
   const t = s.tiles.find(t => t.x === 5 && t.y === 2)!; assert.equal(t.crackAt, 0);
-  while (s.frame < 30) crumble.step(s, []); assert.equal(t.gone, false);
+  const { CRUMBLE_DELAY } = await import('../../shared/arcade/games/crumble');
+  while (s.frame < CRUMBLE_DELAY) crumble.step(s, []); assert.equal(t.gone, false);
   crumble.step(s, []); assert.equal(t.gone, true);
   const q = crumble.init(3, roster(2), { mode: 'ffa' }), p = q.players[0]; p.x = 8 * TILE; p.y = 3 * TILE; p.grounded = false; p.vy = 0;
   crumble.step(q, [[0, 0, 0, 32]]);
@@ -324,18 +325,18 @@ test('screenrun: swept eight-frame dash and shove, camera acceleration, heat and
 });
 test('volley: contact edges, six-frame immunity, fourth-touch fault, crossing reset and air spike', async () => {
   const { volley } = await import('../../shared/arcade/games/volley');
-  const s = volley.init(0, roster(2), { mode: 'ffa' }), p = s.players[0]; p.y = 100 * SUB;
+  const s = volley.init(0, roster(2), { mode: 'ffa' }), p = s.players[0]; p.y = 100 * SUB; s.hold = 0;
   const contact = () => Object.assign(s.ball, { x: p.x + 3 * SUB, y: p.y + 4 * SUB, vx: 0, vy: 0 });
   contact(); volley.step(s, []); assert.equal(s.touches[0], 1); assert.equal(s.ball.vy, -112);
   contact(); volley.step(s, []); assert.equal(s.touches[0], 1);
   s.overlap[0] = false; contact(); volley.step(s, []); assert.equal(s.touches[0], 1);
   s.cooldown[0] = 0; s.overlap[0] = false; s.touches[0] = 3; contact(); volley.step(s, []); assert.equal(s.points[1], 1); assert.equal(s.serve, 0); assert.deepEqual(s.touches, [0,0]);
-  s.touches[0] = 2; Object.assign(s.ball, { x: 200 * SUB, y: 40 * SUB, vx: 0, vy: 0 }); volley.step(s, []); assert.deepEqual(s.touches, [0,0]);
+  s.hold = 0; s.touches[0] = 2; Object.assign(s.ball, { x: 200 * SUB, y: 40 * SUB, vx: 0, vy: 0 }); volley.step(s, []); assert.deepEqual(s.touches, [0,0]);
   s.cooldown[0] = 0; s.overlap[0] = false; s.lastSide = 0; contact(); volley.step(s, [[s.frame,0,0,32]]); assert.equal(s.ball.vy, 96); assert.equal(s.ball.vx, 128); assert.equal(p.stats.spikes, 1);
 });
 test('volley: losing side serves, last scorer stats, seven points, regulation, golden point and draw caps', async () => {
   const { volley } = await import('../../shared/arcade/games/volley');
-  const s = volley.init(0, roster(2), { mode: 'ffa' }); s.points[0] = 6; s.lastToucher = 0; Object.assign(s.ball, { x: 290 * SUB, y: 170 * SUB, vx: 0, vy: 80 });
+  const s = volley.init(0, roster(2), { mode: 'ffa' }); s.hold = 0; s.points[0] = 6; s.lastToucher = 0; Object.assign(s.ball, { x: 290 * SUB, y: 170 * SUB, vx: 0, vy: 80 });
   volley.step(s, []); assert.equal(s.points[0], 7); assert.equal(s.players[0].stats.points, 1); assert.equal(s.serve, 1); assert.deepEqual(s.outcome!.order, [[0],[1]]);
   const reg = volley.init(0, roster(2), { mode: 'ffa' }); reg.frame = 5399; reg.points = [2,1]; volley.step(reg, []); assert.deepEqual(reg.outcome!.order, [[0],[1]]);
   const golden = volley.init(0, roster(2), { mode: 'ffa' }); golden.frame = 5399; volley.step(golden, []); assert.equal(golden.outcome, null);
@@ -421,7 +422,7 @@ test('quiver: arrows touch across the horizontal wrap seam', async () => {
   quiver.step(s,[]); assert.equal(s.players[0].alive,false);
 });
 test('volley: normal hits retain subpixel centre offset before the integer division', async () => {
-  const { volley }=await import('../../shared/arcade/games/volley'); const s=volley.init(0,roster(2),{mode:'ffa'}),p=s.players[0]; p.y=100*SUB;
+  const { volley }=await import('../../shared/arcade/games/volley'); const s=volley.init(0,roster(2),{mode:'ffa'}),p=s.players[0]; p.y=100*SUB; s.hold=0;
   Object.assign(s.ball,{x:p.x+SUB+8,y:p.y+4*SUB,vx:0,vy:0}); volley.step(s,[]); assert.equal(s.ball.vx,3);
 });
 test('trails: leaving an alive bike awards survivor points once; already dead departures do not score twice', async () => {

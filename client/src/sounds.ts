@@ -161,3 +161,12 @@ export function playDungeon(event: 'fell' | 'key' | 'locked' | 'opening' | 'esca
     else [523, 659, 784].forEach((hz, i) => note(i * .11, hz, hz, .23, .045));
   } catch { /* audio unavailable: stay silent */ }
 }
+
+// ---------- game table (Effects bus) ----------
+export function playTable(finished = false) {
+  try {
+    const c = audio(), at = c.currentTime + .01, out = categoryOutput('effects');
+    tone(c, out, at, { hz: finished ? 440 : 220, to: finished ? 660 : 160, level: .065, attack: .004, decay: .12, type: 'triangle' });
+    if (finished) tone(c, out, at + .12, { hz: 880, level: .045, attack: .008, decay: .22 });
+  } catch { /* audio unavailable */ }
+}

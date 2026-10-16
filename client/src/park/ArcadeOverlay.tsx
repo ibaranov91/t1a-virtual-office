@@ -1,3 +1,4 @@
+import { TABLE_GAMES, type TableGameId } from '../../../shared/table/types';
 import { useEffect, useRef, useState } from 'react';
 import type { Assets } from '../assets';
 import type { Store } from '../net';
@@ -151,7 +152,7 @@ export function RecordsPopover({ store }: { store: Store }) {
       <div className="park-records-scroll">
         {tab === 'This week' && <><p>Week of {boards.week.key || '…'} · Europe/Warsaw · best 10 sets</p>{ranking(Object.fromEntries(Object.entries(boards.week.players).map(([id, p]) => [id, weeklyTotal(p)])), 'Points')}</>}
         {tab === 'Oracle' && ranking(boards.week.oracle, 'Correct predictions')}
-        {tab === 'Table' && <p className="muted">No table results yet.</p>}
+        {tab === 'Table' && <>{(Object.entries(TABLE_GAMES) as [TableGameId, string][]).map(([id, name]) => <section key={id}><h3>{name}</h3>{ranking(boards.week.table[id] ?? {}, 'Wins')}</section>)}</>}
         {tab === 'Champions' && <>{Object.keys(boards.week.champions).length ? Object.entries(boards.week.champions).map(([id, wins]) => <section key={id}><h3>King of {gameDef(id as GameId).name}</h3>{ranking(wins, 'Round wins')}</section>) : <p className="muted">Finish a Break Set to crown a champion.</p>}</>}
         {tab === 'Hall of Fame' && (boards.hall.length ? <table><thead><tr><th>Week</th><th>Champion</th><th>Points</th></tr></thead><tbody>{boards.hall.slice().reverse().map(r => <tr key={`${r.week}:${r.userId}`}><td>{r.week}</td><td>{r.name}</td><td>{r.points}</td></tr>)}</tbody></table> : <p className="muted">Weekly champions will appear here.</p>)}
         {tab === 'Deck Park' && <table><caption className="sr-only">Best co-op runs by level and team size</caption>
