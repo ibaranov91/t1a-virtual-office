@@ -1,9 +1,9 @@
 import { test, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { BAT_RESPAWN_MS, CLEAN_MS, STALL_CLEAN_MS, CUP_LINGER_MS, CUP_TTL_MS, PET_FOLLOW_MS, PET_MS, Creatures, flightPath } from './creatures';
+import { BAT_RESPAWN_MS, CLEAN_MS, STALL_CLEAN_MS, CUP_LINGER_MS, CUP_TTL_MS, PAW_MS, PET_FOLLOW_MS, PET_MS, Creatures, flightPath, groundFor, wetAt } from './creatures';
 import { World } from './world';
-import { isWalkable, stallDoor, type TileMap, type Tile } from '../../shared/map';
+import { findPath, isWalkable, stallDoor, type TileMap, type Tile } from '../../shared/map';
 import { MAX_CUPS, type ServerMsg } from '../../shared/protocol';
 import { PHRASES } from '../../shared/phrases';
 
@@ -228,4 +228,39 @@ test('the cleaner scrubs an out-of-order toilet stall and puts it back in order'
   assert.equal(lady.pose, 'clean'); assert.deepEqual(cleaned, [], 'still dirty while she scrubs');
   c.tick(now + STALL_CLEAN_MS, may);
   assert.deepEqual(cleaned, [stall.id]);
+});
+
+/** Math.random answers these in order, then 0.5. */
+const rolls = (t: TestContext, xs: number[]) => t.mock.method(Math, 'random', () => xs.shift() ?? 0.5);
+const beachRoll = () => { const rooms = map.rooms.filter(r => r.id !== 'meeting'), i = rooms.findIndex(r => r.id === 'beach'); return (i + 0.5) / rooms.length; };
+const beach = map.rooms.find(r => r.id === 'beach')!.rect;
+
+test('the cat keeps its paws dry and the dog stays in its depth', () => {
+  const cat = findPath(groundFor(map, 'cat'), { x: 30, y: 40 }, { x: 75, y: 40 });
+  assert.ok(cat.length && cat.every(p => !wetAt(map, p)));
+  assert.ok(!isWalkable(groundFor(map, 'cat'), 40, 41) && isWalkable(groundFor(map, 'dog'), 40, 41) && !isWalkable(groundFor(map, 'dog'), 40, 42));
+  assert.equal(groundFor(map, 'cleaner'), map);
+});
+
+test('the cat dabs at the water with a paw at the edge, then backs off up the beach', (t: TestContext) => {
+  const { c } = setup(), cat = c.add('cat', 'Biscuit', { x: 40, y: 37 });
+  cat.nextSayAt = Infinity; // no idle line, so the rolls below all go to wander
+  rolls(t, [0.5, beachRoll(), (40.5 - beach.x) / beach.w, (42.5 - beach.y) / beach.h]); // a spot out in the sea
+  c.tick(1000);
+  assert.deepEqual(cat.walk?.path.at(-1), { x: 40, y: 40 }, 'to the edge, not into the water');
+  assert.ok(cat.walk!.path.every(p => !wetAt(map, p)));
+  c.tick(cat.until); assert.equal(cat.pose, 'paw');
+  c.tick(cat.until + PAW_MS);
+  assert.ok(PHRASES.cat.water.includes(cat.say as never));
+  assert.ok(cat.walk && cat.tile.y < 40, 'back up the beach');
+});
+
+test('the dog wades out of the shallows and shakes off', (t: TestContext) => {
+  const { c } = setup(), dog = c.add('dog', 'Rex', { x: 40, y: 41 });
+  rolls(t, []);
+  c.tick(1000);
+  assert.deepEqual(dog.walk?.path.at(-1), { x: 40, y: 40 });
+  c.tick(dog.until);
+  assert.equal(dog.pose, 'shake');
+  assert.ok(PHRASES.dog.shake.includes(dog.say as never));
 });

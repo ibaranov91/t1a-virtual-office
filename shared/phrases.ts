@@ -13,10 +13,12 @@ export const PHRASES = {
       'Strong spirits. Weak pathfinding.', 'Meow. HR would like a word.', 'You smell like a retrospective.',
       'A stand-up? You can barely stand.', 'That coconut is your new manager.', 'I judge. You hydrate.',
       'Nine lives. Zero hangovers. Learn.'], // sitting beside a drunk person
+    water: ['Wet. Rude.', 'Nope.', 'Absolutely not.', 'Who spilled the sea?', 'I\'ll admire it from here.', 'Pass.'], // backing off after a paw in the water
   },
   dog: {
     idle: ['Woof!', 'Ball? Ball? BALL?', 'Who\'s a good boy? Me.', 'Something smells like lunch.', 'Sniff sniff.', 'Walk? Walk!', 'I heard the fridge.', 'Wag wag wag.'],
     pet: ['Best. Day. Ever.', 'Woof woof!', 'More ears, please.', 'Friend!', 'Belly next?'],
+    shake: ['Splash!', 'Shake shake shake!', 'Who wants a hug?', 'Wet dog incoming!', 'Best. Swim. Ever.'], // out of the water
   },
   bouncer: {
     idle: ['Not tonight.', 'ID?', 'No photos inside.', 'The line starts there.', 'Wrong shoes.', 'I know a guy.', 'Don\'t ask what\'s in it.', 'Techno only. House is a lifestyle.'],

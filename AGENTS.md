@@ -155,7 +155,8 @@ npm run typecheck    # run before every commit or deploy
   fall/key/door timers on any later walk or placement. The server owns key state and sends it only to its owner;
   client discovery resets per visit. Neither is persisted.
 - **Creatures and cups** (`server/src/creatures.ts`, drawn by `client/src/creatures.ts`): a cat, a dog, a bat (October only; `BAT=1`, which `npm run dev` sets, keeps it out all year)
-  and the cleaner. Not users: their own `creatures`/`creature` messages, never in the people list, never knock. They run
+  and the cleaner. The cat never steps in water (`groundFor`): it dabs at the sea from the edge (`paw`) and backs off; the dog
+  paddles in the shallows, never the deep, and shakes off on the sand (`shake`). Not users: their own `creatures`/`creature` messages, never in the people list, never knock. They run
   everywhere, prod included (`PETS=0` turns them off). Holding a coffee or tea, click a table tile to put the cup down
   (`cup_put`; at most `MAX_CUPS`, saved in `state.json`); the cleaner paths to settled cups, wipes, takes them away. Cups
   also vanish after 30 min. Clicking someone's cup walks you over and clears it (`cup_take`, plates excluded); if the cleaner

@@ -1394,6 +1394,13 @@ for (const open of [false, true]) {
     t.px(8, 3, OUT); t.px(10, 3, OUT); t.px(9, 4, PINK);
     t.hline(1, 10, 4, C); t.px(1, 9, CD);
   });
+  for (const f of [0, 1]) frames[`cat_paw_${f}`] = cat(t => { // sitting at the water's edge, one front paw dabbing at it
+    t.ellipse(8, 7.5, 3.5, 3.5, C); t.ellipse(9, 8, 1.5, 2.5, CL); t.hline(4, 10, 6, CD);
+    t.ellipse(9, 3.5, 2.6, 2.3, C); t.px(7, 1, C); t.px(11, 1, C); t.px(7, 0, CD); t.px(11, 0, CD);
+    t.px(8, 3, OUT); t.px(10, 3, OUT); t.px(9, 4, PINK);
+    if (f) { t.hline(11, 8, 2, C); t.px(13, 7, CL); } else { t.vline(12, 9, 2, C); t.px(13, 10, CL); }
+    t.hline(1, 10, 4, C); t.px(1, 9, CD);
+  });
   frames.cat_nap = cat(t => {
     t.ellipse(7.5, 8.5, 5.5, 2.6, C); t.hline(3, 7, 8, CD);
     t.ellipse(12, 8.5, 2.4, 2, C); t.px(11, 6, C); t.px(13, 6, CD); t.hline(11, 8, 2, OUT);
