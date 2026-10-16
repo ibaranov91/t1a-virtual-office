@@ -94,7 +94,7 @@ export class Voice {
   }
   private checkInside() {
     const me = this.store.users.get(this.store.me), room = this.store.roomCallOf(me);
-    const inside = !!me && !me.instance && (!room || this.store.roomOf(me)?.id === room.id);
+    const inside = !!me && (me.instance ? this.store.inRoomVoice : !room || this.store.roomOf(me)?.id === room.id);
     if (inside === this.insideRect) return;
     this.insideRect = inside; this.sendRule(); this.store.changed();
   }

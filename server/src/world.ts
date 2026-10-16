@@ -45,7 +45,9 @@ export interface User extends PublicUser {
   afk?: boolean;
 }
 
-interface Call { id: string; members: Set<string>; link?: string; fallback: boolean; room?: Room }
+interface Call { id: string; members: Set<string>; link?: string; fallback: boolean; room?: Room; instance?: string } // room: open-voice hall; instance: set when the hall is a meeting room's own (id `room:<instance>`, room = the Meeting room)
+const knockCall = (c?: Call) => !!c && !c.room;
+interface Instance { id: string; end: number; members: Set<string>; talk: Set<string>; out: Set<string>; meet?: string; meetBusy?: boolean } // talk: on the room's voice (private rooms: everyone, calendar meetings: who opted in); out: left it on purpose; meet: the room's shared Meet link
 
 // data/state.json format; bump it with a migration in load that checks data.version
 export const STATE_VERSION = 1;
@@ -76,7 +78,7 @@ const DOOR_PAUSE_MS = 400;   // a beat at the door before vanishing
 const goingOut = (u: User) => u.door === 'thinking' || u.door === 'leaving';
 const FOLLOW_LAG_MS = 300;   // followers set off a beat after the person they follow
 const HOLD_MS = 3 * 60_000;  // a coffee lasts this long
-const USE_MS = { take: 1200, toggle: 150, toilet: 300, dealer: 350, bell: 100, presentation: 100 }; // brewing a coffee vs flicking a switch
+const USE_MS = { take: 1200, toggle: 150, toilet: 300, dealer: 350, bell: 100, presentation: 100, room_start: 100 }; // brewing a coffee vs flicking a switch
 const ARRIVAL_SLACK_MS = 50; // timers can fire a millisecond before the walk is over
 
 /** Office admins rearrange the furniture: NetBird emails, or (only for name logins, so dev) plain names. */
@@ -233,6 +235,8 @@ export class World {
     this.present?.back(u.id);
     const call = u.callId ? this.calls.get(u.callId) : undefined; // a reloaded page gets its call's Meet link back
     if (call) send({ t: 'call', userId: u.id, callId: call.id, link: call.link });
+    const inst = u.instance ? this.instances.get(u.instance) : undefined;
+    if (inst?.meet) send({ t: 'room_meet', instance: inst.id, link: inst.meet });
     this.setOwner(userId, socket);
     return { socket, close: () => {
       this.listeners.delete(listener);
@@ -567,7 +571,7 @@ export class World {
   use(u: User, objectId: string, itemId?: string) {
     this.cancelSeatWalk(u.id);
     const o = this.map.objects.find(o => o.id === objectId);
-    if (!o || !routes(o.use, 'use') || goingOut(u) || (u.instance && (underground(u) || o.use.kind !== 'presentation')) || u.presence === 'offline' || ((o.use.kind === 'arcade' || o.use.kind === 'presentation') && u.bot)) return;
+    if (!o || !routes(o.use, 'use') || goingOut(u) || (u.instance && (underground(u) || o.use.kind !== 'presentation')) || u.presence === 'offline' || ((o.use.kind === 'arcade' || o.use.kind === 'presentation' || o.use.kind === 'room_start') && u.bot)) return;
     const item = o.use.kind === 'take' ? o.use.items.find(i => i.id === itemId) ?? o.use.items[0] : null;
     if (o.use.kind === 'toilet') return this.useToilet(u, o);
     this.setFollowing(u, null);
@@ -606,6 +610,7 @@ export class World {
       if (current.use.kind === 'arcade') { if (!u.bot && this.sockets.get(u.id)?.size) this.arcade.join(u, current.id); return; }
       if (current.use.kind === 'bell') this.ringBell(u, current);
       else if (current.use.kind === 'presentation') { if (!u.bot) this.sendTo(u.id, { t: 'present_open', objectId: current.id }); }
+      else if (current.use.kind === 'room_start') { if (!u.bot) this.sendTo(u.id, { t: 'room_open' }); }
       else if (o.use!.kind === 'toggle') this.setObject(o.id, !this.objectOn.get(o.id), u);
       else if (current.use.kind === 'dealer') {
         const want = itemId && current.use.items.includes(itemId) ? itemId : current.use.items[0];
@@ -1128,7 +1133,7 @@ export class World {
 
   /** An accepted knock: join the call either of them is already in, or start a new one. Returns the call. */
   connectCall(from: User, to: User): Call {
-    const existing = [to, from].map(u => u.callId ? this.calls.get(u.callId) : undefined).find(c => c && !c.room);
+    const existing = [to, from].map(u => u.callId ? this.calls.get(u.callId) : undefined).find(knockCall);
     if (existing) {
       for (const u of [from, to]) this.joinCall(u, existing);
       return existing;
@@ -1268,9 +1273,9 @@ export class World {
   // A meeting's room is a copy of the Meeting room for its attendees only (instance). Everyone else sees
   // it on the board by the Meeting room; the people in it see only each other.
   meetings = new Meetings(this);
-  private instances = new Map<string, { id: string; end: number; members: Set<string> }>();
+  private instances = new Map<string, Instance>();
   meetingRooms() {
-    return [...this.instances.values()].map(i => ({ id: i.id, until: i.end, members: [...i.members] }));
+    return [...this.instances.values()].map(i => ({ id: i.id, until: i.end, members: [...i.members], voice: [...(this.calls.get(`room:${i.id}`)?.members ?? [])] }));
   }
   private meetingRect() { return this.map.rooms.find(r => r.id === MEETING_ROOM_ID)!.rect; }
   private inMeetingRoom(t: Tile) { const r = this.meetingRect(); return t.x >= r.x && t.x < r.x + r.w && t.y >= r.y && t.y < r.y + r.h; }
@@ -1300,7 +1305,7 @@ export class World {
     this.setFollowing(u, null);
     for (const f of this.users.values()) if (f.following === u.id) this.setFollowing(f, null);
     let inst = this.instances.get(m.instance);
-    if (!inst) { inst = { id: m.instance, end: m.end, members: new Set() }; this.instances.set(inst.id, inst); }
+    if (!inst) { inst = { id: m.instance, end: m.end, members: new Set(), talk: new Set(), out: new Set() }; this.instances.set(inst.id, inst); }
     u.returnTo = this.position(u).dest;
     const occ = this.occupied(inst.id), r = this.meetingRect(), seats: Tile[] = [], floor: Tile[] = [];
     for (let y = r.y; y < r.y + r.h; y++) for (let x = r.x; x < r.x + r.w; x++) {
@@ -1313,8 +1318,86 @@ export class World {
     inst.members.add(u.id);
     u.instance = inst.id;
     this.place(u, spot);
+    if (inst.meet) this.sendTo(u.id, { t: 'room_meet', instance: inst.id, link: inst.meet });
+    if (m.adhoc) this.roomVoice(u, true, true); // private rooms start with voice on; calendar meetings have their own call, so it's opt-in
     this.broadcast({ t: 'meetings', rooms: this.meetingRooms() });
     this.meetings.rejoin(u, key); // Go after leaving for good: in the meeting again
+  }
+  /** Valid invitees: existing humans other than the sender, deduped, at most 29. */
+  private inviteList(u: User, ids: unknown): string[] {
+    if (!Array.isArray(ids)) return [];
+    const out = new Set<string>();
+    for (const id of ids) { const o = typeof id === 'string' ? this.users.get(id) : undefined; if (o && !o.bot && o.id !== u.id) out.add(o.id); }
+    return [...out].slice(0, 29);
+  }
+  private canHost(u: User) { return !u.bot && u.presence !== 'offline' && !goingOut(u) && !underground(u); }
+  /** Start a private room (a Meeting-room copy for the invited) and step the host in. */
+  roomCreate(u: User, title: unknown, invite: unknown) {
+    if (!this.canHost(u)) return;
+    const name = (typeof title === 'string' ? title.trim().slice(0, 40) : '') || 'Private room';
+    const m = this.meetings.createAdhoc(u, name, new Set(this.inviteList(u, invite)));
+    this.enterMeeting(u, m.key);
+    if (u.instance !== m.instance) { this.meetings.events.delete(m.key); return; } // no free spot: nothing started
+    this.meetings.notify(m);
+  }
+  /** Add people to the private room the sender is in. */
+  roomInvite(u: User, ids: unknown) {
+    const m = this.meetings.adhocOf(u);
+    if (!m?.adhoc || !this.canHost(u)) return;
+    const add = this.inviteList(u, ids).filter(id => !m.adhoc!.invited.has(id)).slice(0, Math.max(0, 30 - m.adhoc.invited.size));
+    if (!add.length) return;
+    for (const id of add) m.adhoc.invited.add(id);
+    this.meetings.notify(m);
+  }
+  private instanceOf(u: User) { return u.instance && !underground(u) ? this.instances.get(u.instance) : undefined; }
+  /** A meeting room's voice is a hall like Coffee's, scoped to the instance (`room:<instance>`, ROOM_VOICE_MAX).
+   *  Private rooms put everyone on it when they step in; calendar meetings (which have their own call link) are opt-in.
+   *  Past the cap you wait in line for a place (`voice_wait`), and Meet is there for everyone. */
+  roomVoice(u: User, on: boolean, entering = false) {
+    const inst = this.instanceOf(u);
+    if (!inst || u.bot || u.presence === 'offline' || goingOut(u)) return;
+    if (!on) {
+      inst.talk.delete(u.id); inst.out.add(u.id); this.setWaiting(u, null);
+      if (u.callId === `room:${inst.id}`) this.leaveCall(u);
+      return;
+    }
+    if (entering && inst.out.has(u.id)) return; // left the voice on purpose: coming back doesn't put them on air
+    inst.out.delete(u.id); inst.talk.add(u.id);
+    this.joinInstanceHall(u, inst);
+  }
+  private instEligible(u: User, inst: Instance) {
+    return !u.bot && !u.afk && u.presence !== 'offline' && !goingOut(u) && u.instance === inst.id && inst.talk.has(u.id) && !!this.sockets.get(u.id)?.size;
+  }
+  private joinInstanceHall(u: User, inst: Instance) {
+    const id = `room:${inst.id}`;
+    if (u.callId === id) return;
+    let call = this.calls.get(id);
+    if (call) this.maintainRoom(call);
+    if (u.callId === id) return;
+    if (call && call.members.size >= ROOM_VOICE_MAX) {
+      this.setWaiting(u, inst.id);
+      return this.sendTo(u.id, { t: 'notice', text: `Voice here is full (${ROOM_VOICE_MAX}): you're in line, or use Meet` });
+    }
+    if (!call) call = { id, members: new Set(), fallback: false, room: this.map.rooms.find(r => r.id === MEETING_ROOM_ID)!, instance: inst.id };
+    this.calls.set(id, call); this.joinCall(u, call);
+  }
+  /** "Use Meet" in a private room: one Meet link for everyone in it now and later (members only). The host's
+   *  Google makes a fresh room; without Google it falls back to a personal link. Calendar meetings keep the event's own. */
+  roomMeet(u: User) {
+    const inst = this.instanceOf(u), m = this.meetings.adhocOf(u);
+    if (!inst || !m?.adhoc || u.bot || inst.meetBusy) return;
+    if (inst.meet) return this.sendTo(u.id, { t: 'room_meet', instance: inst.id, link: inst.meet });
+    const host = this.users.get(m.adhoc.host), people = [host, u].filter((p): p is User => !!p && !p.bot);
+    const personal = people.find(p => p.meetLink)?.meetLink, google = people.find(p => p.google);
+    const share = (link: string) => { inst.meet = link; for (const id of inst.members) this.sendTo(id, { t: 'room_meet', instance: inst.id, link }); };
+    if (!google?.google) return personal ? share(personal) : this.sendTo(u.id, { t: 'notice', text: 'No Meet link: set your own Meet link or connect Google first' });
+    inst.meetBusy = true;
+    const link = google.google;
+    createSpace(google.id, link).then(share).catch(e => {
+      console.warn(`google: no Meet room for ${google.name}:`, e.message);
+      if (e.code === 'invalid_grant' && google.google === link) { google.google = undefined; forgetAccess(google.id); this.sendTo(google.id, this.me(google)); }
+      if (personal) share(personal); else this.sendTo(u.id, { t: 'notice', text: 'Couldn\'t create a Meet room: try again in a moment' });
+    }).finally(() => { inst.meetBusy = false; });
   }
   /** Back to where they were in the office (or the Lobby if someone's there now). */
   leaveMeeting(u: User, announce = true) {
@@ -1323,7 +1406,11 @@ export class World {
     for (const f of this.users.values()) if (f.following === u.id) this.setFollowing(f, null);
     this.setFollowing(u, null);
     clearTimeout(this.errands.get(u.id));
+    this.setWaiting(u, null);
+    if (inst && u.callId === `room:${inst.id}`) this.leaveCall(u);
+    inst?.out.delete(u.id); inst?.talk.delete(u.id);
     u.instance = null;
+    this.sendTo(u.id, { t: 'room_meet', instance: inst?.id ?? '', link: null });
     const occ = this.occupied(), back = u.returnTo && !occ.has(`${u.returnTo.x},${u.returnTo.y}`) ? u.returnTo : this.freeLobbyTile(occ);
     u.returnTo = undefined;
     this.place(u, back);
@@ -1361,15 +1448,16 @@ export class World {
     if (u.callId === call.id) return;
     this.leaveCall(u);
     call.members.add(u.id); u.callId = call.id;
-    if (!call.room) {
+    if (knockCall(call)) {
       u.presenceBeforeCall = u.presence === 'in_call' ? 'online' : u.presence;
       this.setPresence(u, 'in_call');
-    } else {
+    } else if (call.room) {
       for (const k of this.knocks.values()) if ((k.fromId === u.id || k.toId === u.id) && (k.state === 'walking' || k.state === 'pending'))
         this.closeKnock(k, 'later', `Knock cancelled — ${u.name} walked into ${call.room.name}`);
     }
     for (const [id] of this.sockets) this.sendTo(id, { t: 'call', userId: u.id, callId: call.id, link: call.members.has(id) ? call.link : undefined });
-    if (call.room) return;
+    if (call.instance) this.broadcast({ t: 'meetings', rooms: this.meetingRooms() }); // the board's voice list follows every join, whoever caused it
+    if (!knockCall(call)) return;
     const humansThere = [...call.members].some(id => !this.users.get(id)?.bot);
     const ms = !u.bot ? 2 * 60 * 60_000 : humansThere ? 120_000 + Math.random() * 180_000 : 30_000 + Math.random() * 60_000;
     this.callTimers.set(u.id, setTimeout(() => this.leaveCall(u), ms));
@@ -1382,10 +1470,11 @@ export class World {
   }
   private maintainRoom(call: Call, now = Date.now()) {
     for (const [id, roomId] of this.waiting) {
-      if (roomId !== call.room!.id) continue;
+      if (roomId !== (call.instance ?? call.room!.id)) continue;
       const u = this.users.get(id);
       if (!u) { this.waiting.delete(id); continue; }
-      if (!this.hallEligible(u, call.room!, now)) continue;
+      const inst = call.instance ? this.instances.get(call.instance) : undefined;
+      if (call.instance ? !inst || !this.instEligible(u, inst) : !this.hallEligible(u, call.room!, now)) continue;
       if (call.members.size < ROOM_VOICE_MAX) this.joinCall(u, call);
     }
     if (!call.members.size) this.calls.delete(call.id);
@@ -1393,11 +1482,18 @@ export class World {
   voiceTick(now = Date.now()) {
     const rooms = voiceRooms(this.map);
     for (const u of this.users.values()) {
-      if (u.bot || u.afk || u.presence === 'offline' || goingOut(u) || !this.sockets.get(u.id)?.size) { this.setWaiting(u, null); if (u.instance && this.calls.get(u.callId ?? '')?.room) this.leaveCall(u, now); continue; }
+      if (u.bot || u.afk || u.presence === 'offline' || goingOut(u) || !this.sockets.get(u.id)?.size) { this.setWaiting(u, null); if (u.instance) { const c = this.calls.get(u.callId ?? ''); if (c?.instance) this.leaveCall(u, now); } continue; }
       const t = this.position(u, now).tile;
       const inside = rooms.find(r => t.x >= r.rect.x && t.x < r.rect.x + r.rect.w && t.y >= r.rect.y && t.y < r.rect.y + r.rect.h);
       const call = u.callId ? this.calls.get(u.callId) : undefined;
-      if (call && !call.room) {
+      if (u.instance) { // a meeting room's voice lives only inside that room, and sits outside the floor's halls
+        const inst = this.instanceOf(u);
+        if (call && call.instance !== u.instance) this.leaveCall(u, now);
+        if (inst && inst.talk.has(u.id) && u.callId !== `room:${inst.id}` && this.waiting.get(u.id) !== inst.id) this.joinInstanceHall(u, inst);
+        continue;
+      }
+      if (call?.instance) this.leaveCall(u, now);
+      else if (call && knockCall(call)) {
         this.setWaiting(u, null);
         if (!inside) continue;
         for (const id of call.members) if (id !== u.id) this.sendTo(id, { t: 'call_moved', userId: u.id, roomId: inside.id });
@@ -1420,18 +1516,19 @@ export class World {
       this.calls.set(id, hall); this.joinCall(u, hall);
     }
   }
-  callFull(u: User) { const c = u.callId ? this.calls.get(u.callId) : undefined; return !!c && !c.room && c.members.size >= MAX_CALL_SIZE; }
+  callFull(u: User) { const c = u.callId ? this.calls.get(u.callId) : undefined; return knockCall(c) && c!.members.size >= MAX_CALL_SIZE; }
   leaveCall(u: User, now = Date.now()) {
     const call = u.callId ? this.calls.get(u.callId) : undefined;
     clearTimeout(this.callTimers.get(u.id)); this.callTimers.delete(u.id);
     if (!u.callId) return;
     this.broadcast({ t: 'speaking', userId: u.id, on: false }); this.lowerHand(u);
-    if (call ? !call.room : u.presenceBeforeCall) { // a dissolved knock call is already gone from this.calls
+    if (call ? knockCall(call) : u.presenceBeforeCall) { // a dissolved knock call is already gone from this.calls
       this.setPresence(u, u.presenceBeforeCall ?? 'online'); u.presenceBeforeCall = undefined;
     }
     u.callId = null;
     call?.members.delete(u.id);
     this.broadcast({ t: 'call', userId: u.id, callId: null });
+    if (call?.instance) this.broadcast({ t: 'meetings', rooms: this.meetingRooms() });
     if (!call || !this.calls.has(call.id)) return;
     if (call.room) this.maintainRoom(call, now);
     else if (call.members.size < 2) {
@@ -1755,6 +1852,10 @@ export class World {
         this.sendTo(u.id, { t: 'google_auth', calendar, url: authUrl(u.id, u.google?.email ?? u.email, calendar ? [CALENDAR_SCOPE] : []) });
         break;
       }
+      case 'room_create': this.roomCreate(u, msg.title, msg.invite); break;
+      case 'room_invite': this.roomInvite(u, msg.userIds); break;
+      case 'room_voice': this.roomVoice(u, !!msg.on); break;
+      case 'room_meet': this.roomMeet(u); break;
       case 'meeting_go': this.enterMeeting(u, String(msg.key)); break;
       case 'meeting_leave': if (u.instance && !underground(u)) this.leaveMeeting(u); break;
       case 'dungeon_leave': this.leaveDungeon(u, 'gave_up'); break;
@@ -1774,17 +1875,17 @@ export class World {
       case 'google_disconnect': this.setGoogle(u, undefined); break;
       case 'presence': {
         if (!['online', 'away', 'in_call'].includes(msg.presence)) break;
-        if (!(u.callId && this.calls.get(u.callId)?.room) && msg.presence !== 'in_call') this.leaveCall(u); // switching away from "in a call" hangs up
+        if (!(u.callId && !knockCall(this.calls.get(u.callId))) && msg.presence !== 'in_call') this.leaveCall(u); // switching away from "in a call" hangs up
         this.setPresence(u, msg.presence);
         break;
       }
-      case 'leave_room': if ((u.callId && this.calls.get(u.callId)?.room) || this.waiting.has(u.id)) this.leaveRoom(u); break; // a stale AFK/Leave mustn't walk anyone else home
-      case 'end_call': if (u.callId && this.calls.get(u.callId)?.room) this.leaveRoom(u); else this.leaveCall(u); break;
+      case 'leave_room': if (u.instance) { if (this.calls.get(u.callId ?? '')?.instance || this.waiting.has(u.id)) this.roomVoice(u, false); break; } if ((u.callId && this.calls.get(u.callId)?.room) || this.waiting.has(u.id)) this.leaveRoom(u); break; // a stale AFK/Leave mustn't walk anyone else home
+      case 'end_call': if (u.instance && this.calls.get(u.callId ?? '')?.instance) this.roomVoice(u, false); else if (u.callId && this.calls.get(u.callId)?.room) this.leaveRoom(u); else this.leaveCall(u); break;
       case 'deafen': if (u.callId) { u.deafened = !!msg.on; this.broadcast({ t: 'deafen', userId: u.id, on: u.deafened }); } break;
       case 'hand': if (u.callId && this.calls.get(u.callId)?.room) { u.hand = !!msg.up; this.broadcast({ t: 'hand', userId: u.id, up: u.hand }); } break;
       case 'to_meet': {
         const call = u.callId ? this.calls.get(u.callId) : undefined;
-        if (call && !call.fallback && !call.room) for (const id of call.members) if (id !== u.id) this.sendTo(id, { t: 'to_meet', fromId: u.id });
+        if (call && knockCall(call) && !call.fallback) for (const id of call.members) if (id !== u.id) this.sendTo(id, { t: 'to_meet', fromId: u.id });
         break;
       }
       // voice: relay WebRTC signaling only between members of the same call
