@@ -145,6 +145,10 @@ const macManifest = (() => {
 })();
 const PUBLIC_URL = process.env.DECK_PUBLIC_URL;   // where the app should open (the instance's public URL)
 const INSTALL_URL = process.env.DECK_INSTALL_URL; // where curl can reach us (PIN instances: the NetBird address)
+// DECK_PROXY_PIN: the NetBird PIN in front of a public instance (the demo), for people without NetBird. curl posts it with
+// every request (the proxy answers with a cookie and a redirect to the same URL); the app's web view gets past the PIN page itself.
+const PROXY_PIN = /^\d{4,12}$/.test(process.env.DECK_PROXY_PIN ?? '') ? process.env.DECK_PROXY_PIN : null;
+const CURL = PROXY_PIN ? `curl -fsSL -b /dev/null -F pin=${PROXY_PIN}` : 'curl -fsSL';
 /** The origin this request came in on (behind the proxy: its forwarded proto/host). */
 const originOf = (req: IncomingMessage) => {
   const proto = String(req.headers['x-forwarded-proto'] ?? 'http').split(',')[0].trim() === 'https' ? 'https' : 'http';
@@ -156,7 +160,7 @@ const installScript = (base: string, appUrl: string, m: { sha256: string; app: s
 set -euo pipefail
 tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
 echo "→ Downloading ${m.app}…"
-curl -fsSL '${base}/api/mac/The-Deck.zip' -o "$tmp/The-Deck.zip"
+${CURL} '${base}/api/mac/The-Deck.zip' -o "$tmp/The-Deck.zip"
 echo '${m.sha256}  '"$tmp/The-Deck.zip" | shasum -a 256 -c - >/dev/null || { echo "Download is corrupted, try again." >&2; exit 1; }
 ditto -x -k "$tmp/The-Deck.zip" "$tmp"
 dest=/Applications; [ -w "$dest" ] || { dest="$HOME/Applications"; mkdir -p "$dest"; }
@@ -350,7 +354,7 @@ async function route(req: IncomingMessage, res: import('node:http').ServerRespon
   if (req.method === 'GET' && req.url?.startsWith('/api/mac')) {
     const origin = originOf(req);
     if (!macManifest || !origin) return json(res, 404, { error: 'no mac app on this instance' });
-    if (req.url === '/api/mac') return json(res, 200, { ...macManifest, install: `curl -fsSL ${INSTALL_URL ?? origin}/api/mac/install.sh | bash` });
+    if (req.url === '/api/mac') return json(res, 200, { ...macManifest, install: `${CURL} ${INSTALL_URL ?? origin}/api/mac/install.sh | bash` });
     if (req.url === '/api/mac/install.sh') {
       res.writeHead(200, { 'content-type': 'text/x-shellscript; charset=utf-8', 'cache-control': 'no-store' });
       return res.end(installScript(origin, PUBLIC_URL ?? origin, macManifest));
