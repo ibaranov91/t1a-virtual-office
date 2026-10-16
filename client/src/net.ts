@@ -45,6 +45,8 @@ export interface Toast {
   userId?: string; // the other person, for knock_again and chat
 }
 
+export interface SlackImage { id: string; name: string; mimetype: string; ts: string; user: string; at: number; url: string }
+
 /** A reaction in flight, timed with performance.now() like the render loop. */
 export interface Flying { fromId: string; toId: string; emoji: string; at: number }
 
@@ -419,6 +421,12 @@ export class Store {
     return `Bug terminal · ${n ? `${n} new ${this.admin ? 'in the queue' : n === 1 ? 'reply' : 'replies'}` : 'report a bug'}`;
   }
   achievementsOpen = false;
+  employeeOpen = false;
+  slackImages: SlackImage[] = [];
+  slackImagesLoading = false;
+  slackImagesError: string | null = null;
+  private slackImageObjectUrls = new Set<string>();
+
   library: LibraryState = { articles: [], reads: [] };
   libraryOpen = false;
   fetching: string | null = null; // the article I picked, until I'm sitting down with it
@@ -439,6 +447,33 @@ export class Store {
   }
   achievementFocus: string | undefined;
   openAchievements(open = true, id?: string) { this.achievementsOpen = open; this.achievementFocus = open ? id : undefined; this.emit(); }
+  openEmployeeBoard(open = true) {
+    this.employeeOpen = open;
+    if (open) this.loadSlackImages();
+    this.emit();
+  }
+  closeEmployeeBoard() { this.employeeOpen = false; this.emit(); }
+  async loadSlackImages() {
+    this.slackImagesLoading = true; this.slackImagesError = null; this.emit();
+    try {
+      const r = await fetch('/api/slack/images', { headers: { 'x-deck-session': this.sessionId } });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error ?? `Slack unavailable (${r.status})`);
+      const images = Array.isArray(d.images) ? d.images as SlackImage[] : [];
+      for (const objectUrl of this.slackImageObjectUrls) URL.revokeObjectURL(objectUrl);
+      this.slackImageObjectUrls.clear();
+      const loaded = await Promise.all(images.map(async image => {
+        const imageResponse = await fetch(image.url, { headers: { 'x-deck-session': this.sessionId } });
+        if (!imageResponse.ok) throw new Error(`Image unavailable (${imageResponse.status})`);
+        const objectUrl = URL.createObjectURL(await imageResponse.blob());
+        this.slackImageObjectUrls.add(objectUrl);
+        return { ...image, url: objectUrl };
+      }));
+      this.slackImageObjectUrls = new Set(loaded.map(image => image.url));
+      this.slackImages = loaded;
+    } catch (e) { this.slackImagesError = e instanceof Error ? e.message : 'Slack unavailable'; this.slackImages = []; }
+    finally { this.slackImagesLoading = false; this.emit(); }
+  }
   closeMeetings() { this.meetingsOpen = false; this.emit(); }
   goToMeeting(key: string) {
     this.send({ t: 'meeting_go', key });

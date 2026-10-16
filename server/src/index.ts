@@ -212,6 +212,42 @@ const newSession = (userId: string) => { const s = randomUUID(); sessions.set(s,
 
 const lofiLive = new LofiLive();
 
+// Slack is optional for local/dev instances. Keep the bot token server-side and proxy private
+// image URLs so it never reaches the browser.
+const SLACK_BOT_TOKEN = process.env.SLACK_BOT_TOKEN;
+const SLACK_CHANNEL_ID = process.env.SLACK_CHANNEL_ID ?? 'C05FHR09MMM';
+const SLACK_IMAGES_DIR = fileURLToPath(new URL('slack-images/', DATA));
+const slackImageFiles = new Map<string, { path: string; mimetype: string }>();
+const slackImages = async () => {
+  if (!SLACK_BOT_TOKEN) return [];
+  const q = new URL('https://slack.com/api/conversations.history');
+  q.searchParams.set('channel', SLACK_CHANNEL_ID); q.searchParams.set('limit', '100');
+  const r = await fetch(q, { headers: { authorization: `Bearer ${SLACK_BOT_TOKEN}` } });
+  if (!r.ok) throw new Error(`Slack request failed (${r.status})`);
+  const data = await r.json() as { ok?: boolean; error?: string; messages?: Array<{ ts?: string; user?: string; files?: Array<{ id?: string; name?: string; mimetype?: string; url_private?: string; timestamp?: number }> }> };
+  if (!data.ok) throw new Error(data.error ?? 'Slack request failed');
+  mkdirSync(SLACK_IMAGES_DIR, { recursive: true });
+  slackImageFiles.clear();
+  const images = (data.messages ?? []).flatMap(m => (m.files ?? []).filter(f => f.id && f.url_private && /^image\//.test(f.mimetype ?? '')).map(f => ({ f, message: m }))).slice(0, 4);
+  const result = [];
+  for (const { f, message: m } of images) {
+    const ext = f.name?.match(/\.[a-z0-9]{1,5}$/i)?.[0].toLowerCase() ?? '.jpg';
+    const path = join(SLACK_IMAGES_DIR, `${f.id}${ext}`);
+    try {
+      if (!existsSync(path)) {
+        const image = await fetch(f.url_private!, { headers: { authorization: `Bearer ${SLACK_BOT_TOKEN}` } });
+        if (!image.ok) continue;
+        const bytes = Buffer.from(await image.arrayBuffer());
+        if (bytes.length > 12 * 1024 * 1024) continue;
+        await writeFile(path, bytes);
+      }
+      slackImageFiles.set(f.id!, { path, mimetype: f.mimetype ?? 'image/jpeg' });
+      result.push({ id: f.id!, name: f.name ?? 'Slack image', mimetype: f.mimetype ?? 'image/*', ts: m.ts ?? '', user: m.user ?? '', at: f.timestamp ?? 0 });
+    } catch { /* keep the other cached images available */ }
+  }
+  return result;
+};
+
 // ---------- REST ----------
 const json = (res: import('node:http').ServerResponse, code: number, body: unknown) => {
   res.writeHead(code, { 'content-type': 'application/json', 'cache-control': 'no-store' }); res.end(JSON.stringify(body));
@@ -226,6 +262,23 @@ async function route(req: IncomingMessage, res: import('node:http').ServerRespon
   if (req.method === 'GET' && req.url === '/api/lofi') return json(res, 200, await lofiLive.get());
   if (req.method === 'GET' && req.url === '/api/health') return json(res, 200, { ok: true, users: world.users.size });
   if (req.method === 'GET' && req.url === '/api/config') return json(res, 200, { netbird: NETBIRD, tokenLogin: TOKEN_LOGIN, tokenRequired: !OPEN_LOGIN && !EMAIL_LOGIN, emailLogin: EMAIL_LOGIN, iceServers: ICE_SERVERS });
+  if (req.method === 'GET' && req.url === '/api/slack/images') {
+    const userId = sessions.get(String(req.headers['x-deck-session'] ?? ''));
+    if (!userId || !world.users.has(userId)) return json(res, 401, { error: 'sign in first' });
+    try { return json(res, 200, { images: (await slackImages()).map(i => ({ ...i, url: `/api/slack/images/${i.id}` })) }); }
+    catch (e) { return json(res, 502, { error: e instanceof Error ? e.message : 'Slack is unavailable' }); }
+  }
+  const slackImage = req.method === 'GET' ? req.url?.match(/^\/api\/slack\/images\/([A-Z0-9]+)$/) : null;
+  if (slackImage) {
+    const userId = sessions.get(String(req.headers['x-deck-session'] ?? ''));
+    if (!userId || !world.users.has(userId)) return json(res, 401, { error: 'sign in first' });
+    let file = slackImageFiles.get(slackImage[1]);
+    if (!file) { try { await slackImages(); file = slackImageFiles.get(slackImage[1]); } catch { /* fall through to 404 */ } }
+    if (!file || !existsSync(file.path)) return json(res, 404, { error: 'image not found' });
+    const size = statSync(file.path).size;
+    res.writeHead(200, { 'content-type': file.mimetype, 'content-length': size, 'cache-control': 'private, max-age=300' });
+    return createReadStream(file.path).pipe(res);
+  }
   // Two-step NetBird login: GET only says who you are (so logout doesn't bounce you back in), POST signs in.
   if (req.url === '/api/auth/netbird' && (req.method === 'GET' || req.method === 'POST')) {
     const email = await netbirdEmail(req);
