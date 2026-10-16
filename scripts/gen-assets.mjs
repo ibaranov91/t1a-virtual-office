@@ -558,6 +558,17 @@ frames.bubble_muted = bubble((t) => {
   t.rect(6, 2, 2, 4, '#7a6a64'); t.px(5, 5, '#7a6a64'); t.px(8, 5, '#7a6a64'); t.hline(5, 6, 4, '#7a6a64'); t.px(6, 7, '#7a6a64'); t.hline(5, 8, 4, '#7a6a64');
   for (let i = 0; i < 7; i++) t.px(3 + i, 2 + i, '#d8463c');
 });
+// muted and deafened: one wide bubble, crossed-out mic on the left and crossed-out headphones on the right; tail at 10..12 (5 px right of a 14 px bubble's)
+{
+  const t = new Img(24, 14), c = '#fff8e8';
+  t.rect(2, 1, 20, 9, c); t.rect(1, 2, 22, 7, c); t.rect(10, 10, 3, 1, c); t.px(11, 11, c);
+  t.rect(5, 2, 2, 4, '#7a6a64'); t.px(4, 5, '#7a6a64'); t.px(7, 5, '#7a6a64'); t.hline(4, 6, 4, '#7a6a64'); t.px(5, 7, '#7a6a64'); t.hline(4, 8, 4, '#7a6a64');
+  for (let i = 0; i < 7; i++) t.px(2 + i, 2 + i, '#d8463c');
+  t.hline(14, 2, 6, '#4a4a5a'); t.px(13, 3, '#4a4a5a'); t.px(20, 3, '#4a4a5a');
+  t.rect(12, 4, 2, 4, '#4f9a92'); t.rect(20, 4, 2, 4, '#4f9a92');
+  for (let i = 0; i < 8; i++) t.px(13 + i, 1 + i, '#d8463c');
+  frames.bubble_mute_deaf = t.outline();
+}
 // talking: sound bars; _1/_2 alternate while speaking, _0 is the quiet listener
 for (const [i, hs] of [[0, [1, 2, 1, 2]], [1, [2, 5, 3, 4]], [2, [4, 3, 5, 2]]]) {
   frames[`bubble_talk_${i}`] = bubble((t) => {
