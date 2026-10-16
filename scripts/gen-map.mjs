@@ -58,7 +58,7 @@ const rooms = [
   { id: 'music', name: 'Music', type: 'music', rect: { x: 54, y: 3, w: 10, h: 8 }, capacity: 12,
     floor: 'wood_dark', rug: 'orange',
     disco: { x: 59, y: 8.5 }, // over the dance floor, clear of the drum kit
-    rules: { knock: 'allow', label: 'jukebox · knock to talk' },
+    rules: { voice: 'open', knock: 'allow', label: 'jukebox · open voice · walk in to talk' },
     meeting: { provider: 'meet', url: 'https://meet.google.com/new' } },
   { id: 'arcade', name: 'Arcade', type: 'arcade', rect: { x: 54, y: 13, w: 10, h: 10 }, capacity: 12,
     floor: 'wood_dark', rug: 'teal',
@@ -292,7 +292,8 @@ obj('sofa', 45, 17, 3, 1, { sit: true, dir: 'down' });
 obj('plant', 40, 22, 1, 1);
 obj('lamp', 40, 16, 1, 1, LAMP);
 // Music room (after the east wing, same reason): windows, tables with stools, sofas along the bottom
-for (const wx of [55, 60]) obj('window', wx, 1, 2, 2, { wall: true });
+obj('window', 55, 1, 2, 2, { wall: true });
+obj('lofi_tv', 59, 1, 4, 2, { wall: true, use: { kind: 'youtube', label: 'Lofi Girl · YouTube Live', videoId: 'rFZHOHl-L8A', room: 'music' } });
 obj('plant', 54, 3, 1, 1);
 obj('plant', 63, 3, 1, 1);
 // Six replacements for the tables/stools: keep every later object id stable.
@@ -494,7 +495,7 @@ for (const [type, x, y, w = 1, h = 1] of [
   ['poster', 15, 2], ['wall_ivy', 16, 2], ['poster', 25, 2],
   ['wall_shelf', 27, 2, 2], ['wall_ivy', 32, 2], ['poster', 35, 2],
   ['wall_shelf', 46, 2, 2], ['poster', 44, 2], ['wall_ivy', 51, 2],
-  ['poster', 58, 2], ['wall_ivy', 62, 2],
+  ['poster', 58, 2], ['wall_ivy', 63, 2],
   ['wall_shelf', 66, 2, 2], ['mirror', 68, 1, 1, 2], ['poster', 70, 2],
   ['poster', 11, 12], ['mirror', 13, 11, 1, 2],
 ]) obj(type, x, y, w, h, { wall: true });
@@ -519,6 +520,8 @@ obj('plant', 83, 32);
 rug('orange', 77, 28, 5, 4);
 for (const { id: _i, x: _x, y: _y, ...t } of objects.slice(firstClub)) catalog[t.type] ??= t;
 rooms.find(r => r.id === 'bookclub').stand.push({ x: 82, y: 29, dir: 'left' });
+// the Meeting room's "start private room" sign, beside the screen on the top wall (last, so every earlier id stays put)
+obj('room_start', 24, 2, 1, 1, { wall: true, use: { kind: 'room_start', label: 'start private room' } });
 
 
 const map = { version: 1, width: W, height: H, tileSize: 16, office: { x: 0, y: 0, w: W, h: OFFICE_H }, dungeon, tiles, layers: { floor, walls, walkable: [] }, rooms, objects: [], rugs: [], spawn: { x: 7, y: 17 }, exit: EXIT, catalog };

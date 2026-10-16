@@ -5,6 +5,7 @@ import { Engine, type Pick } from './engine';
 import { Voice } from './voice';
 import { TableOverlay } from './table/TableOverlay';
 import { ArcadeOverlay, RecordsPopover } from './park/ArcadeOverlay';
+import { LofiTV } from './LofiTV';
 import { Soundscape } from './soundscape';
 import { needsGesture, resume } from './audio';
 import { prefs, savePrefs, type Category } from './prefs';
@@ -12,8 +13,9 @@ import { ITEMS, MAP, Store, type ClientUser } from './net';
 import { inNativeApp, syncNative } from './native';
 import { fakeShare } from './share';
 import { LiveChip, PresentPanel, SlideOverlay } from './Presentation';
+import { RoomPopup } from './RoomPopup';
 import { LibraryPanel, ReadingOverlay } from './Library';
-import { ACHIEVEMENTS, underground, dayNumber, JUKEBOX_PER_PERSON, JUKEBOX_QUEUE_MAX, MAX_CHAT_LEN, MEET_LINK_RE, meetAs, normalizeMeetLink, kindName, PLANT_DIES_DAYS, PLANT_KINDS, PLANT_REVEAL, PLANT_STAGES, plantDead, plantName, REACTIONS, TOILET_CAPACITY, TOILET_SHELF_ITEM, TOILET_SHELF_MAX, TOILET_USE_MS, toiletFull, type JukeboxState, type Plant } from '../../shared/protocol';
+import { ACHIEVEMENTS, underground, dayNumber, JUKEBOX_PER_PERSON, JUKEBOX_QUEUE_MAX, MAX_CHAT_LEN, ROOM_VOICE_MAX, MEET_LINK_RE, meetAs, normalizeMeetLink, kindName, PLANT_DIES_DAYS, PLANT_KINDS, PLANT_REVEAL, PLANT_STAGES, plantDead, plantName, REACTIONS, TOILET_CAPACITY, TOILET_SHELF_ITEM, TOILET_SHELF_MAX, TOILET_USE_MS, toiletFull, type JukeboxState, type Plant } from '../../shared/protocol';
 import { jukeboxPosition, TRACK, tracksFor } from '../../shared/music';
 import { ALL_HATS, DANCE_ROOM, EFFECTS, HAT_NAMES, effectOf, hatItem, hatOf } from '../../shared/effects';
 import { FIXED_TYPES, KEEP_TYPES, objectName, RUG_COLORS, RUG_MAX, RUG_MIN, RUG_PATTERNS, SEAT_TYPES, routes, rugFrame, seatAt } from '../../shared/map';
@@ -119,6 +121,7 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
   const engineRef = useRef<Engine | null>(null);
   const [showRooms, setShowRooms] = useState(() => window.innerWidth > 900);
   const [showMeet, setShowMeet] = useState(false);
+  const [tv, setTv] = useState<string | null>(null);
   const [pick, setPick] = useState<Pick | null>(null);
   const [personMenu, setPersonMenu] = useState<PersonMenuAt | null>(null);
   const openPerson = (at: PersonMenuAt) => { setPick(null); setPersonMenu(at); };
@@ -133,7 +136,7 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
   useEffect(() => { const s = new Soundscape(store); return () => s.destroy(); }, [store]);
   // Receive connections start before microphone permission settles.
   const [voice, setVoice] = useState<Voice | null>(null);
-  useEffect(() => syncNative(store), [store]);
+  useEffect(() => syncNative(store, voice), [store, voice]);
   useEffect(() => {
     let v: Voice | null = null, unsub = () => {}, cancelled = false;
     fetch('/api/config').then(r => r.json()).then(c => {
@@ -157,6 +160,7 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
       if (use?.kind === 'arcade' && p) { setPick(null); return store.use(p.id); }
       if (use?.kind === 'dance' && p) { setPick(null); return store.dance(p.id); }
       if (use?.kind === 'records') { setPick(null); return store.openRecords(); }
+      if (use?.kind === 'youtube' && p) { setPick(null); return setTv(p.id); }
       if (use?.kind === 'jukebox' && p) { setPick(null); return store.openJukebox(p.id); }
       if (use?.kind === 'bell' && p) { setPick(null); return store.ring(p.id); }
       if (use?.kind === 'library') { setPick(null); return store.openLibrary(); }
@@ -165,6 +169,7 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
       if (use?.kind === 'meetings') { setPick(null); return store.openMeetings(); }
       if (use?.kind === 'achievements') { setPick(null); return store.openAchievements(); }
       if (use?.kind === 'presentation' && p) { setPick(null); return store.use(p.id); } // walks to the board; the server opens the panel on arrival
+      if (use?.kind === 'room_start' && p) { setPick(null); return store.use(p.id); } // walks to the sign; the server sends room_open on arrival
       if (use?.kind === 'link') { setPick(null); return store.openLink(use); } // a panel, like the calendar: its link is a real tap
       setPick(cur => (p && cur?.kind === p.kind && cur.id === p.id ? null : p)); // same target again: close
     };
@@ -210,12 +215,15 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
         {gmOpen && store.admin && !editing && <GmPanel store={store} picked={pick?.kind === 'user' ? pick.id : null} assets={assets} onClose={() => setGmOpen(false)} />}
         {pocketsOpen && me && <PocketsPanel store={store} me={me} assets={assets} onClose={() => setPocketsOpen(false)} />}
         {store.calendarOpen && <CalendarPanel store={store} />}
+        {store.laterOpen && <LaterPanel store={store} />}
         {store.meetingsOpen && <MeetingsPanel store={store} />}
         {store.libraryOpen && <LibraryPanel store={store} />}
         {me?.reading && <ReadingOverlay key={me.reading} store={store} articleId={me.reading} />}
+        {tv && <LofiTV store={store} id={tv} onClose={() => setTv(null)} />}
         {store.jukeboxOpen && <JukeboxPanel key={store.jukeboxOpen} store={store} id={store.jukeboxOpen} />}
         {store.recordsOpen && <RecordsPopover store={store} />}
         {store.linkOpen && <LinkPanel store={store} />}
+        {store.roomOpen && <RoomPopup store={store} />}
         {store.presentOpen && <PresentPanel key={store.presentOpen} store={store} id={store.presentOpen} />}
         {store.clockOpen && <ClockPanel store={store} />}
         {store.achievementsOpen && me && <AchievementsPanel store={store} me={me} assets={assets} />}
@@ -223,11 +231,11 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
         {showAppearance && me && <AppearanceMenu key={me.id} look={me.look} name={me.name} assets={assets} firstTime={!me.lookSet} store={store}
           onSave={(look, name) => { store.setLook(look, name); setShowAppearance(false); }} onClose={() => setShowAppearance(false)} />}
         <div className="chips">
-          <MeetingChip store={store} />
+          <MeetingChip store={store} voice={voice} />
           <LiveChip store={store} onGo={room => engineRef.current?.walkToRoom(room)} />
           <NowPlayingChip store={store} />
           <DungeonChip store={store} />
-          {me?.callId && !store.roomCallOf(me) && store.voiceOwner && <CallChip store={store} voice={voice} />}
+          {me?.callId && !me.instance && !store.roomCallOf(me) && store.voiceOwner && <CallChip store={store} voice={voice} />}
           <RoomVoiceChip store={store} voice={voice} />
           <DeskChip store={store} />
         </div>
@@ -238,7 +246,7 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
         </div>
         {personMenu && <PersonMenu key={personMenu.id} store={store} at={personMenu} onClose={() => setPersonMenu(null)} />}
         {store.seat && <InstrumentPanel key={store.seat} store={store} id={store.seat}
-          dialogOpen={!!(store.table || showAppearance || showMeet || store.pendingKnock || store.calendarOpen || store.meetingsOpen || store.clockOpen || store.jukeboxOpen || store.libraryOpen || !!me?.reading || store.achievementsOpen || store.presentOpen || store.chatWith || personMenu || pick)} />}
+          dialogOpen={!!(store.table || showAppearance || showMeet || store.pendingKnock || store.calendarOpen || store.laterOpen || store.meetingsOpen || store.clockOpen || store.jukeboxOpen || store.libraryOpen || !!me?.reading || store.achievementsOpen || store.presentOpen || store.roomOpen || store.chatWith || personMenu || pick)} />}
         <Dock store={store} voice={voice} engine={engine} roomsOpen={showRooms} onRooms={() => setShowRooms(s => !s)} />
       </div>
       </div>
@@ -349,6 +357,7 @@ function TopBar({ store, voice, roomName, onToggleRooms, onToggleMeet, onToggleA
       <div className="top-right">
         <VoiceIcons store={store} voice={voice} />
         <UnreadButton store={store} />
+        <LaterButton store={store} />
         <button className="chip ghost more-btn" aria-label="More" aria-expanded={more} onClick={() => setMore(m => !m)}>⋯</button>
         <div className={`top-more${more ? ' open' : ''}`} onClick={e => { if (!(e.target as HTMLElement).closest('.mac-app')) setMore(false); }}>
           <button onClick={onToggleMeet} className={`chip meet-btn${store.meetLink === '' && !store.google ? ' unset' : ''}`}
@@ -411,7 +420,7 @@ function AppearanceMenu({ look, name, assets, firstTime, store, onSave, onClose 
 }) {
   const [draft, setDraft] = useState(look);
   const [nameDraft, setNameDraft] = useState(name);
-  const [tab, setTab] = useState<'body' | 'clothes'>('body');
+  const [tab, setTab] = useState<'body' | 'clothes' | 'accessories'>('body');
   const previewRef = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
     const canvas = previewRef.current;
@@ -431,12 +440,13 @@ function AppearanceMenu({ look, name, assets, firstTime, store, onSave, onClose 
         style={{ backgroundColor: color }} title={color} aria-label={`${label} ${color}`} aria-pressed={draft[key] === color} onClick={() => set(key, color)} />)}
     </div></fieldset>
   );
-  const select = (label: string, value: number, options: string[], key: 'style' | 'top' | 'bottom' | 'glasses' | 'hat') => (
+  const select = (label: string, value: number, options: string[], key: 'style' | 'top' | 'bottom' | 'glasses' | 'hat' | 'beard' | 'mustache') => (
     <label className="look-select">{label}<select value={value} onChange={e => set(key, Number(e.target.value))}>
       {options.map((option, i) => <option value={i} key={option}>{option}</option>)}
     </select></label>
   );
-  const styles = (assets?.atlas.character.styles ?? ['short', 'long', 'ponytail']).map(s => s[0].toUpperCase() + s.slice(1));
+  const styleLabels: Record<string, string> = { short: 'Short', long: 'Long', ponytail: 'Short ponytail', bald: 'Bald', receding: 'Receding hairline' };
+  const styles = (assets?.atlas.character.styles ?? ['short', 'long', 'ponytail', 'bald', 'receding']).map(s => styleLabels[s] ?? s[0].toUpperCase() + s.slice(1));
   const tops = assets?.atlas.character.tops ?? ['T-shirt', 'Button-up shirt', 'Sweater'];
   const bottoms = assets?.atlas.character.bottoms ?? ['Trousers', 'Skirt', 'Shorts'];
   return (
@@ -444,21 +454,28 @@ function AppearanceMenu({ look, name, assets, firstTime, store, onSave, onClose 
       <section className="appearance-panel" role="dialog" aria-modal="true" aria-labelledby="appearance-title">
         <header className="appearance-head"><div><h2 id="appearance-title">Your character</h2><p>{firstTime ? 'Choose your look before stepping into the office.' : 'Make the office feel a little more like you.'}</p></div>
           {!firstTime && <button className="ghost" onClick={onClose} aria-label="Close appearance settings">×</button>}</header>
-        <div className="appearance-preview"><div className="avatar-frame"><canvas ref={previewRef} /></div><span>{styles[draft.style]} hair</span>
+        <div className="appearance-preview"><div className="avatar-frame"><canvas ref={previewRef} /></div>
           <label className="look-select">Name<input value={nameDraft} maxLength={24} placeholder="First Las" onChange={e => setNameDraft(e.target.value)} /></label></div>
         <nav className="appearance-tabs" aria-label="Appearance categories">
           <button className={tab === 'body' ? 'active' : ''} onClick={() => setTab('body')}>Body</button>
           <button className={tab === 'clothes' ? 'active' : ''} onClick={() => setTab('clothes')}>Clothes</button>
+          <button className={tab === 'accessories' ? 'active' : ''} onClick={() => setTab('accessories')}>Accessories</button>
         </nav>
         <div className="appearance-options">
           {tab === 'body' ? <>
             {select('Hairstyle', draft.style, styles, 'style')}
             {colors('Hair color', 'hair')}{colors('Skin tone', 'skin')}{colors('Eye color', 'eyes')}
-          </> : <>
+          </> : tab === 'clothes' ? <>
             {select('Top', draft.top, tops, 'top')}{colors('Top color', 'shirt')}
             {select('Bottom', draft.bottom, bottoms, 'bottom')}{colors('Bottom color', 'pants')}
             {colors('Shoe color', 'shoes')}
             <p className="small">Hats are in your pockets 🎒 (take one from the Lobby hat stand)</p>
+          </> : <>
+            {select('Glasses', draft.glasses, ['None', 'Round', 'Black sunglasses'], 'glasses')}
+            {select('Beard', draft.beard, ['None', 'Beard'], 'beard')}
+            {select('Mustache', draft.mustache, ['None', 'Mustache'], 'mustache')}
+            {draft.glasses === 1 && colors('Glasses color', 'glassesColor')}
+            <p className="small">Beard and mustache use your hair color.</p>
           </>}
         </div>
         <footer className="appearance-actions">
@@ -594,7 +611,7 @@ const parseWhen = (s: string, allDay: boolean) => (allDay ? new Date(`${s}T00:00
 const hm = (d: Date) => d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
 /** In a meeting's own room: what it is, its call link, and the way back. */
-function MeetingChip({ store }: { store: Store }) {
+function MeetingChip({ store, voice }: { store: Store; voice: Voice | null }) {
   const me = store.users.get(store.me);
   if (!me || underground(me)) return null;
   if (!me.instance) { // out of the room but still in the meeting: rejoin, or leave it for good
@@ -608,8 +625,22 @@ function MeetingChip({ store }: { store: Store }) {
   }
   const m = store.myMeeting, room = store.meetingRooms.find(r => r.id === me.instance);
   const others = (room?.members ?? []).filter(id => id !== me.id).map(id => store.users.get(id)).filter((u): u is ClientUser => !!u);
+  const talking = store.inRoomVoice && !!voice && store.voiceOwner, onCall = room?.voice.length ?? 0, waiting = store.voiceWait === me.instance, full = onCall >= ROOM_VOICE_MAX && !talking;
+  const meet = m?.adhoc && store.roomMeetLink?.instance === me.instance ? store.roomMeetLink.link : null;
   return <div className="desk-chip call-chip meeting-chip">
-    <span>📅 <b>{m?.title ?? 'Meeting'}</b> <small>· until {store.clock(room?.until ?? m?.end ?? 0)}{others.length ? ` · with ${store.names(others)}` : ' · waiting for the others'}</small></span>
+    <span>{m?.adhoc ? '🔒' : '📅'} <b>{m?.title ?? 'Meeting'}</b> <small>{m?.adhoc && m.from ? `· ${m.from.split(' ')[0]}'s room` : ''} · until {store.clock(room?.until ?? m?.end ?? 0)}{others.length ? ` · with ${store.names(others)}` : ' · waiting for the others'}</small></span>
+    {m?.adhoc && <button onClick={() => store.openRoom(true)}>Invite</button>}
+    {talking ? <>
+      <span className={`dot ${voiceState(voice) === 'live' ? 'live' : ''}`} title={`Voice in this room · ${voiceState(voice)}`} />
+      {voice!.deafened ? <button className="ghost" onClick={() => voice!.toggleDeafen()}>Hear again</button>
+        : voice!.micError ? <small>listen-only</small>
+        : voice!.muted ? <button onClick={() => voice!.setMuted(false)}>🎙 Unmute</button>
+        : <button className="ghost" onClick={() => voice!.setMuted(true)}>Mute</button>}
+      <button className={me.hand ? '' : 'ghost'} title={me.hand ? 'Lower your hand' : 'Raise your hand'} onClick={() => store.setHand(!me.hand)}>✋</button>
+      <button className="ghost" title="Stop hearing and talking in this room (the room stays open)" onClick={() => store.roomVoice(false)}>Leave voice</button>
+    </> : waiting ? <button className="ghost" title="Voice is full: you'll join when a place frees up" onClick={() => store.roomVoice(false)}>In line · cancel</button>
+      : <button disabled={!store.voiceOwner} title={full ? `Voice is full (${ROOM_VOICE_MAX}): you'll wait in line · or use Meet` : 'Talk with the others in this room'} onClick={() => store.roomVoice(true)}>🎙 Talk{onCall ? ` (${onCall}/${ROOM_VOICE_MAX})` : ''}</button>}
+    {m?.adhoc && (meet ? <ExternalLink href={meetAs(meet, store.meetAccount)}>Join Meet</ExternalLink> : <button className="ghost" title="Make a Google Meet room for everyone in here" onClick={() => store.useRoomMeet()}>Use Meet</button>)}
     {m?.link && <ExternalLink href={meetAs(m.link, store.meetAccount)}>Join call</ExternalLink>}
     <button className="end" onClick={() => store.leaveMeeting()}>Leave</button>
   </div>;
@@ -659,7 +690,7 @@ function JukeboxPanel({ store, id }: { store: Store; id: string }) {
   const onKey = (e: React.KeyboardEvent) => {
     if (e.key === 'Escape') { e.stopPropagation(); close(); }
     if (e.key !== 'Tab') return;
-    const controls = [...(panel.current?.querySelectorAll<HTMLElement>('button:not(:disabled), a[href]') ?? [])];
+    const controls = [...(panel.current?.querySelectorAll<HTMLElement>('button:not(:disabled), a[href], input:not(:disabled)') ?? [])];
     const first = controls[0], end = controls[controls.length - 1];
     if (e.shiftKey && (document.activeElement === first || document.activeElement === panel.current)) { e.preventDefault(); end?.focus(); }
     else if (!e.shiftKey && document.activeElement === end) { e.preventDefault(); first?.focus(); }
@@ -669,6 +700,10 @@ function JukeboxPanel({ store, id }: { store: Store; id: string }) {
       <div className="rooms-head"><span>🎵 {box?.kind === 'jukebox' ? box.label.replace(/^./, c => c.toUpperCase()) : 'Jukebox'}</span><button className="ghost" aria-label="Close jukebox" onClick={close}>×</button></div>
       {!known && <p role="status">Reconnecting…</p>}
       {!inside && <div className="jukebox-walk"><span>Walk into {room?.name ?? 'the room'} to pick music</span><button disabled={!known} onClick={() => store.walkToJukebox(id)}>Walk over</button></div>}
+      <label className="volume-control jukebox-volume"><span>Volume for me</span>
+        <input type="range" min="0" max="100" step="5" value={Math.round((prefs.jukeboxVolumes[id] ?? 1) * 100)} aria-label="Jukebox volume for me"
+          onChange={e => { prefs.jukeboxVolumes[id] = Number(e.target.value) / 100; savePrefs(); }} /><output>{Math.round((prefs.jukeboxVolumes[id] ?? 1) * 100)}%</output>
+      </label>
       <section>
         <h3>Now playing</h3>
         {state && track && <>
@@ -1088,6 +1123,7 @@ function Dock({ store, voice, engine, roomsOpen, onRooms }: { store: Store; voic
       <button onClick={() => engine?.recenter()}><span className="ic">📍</span><small>Me</small></button>
       <button onClick={() => (chatWith ? store.openChat(chatWith) : onRooms())} title={chatWith ? undefined : 'Pick someone in People to message'}>
         <span className="ic">💬</span>{total > 0 && <b className="badge">{total}</b>}<small>Chat</small></button>
+      {store.later.length > 0 && <button onClick={() => store.openLater()} title="Knocks you missed"><span className="ic">🔔</span><b className="badge">{store.later.length}</b><small>Later</small></button>}
       <VoiceIcons store={store} voice={voice} dock />
     </nav>
   );
@@ -1101,6 +1137,36 @@ function UnreadButton({ store }: { store: Store }) {
   return (
     <button className="chip unread-btn" onClick={() => store.openChat(senders[0])}
       title={`Unread from ${store.names(senders.map(id => store.users.get(id)!).filter(Boolean))}`}>💬 {total}</button>
+  );
+}
+
+/** 🔔 N in the top bar while knocks sit in your Later list. */
+function LaterButton({ store }: { store: Store }) {
+  if (!store.later.length) return null;
+  return <button className="chip unread-btn later-btn" onClick={() => store.openLater()} title="Knocks you missed">🔔 {store.later.length}</button>;
+}
+
+const ago = (at: number) => { const m = Math.floor((Date.now() - at) / 60_000); return m < 1 ? 'just now' : m < 60 ? `${m} min ago` : `${Math.floor(m / 60)} h ago`; };
+function LaterPanel({ store }: { store: Store }) {
+  return (
+    <div className="modal-backdrop" {...backdropClose(() => store.closeLater())}>
+      <div className="meet-panel guided later-panel">
+        <div className="rooms-head">
+          <span>🔔 Missed knocks</span>
+          <button type="button" className="ghost" onClick={() => store.closeLater()}>×</button>
+        </div>
+        <ul className="later-list">
+          {store.later.map(i => (
+            <li key={i.id}>
+              <span className="txt"><b>{store.name(i.fromId)}</b> · {ago(i.at)} · {i.why}</span>
+              <button onClick={() => store.laterKnockBack(i.fromId)}>Knock back</button>
+              <button className="ghost x" aria-label="Dismiss" onClick={() => store.laterDismiss(i.id)}>×</button>
+            </li>
+          ))}
+        </ul>
+        <div className="row"><button className="ghost" onClick={() => store.laterClear()}>Clear all</button></div>
+      </div>
+    </div>
   );
 }
 
@@ -1306,7 +1372,7 @@ function VoiceIcons({ store, voice, dock }: { store: Store; voice: Voice | null;
   }, [pop]);
   useEffect(() => { if (!elsewhere && pop === 'claim') setPop(null); }, [elsewhere]);
   const err = voice?.micError ?? null;
-  const muted = voice?.muted ?? true, deaf = voice?.deafened ?? prefs.deafened, ptt = (voice?.mode ?? prefs.mode) === 'ptt';
+  const muted = voice?.muted ?? true, deaf = voice?.deafened ?? prefs.deafened, micOff = muted || deaf, ptt = (voice?.mode ?? prefs.mode) === 'ptt';
   const btn = (cls: string, icon: React.ReactNode, label: string, title: string, short: string, onClick: () => void, extra: { disabled?: boolean; pressed?: boolean; badge?: boolean } = {}) =>
     <button className="vbtn chip" data-state={cls} disabled={extra.disabled} aria-label={label} aria-pressed={extra.pressed} title={title} onClick={onClick}>
       {icon}{extra.badge && <b className="vbadge" aria-hidden="true" />}{dock && <small>{short}</small>}</button>;
@@ -1314,12 +1380,12 @@ function VoiceIcons({ store, voice, dock }: { store: Store; voice: Voice | null;
   const away = 'Voice is on in another tab';
   return <div className={`voice-icons${dock ? ' in-dock' : ''}`} ref={ref} role="group" aria-label="Your voice controls">
     {elsewhere
-      ? btn('off elsewhere', <VIcon name="mic" off={muted} />, 'Voice is in another tab', `${away} · click to use voice here`, 'Voice',
+      ? btn('off elsewhere', <VIcon name="mic" off={micOff} />, 'Voice is in another tab', `${away} · click to use voice here`, 'Voice',
         () => setPop(p => (p === 'claim' ? null : 'claim')), { pressed: pop === 'claim', badge: true })
       : !me?.callId ? btn('idle', <VIcon name="mic" />, 'Microphone not in use', 'Mic not in use · knock on someone or walk into Coffee or the Arcade to talk', 'Mic', () => {}, { disabled: true })
-      : btn(err ? 'err' : muted ? 'muted' : 'live', <VIcon name="mic" off={muted} />, muted ? 'Unmute' : 'Mute',
-        err ?? (muted ? 'Muted · click to unmute' : ptt ? 'Mic on · hold Space to talk (click to mute)' : 'Mic live · click to mute') + (ptt && muted ? ' · Space to talk once unmuted' : ''),
-        muted ? 'Unmute' : 'Mic', () => voice?.toggleMute(), { disabled: !owner || !voice, pressed: muted })}
+      : btn(err ? 'err' : micOff ? 'muted' : 'live', <VIcon name="mic" off={micOff} />, deaf ? 'Hear again' : muted ? 'Unmute' : 'Mute',
+        err ?? (deaf ? 'Deafened, so your mic is off · click to hear again' : muted ? 'Muted · click to unmute' : ptt ? 'Mic on · hold Space to talk (click to mute)' : 'Mic live · click to mute') + (ptt && muted ? ' · Space to talk once unmuted' : ''),
+        deaf ? 'Deaf' : muted ? 'Unmute' : 'Mic', () => (deaf ? voice?.toggleDeafen() : voice?.toggleMute()), { disabled: !owner || !voice, pressed: micOff })}
     {btn(elsewhere ? 'off' : deaf ? 'off' : 'live', <VIcon name="speaker" off={deaf} />, deaf ? 'Undeafen' : 'Deafen', elsewhere ? away : deaf ? 'Deafened · click to hear again' : 'Hearing everyone · click to deafen',
       deaf ? 'Deaf' : 'Hear', () => voice?.toggleDeafen(), { disabled: !owner || !voice, pressed: deaf })}
     {btn(me?.hand && room ? 'live' : 'off', <VIcon name="hand" />, me?.hand ? 'Lower hand' : 'Raise hand',
@@ -1466,7 +1532,7 @@ function ActionWheel({ store, engine, pick, assets, onPerson, onClose }: { store
     if (emoji) {
       items = REACTIONS.map(e => ({ icon: e, label: '', onClick: act(() => store.react(u.id, e)) }));
       const held = isMe && me?.holding ? ITEMS.get(me.holding) : undefined;
-      if (isMe && me?.eating) items.push({ icon: me.eating.open ? '🔕' : '💬', label: me.eating.open ? 'Closed' : 'Open', title: me.eating.open ? 'Not up for company: knocks go to Later' : 'Open to talk: anyone at your table can knock', onClick: act(() => store.lunchOpen(!me.eating!.open)) });
+      if (isMe && me?.eating) items.push({ icon: me.eating.open ? '🔕' : '💬', label: me.eating.open ? 'Quiet' : 'Chat', title: me.eating.open ? 'Go quiet: knocks go to Later' : 'Open to chat: anyone at the table can knock', onClick: act(() => store.lunchOpen(!me.eating!.open)) });
       if (!isMe) items.push({ icon: '↩', label: 'Back', onClick: () => setEmoji(false) });
       else if (held) items.push({ icon: held.icon, label: 'Finish', title: `Finish your ${held.label.toLowerCase()}`, onClick: act(() => store.drop()) });
       if (isMe && me?.following) items.push({ icon: '🛑', label: 'Stop following', onClick: act(() => store.follow(null)) });
@@ -1483,6 +1549,7 @@ function ActionWheel({ store, engine, pick, assets, onPerson, onClose }: { store
       ];
       if (isMe && (store.dancing || (store.roomOf(u)?.id === DANCE_ROOM && !u.instance))) items.push({ icon: '💃', label: store.dancing ? 'Stop dancing' : 'Dance', onClick: act(() => store.dance()) });
       if (me?.callId && me.callId === u.callId) items.push({ icon: '🔊', label: 'Volume', onClick: act(() => { if (at) onPerson({ id: u.id, x, y }); }) });
+      if (!isMe && !away) { const why = store.roomReason(u); if (!why) items.push({ icon: '🔒', label: 'Private room', title: `Take ${u.name.split(' ')[0]} to a private room`, onClick: act(() => store.createRoom([u.id])) }); }
       if (store.admin && me && !me.instance && !u.instance && !away) items.push({ icon: '🌀', label: 'Teleport', title: `Step through a portal to ${u.name.split(' ')[0]}`, onClick: act(() => store.teleport(u.id)) });
       if (store.admin && !u.bot) items.push({ icon: '✏️', label: 'Rename', title: `Give ${u.name.split(' ')[0]} another name`, onClick: act(() => { const v = window.prompt(`New name for ${u.name}`, u.name); if (v?.trim()) store.rename(u.id, v); }) });
       const held = me?.holding ? ITEMS.get(me.holding) : undefined;
@@ -1495,8 +1562,8 @@ function ActionWheel({ store, engine, pick, assets, onPerson, onClose }: { store
     const meal = o?.type === 'chair' && me?.holding ? ITEMS.get(me.holding) : undefined;
     if (o && meal && picnicSeat(MAP, o)) { // a chair at a picnic table, food in hand
       title = `${meal.icon} Eat lunch here`;
-      items = [{ icon: '🍽', label: 'Eat', title: `Eat your ${meal.label.toLowerCase()} here (${LUNCH_MS / 60_000} min)`, onClick: act(() => store.lunch({ x: o.x, y: o.y }, false)) },
-        { icon: '💬', label: 'Open', title: 'Eat here, and welcome anyone at the table to knock', onClick: act(() => store.lunch({ x: o.x, y: o.y }, true)) }];
+      items = [{ icon: '🔕', label: 'Eat quietly', title: 'Eat here; knocks go to Later', onClick: act(() => store.lunch({ x: o.x, y: o.y }, false)) },
+        { icon: '💬', label: 'Eat & chat', title: 'Eat here; anyone at the table can knock', onClick: act(() => store.lunch({ x: o.x, y: o.y }, true)) }];
     } else if (!o || !routes(o.use, 'wheel')) return null; // the other kinds act on the click (e.onPick above)
     else if (o.use.kind === 'toilet') {
       const s = store.toilets[o.id], full = toiletFull(s), inside = !!s?.in.includes(store.me), queued = s?.queue.indexOf(store.me) ?? -1;

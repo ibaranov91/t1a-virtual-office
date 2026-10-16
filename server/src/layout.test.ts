@@ -21,6 +21,25 @@ function setup(t: TestContext) {
 }
 const notices = (messages: ServerMsg[]) => messages.flatMap(m => (m.t === 'notice' ? [m.text] : []));
 
+for (const occupied of [false, true]) test(`old Music windows become a TV without losing a custom layout (ivy destination occupied: ${occupied})`, t => {
+  const { w } = setup(t);
+  const tv = base.objects.find(o => o.type === 'lofi_tv'); assert.ok(tv);
+  const objects = structuredClone(base.objects).filter(o => o.type !== 'lofi_tv');
+  objects.push({ id: tv.id, type: 'window', x: 60, y: 1, w: 2, h: 2, wall: true });
+  const ivy = objects.find(o => o.type === 'wall_ivy' && o.x === 63 && o.y === 2)!; ivy.x = 62;
+  if (occupied) objects.push({ id: 'custom-poster', type: 'poster', x: 63, y: 2, w: 1, h: 1, wall: true });
+  const rugs = structuredClone(base.rugs); rugs[0].color = 'burgundy';
+  const saved = { ...w.dump(), version: 1, layout: { objects, rugs } };
+  const next = new World(structuredClone(base)); next.load(saved);
+  assert.equal(next.map.objects.filter(o => o.type === 'lofi_tv').length, 1);
+  assert.equal(next.map.objects.some(o => o.type === 'window' && o.x === 60 && o.y === 1), false);
+  assert.equal(next.map.objects.find(o => o.type === 'lofi_tv')?.use?.kind, 'youtube');
+  assert.equal(next.map.rugs[0].color, 'burgundy'); assert.equal(layoutProblem(next.map), null);
+  if (occupied) assert.ok(next.map.objects.some(o => o.id === 'custom-poster'));
+  const again = new World(structuredClone(base)); again.load(next.dump());
+  assert.deepEqual(again.layout(), next.layout());
+});
+
 test('only admins can rearrange; they hear it in their own settings', t => {
   const { map, w, add } = setup(t);
   const admin = add('Ivan', { x: 4, y: 17 }, 'ivan.baranov@t1a.com'), other = add('Kim', { x: 8, y: 17 }, 'kim@t1a.com');
