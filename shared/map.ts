@@ -520,3 +520,10 @@ export function migrateBeach(saved: Layout, base: Layout, m: TileMap): Layout {
   if (saved.objects.some(inWing)) return saved;
   return uniqueIds({ objects: [...saved.objects, ...structuredClone(base.objects.filter(inWing))], rugs: saved.rugs }, base);
 }
+
+/** One-time version-4 reset: replace saved wing furniture with the smaller beach's generated set. */
+export function resetBeach(saved: Layout, base: Layout, m: TileMap): Layout {
+  const wing = m.rooms.filter(r => r.id === 'beach' || r.id === 'mountains');
+  const inWing = (o: MapObject) => wing.some(r => inRect(r.rect, o.x, o.y));
+  return uniqueIds({ objects: [...saved.objects.filter(o => !inWing(o)), ...structuredClone(base.objects.filter(inWing))], rugs: saved.rugs }, base);
+}

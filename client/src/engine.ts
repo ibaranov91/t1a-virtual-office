@@ -1222,7 +1222,7 @@ export class Engine {
       for (let x = Math.max(a.x, Math.floor(v.x0 / TS)); x < Math.min(a.x + a.w, Math.ceil(v.x1 / TS)); x++) {
         if (!water(x, y)) continue;
         const seed = (x * 73856093 ^ y * 19349663) >>> 0, px = x * TS, py = y * TS;
-        ctx.strokeStyle = 'rgba(228,250,245,0.5)'; ctx.beginPath();
+        ctx.strokeStyle = 'rgba(228,250,245,0.3)'; ctx.beginPath();
         for (const [dx, dy] of [[0, -1], [0, 1], [-1, 0], [1, 0]]) {
           if (water(x + dx, y + dy)) continue;
           const offset = 1 + (phase + seed) % 2;
@@ -1230,9 +1230,9 @@ export class Engine {
           else { const sy = py + (dy < 0 ? offset : TS - offset); ctx.moveTo(px + 1, sy); ctx.lineTo(px + 8, sy + 0.5); ctx.lineTo(px + TS - 1, sy); }
         }
         ctx.stroke();
-        if ((seed + phase) % 7 === 0) {
+        if ((seed + phase) % 13 === 0) {
           const sx = px + 2 + (seed + phase * 3) % 12, sy = py + 2 + ((seed >>> 5) + phase) % 12;
-          ctx.fillStyle = 'rgba(230,255,250,0.6)'; ctx.fillRect(sx, sy, 2, 1); ctx.fillRect(sx, sy - 1, 1, 3);
+          ctx.fillStyle = 'rgba(230,255,250,0.4)'; ctx.fillRect(sx, sy, 2, 1); ctx.fillRect(sx, sy - 1, 1, 3);
         }
       }
     }

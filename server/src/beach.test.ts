@@ -149,15 +149,15 @@ test('lie furniture has one reachable seat per object', () => {
     assert.equal(seats, 1);
   }
 });
-test('version 2 migrates wing furniture once; version 3 preserves removed and moved props', t => {
+test('version 2 migrates wing furniture once; version 4 preserves removed and moved props', t => {
   const { w } = people(t), old = w.dump(); old.version = 2;
   old.layout = { objects: old.layout?.objects ?? w.layout().objects.filter(o => !inWing(w.map, o.x, o.y)), rugs: w.map.rugs };
   const migrated = new World(structuredClone(map)); migrated.load(old);
-  assert.equal(migrated.map.objects.filter(o => o.type === 'lounger').length, 6);
-  const next = migrated.dump(); assert.equal(next.version, 3);
+  assert.equal(migrated.map.objects.filter(o => o.type === 'lounger').length, 4);
+  const next = migrated.dump(); assert.equal(next.version, 4);
   next.layout!.objects = next.layout!.objects.filter(o => o.type !== 'hammock');
   const restored = new World(structuredClone(map)); restored.load(next);
-  assert.equal(restored.map.objects.filter(o => o.type === 'lounger').length, 6);
+  assert.equal(restored.map.objects.filter(o => o.type === 'lounger').length, 4);
   assert.equal(restored.map.objects.some(o => o.type === 'hammock'), false);
 });
 test('layouts cannot block trail or pier access', () => {
@@ -200,4 +200,24 @@ test('bar pauses three seconds, takes a current bar item and goes straight to th
   tick(2999); assert.equal(u.holding, null); tick(1);
   assert.ok(['cocktail', 'coconut', 'icecream'].includes(u.holding!));
   assert.ok(map.vacation!.pierEnds.some(t => t.x === u.move?.to.x && t.y === u.move?.to.y));
+});
+
+test('version 3 resets six old loungers once; version 4 preserves the saved wing', t => {
+  const { w, u } = people(t);
+  const saved = w.dump(); saved.version = 3;
+  saved.layout = structuredClone(w.layout());
+  const lounger = saved.layout.objects.find(o => o.type === 'lounger')!;
+  saved.layout.objects = saved.layout.objects.filter(o => o.type !== 'lounger' && o.type !== 'umbrella');
+  for (const [i, x] of [30, 38, 46, 54, 70, 78].entries())
+    saved.layout.objects.push({ ...lounger, id: `old-lounger-${i}`, x, y: 40 });
+  // A removed pier/sea tile is already handled by load's existing tile check.
+  saved.users.find(p => p.id === u.id)!.tile = { x: 62, y: 48 };
+  const reset = new World(structuredClone(map)); reset.load(saved);
+  assert.equal(reset.map.objects.filter(o => o.type === 'lounger').length, 4);
+  assert.deepEqual(reset.users.get(u.id)!.tile, map.spawn);
+  assert.equal(reset.dump().version, 4);
+  saved.version = 4; saved.users.find(p => p.id === u.id)!.tile = map.spawn;
+  const preserved = new World(structuredClone(map)); preserved.load(saved);
+  assert.equal(preserved.map.objects.filter(o => o.type === 'lounger').length, 6);
+  assert.deepEqual(preserved.layout(), saved.layout);
 });
