@@ -68,6 +68,8 @@ export class Engine {
   private ctx: CanvasRenderingContext2D;
   private staticLayer: HTMLCanvasElement;
   private raf = 0;
+  private lastDraw = 0;
+  private lastInput = 0;
   private px = 2;         // art pixels -> device pixels; whole numbers keep the art crisp (fractional only mid-glide)
   private dpr = 1;
   private minPx = 1;      // the whole floor fits
@@ -131,7 +133,7 @@ export class Engine {
   private ghost: { item: Item; problem: string | null } | null = null;
 
   constructor(private canvas: HTMLCanvasElement, private store: Store, private assets: Assets) {
-    this.ctx = canvas.getContext('2d')!;
+    this.ctx = canvas.getContext('2d', { alpha: false })!; // opaque: the frame starts with a full fill, so the compositor can skip blending
     this.staticLayer = this.furniture = this.lights = this.steamers = this.sounders = this.interactive = this.boards = null!;
     this.critters = new CreatureLayer(store, () => this.ctx, n => this.f(n), (n, x, y) => this.blit(this.ctx, n, x, y));
     this.refreshLayout();
@@ -157,6 +159,7 @@ export class Engine {
     window.addEventListener('keydown', this.onKey);
     window.addEventListener('keyup', this.onKeyUp);
     window.addEventListener('blur', this.stopKeys);
+    for (const ev of ['pointermove', 'pointerdown', 'wheel', 'keydown', 'gesturechange']) window.addEventListener(ev, this.touched, { passive: true });
     this.areaUnsub = store.subscribe(() => this.syncArea());
     this.syncArea();
     this.raf = requestAnimationFrame(this.frame);
@@ -174,6 +177,7 @@ export class Engine {
     this.canvas.removeEventListener('gesturechange', this.onGesture);
     window.removeEventListener('keydown', this.onKey);
     window.removeEventListener('keyup', this.onKeyUp);
+    for (const ev of ['pointermove', 'pointerdown', 'wheel', 'keydown', 'gesturechange']) window.removeEventListener(ev, this.touched);
     window.removeEventListener('blur', this.stopKeys);
   }
 
@@ -850,8 +854,18 @@ export class Engine {
   }
 
   // ---------- render ----------
+  private touched = () => { this.lastInput = performance.now(); };
+  /** Cap the redraw rate: 60 fps while anything moves or the user is interacting (ProMotion would otherwise draw 120), 30 when the floor is still. */
+  private skipFrame(ms: number) {
+    const busy = this.glide || this.editing || ms - this.lastInput < 1500 || [...this.store.users.values()].some(u => u.move && this.store.pose(u, this.store.now()).walking);
+    const gap = ms - this.lastDraw;
+    if (gap < (busy ? 15 : 31)) return true;
+    this.lastDraw = ms;
+    return false;
+  }
   private frame = (ms: number) => {
     this.raf = requestAnimationFrame(this.frame);
+    if (document.hidden || this.skipFrame(ms)) return;
     if (this.layoutSeen !== this.store.layoutVersion) this.refreshLayout();
     this.syncArea(); this.keyboardStep();
     const ctx = this.ctx, t = this.store.now();
