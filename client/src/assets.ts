@@ -11,7 +11,14 @@ export interface Atlas {
     accessories: { image: string; frameW: number; frameH: number; items: string[]; keys: Record<string, string> };
   };
 }
-export interface Assets { atlas: Atlas; world: HTMLImageElement; chars: HTMLImageElement; sheet(look: Look): HTMLCanvasElement }
+export interface Assets {
+  atlas: Atlas;
+  world: HTMLImageElement;
+  halloweenWorld: HTMLImageElement;
+  chars: HTMLImageElement;
+  setWorld(halloween: boolean): void;
+  sheet(look: Look): HTMLCanvasElement;
+}
 
 const BASE = '/assets/';
 const loadImage = (src: string) => new Promise<HTMLImageElement>((ok, fail) => {
@@ -26,8 +33,8 @@ const shade = (h: string, k = 0.78) => {
 
 export async function loadAssets(): Promise<Assets> {
   const atlas: Atlas = await (await fetch(BASE + 'atlas.json')).json();
-  const [world, chars, accessoryImage] = await Promise.all([
-    loadImage(BASE + atlas.image), loadImage(BASE + atlas.character.image), loadImage(BASE + atlas.character.accessories.image),
+  const [world, halloweenWorld, chars, accessoryImage] = await Promise.all([
+    loadImage(BASE + atlas.image), loadImage(BASE + 'world_halloween.png'), loadImage(BASE + atlas.character.image), loadImage(BASE + atlas.character.accessories.image),
   ]);
   const c = atlas.character;
   const topCount = c.tops?.length ?? 1, bottomCount = c.bottoms?.length ?? 1;
@@ -116,5 +123,7 @@ export async function loadAssets(): Promise<Assets> {
     cache.set(key, out);
     return out;
   };
-  return { atlas, world, chars, sheet };
+  const assets: Assets = { atlas, world, halloweenWorld, chars, setWorld: () => {}, sheet };
+  assets.setWorld = halloween => { assets.world = halloween ? halloweenWorld : world; };
+  return assets;
 }
