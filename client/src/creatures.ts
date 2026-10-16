@@ -4,6 +4,7 @@ import { terrainAt } from '../../shared/beach';
 import { sampleMove, WALK_MS_PER_TILE, type Dir, type Rect } from '../../shared/map';
 import { isPlate, LUNCH_MS, plateFood } from '../../shared/lunch';
 import { CUP_ITEMS, cupTableAt, type Creature, type Cup } from '../../shared/protocol';
+import { DRINKS } from '../../shared/drinks';
 import { phrase } from '../../shared/phrases';
 import type { Frame } from './assets';
 import { itemTop } from './tableTops';
@@ -144,15 +145,32 @@ export class CreatureLayer {
     return this.facing.get(c.id) ?? false;
   }
 
-  /** Top-left of a cup's (or plate's) sprite in world pixels: on its table's top. */
+  /** The sprite for a cup: on a table its own cup or glass, on the floor a cup on its side or a broken glass. */
+  private cupFrame(cup: Cup) {
+    if (cup.floor) return DRINKS[cup.item]?.glass ? 'floor_glass' : `floor_cup_${cup.item === 'tea' ? 'tea' : 'coffee'}`;
+    return this.f(`cup_${cup.item}`) ? `cup_${cup.item}` : 'cup_coffee';
+  }
+  /** Top-left of a cup's (or plate's) sprite in world pixels: on its table's top, or for a floor cup centred on its
+   *  tile with its bottom on the tile's bottom (under the feet of whoever stands there). */
   private cupSpot(cup: Cup) {
+    if (cup.floor) {
+      const fr = this.f(this.cupFrame(cup)), w = fr?.w ?? 10, h = fr?.h ?? 6;
+      return { x: cup.tile.x * TS + Math.floor((TS - w) / 2), y: (cup.tile.y + 1) * TS - h - 1, w, h };
+    }
     const table = cupTableAt(MAP.objects, cup.tile), fh = table && this.f(table.type)?.h;
-    return { x: cup.tile.x * TS + (isPlate(cup.item) ? 4 : 5), y: table && fh ? itemTop(table, cup.tile.y, fh, TS) : cup.tile.y * TS + 6 };
+    return { x: cup.tile.x * TS + (isPlate(cup.item) ? 4 : 5), y: table && fh ? itemTop(table, cup.tile.y, fh, TS) : cup.tile.y * TS + 6, w: 6, h: 6 };
   }
   /** The cup drawn under this world point (with a pixel or two of slack), to click it away. Plates aren't: someone
    *  may still be eating. */
   cupAt(wx: number, wy: number) {
-    return this.store.cups.find(c => { const p = this.cupSpot(c); return CUP_ITEMS.includes(c.item) && wx >= p.x - 2 && wx < p.x + 8 && wy >= p.y - 3 && wy < p.y + 8; }) ?? null;
+    return this.store.cups.find(c => { const p = this.cupSpot(c); return CUP_ITEMS.includes(c.item) && wx >= p.x - 2 && wx < p.x + p.w + 2 && wy >= p.y - 3 && wy < p.y + p.h + 2; }) ?? null;
+  }
+  /** What hovering a cup says. */
+  cupLabel(cup: Cup) {
+    const glass = !!DRINKS[cup.item]?.glass, icon = cup.item === 'tea' ? '🍵' : cup.item === 'beer' ? '🍺' : cup.item === 'wine' ? '🍷' : cup.item === 'cocktail' ? '🍸' : '☕';
+    if (!cup.floor) return `${icon} Someone left this here · click to clear it away`;
+    const who = cup.by && this.store.users.get(cup.by)?.name;
+    return who ? `${icon} ${who}'s empty ${glass ? 'glass' : 'cup'} · click to tidy` : `${icon} an empty ${glass ? 'glass' : 'cup'} · click to tidy`;
   }
 
   /** Everything that stands on the floor, for the engine's y-sorted pass. */
@@ -166,13 +184,14 @@ export class CreatureLayer {
     }
     for (const cup of this.store.cups) {
       const table = cupTableAt(MAP.objects, cup.tile);
-      const base = table ? (table.y + table.h) * TS - 0.25 : (cup.tile.y + 1) * TS;
+      const base = cup.floor ? cup.tile.y * TS + 0.25 : table ? (table.y + table.h) * TS - 0.25 : (cup.tile.y + 1) * TS; // floor litter: under anyone on its tile
       const { x, y } = this.cupSpot(cup);
       if (isPlate(cup.item)) { // the food while lunch lasts, then the crumbs
         out.push({ base, draw: () => this.blit(this.store.now() < cup.at + LUNCH_MS ? `plate_${plateFood(cup.item)}` : 'plate_empty', x, y) });
         continue;
       }
-      out.push({ base, draw: () => this.blit(`cup_${cup.item === 'tea' ? 'tea' : 'coffee'}`, x, y) });
+      const name = this.cupFrame(cup);
+      out.push({ base, draw: () => this.blit(name, x, y) });
     }
     for (const c of this.store.creatures.values()) {
       if (c.kind === 'bat') continue; // flies over everything: drawn on top

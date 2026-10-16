@@ -357,14 +357,16 @@ export class Creatures {
     }
     return best;
   }
-  /** Which cup next and where to stand for it: the nearest by path. */
+  /** Which cup next and where to stand for it: litter on the floor first (she stands on it), then the nearest by path. */
   planClean(from: Tile, now: number) {
     let best: { cup: Cup; spot: Tile; path: Tile[] } | null = null;
     for (const cup of this.cups) {
       if (now - cup.at < CUP_LINGER_MS + (isPlate(cup.item) ? LUNCH_MS : 0)) continue; // a plate stays while its owner eats
-      for (const spot of this.beside(cup.tile)) {
+      if (best?.cup.floor && !cup.floor) continue;
+      const spots = cup.floor && isWalkable(this.map, cup.tile.x, cup.tile.y) ? [cup.tile] : this.beside(cup.tile);
+      for (const spot of spots) {
         const path = findPath(this.map, from, spot);
-        if (path.length && (!best || path.length < best.path.length)) best = { cup, spot, path };
+        if (path.length && (!best || (cup.floor && !best.cup.floor) || path.length < best.path.length)) best = { cup, spot: { ...spot }, path };
       }
     }
     return best;

@@ -8,7 +8,7 @@ import { currentPlay } from './jukeboxSync';
 import { JukeboxPlayer } from './jukeboxPlayer';
 import { MAP, type Store } from './net';
 import { prefs, subscribePrefs, volumeFor, type Category } from './prefs';
-import { playDoorOpen, playDoorClose, playBell, playCoffeeBrew } from './sounds';
+import { playDoorOpen, playDoorClose, playBell, playClink, playCoffeeBrew, playShatter } from './sounds';
 import { roomDoors, type RoomDoor } from './doors';
 
 type Level = { id: string; gain: number; pan: number; send: number };
@@ -299,6 +299,18 @@ export class Soundscape {
     g.connect(p).connect(categoryOutput('effects'));
     playBell(g);
     window.setTimeout(() => { g.disconnect(); p.disconnect(); }, 1500);
+  }
+  /** A cup or glass fell to the floor: heard in its room (or close by through a doorway), panned and faded like the bell. */
+  dropCup(tile: Tile, glass: boolean) {
+    const me = this.store.users.get(this.store.me); if (!me || me.instance || !this.store.connected) return;
+    const pose = this.store.pose(me), dist = Math.abs(pose.tile.x - tile.x) + Math.abs(pose.tile.y - tile.y);
+    if (roomAt(MAP, tile.x, tile.y)?.id !== roomAt(MAP, pose.tile.x, pose.tile.y)?.id && dist > 6) return;
+    const model = soundModel(MAP, pose, { x: tile.x, y: tile.y, tile }, {});
+    const g = audio().createGain(), p = audio().createStereoPanner();
+    g.gain.value = Math.max(distanceGain(dist), .1); p.pan.value = model.pan;
+    g.connect(p).connect(categoryOutput('effects'));
+    (glass ? playShatter : playClink)(g);
+    window.setTimeout(() => { g.disconnect(); p.disconnect(); }, 1200);
   }
   /** A coffee was brewed: the brewer and whoever stands in the machine's room (sealed rooms) hear it, panned like the doors. */
   coffeeBrew(o: MapObject, by: string) {

@@ -1154,7 +1154,7 @@ export class Engine {
     }
     else if (this.hoverCup && this.store.cups.some(c => c.id === this.hoverCup!.id)) { // gone: the label goes with it
       const { x, y } = this.hoverCup.tile;
-      this.drawLabel(`${this.hoverCup.item === 'tea' ? '🍵' : '☕'} Someone left this here · click to clear it away`, x * TS + 8, y * TS - 2, camX, camY);
+      this.drawLabel(this.critters.cupLabel(this.hoverCup), x * TS + 8, y * TS - 2, camX, camY);
     }
     else if (this.cupTile) {
       const held = me?.holding ? ITEMS.get(me.holding) : undefined;

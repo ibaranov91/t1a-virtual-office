@@ -1,4 +1,5 @@
 import { rulesForMode, type RoomMode, type RoomModes } from '../../shared/roomModes';
+import { DRINKS } from '../../shared/drinks';
 import { onMap } from '../../shared/beach';
 import { TABLE_GAMES, type TableView, type TableGameId } from '../../shared/table/types';
 import { playTable } from './sounds';
@@ -117,7 +118,8 @@ export class Store {
   dungeonOpening = false;
   dungeonFx: DungeonFx[] = [];
   creatures = new Map<string, Creature>(); // the office animals and the cleaner (never people)
-  cups: Cup[] = [];                        // left on tables
+  cups: Cup[] = [];                        // left on tables (or dropped on the floor)
+  private cupsSeen = false;                // the first `cups` is what was already there: no sounds for it
   version = 0;    // bumps on any change, including scene-only ones (the engine reads the store every frame)
   uiVersion = 0;  // bumps only when React chrome has something new to show
   admin = false;      // may rearrange the office (and is a GM: may put effects on anyone)
@@ -716,7 +718,12 @@ export class Store {
         if (c.pose === 'pet' && was?.pose !== 'pet' && msg.by === this.me) playPet(c.kind === 'dog');
         this.creatures.set(c.id, c); break;
       }
-      case 'cups': this.cups = msg.cups; break;
+      case 'cups': {
+        const had = new Set(this.cups.map(c => c.id)), first = !this.cupsSeen;
+        this.cups = msg.cups; this.cupsSeen = true;
+        if (!first) for (const c of msg.cups) if (c.floor && !had.has(c.id)) this.soundscape?.dropCup(c.tile, !!DRINKS[c.item]?.glass);
+        break;
+      }
       case 'instrument': this.setInstruments({ ...this.instruments, [msg.id]: msg.player }); break;
       case 'seat': this.seat = msg.id; break;
       case 'note': this.soundscape?.receiveNote(msg.id, msg.by, msg.note, msg.on, msg.vel, msg.preset, msg.at); return;
