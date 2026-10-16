@@ -25,6 +25,7 @@ export class Voice {
   private peers = new Map<string, Peer>();
   private micRequest = 0;
   private micAttempted = false;
+  private processing = prefs.processing;
   private meter: number | undefined;
   private meterSource: MediaStreamAudioSourceNode | null = null;
   private analyser: AnalyserNode | null = null;
@@ -53,6 +54,10 @@ export class Voice {
     this.watchdog = window.setInterval(() => this.checkPeers(), 2000);
     setAudioDeafened(this.deafened);
     this.unsub = subscribePrefs(() => {
+      if (this.processing !== prefs.processing) { // reopen the mic with the new processing, if it's open
+        this.processing = prefs.processing;
+        if (this.local) { this.stopMic(); this.micAttempted = false; this.sendRule(); this.openMic(); }
+      }
       const changed = this.deafened !== prefs.deafened || this.mode !== prefs.mode;
       this.deafened = prefs.deafened; this.mode = prefs.mode;
       if (!changed) return;
@@ -124,7 +129,8 @@ export class Voice {
     const token = ++this.micRequest;
     let local: MediaStream | null = null, error: string | null = null;
     try {
-      local = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+      const on = this.processing;
+      local = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: on, noiseSuppression: on, autoGainControl: on } });
     } catch (e) {
       error = (e as Error)?.name === 'NotAllowedError' ? 'Microphone blocked: you can listen but not talk' : 'No microphone: listen-only';
     }

@@ -171,6 +171,9 @@ export function VoiceIcons({ store, voice, dock, rail, hand = true }: { store: S
           onChange={e => { if (voice && e.target.value !== voice.mode) voice.toggleMode(); }}>
           <option value="voice">Voice activity</option><option value="ptt">Push-to-talk (hold Space)</option>
         </select></label>}
+        {(pop === 'input' || pop === 'settings') && <label className="voice-processing"><input type="checkbox" checked={prefs.processing}
+          onChange={e => { prefs.processing = e.target.checked; savePrefs(); }} /> Echo cancellation
+          <small>Turn off with headphones if others sound choppy while you're unmuted (Safari, Mac app).</small></label>}
         {(pop === 'output' || pop === 'settings') && <div className="voice-mix">
           {(['voice', 'music', 'effects'] as Category[]).map(category => <label className="volume-control" key={category}>
             <span><Icon name={category === 'voice' ? 'headphones' : category === 'music' ? 'music' : 'volume'} />{{ voice: 'Voices', music: 'Music', effects: 'Effects' }[category]}</span>
