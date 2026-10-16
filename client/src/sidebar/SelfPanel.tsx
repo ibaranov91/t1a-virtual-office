@@ -8,6 +8,7 @@ import { MEET_LINK_RE, meetAs } from '../../../shared/protocol';
 import { ExternalLink } from '../links';
 import { PRESENCE_COLOR } from './model';
 import { Avatar } from './Avatar';
+import { overlayOpen } from './hooks';
 
 
 export function EnableSound() {
@@ -41,7 +42,7 @@ export function IdentityPill({ store, roomName, assets }: { store: Store; roomNa
   useEffect(() => {
     if (!open) return;
     const outside = (e: PointerEvent) => { if (e.target instanceof Node && !ref.current?.contains(e.target)) close(true); };
-    const key = (e: KeyboardEvent) => { if (!store.gameOpen && e.key === 'Escape') { e.stopImmediatePropagation(); close(false); } };
+    const key = (e: KeyboardEvent) => { if (!overlayOpen(store) && e.key === 'Escape') { e.stopImmediatePropagation(); close(false); } };
     window.addEventListener('pointerdown', outside); window.addEventListener('keydown', key);
     return () => { window.removeEventListener('pointerdown', outside); window.removeEventListener('keydown', key); };
   }, [open]);
@@ -70,7 +71,7 @@ export function IdentityPill({ store, roomName, assets }: { store: Store; roomNa
     {open === 'status' && <div className="status-pop" role="dialog" aria-label="Status">
       <form onSubmit={e => { e.preventDefault(); close(true); }}>
         <input autoFocus value={draft ?? text} maxLength={80} placeholder="What are you on? (waters your plant)" onChange={e => setDraft(e.target.value)}
-          onKeyDown={e => { if (!store.gameOpen && e.key === 'Escape') { e.stopPropagation(); close(false); } }} />
+          onKeyDown={e => { if (!overlayOpen(store) && e.key === 'Escape') { e.stopPropagation(); close(false); } }} />
       </form>
       <div className="status-row">
         <button className="ghost" disabled={!text && !draft} onClick={() => { store.setStatus(''); close(false); }}>Clear</button>
@@ -108,7 +109,7 @@ export function VoiceIcons({ store, voice, dock, rail }: { store: Store; voice: 
   useEffect(() => {
     if (!pop) return;
     const outside = (e: PointerEvent) => { if (e.target instanceof Node && !ref.current?.contains(e.target)) setPop(null); };
-    const key = (e: KeyboardEvent) => { if (!store.gameOpen && e.key === 'Escape') { e.stopImmediatePropagation(); setPop(null); } };
+    const key = (e: KeyboardEvent) => { if (!overlayOpen(store) && e.key === 'Escape') { e.stopImmediatePropagation(); setPop(null); } };
     window.addEventListener('pointerdown', outside); window.addEventListener('keydown', key);
     return () => { window.removeEventListener('pointerdown', outside); window.removeEventListener('keydown', key); };
   }, [pop]);

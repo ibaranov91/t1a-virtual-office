@@ -176,21 +176,24 @@ test('park elements: s/t solidity waits for overlap to clear and follows members
   place(s.players[0], 180, 176); step(s, l); assert.ok(s.sBlocks[0]); assert.ok(!s.tBlocks[0]);
 });
 
-import { Runner } from '../../shared/park/runner';
+import { Runner } from '../../shared/arcade/runner';
+import { define, type SimView } from '../../shared/arcade/types';
 import type { ParkIncoming, ParkOutgoing, PublicSession } from '../../shared/park/types';
 class Sequencer {
   now = 0; startAt = 0; epoch = 1; level = fixture(); sim = parkInit(this.level);
   events: GameEvent[] = [[0, 0, 1, 0], [0, 1, 1, 0]];
   players = [{ userId: 'A', slot: 0 }, { userId: 'B', slot: 1 }];
-  runners: Runner[] = []; out: { runner: Runner; msg: ParkOutgoing }[] = []; last = [0, 0, 0, 0];
-  snapshot(): PublicSession { return { cabinet: 'cabinet', epoch: this.epoch, phase: 'level', level: 1, startAt: this.startAt, serverNow: this.now,
-    players: structuredClone(this.players), spectators: ['watch'], teamSize: 2, snapshot: structuredClone(this.sim), events: this.events.filter(e => e[0] >= this.sim.frame) }; }
+  runners: Runner<ParkState>[] = []; out: { runner: Runner<ParkState>; msg: ParkOutgoing }[] = []; last = [0, 0, 0, 0];
+  snapshot(): PublicSession<ParkState> & { view: SimView<ParkState> } { return { cabinet: 'cabinet', epoch: this.epoch, serverNow: this.now,
+    players: structuredClone(this.players), spectators: ['watch'], crew: { key: 'AB', name: 'Test crew' }, set: null,
+    view: { kind: 'sim', game: 'park', seed: 1, opts: { level: 1, card: false }, roster: this.players.map(p => ({ ...p, team: null })), startAt: this.startAt, snapshot: structuredClone(this.sim), events: this.events.filter(e => e[0] >= this.sim.frame) } }; }
+
   runner(userId = 'A') {
-    let r: Runner;
-    r = new Runner({ userId, now: () => this.now, levels: [this.level, this.level], transport: { send: msg => this.out.push({ runner: r, msg }) } });
+    let r: Runner<ParkState>;
+    r = new Runner<ParkState>({ userId, now: () => this.now, games: { park: define({ id: 'park', name: 'fixture', goal: '', controls: [], players: [1, 4], modes: { ffa: [1, 2, 3, 4], teams: false }, init: () => parkInit(this.level), step: (s: ParkState, events) => parkStep(s, this.level, events), bits: (s: ParkState, slot) => s.players[slot].bits }) }, transport: { send: msg => this.out.push({ runner: r, msg }) } });
     this.runners.push(r); r.receive({ t: 'game_session', session: this.snapshot() }); return r;
   }
-  event(ev: GameEvent, except?: Runner) {
+  event(ev: GameEvent, except?: Runner<ParkState>) {
     if (ev[2] === 2 || ev[2] === 3) this.events = this.events.filter(e => !(e[1] === ev[1] && e[2] === 0 && e[0] >= ev[0]));
     this.events.push(ev); for (const r of this.runners) if (r !== except) r.receive({ t: 'game_event', epoch: this.epoch, ev });
   }
@@ -210,7 +213,7 @@ class Sequencer {
     while (this.sim.frame <= target) parkStep(this.sim, this.level, this.events.filter(e => e[0] === this.sim.frame));
     if (tick) this.runners.forEach(r => r.tick());
   }
-  assertSettled(r: Runner) {
+  assertSettled(r: Runner<ParkState>) {
     const f = Math.min(this.sim.frame, r.state!.frame);
     assert.equal(hashState(r.stateAt(f)!), hashState(this.sim), `frame ${f}`);
     assert.equal(r.provisionalCount, 0);
@@ -244,7 +247,7 @@ test('park runner: countdown input is sent at frame 2 and new session resends he
   assert.equal(q.out[0].msg.t, 'game_input'); assert.equal((q.out[0].msg as Extract<ParkOutgoing, { t: 'game_input' }>).frame, 2);
   q.flush(); q.advance(210); q.assertSettled(a);
   a.receive({ t: 'game_session', session: q.snapshot() }); a.tick(); assert.equal(q.out.length, 0);
-  const fresh = q.snapshot(); fresh.epoch++; fresh.snapshot = parkInit(q.level); fresh.events = [[0, 0, 1, 0], [0, 1, 1, 0]];
+  const fresh = q.snapshot(); fresh.epoch++; fresh.view.snapshot = parkInit(q.level); fresh.view.events = [[0, 0, 1, 0], [0, 1, 1, 0]];
   a.receive({ t: 'game_session', session: fresh }); a.tick(); assert.ok(q.out.some(e => e.msg.t === 'game_input'));
 });
 test('park runner: >300 frames behind requests one sync and recovers on snapshot', () => {
@@ -255,7 +258,7 @@ test('park runner: spectator Joining state, delay and queued epoch messages', ()
   const q = new Sequencer(); q.advance(60); const a = q.runner('watch');
   assert.ok(a.presentation.joining); assert.equal(a.presentation.state, null);
   q.advance(10); assert.ok(!a.presentation.joining); assert.ok(a.state!.frame <= a.targetFrame);
-  const old = a.session!.epoch, next = q.snapshot(); next.epoch++; next.startAt = q.now + 3000; next.snapshot = parkInit(q.level); next.events = [[0, 0, 1, 0]];
+  const old = a.session!.epoch, next = q.snapshot(); next.epoch++; next.view.startAt = q.now + 3000; next.view.snapshot = parkInit(q.level); next.view.events = [[0, 0, 1, 0]];
   a.receive({ t: 'game_session', session: next });
   a.receive({ t: 'game_event', epoch: next.epoch, ev: [2, 0, 0, 2] });
   q.advance(8); assert.equal(a.session!.epoch, old);
@@ -415,4 +418,28 @@ test('lobby EXIT door: half a second standing in it takes the player out; steppi
   for (let i = 0; i < 30; i++) parkStep(s, l, []);
   assert.equal(s.players[0].entered, true); assert.equal(s.players[1].entered, false);
   assert.equal(s.startReady, false);
+});
+
+test('generic runner: terminal hash is verified before the next screen; overtaken provisional inputs cannot deadlock transition', () => {
+  const q = new Sequencer(), r = q.runner();
+  r.setLocalBits(2); r.tick(); // unacknowledged prediction at frame 2
+  q.advance(70);
+  const terminal = q.snapshot(); terminal.view.snapshot.outcome = { order: [[0], [1]], stats: {} };
+  // Use an ordinary authoritative frame for the hash gate; the boundary semantics are identical for all GameDefs.
+  const F = q.sim.frame;
+  r.receive({ t: 'game_check', epoch: 1, frame: F, hash: hashState(q.sim), serverNow: q.now });
+  assert.equal(r.debug.checks, 0, 'unacknowledged input blocks the check initially');
+  r.receive({ t: 'game_session', session: { ...q.snapshot(), epoch: 2, view: { kind: 'screen', screen: 'title', until: q.now + 3000, data: { game: 'crown' } } } });
+  assert.equal(r.session?.epoch, 1);
+  r.tick(); assert.equal(r.debug.checks, 1); assert.equal(r.debug.desyncs, 0);
+  r.tick(); assert.equal(r.session?.epoch, 2); assert.equal(r.state, null); assert.equal(r.provisionalCount, 0);
+});
+
+test('generic runner: spectator screens wait 150ms, screen updates retain the deadline, no simulation input on screens', () => {
+  let now = 0; const sent: ParkOutgoing[] = [], q = new Sequencer();
+  const r = new Runner({ userId: 'watch', now: () => now, transport: { send: m => sent.push(m) } });
+  const session: PublicSession = { ...q.snapshot(), view: { kind: 'screen', screen: 'favourite', until: 8000, data: { candidates: ['A', 'B'], voters: ['watch'], votes: {} } } };
+  r.receive({ t: 'game_session', session }); now = 100; r.tick(); assert.equal(r.session, null);
+  r.receive({ t: 'game_session', session }); now = 150; r.tick(); assert.equal((r.session as PublicSession | null)?.view.kind, 'screen');
+  r.setLocalBits(63); r.tick(); assert.deepEqual(sent, []);
 });

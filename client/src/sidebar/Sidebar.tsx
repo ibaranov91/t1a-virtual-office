@@ -5,7 +5,7 @@ import type { Store } from '../net';
 import type { Voice } from '../voice';
 import { subscribePrefs } from '../prefs';
 import { useSpeaking } from './Avatar';
-import { COMPACT, popoverOpen, useMedia } from './hooks';
+import { COMPACT, overlayOpen, popoverOpen, useMedia } from './hooks';
 import { ChannelTree } from './ChannelTree';
 import { PeopleList } from './PeopleList';
 import { SelfPanel } from './SelfPanel';
@@ -46,11 +46,11 @@ export const Sidebar = forwardRef<{ close: () => void }, {
   useImperativeHandle(ref, () => ({ close }));
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
-      if (store.gameOpen || e.key !== 'Escape' || surfaceOpen || popoverOpen() || e.defaultPrevented) return;
+      if (overlayOpen(store) || e.key !== 'Escape' || surfaceOpen || popoverOpen() || e.defaultPrevented) return;
       if (compact && sheetOpen || !compact && narrow && over) { e.stopImmediatePropagation(); close(); }
     };
     const outside = (e: PointerEvent) => {
-      if (!store.gameOpen && !compact && narrow && over && e.target instanceof Element && e.target.closest('.stage') && !e.target.closest('.sb-surface')) setOver(false);
+      if (!overlayOpen(store) && !compact && narrow && over && e.target instanceof Element && e.target.closest('.stage') && !e.target.closest('.sb-surface')) setOver(false);
     };
     window.addEventListener('keydown', key); window.addEventListener('pointerdown', outside);
     return () => { window.removeEventListener('keydown', key); window.removeEventListener('pointerdown', outside); };
@@ -74,7 +74,7 @@ export const Sidebar = forwardRef<{ close: () => void }, {
       <header className="sb-header"><div role="tablist" aria-label="Sidebar view">{(['rooms', 'people'] as const).map(v => <button key={v} role="tab" aria-selected={settings.view === v} onClick={() => update({ view: v })}>{v === 'rooms' ? 'Rooms' : 'People'}</button>)}</div>
         <button className="ghost" aria-label={compact ? 'Close people' : 'Collapse sidebar'} onClick={compact ? close : collapse}>{compact ? '×' : '«'}</button></header>
       <div className="sb-body"><input ref={search} className="sb-search" type="search" aria-label="Find a person or room" placeholder="Find a person or room" value={query} onChange={e => setQuery(e.target.value)}
-        onKeyDown={e => { if (!store.gameOpen && e.key === 'Escape' && !surfaceOpen && !popoverOpen()) { e.stopPropagation(); if (query) setQuery(''); else e.currentTarget.blur(); } }} />
+        onKeyDown={e => { if (!overlayOpen(store) && e.key === 'Escape' && !surfaceOpen && !popoverOpen()) { e.stopPropagation(); if (query) setQuery(''); else e.currentTarget.blur(); } }} />
         {settings.view === 'rooms' ? <ChannelTree {...list} onRoom={onRoom} /> : <PeopleList {...list} />}
       </div>
       {!compact && <SelfPanel store={store} voice={voice} assets={assets} />}

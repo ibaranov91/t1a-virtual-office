@@ -288,7 +288,7 @@ that just opened: those sit at `z-index:7`). Volume, Mute for me and Follow chan
 - **Escape**, innermost first, handled once (`stopPropagation` after handling): the status/presence/sound popovers →
   the card or room menu → the search field (clears, then blurs) → the narrow overlay or compact sheet (closes). The
   card and menu handle it in their own `onKeyDown`; the overlay/sheet close listens on `window` and acts only when no
-  card, menu or popover is open. All of these do nothing while `store.gameOpen` (the arcade overlay owns the keyboard).
+  card, menu or popover is open. All of these do nothing while `store.gameOpen` or `store.table` (the arcade and the game table own the keyboard).
 - **Focus**: opening the card focuses its first enabled action; opening the room menu focuses its first enabled item.
   Closing either (Escape, outside click, an action) returns focus to the element that opened it when it is still in the
   document, else to the search field on wide/narrow and to nothing on compact. Opening the compact sheet doesn't move

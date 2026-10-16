@@ -10,6 +10,8 @@ export function useMedia(query: string) {
   }, [query]);
   return matches;
 }
+/** The arcade or the game table owns the keyboard and the pointer while it's open. */
+export const overlayOpen = (store: Store) => store.gameOpen || !!store.table;
 export const popoverOpen = () => !!document.querySelector('.presence-pop, .status-pop, .voice-icons .settings-pop');
 export function useSurface(store: Store, at: { x: number; y: number }, compact: boolean, close: () => void) {
   const ref = useRef<HTMLDivElement>(null), onClose = useRef(close); onClose.current = close;
@@ -23,7 +25,7 @@ export function useSurface(store: Store, at: { x: number; y: number }, compact: 
     const previous = document.activeElement;
     (ref.current?.querySelector<HTMLElement>('[data-action]:not(:disabled)') ?? ref.current)?.focus();
     const outside = (e: PointerEvent) => {
-      if (!store.gameOpen && e.target instanceof Node && !ref.current?.contains(e.target)) onClose.current();
+      if (!overlayOpen(store) && e.target instanceof Node && !ref.current?.contains(e.target)) onClose.current();
     };
     window.addEventListener('pointerdown', outside);
     return () => {
@@ -33,7 +35,7 @@ export function useSurface(store: Store, at: { x: number; y: number }, compact: 
     };
   }, [store, compact]);
   const onKeyDown = (e: React.KeyboardEvent) => {
-    if (!store.gameOpen && e.key === 'Escape' && !popoverOpen()) { e.stopPropagation(); onClose.current(); }
+    if (!overlayOpen(store) && e.key === 'Escape' && !popoverOpen()) { e.stopPropagation(); onClose.current(); }
   };
   return { ref, onKeyDown, tabIndex: -1 };
 }
