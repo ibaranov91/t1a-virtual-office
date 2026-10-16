@@ -57,6 +57,7 @@ export class Soundscape {
   private offset: number;
   private dead = false;
   audible = false;
+  tvRoom: string | null = null; // this listener is watching a live TV in this room
 
   constructor(private store: Store) {
     store.soundscape = this;
@@ -237,7 +238,9 @@ export class Soundscape {
         (other.instrument.held.size > 0 || now - other.instrument.lastActivity < 5000)) ? .25 : 1;
       if (s.kind === 'jukebox' && duck !== (s.duck ?? 1)) s.jukebox!.duck.gain.setTargetAtTime(duck, c.currentTime, duck < 1 ? .1 : .5);
       s.duck = duck;
-      const v = s.clipGain * (s.kind === 'voice' ? volumeFor(id) : 1), mix = prefs.mix[s.category];
+      const local = s.kind === 'voice' ? volumeFor(id) : s.kind === 'jukebox' ? prefs.jukeboxVolumes[id.slice(4)] ?? 1 : 1;
+      const tvMute = s.kind === 'jukebox' && sourceRoom?.id === this.tvRoom;
+      const v = s.clipGain * (tvMute ? 0 : local), mix = prefs.mix[s.category];
       s.level = { id, gain: gain * v * mix * duck, pan: model.pan, send: send * v * mix * duck };
       if (s.bus !== bus) { s.send.disconnect(); if (bus) s.send.connect(bus); s.bus = bus; }
       s.dry.gain.setTargetAtTime(gain * v, c.currentTime, gain ? .08 : .02);
