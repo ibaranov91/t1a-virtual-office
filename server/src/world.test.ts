@@ -380,6 +380,15 @@ test('a saved layout with plain world clocks gets their zones, where the admin l
   const berlin = got.find(o => o.type === 'clock_berlin')!;
   assert.deepEqual([berlin.id, berlin.x, berlin.use], ['old', 30, clocks[1].use]);
 });
+test('a saved layout with a plain DJ booth gets its techno jukebox, where the admin left it', t => {
+  const { w } = setup(t), booth = map.objects.find(o => o.type === 'dj_booth')!;
+  const objects = map.objects.map(o => (o.id === booth.id ? { id: o.id, type: o.type, x: o.x, y: o.y + 1, w: o.w, h: o.h } : o));
+  const r = new World(structuredClone(map));
+  r.load({ ...w.dump(), layout: structuredClone({ objects, rugs: map.rugs }) });
+  const got = r.map.objects.find(o => o.type === 'dj_booth')!;
+  assert.deepEqual([got.y, got.use], [booth.y + 1, booth.use]);
+  assert.ok(Object.keys((r.snapshot() as Extract<ServerMsg, { t: 'state' }>).jukebox!).includes(got.id));
+});
 // gen-map.mjs numbers objects in order, so a build that adds one shifts every id after it (the safe took o57 from a plant)
 const olderBuild = (objects: TileMap['objects']) => objects.map(o => ({ ...structuredClone(o), id: `o${Number(o.id.slice(1)) + 1}` }));
 const loadLayout = (w: World, objects: TileMap['objects']) => {
