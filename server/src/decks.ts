@@ -1,20 +1,26 @@
 // Deck library: slide decks people uploaded, as files under data/decks/. One library per person, with a quota and a TTL.
 // Who's *showing* a deck is presentation.ts's business; this file only stores, lists, serves and sweeps.
 //
-// TODO (storage session): per-user folders data/decks/<userKey>/<deckId>/ with a one-time migration of the old flat
-// data/decks/<deckId>/ layout (by `deck.by`), quota (PRESENT_USER_QUOTA / env PRESENT_USER_QUOTA_MB), hourly sweep
-// (PRESENT_TTL_MS / env PRESENT_TTL_HOURS), `delete`, `bytes` and `key` on every deck (old deck.json files lack them).
+// Layout: data/decks/<userKey>/<deckId>/{deck.json,1.png,...}. The old flat data/decks/<deckId>/ layout is moved on startup.
 import { execFile } from 'node:child_process';
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
-import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmdirSync, statSync, writeFileSync } from 'node:fs';
+import { mkdir, mkdtemp, readdir, readFile, rm, rmdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { PRESENT_MAX_SLIDES, PRESENT_TTL_MS, PRESENT_USER_QUOTA, type DeckInfo } from '../../shared/protocol';
 
 export const DECK_ID_RE = /^[0-9a-f-]{36}$/;
-export const USER_QUOTA = process.env.PRESENT_USER_QUOTA_MB ? Number(process.env.PRESENT_USER_QUOTA_MB) * 1024 * 1024 : PRESENT_USER_QUOTA;
-export const DECK_TTL_MS = process.env.PRESENT_TTL_HOURS ? Number(process.env.PRESENT_TTL_HOURS) * 3600_000 : PRESENT_TTL_MS;
+const positive = (v: number, dflt: number) => Number.isFinite(v) && v > 0 ? v : dflt;
+export const USER_QUOTA = positive(Number(process.env.PRESENT_USER_QUOTA_MB) * 1024 * 1024, PRESENT_USER_QUOTA);
+export const DECK_TTL_MS = positive(Number(process.env.PRESENT_TTL_HOURS) * 3600_000, PRESENT_TTL_MS);
+/** A user id as a folder name that can't leave the decks dir. */
+export const userDirName = (userKey: string) => {
+  const n = encodeURIComponent(userKey).replace(/^\./, '%2E');
+  if (!userKey || n.length > 200) throw new PresentError(400, 'Bad user.');
+  return n;
+};
+const mb = (n: number) => (n / 1024 / 1024).toFixed(1);
 
 export class PresentError extends Error { constructor(public code: number, msg: string, public extra: Record<string, unknown> = {}) { super(msg); } }
 
@@ -40,28 +46,57 @@ export async function pdfPages(pdf: Buffer): Promise<Buffer[]> {
 export class DeckStore {
   decks = new Map<string, DeckInfo>();
 
-  constructor(private dir: string) {
+  constructor(private dir: string, private quota = USER_QUOTA, private ttl = DECK_TTL_MS) {
     if (!existsSync(dir)) return;
-    for (const id of readdirSync(dir)) {
+    for (const name of readdirSync(dir)) {
       try {
-        if (!DECK_ID_RE.test(id)) continue;
-        const d = JSON.parse(readFileSync(join(dir, id, 'deck.json'), 'utf8')) as DeckInfo;
-        this.decks.set(id, { ...d, bytes: d.bytes ?? 0, key: d.key ?? DeckStore.newKey() });
-      } catch { /* half-written deck: skip it */ }
+        const folder = join(dir, name);
+        if (!statSync(folder).isDirectory()) continue;
+        if (existsSync(join(folder, 'deck.json'))) this.load(folder, name, true); // old flat layout
+        else for (const id of readdirSync(folder)) this.load(join(folder, id), id, false, name);
+      } catch { /* unreadable folder: skip it */ }
     }
   }
+  /** Read one deck folder, fill in missing fields, and (for the old flat layout) move it under its owner. */
+  private load(folder: string, id: string, flat: boolean, userDir?: string) {
+    try {
+      if (!DECK_ID_RE.test(id)) return;
+      const file = join(folder, 'deck.json'), d = JSON.parse(readFileSync(file, 'utf8')) as DeckInfo;
+      if (d.id !== id || typeof d.by !== 'string' || !Array.isArray(d.ext) || !Number.isInteger(d.count)) return;
+      const home = userDirName(d.by);
+      if (!flat && home !== userDir) return;
+      let dirty = false;
+      if (typeof d.bytes !== 'number') { d.bytes = d.ext.reduce((n, e, i) => n + statSync(join(folder, `${i + 1}.${e}`)).size, 0); dirty = true; }
+      if (typeof d.key !== 'string' || !d.key) { d.key = DeckStore.newKey(); dirty = true; }
+      if (dirty) writeFileSync(file, JSON.stringify(d));
+      if (flat) {
+        const dest = join(this.dir, home, id);
+        mkdirSync(join(this.dir, home), { recursive: true });
+        renameSync(folder, dest);
+      }
+      this.decks.set(id, d);
+    } catch { /* half-written deck: skip it */ }
+  }
   static newKey() { return randomBytes(12).toString('base64url'); }
+
+  private folder(deck: { by: string; id: string }) { return join(this.dir, userDirName(deck.by), deck.id); }
+  /** Remove a deck's files, and its owner's folder once it's empty. */
+  private async wipe(deck: DeckInfo) {
+    await rm(this.folder(deck), { recursive: true, force: true });
+    await rmdir(join(this.dir, userDirName(deck.by))).catch(() => {}); // not empty: other decks remain
+  }
 
   /** Everything `userKey` uploaded, newest first. */
   list(userKey: string) { return [...this.decks.values()].filter(d => d.by === userKey).sort((a, b) => b.at - a.at); }
   used(userKey: string) { return this.list(userKey).reduce((n, d) => n + d.bytes, 0); }
   get(id: unknown) { return typeof id === 'string' && DECK_ID_RE.test(id) ? this.decks.get(id) : undefined; }
   /** Where slide `n` (1-based) of a deck lives on disk. */
-  slidePath(deck: DeckInfo, n: number) { return join(this.dir, deck.id, `${n}.${deck.ext[n - 1]}`); }
+  slidePath(deck: DeckInfo, n: number) { return join(this.folder(deck), `${n}.${deck.ext[n - 1]}`); }
 
   /** Validate and write a deck. `files`: base64 PNG/JPG images (one per slide, in order) or a single PDF. */
   async save(userKey: string, title: unknown, files: unknown): Promise<DeckInfo> {
     if (!Array.isArray(files) || !files.length) throw new PresentError(400, 'Pick some slides.');
+    userDirName(userKey);
     let slides: Buffer[] = files.map(f => Buffer.from(String(f ?? ''), 'base64'));
     if (slides.length === 1 && kindOf(slides[0]) === 'pdf') slides = await pdfPages(slides[0]);
     if (!slides.length) throw new PresentError(400, 'That PDF has no pages.');
@@ -69,9 +104,11 @@ export class DeckStore {
     const ext = slides.map(kindOf);
     if (ext.some(k => k !== 'png' && k !== 'jpg')) throw new PresentError(415, 'Slides must be PNG or JPG images, or one PDF.');
     const bytes = slides.reduce((n, s) => n + s.length, 0);
-    if (this.used(userKey) + bytes > USER_QUOTA) throw new PresentError(413, `Your library is full (${Math.round(USER_QUOTA / 1024 / 1024)} MB). Delete a deck first.`);
-    const id = randomUUID(), folder = join(this.dir, id);
+    const free = Math.max(0, this.quota - this.used(userKey));
+    if (bytes > free) throw new PresentError(413, `Not enough room in your library: ${mb(bytes)} MB needed, ${mb(free)} MB free of ${mb(this.quota)} MB. Delete a deck first.`);
+    const id = randomUUID();
     const deck: DeckInfo = { id, title: String(title ?? '').trim().slice(0, 60) || 'Untitled', count: slides.length, ext: ext as string[], by: userKey, at: Date.now(), bytes, key: DeckStore.newKey() };
+    const folder = this.folder(deck);
     await mkdir(folder, { recursive: true });
     await Promise.all(slides.map((s, i) => writeFile(join(folder, `${i + 1}.${ext[i]}`), s)));
     await writeFile(join(folder, 'deck.json'), JSON.stringify(deck));
@@ -84,14 +121,14 @@ export class DeckStore {
     const deck = this.get(id);
     if (!deck || deck.by !== userKey) throw new PresentError(404, 'That deck is gone.');
     this.decks.delete(deck.id);
-    await rm(join(this.dir, deck.id), { recursive: true, force: true });
+    await this.wipe(deck);
     return deck;
   }
 
   /** Decks older than the TTL go. Returns what went, so live shows of them can be stopped. */
   async sweep(now = Date.now()) {
-    const gone = [...this.decks.values()].filter(d => now - d.at > DECK_TTL_MS);
-    for (const d of gone) { this.decks.delete(d.id); await rm(join(this.dir, d.id), { recursive: true, force: true }); }
+    const gone = [...this.decks.values()].filter(d => now - d.at > this.ttl);
+    for (const d of gone) { this.decks.delete(d.id); await this.wipe(d); }
     return gone;
   }
 }

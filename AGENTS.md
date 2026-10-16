@@ -120,8 +120,11 @@ npm run typecheck    # run before every commit or deploy
   `__deck.engine.critters.summonGhost()` brings him out.
 - **Presentation mode** (`server/src/presentation.ts`, `client/src/Presentation.tsx`): the Meeting room's wall screen
   (`use.kind: 'presentation'`) takes PNG/JPG slides or one PDF (the browser renders PDF pages to images with pdf.js, `client/src/pdfSlides.ts`,
-  before upload; the server's poppler `pdftoppm` path is only a fallback for old clients) behind a PIN (`DECK_PRESENT_PIN`, default `1234`), via `POST /api/present/upload` with the session in
-  `x-deck-session`. Decks are files in `data/decks/<id>/` and survive restarts; who's presenting is memory only. Everyone in
+  before upload; the server's poppler `pdftoppm` path is only a fallback for old clients) via `POST /api/present/upload` with the session in
+  `x-deck-session` (no PIN). Everyone has their own library (`GET /api/present/decks` returns only yours, `DELETE /api/present/<id>` only your own): files in
+  `data/decks/<userId>/<deckId>/` (`server/src/decks.ts`, old flat folders are moved there at startup), 100 MB per person
+  (`PRESENT_USER_QUOTA_MB`), swept 24 h after upload (`PRESENT_TTL_HOURS`; at startup and hourly). Slide URLs carry a random per-deck
+  `?k=` key (`slideUrl`), so viewers need no session but decks can't be enumerated. Decks survive restarts; who's presenting is memory only. Everyone in
   the screen's room sees the slides as a 90s magazine page; the presenter flips with ← →, Stop ends it, and it ends by itself
   60 s after the presenter's last tab closes.
 - **Admin room & Berghain** (east column, x 65-73): a room with `rules.access: 'admins'` is walkable only for sysadmins (`DECK_SYSADMINS`, no default, set in the same env file; admins who are not listed there are locked out like everyone else)
