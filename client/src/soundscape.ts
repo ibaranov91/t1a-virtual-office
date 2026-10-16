@@ -45,6 +45,8 @@ export class Soundscape {
   private previous = new Map<string, Tile>();
   private doors: RoomDoor[] = [];
   private layoutSeen = -1;
+  private fieldKey = '';
+  private distances: number[][] | null = null;
   private instance: string | null | undefined;
   doorSounds = { open: 0, close: 0 };
   private timer: number;
@@ -315,7 +317,11 @@ export class Soundscape {
       if (this.audible) { this.audible = false; this.store.changed(); }
       return;
     }
-    const pose = this.store.pose(me), distances = field(MAP, pose.tile), room = this.store.roomCallOf(me), c = audio();
+    const pose = this.store.pose(me), room = this.store.roomCallOf(me), c = audio();
+    // The distance field depends only on the listener's tile and the walkable layout: reuse it until either changes.
+    const fieldKey = `${pose.tile.x},${pose.tile.y},${this.store.layoutVersion}`;
+    if (this.fieldKey !== fieldKey) { this.fieldKey = fieldKey; this.distances = field(MAP, pose.tile); }
+    const distances = this.distances!;
     let audible = false;
     for (const [id, s] of this.sources) {
       const u = this.store.users.get(id), p = s.tile ? { ...s.tile, tile: s.tile } : u ? this.store.pose(u) : null;

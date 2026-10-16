@@ -169,14 +169,14 @@ for (const y of CLUB_DOOR) floor[y][CLUB_X] = tid('door_floor');
 
 // ---- rugs (drawn 9-slice over the floor; admins can move them) ----
 const rugs = [];
-const rug = (color, x, y, w, h) => rugs.push({ id: `r${rugs.length + 1}`, color, x, y, w, h });
+const rug = (color, x, y, w, h, pattern) => rugs.push({ id: `r${rugs.length + 1}`, color, ...(pattern ? { pattern } : {}), x, y, w, h });
 rug('green', 2, 6, 9, 2);
-rug('blue', 16, 4, 8, 5);
-rug('orange', 28, 5, 9, 3);
+rug('blue', 16, 4, 8, 5, 'plaid');
+rug('orange', 28, 5, 9, 3, 'stripes');
 rug('red', 3, 15, 9, 5);
-rug('teal', 18, 16, 19, 3);
-rug('green', 41, 6, 11, 2);
-rug('blue', 42, 16, 9, 3);
+rug('teal', 18, 16, 19, 3, 'zigzag');
+rug('green', 41, 6, 11, 2, 'dots');
+rug('blue', 42, 16, 9, 3, 'checks');
 rug('orange', 55, 6, 8, 4); // music room dance floor
 rug('burgundy', 65, 26, 9, 7); // the Library, under the reading tables
 floor[EXIT.y][EXIT.x] = tid('doormat');
@@ -299,7 +299,7 @@ for (const x of [54, 56, 61]) obj('arcade', x, 13, 1, 2, { use: { kind: 'arcade'
 obj('records', 62, 12, 2, 1, { wall: true, use: { kind: 'records', label: 'records' } });
 obj('plant', 63, 20);
 obj('painting_small', 55, 12, 1, 1, { wall: true }); // padding for the sixth old object
-rug('teal', 56, 16, 6, 3);
+rug('teal', 56, 16, 6, 3, 'plain');
 obj('sofa', 55, 21, 3, 1, { sit: true, dir: 'down' });
 obj('sofa', 60, 21, 3, 1, { sit: true, dir: 'down' });
 obj('lamp', 54, 22, 1, 1, LAMP);
@@ -476,6 +476,34 @@ for (const ty of [27, 31]) for (const tx of [65, 68, 71]) {
 }
 for (const { id: _i, x: _x, y: _y, ...t } of objects.slice(firstTable)) catalog[t.type] ??= t;
 
+// more plants, furniture and wall decor (appended last so every earlier id stays put). Floor pieces hug the walls so they
+// never block a path; wall pieces go on free wall faces between the windows.
+const firstDecor = objects.length;
+for (const [type, ...at] of [
+  ['palm', 1, 15], ['water_cooler', 14, 16], ['coat_stand', 14, 14], ['side_table', 1, 20], // Lobby
+  ['fern', 1, 26], ['planter', 5, 25], ['planter', 11, 25], ['cactus', 14, 27], // Orangery
+  ['floor_lamp', 54, 5], ['palm', 63, 5], // Music
+  ['palm', 65, 5], ['floor_lamp', 73, 5], // Admin
+  ['fern', 73, 30], ['side_table', 65, 32], // Library
+]) obj(type, ...at, type === 'planter' ? 2 : 1, 1);
+for (const [type, x, y, w = 1, h = 1] of [
+  ['wall_shelf', 6, 2, 2], ['wall_ivy', 12, 2], ['poster', 1, 2],
+  ['poster', 15, 2], ['wall_ivy', 16, 2], ['poster', 25, 2],
+  ['wall_shelf', 27, 2, 2], ['wall_ivy', 32, 2], ['poster', 35, 2],
+  ['wall_shelf', 46, 2, 2], ['poster', 44, 2], ['wall_ivy', 51, 2],
+  ['poster', 58, 2], ['wall_ivy', 62, 2],
+  ['wall_shelf', 66, 2, 2], ['mirror', 68, 1, 1, 2], ['poster', 70, 2],
+  ['poster', 11, 12], ['mirror', 13, 11, 1, 2],
+]) obj(type, x, y, w, h, { wall: true });
+for (const { id: _i, x: _x, y: _y, ...t } of objects.slice(firstDecor)) catalog[t.type] ??= t;
+// edit-mode only: these are not placed anywhere, an admin adds them from the catalog (art in gen-assets.mjs, "the edit-mode catalog")
+for (const type of ['succulent', 'bonsai', 'snake_plant', 'monstera', 'orchid', 'tulips', 'sunflower', 'bamboo', 'ficus', 'lavender',
+  'filing_cabinet', 'printer', 'vending_machine', 'mini_fridge', 'globe', 'trophy', 'speaker', 'umbrella_stand', 'boxes', 'barrel', 'vase_floor', 'statue']) catalog[type] ??= { type, w: 1, h: 1 };
+for (const type of ['aquarium', 'tv_stand', 'credenza', 'shelf_low']) catalog[type] ??= { type, w: 2, h: 1 };
+for (const type of ['wall_clock', 'dartboard', 'cork_board', 'diploma', 'fire_extinguisher', 'exit_sign', 'wall_sconce', 'neon_heart', 'record_wall']) catalog[type] ??= { type, w: 1, h: 1, wall: true };
+for (const type of ['wall_tv', 'pennants', 'wall_plants', 'whiteboard_small']) catalog[type] ??= { type, w: 2, h: 1, wall: true };
+catalog.banner ??= { type: 'banner', w: 1, h: 2, wall: true };
+
 // the Book Club (last, so every earlier id stays put): shelves on the back wall, a sofa and armchairs round a low table
 const firstClub = objects.length;
 for (const x of [76, 81]) obj('bookshelf_tall', x, 25, 2, 1);
@@ -488,6 +516,7 @@ obj('plant', 83, 32);
 rug('orange', 77, 28, 5, 4);
 for (const { id: _i, x: _x, y: _y, ...t } of objects.slice(firstClub)) catalog[t.type] ??= t;
 rooms.find(r => r.id === 'bookclub').stand.push({ x: 82, y: 29, dir: 'left' });
+
 
 const map = { version: 1, width: W, height: H, tileSize: 16, office: { x: 0, y: 0, w: W, h: OFFICE_H }, dungeon, tiles, layers: { floor, walls, walkable: [] }, rooms, objects: [], rugs: [], spawn: { x: 7, y: 17 }, exit: EXIT, catalog };
 applyLayout(map, { objects, rugs });

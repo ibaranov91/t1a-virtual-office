@@ -5,6 +5,10 @@ import type { Store } from './net';
 type Handler = { postMessage(msg: unknown): void };
 const handler = (): Handler | undefined => (window as unknown as { webkit?: { messageHandlers?: { deck?: Handler } } }).webkit?.messageHandlers?.deck;
 
+let covered = false;
+/** The Mac app says its view is behind other windows: the engine then draws ~2 fps. Always false in a browser. */
+export const isCovered = () => covered;
+
 export const inNativeApp = () => !!handler();
 
 /** Mirror what the menu bar shows (knocks, call, busy, unread messages) whenever it changes. The knock card's
@@ -15,6 +19,7 @@ export function syncNative(store: Store) {
   Object.assign(window, { __deckNative: {
     reply: (knockId: string, reply: 'accept' | 'later') => store.replyKnock(knockId, reply),
     openChat: (withId: string) => store.openChat(withId),
+    setCovered: (c: boolean) => { covered = !!c; },
   } });
   // The app compares this with its own build and updates itself. Asked on every (re)connect: a deploy
   // that only changes the Mac app restarts the server without reloading this page.

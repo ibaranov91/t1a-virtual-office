@@ -14,7 +14,7 @@ import { LibraryPanel, ReadingOverlay } from './Library';
 import { ACHIEVEMENTS, underground, dayNumber, JUKEBOX_PER_PERSON, JUKEBOX_QUEUE_MAX, MAX_CHAT_LEN, MEET_LINK_RE, meetAs, normalizeMeetLink, kindName, PLANT_DIES_DAYS, PLANT_KINDS, PLANT_REVEAL, PLANT_STAGES, plantDead, plantName, REACTIONS, TOILET_CAPACITY, TOILET_SHELF_ITEM, TOILET_SHELF_MAX, TOILET_USE_MS, toiletFull, type JukeboxState, type Plant } from '../../shared/protocol';
 import { jukeboxPosition, TRACK, tracksFor } from '../../shared/music';
 import { ALL_HATS, DANCE_ROOM, EFFECTS, HAT_NAMES, effectOf, hatItem, hatOf } from '../../shared/effects';
-import { FIXED_TYPES, KEEP_TYPES, objectName, RUG_COLORS, RUG_MAX, RUG_MIN, routes, seatAt } from '../../shared/map';
+import { FIXED_TYPES, KEEP_TYPES, objectName, RUG_COLORS, RUG_MAX, RUG_MIN, RUG_PATTERNS, routes, rugFrame, seatAt } from '../../shared/map';
 import { LUNCH_MS, picnicSeat } from '../../shared/lunch';
 
 // Dev server: sign in automatically as ?as=<name> (default "Dev"); each name keeps its own session,
@@ -217,8 +217,8 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
         {store.clockOpen && <ClockPanel store={store} />}
         {store.achievementsOpen && me && <AchievementsPanel store={store} me={me} assets={assets} />}
         {(showMeet || store.pendingKnock) && <MeetSetup key={store.pendingKnock ?? 'panel'} store={store} onClose={() => setShowMeet(false)} />}
-        {showAppearance && me && <AppearanceMenu key={me.id} look={me.look} assets={assets} firstTime={!me.lookSet} store={store}
-          onSave={(look) => { store.setLook(look); setShowAppearance(false); }} onClose={() => setShowAppearance(false)} />}
+        {showAppearance && me && <AppearanceMenu key={me.id} look={me.look} name={me.name} assets={assets} firstTime={!me.lookSet} store={store}
+          onSave={(look, name) => { store.setLook(look, name); setShowAppearance(false); }} onClose={() => setShowAppearance(false)} />}
         <div className="chips">
           <MeetingChip store={store} />
           <LiveChip store={store} onGo={room => engineRef.current?.walkToRoom(room)} />
@@ -402,10 +402,11 @@ function TimeZoneField({ store }: { store: Store }) {
     </div>
   );
 }
-function AppearanceMenu({ look, assets, firstTime, store, onSave, onClose }: {
-  look: PublicLook; assets: Assets | null; firstTime: boolean; store: Store; onSave: (look: PublicLook) => void; onClose: () => void;
+function AppearanceMenu({ look, name, assets, firstTime, store, onSave, onClose }: {
+  look: PublicLook; name: string; assets: Assets | null; firstTime: boolean; store: Store; onSave: (look: PublicLook, name: string) => void; onClose: () => void;
 }) {
   const [draft, setDraft] = useState(look);
+  const [nameDraft, setNameDraft] = useState(name);
   const [tab, setTab] = useState<'body' | 'clothes'>('body');
   const previewRef = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
@@ -439,7 +440,8 @@ function AppearanceMenu({ look, assets, firstTime, store, onSave, onClose }: {
       <section className="appearance-panel" role="dialog" aria-modal="true" aria-labelledby="appearance-title">
         <header className="appearance-head"><div><h2 id="appearance-title">Your character</h2><p>{firstTime ? 'Choose your look before stepping into the office.' : 'Make the office feel a little more like you.'}</p></div>
           {!firstTime && <button className="ghost" onClick={onClose} aria-label="Close appearance settings">×</button>}</header>
-        <div className="appearance-preview"><div className="avatar-frame"><canvas ref={previewRef} /></div><span>{styles[draft.style]} hair</span></div>
+        <div className="appearance-preview"><div className="avatar-frame"><canvas ref={previewRef} /></div><span>{styles[draft.style]} hair</span>
+          <label className="look-select">Name<input value={nameDraft} maxLength={24} placeholder="First Las" onChange={e => setNameDraft(e.target.value)} /></label></div>
         <nav className="appearance-tabs" aria-label="Appearance categories">
           <button className={tab === 'body' ? 'active' : ''} onClick={() => setTab('body')}>Body</button>
           <button className={tab === 'clothes' ? 'active' : ''} onClick={() => setTab('clothes')}>Clothes</button>
@@ -458,7 +460,7 @@ function AppearanceMenu({ look, assets, firstTime, store, onSave, onClose }: {
         <footer className="appearance-actions">
           <TimeZoneField store={store} />
           {!firstTime && <button className="ghost" onClick={onClose}>Cancel</button>}
-          <button onClick={() => onSave(draft)}>{firstTime ? 'Save & enter office' : 'Save changes'}</button>
+          <button onClick={() => onSave(draft, nameDraft.trim())}>{firstTime ? 'Save & enter office' : 'Save changes'}</button>
         </footer>
       </section>
     </div>
@@ -729,6 +731,8 @@ function EditPanel({ store, engine, assets, onDone }: { store: Store; engine: En
         {sel.color && <>
           <div className="swatches">{RUG_COLORS.map(c => <button key={c} className={`swatch rug-${c}${sel.color === c ? ' on' : ''}`} title={c} aria-label={`${c} rug`}
             onClick={() => store.edit({ op: 'rug', id: sel.id, color: c })} />)}</div>
+          <div className="swatches">{RUG_PATTERNS.map(p => <button key={p} className={`swatch pattern${(sel.pattern ?? 'diamond') === p ? ' on' : ''}`} title={p} aria-label={`${p} pattern`}
+            onClick={() => store.edit({ op: 'rug', id: sel.id, pattern: p })}><ItemThumb assets={assets} frame={rugFrame({ color: sel.color ?? 'green', pattern: p }, 'c')} /></button>)}</div>
           <div className="rug-size">
             <span>{sel.w} × {sel.h}</span>
             <button onClick={() => resize(-1, 0)} disabled={sel.w <= RUG_MIN} title="Narrower">↔−</button>
@@ -793,7 +797,9 @@ function PocketsPanel({ store, me, assets, onClose }: { store: Store; me: Client
 /** Office admins as game masters: buffs, debuffs and hats on themselves or the person they clicked. */
 function GmPanel({ store, picked, assets, onClose }: { store: Store; picked: string | null; assets: Assets | null; onClose: () => void }) {
   const [target, setTarget] = useState(picked ?? store.me);
+  const [renaming, setRenaming] = useState('');
   useEffect(() => { if (picked) setTarget(picked); }, [picked]);
+  useEffect(() => { setRenaming(''); }, [target]);
   const u = store.users.get(target) ?? store.users.get(store.me);
   const uid = u?.id;
   useEffect(() => { if (uid) store.requestGmItems(uid); }, [store, uid]);
@@ -809,6 +815,11 @@ function GmPanel({ store, picked, assets, onClose }: { store: Store; picked: str
         {people.map(p => <option value={p.id} key={p.id}>{p.id === store.me ? `${p.name} (you)` : p.name}</option>)}
       </select></label>
       <p className="hint">Click someone on the floor to aim at them.</p>
+      {u.id !== store.me && <button className="ghost reset" onClick={() => store.teleport(u.id)}>🌀 Teleport to {u.name.split(' ')[0]}</button>}
+      {!u.bot && <form className="rug-size" onSubmit={e => { e.preventDefault(); const v = renaming.trim(); if (v && v !== u.name) { store.rename(u.id, v); setRenaming(''); } }}>
+        <input value={renaming} maxLength={24} onChange={e => setRenaming(e.target.value)} placeholder={`Rename ${u.name}`} aria-label={`New name for ${u.name}`} />
+        <button type="submit" disabled={!renaming.trim() || renaming.trim() === u.name}>✏️ Rename</button>
+      </form>}
       <div className="palette">
         {Object.entries(EFFECTS).filter(([k]) => k !== 'hat').map(([k, r]) => {
           const on = effectOf(u.effects, k);
@@ -1466,6 +1477,8 @@ function ActionWheel({ store, engine, pick, assets, onPerson, onClose }: { store
       ];
       if (isMe && (store.dancing || (store.roomOf(u)?.id === DANCE_ROOM && !u.instance))) items.push({ icon: '💃', label: store.dancing ? 'Stop dancing' : 'Dance', onClick: act(() => store.dance()) });
       if (me?.callId && me.callId === u.callId) items.push({ icon: '🔊', label: 'Volume', onClick: act(() => { if (at) onPerson({ id: u.id, x, y }); }) });
+      if (store.admin && me && !me.instance && !u.instance && !away) items.push({ icon: '🌀', label: 'Teleport', title: `Step through a portal to ${u.name.split(' ')[0]}`, onClick: act(() => store.teleport(u.id)) });
+      if (store.admin && !u.bot) items.push({ icon: '✏️', label: 'Rename', title: `Give ${u.name.split(' ')[0]} another name`, onClick: act(() => { const v = window.prompt(`New name for ${u.name}`, u.name); if (v?.trim()) store.rename(u.id, v); }) });
       const held = me?.holding ? ITEMS.get(me.holding) : undefined;
       if (held) items.push({ icon: held.icon, label: 'Give', disabled: !!u.holding || away || !!dungeon,
         title: dungeon ?? (u.holding ? `${u.name.split(' ')[0]}'s hands are full` : `Give ${u.name.split(' ')[0]} your ${held.label.toLowerCase()}`),

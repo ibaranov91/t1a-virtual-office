@@ -1,7 +1,7 @@
 import { INSTRUMENTS } from '../../shared/instruments';
 // The floor: one <canvas>, one requestAnimationFrame loop.
 // Order: static tilemap → y-sorted furniture + sprites → nameplates & bubbles → ambient tint → UI hints.
-import { adminOnly, applyEdit, FIXED_TYPES, findPath, pathTo, sampleMove, pathDuration, WALK_MS_PER_TILE, isWalkable, layoutProblem, objectById, objectName, roomAt, seatAt, withLayout, type MapObject, type Rect, type Rug, type Tile } from '../../shared/map';
+import { adminOnly, applyEdit, FIXED_TYPES, findPath, pathTo, sampleMove, pathDuration, WALK_MS_PER_TILE, isWalkable, layoutProblem, objectById, objectName, roomAt, rugFrame, seatAt, withLayout, type MapObject, type Rect, type Rug, type Tile } from '../../shared/map';
 import { FOOD_ITEMS, picnicSeat } from '../../shared/lunch';
 import { DungeonView } from './dungeon';
 import { danceBeat, dancePhase } from '../../shared/effects';
@@ -12,9 +12,20 @@ import type { Assets, Frame } from './assets';
 import { drawText, textWidth } from './font';
 import { TRACK } from '../../shared/music';
 import { TOILET_CAPACITY, toiletFull, cupTableAt, CUP_ITEMS, underground, MEETING_ROOM_ID, PLANT_REVEAL, PLANT_STAGES, plantDead, plantName, type Cup, type LayoutEdit } from '../../shared/protocol';
-import { ITEMS, MAP, type ClientUser, type Pose, type Store, type DungeonFx } from './net';
+import { isCovered } from './native';
+import { ITEMS, MAP, PORTAL_MS, type ClientUser, type Pose, type PortalFx, type Store, type DungeonFx } from './net';
 
 const TS = MAP.tileSize;
+/** An admin's portal trip, by age in ms: portal opens at the start (0-400), they step in (400-900), it closes (1000-1400); one opens at the end (1000-1400), they step out (1400-1900), it closes (1900-2200). */
+const ease = (k: number) => 1 - (1 - Math.min(1, Math.max(0, k))) ** 2;
+const portalStage = (age: number) => ({
+  from: age < 400 ? ease(age / 400) : age < 1000 ? 1 : 1 - ease((age - 1000) / 400),
+  to: age < 1000 ? 0 : age < 1400 ? ease((age - 1000) / 400) : age < 1900 ? 1 : 1 - ease((age - 1900) / 300),
+  size: age < 400 ? 1 : age < 900 ? 1 - ease((age - 400) / 500) : age < 1400 ? 0 : age < 1900 ? ease((age - 1400) / 500) : 1,
+  atFrom: age < 900, hidden: age >= 900 && age < 1400,
+});
+/** 3x5 pixel digits for the world clocks, one row per number (bit 4 is the left column). */
+const DIGITS = [[7, 5, 5, 5, 7], [2, 6, 2, 2, 7], [7, 1, 7, 4, 7], [7, 1, 7, 1, 7], [5, 5, 7, 1, 1], [7, 4, 7, 1, 7], [7, 4, 7, 5, 7], [7, 1, 1, 1, 1], [7, 5, 7, 5, 7], [7, 5, 7, 1, 7]];
 /** "🕒 14:35 · Warsaw", plus "tomorrow"/"yesterday" when their date isn't mine. */
 function localTime(tz: string) {
   const now = new Date(), day = (z?: string) => new Intl.DateTimeFormat('en-CA', { timeZone: z }).format(now), theirs = day(tz), mine = day();
@@ -49,7 +60,7 @@ const BAG_HAND: Record<string, { dx: number; behind: boolean }> = {
 /** What a click landed on; the action wheel opens for it. */
 export type Pick = { kind: 'user' | 'object'; id: string };
 /** Something an admin can pick up in edit mode: a piece of furniture or a rug. */
-type Item = { id: string; x: number; y: number; w: number; h: number; type?: string; wall?: boolean; dir?: string; color?: string };
+type Item = { id: string; x: number; y: number; w: number; h: number; type?: string; wall?: boolean; dir?: string; color?: string; pattern?: string };
 
 // item id -> icon, from whatever the map's objects hand out
 const ITEM_ICON = new Map([...ITEMS].map(([id, i]) => [id, i.icon]));
@@ -199,7 +210,7 @@ export class Engine {
     const r = MAP.rooms.find(r => r.id === id), me = this.store.users.get(this.store.me); if (!r || !me) return;
     if (underground(me)) return this.blockDungeon();
     if (me.instance || roomAt(MAP, me.tile.x, me.tile.y)?.id === id) return this.focusRoom(id); // a meeting's room has no way out but Leave
-    if (r.rules.access && !this.store.admin) { this.focusRoom(id); return this.denyDoor(r.rect.x, r.rect.y); }
+    if (r.rules.access && !this.store.sysadmin) { this.focusRoom(id); return this.denyDoor(r.rect.x, r.rect.y); }
     const { x, y, w, h } = r.rect, cx = x + (w - 1) / 2, cy = y + (h - 1) / 2, taken = this.taken();
     let best: { t: Tile; score: number } | null = null;
     for (let ty = y; ty < y + h; ty++) for (let tx = x; tx < x + w; tx++) {
@@ -351,7 +362,7 @@ export class Engine {
   private drawRug(ctx: CanvasRenderingContext2D, r: Rug) {
     for (let y = r.y; y < r.y + r.h; y++) for (let x = r.x; x < r.x + r.w; x++) {
       const v = y === r.y ? 'n' : y === r.y + r.h - 1 ? 's' : '', h = x === r.x ? 'w' : x === r.x + r.w - 1 ? 'e' : '';
-      this.blit(ctx, `rug_${r.color}_${(v + h) || 'c'}`, x * TS, y * TS);
+      this.blit(ctx, rugFrame(r, (v + h) || 'c'), x * TS, y * TS);
     }
   }
   /** A piece of furniture's sprite and where it goes: centred on its footprint, standing on its bottom edge (decor hangs from the top). */
@@ -395,14 +406,16 @@ export class Engine {
     for (const o of MAP.objects) {
       if (o.use?.kind !== 'clock') continue;
       const s = this.sprite(o); if (!s) continue;
-      const { h, m } = zoneHM(o.use.tz), cx = s.x + 8, cy = s.y + 7;
-      const hand = (turns: number, len: number, color: string) => {
-        ctx.fillStyle = color;
-        const a = turns * Math.PI * 2;
-        for (let r = 0; r <= len; r += 0.5) ctx.fillRect(Math.round(cx + Math.sin(a) * r), Math.round(cy - Math.cos(a) * r), 1, 1);
-      };
-      hand(((h % 12) + m / 60) / 12, 2.5, '#3a2a2a'); hand(m / 60, 4, '#3a2a2a');
-      ctx.fillStyle = '#b4534a'; ctx.fillRect(cx, cy, 1, 1);
+      // e-ink: HH:MM in gray 3x5 pixel digits on the off-white panel (the sprite is 24 wide, 22 of it screen)
+      const { h, m } = zoneHM(o.use.tz), cx = s.x + s.fr.w / 2;
+      const digits = [h / 10 | 0, h % 10, m / 10 | 0, m % 10], colon = true; // e-ink doesn't blink
+      ctx.fillStyle = '#55554f';
+      let dx = s.x + 4;
+      digits.forEach((d, i) => {
+        if (i === 2) { if (colon) { ctx.fillRect(dx + 1, s.y + 6, 1, 1); ctx.fillRect(dx + 1, s.y + 8, 1, 1); } dx += 3; }
+        DIGITS[d].forEach((row, y) => { for (let x = 0; x < 3; x++) if (row & (4 >> x)) ctx.fillRect(dx + x, s.y + 5 + y, 1, 1); });
+        dx += 4;
+      });
       ctx.font = 'bold 4px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'top'; // the zone's name under the face
       ctx.fillStyle = 'rgba(40,20,20,0.7)'; ctx.fillText(o.use.label, cx + 0.3, s.y + 15.3);
       ctx.fillStyle = '#ffe9c4'; ctx.fillText(o.use.label, cx, s.y + 15);
@@ -529,7 +542,7 @@ export class Engine {
   }
   private canWalk(t: Tile) {
     if (this.falling() || !this.inArea(t) || !isWalkable(MAP, t.x, t.y)) return false;
-    if (!this.store.admin && adminOnly(MAP, t.x, t.y)) return false; // the server would refuse it too
+    if (!this.store.sysadmin && adminOnly(MAP, t.x, t.y)) return false; // the server would refuse it too
     if (!this.areaDown) return !this.myInstance() || inMeetingRoom(t.x, t.y);
     const me = this.store.users.get(this.store.me), seen = this.store.dungeon?.seen;
     if (!me || !seen) return false;
@@ -822,13 +835,13 @@ export class Engine {
     if (chair) { this.manualCam = false; return this.onPick?.({ kind: 'object', id: chair.id }); }
     const target = this.clickTarget({ x: tx, y: ty });
     if (target) this.walkTo(target);
-    else if (!this.store.admin && !this.areaDown && adminOnly(MAP, tx, ty)) this.denyDoor(tx, ty);
+    else if (!this.store.sysadmin && !this.areaDown && adminOnly(MAP, tx, ty)) this.denyDoor(tx, ty);
   };
   /** A locked room turned me away: its door shakes and says why. */
   private denyDoor(tx: number, ty: number) {
     const room = roomAt(MAP, tx, ty); if (!room) return;
     this.deniedAt.set(room.id, performance.now());
-    this.store.toast({ kind: 'info', text: `🔒 ${room.name}: admins only`, expires: 3000 });
+    this.store.toast({ kind: 'info', text: `🔒 ${room.name}: sysadmins only`, expires: 3000 });
   }
 
   /** Plants stand on their owner's home desk, or on an Orangery shelf if they have none. On the desk it goes to the
@@ -857,11 +870,27 @@ export class Engine {
   private touched = () => { this.lastInput = performance.now(); };
   /** Cap the redraw rate: 60 fps while anything moves or the user is interacting (ProMotion would otherwise draw 120), 30 when the floor is still. */
   private skipFrame(ms: number) {
-    const busy = this.glide || this.editing || ms - this.lastInput < 1500 || [...this.store.users.values()].some(u => u.move && this.store.pose(u, this.store.now()).walking);
     const gap = ms - this.lastDraw;
-    if (gap < (busy ? 15 : 31)) return true;
+    if (isCovered()) { if (gap < 490) return true; } // the Mac app's view is behind other windows: ~2 fps
+    else if (gap < 15) return true;
+    else if (gap < 49) { // three tiers: 60 while busy, 30 while something small animates, 20 when the floor is still
+      const now = this.store.now(), users = [...this.store.users.values()];
+      const busy = this.glide || this.editing || ms - this.lastInput < 1500 || this.store.version !== this.drawnVersion || this.store.portalFx.some(f => ms - f.at < PORTAL_MS)
+        || users.some(u => { if (!u.move) return false; const p = this.store.pose(u, now); return p.walking && this.visible(u) && this.onScreen(p.x * TS - TS, p.y * TS - TS, 3 * TS, 3 * TS); });
+      if (!busy) {
+        if (gap < 31) return true;
+        const lively = this.store.reactions.length || this.store.dungeonFx.length || users.some(u => this.visible(u) && this.isSpeaking(u));
+        if (!lively) return true;
+      }
+    }
     this.lastDraw = ms;
     return false;
+  }
+  private drawnVersion = -1;
+  /** Visible world rect (a tile of margin): anything wholly outside it is not drawn. */
+  private vis = { x0: -1e9, y0: -1e9, x1: 1e9, y1: 1e9 };
+  private onScreen(x: number, y: number, w: number, h: number) {
+    const v = this.vis; return x < v.x1 && x + w > v.x0 && y < v.y1 && y + h > v.y0;
   }
   private frame = (ms: number) => {
     this.raf = requestAnimationFrame(this.frame);
@@ -877,8 +906,14 @@ export class Engine {
       if (this.selected?.kind === 'user' && !this.visible(this.store.users.get(this.selected.id))) { this.selected = null; this.onPick?.(null); }
       if (this.hoverTile && !this.canWalk(this.hoverTile)) this.hoverTile = null;
     }
-    const users = [...this.store.users.values()].filter(u => this.visible(u));
-    const poses = new Map<string, Pose>(users.map(u => [u.id, this.store.pose(u, t)]));
+    // admins mid-portal: they stay at the origin until they've stepped in, are gone while the far portal opens, then stand at the destination
+    const trips = new Map<string, { fx: PortalFx; age: number }>();
+    if (!this.areaDown) for (const fx of this.store.portalFx) if (ms >= fx.at && ms - fx.at < PORTAL_MS) trips.set(fx.userId, { fx, age: ms - fx.at });
+    const users = [...this.store.users.values()].filter(u => this.visible(u) && !(trips.has(u.id) && portalStage(trips.get(u.id)!.age).hidden));
+    const poses = new Map<string, Pose>(users.map(u => {
+      const trip = trips.get(u.id);
+      return [u.id, trip && portalStage(trip.age).atFrom ? { x: trip.fx.from.x, y: trip.fx.from.y, dir: 'down', walking: false, tile: trip.fx.from } : this.store.pose(u, t)];
+    }));
 
     if (this.glide) { // zooming: the anchor point stays put while the scale eases to the next crisp level
       const g = this.glide, f = Math.min(1, (performance.now() - g.at) / 140);
@@ -888,8 +923,9 @@ export class Engine {
       this.cam = this.clampCam(g.wx - g.sx / this.px, g.wy - g.sy / this.px);
     }
     // camera follows me unless the user dragged
-    else if (me && !this.manualCam && poses.get(me.id)) {
-      const p = poses.get(me.id)!;
+    else if (me && !this.manualCam && (poses.get(me.id) || trips.has(me.id))) {
+      const trip = trips.get(me.id); // mid-portal: the camera heads for the far side early
+      const p = trip && trip.age >= 700 ? { ...this.store.pose(me, t), x: trip.fx.to.x, y: trip.fx.to.y } : poses.get(me.id) ?? this.store.pose(me, t);
       const target = me.instance && !this.areaDown // a meeting's room: keep the room in the middle
         ? this.clampCam((MEETING.x + MEETING.w / 2) * TS - this.viewW / 2, (MEETING.y + MEETING.h / 2) * TS - this.viewH / 2)
         : this.clampCam(p.x * TS + 8 - this.viewW / 2, p.y * TS - this.viewH / 2);
@@ -897,6 +933,8 @@ export class Engine {
       this.cam.x += (target.x - this.cam.x) * k; this.cam.y += (target.y - this.cam.y) * k;
     }
     const camX = Math.round(this.cam.x * this.px) / this.px, camY = Math.round(this.cam.y * this.px) / this.px;
+    this.vis = { x0: camX - TS, y0: camY - TS, x1: camX + this.viewW + TS, y1: camY + this.viewH + TS };
+    this.drawnVersion = this.store.version;
 
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.fillStyle = '#1b1418'; ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
@@ -904,8 +942,12 @@ export class Engine {
     ctx.setTransform(this.px, 0, 0, this.px, -camX * this.px, -camY * this.px);
     ctx.save();
     ctx.beginPath(); ctx.rect(this.area.x * TS, this.area.y * TS, this.area.w * TS, this.area.h * TS); ctx.clip();
-    ctx.drawImage(this.staticLayer, this.area.x * TS, this.area.y * TS, this.area.w * TS, this.area.h * TS,
-      this.area.x * TS, this.area.y * TS, this.area.w * TS, this.area.h * TS);
+    {
+      const a = this.area, v = this.vis;
+      const sx = Math.max(a.x * TS, Math.floor(v.x0 / TS) * TS), sy = Math.max(a.y * TS, Math.floor(v.y0 / TS) * TS);
+      const ex = Math.min((a.x + a.w) * TS, Math.ceil(v.x1 / TS) * TS), ey = Math.min((a.y + a.h) * TS, Math.ceil(v.y1 / TS) * TS);
+      if (ex > sx && ey > sy) ctx.drawImage(this.staticLayer, sx, sy, ex - sx, ey - sy, sx, sy, ex - sx, ey - sy);
+    }
     if (this.areaDown) this.drawDungeon(ms); else { this.drawDanceFloor(ctx, poses); this.drawClockHands(ctx); }
 
     // hover tile + my destination marker
@@ -940,27 +982,43 @@ export class Engine {
     for (const u of users) { const p = poses.get(u.id)!; ds.push({ base: p.y * TS + TS, u, p }); }
     if (!this.areaDown) for (const fx of this.store.dungeonFx) if (fx.kind === 'fall' && ms >= fx.at && ms - fx.at < 500) ds.push({ base: (fx.tile.y + 1) * TS, fx });
     for (const plant of this.plants) ds.push({ base: plant.base, plant });
+    for (const { fx, age } of trips.values()) { // the two portals sit on their tiles, just behind whoever stands there
+      const st = portalStage(age);
+      ds.push({ base: (fx.from.y + 1) * TS - 1, draw: () => this.drawPortal(fx.from, st.from, ms) }, { base: (fx.to.y + 1) * TS - 1, draw: () => this.drawPortal(fx.to, st.to, ms) });
+    }
     ds.sort((a, b) => a.base - b.base);
     const drawD = (d: D) => {
       if (d.draw) return d.draw();
       if (d.fx) return this.drawDungeonFx(d.fx, ms);
       if (d.u) {
         const fx = this.store.dungeonFx.find(f => f.user.id === d.u!.id && f.kind !== 'fall' && ms >= f.at && ms - f.at < 650 && (this.areaDown === (f.kind === 'land')));
-        return fx ? this.drawDungeonFx(fx, ms) : this.drawSprite(d.u, d.p!, ms);
+        if (fx) return this.drawDungeonFx(fx, ms);
+        if (!this.onScreen(d.p!.x * TS - TS, d.p!.y * TS - 2 * TS, 3 * TS, 4 * TS)) return;
+        const trip = trips.get(d.u.id), size = trip ? portalStage(trip.age).size : 1;
+        if (size >= 1) return this.drawSprite(d.u, d.p!, ms);
+        const cx = d.p!.tile.x * TS + 8, cy = (d.p!.tile.y + 1) * TS - 9; // shrinking into (or growing out of) the middle of the portal
+        ctx.save(); ctx.translate(cx, cy); ctx.scale(size, size); ctx.translate(-cx, -cy);
+        this.drawSprite(d.u, d.p!, ms);
+        return void ctx.restore();
       }
       if (d.door) { // open while someone stands in or right next to the doorway; a locked one stays shut for non-admins
         const door = d.door, open = [...poses.values()].some(p => door.tiles.some(t => Math.abs(t.x - p.tile.x) + Math.abs(t.y - p.tile.y) <= 1));
-        const locked = door.locked && !this.store.admin, age = ms - (this.deniedAt.get(door.room.id) ?? -1e9);
+        const locked = door.locked && !this.store.sysadmin, age = ms - (this.deniedAt.get(door.room.id) ?? -1e9);
         const shake = locked && age < 450 ? Math.round(Math.sin(age / 22) * 2) : 0;
         const name = `door_${door.horizontal ? 'h' : 'v'}_${locked ? 'locked' : open ? 'open' : 'closed'}`, fr = this.f(name);
-        return void (fr && this.blit(ctx, name, door.x * TS + (door.w * TS - fr.w) / 2 + shake, (door.y + door.h) * TS - fr.h));
+        if (!fr || !this.onScreen(door.x * TS + (door.w * TS - fr.w) / 2 - 2, (door.y + door.h) * TS - fr.h, fr.w + 6, fr.h)) return;
+        return void this.blit(ctx, name, door.x * TS + (door.w * TS - fr.w) / 2 + shake, (door.y + door.h) * TS - fr.h);
       }
-      const p = d.plant!, pl = p.u.plant!, kinded = pl.kind && pl.stage >= PLANT_REVEAL;
+      const p = d.plant!, pl = p.u.plant!;
+      if (!this.onScreen(p.x - 16, p.y - 24, 32, 32)) return;
+      const kinded = pl.kind && pl.stage >= PLANT_REVEAL;
       this.blit(ctx, plantDead(pl, t) ? 'pot_dead' : kinded ? `pot_${pl.kind}_${pl.stage}` : `pot_${pl.stage}`, p.x - 6, p.y - 20);
     };
     let di = 0;
     for (const f of this.areaDown ? [] : this.furniture) {
       while (di < ds.length && ds[di].base <= f.base) drawD(ds[di++]);
+      const ff = this.f(f.o.type);
+      if (!this.onScreen(f.x - 2, f.y - 2, ff.w + 4, ff.h + 4)) continue;
       this.blit(ctx, f.o.type === 'arcade' && this.store.cabinets.some(c => c.cabinet === f.o.id) ? `arcade_on_${1 + Math.floor(ms / 320) % 2}` : f.o.use?.kind === 'toilet' ? this.toiletFrame(f.o.id)
         : f.o.type === 'bell' ? this.bellFrame(f.o.id, ms) : f.o.type === 'hat_rack' ? this.hatRackFrame(f.o, ms) : f.o.type === 'reading_table' && this.flickers(f.o, ms) ? 'reading_table_1'
         : f.o.type === 'server_rack' && Math.floor(ms / 500 + f.o.x * 3 + f.o.y) % 2 ? 'server_rack_1' : f.off && !this.isOn(f.o) ? `${f.o.type}_off` : f.o.type, f.x, f.y);
@@ -1014,7 +1072,7 @@ export class Engine {
     // overlays: nameplates + bubbles (never occluded)
     const sorted = users.slice().sort((a, b) => poses.get(a.id)!.y - poses.get(b.id)!.y);
     this.placedPlates = [];
-    for (const u of sorted) this.drawOverlay(u, poses.get(u.id)!, ms);
+    for (const u of sorted) { const p = poses.get(u.id)!; if (this.onScreen(p.x * TS - 2 * TS, p.y * TS - 3 * TS, 5 * TS, 5 * TS)) this.drawOverlay(u, p, ms); }
     this.drawReactions(poses, ms);
     if (!this.areaDown && !me?.instance) this.drawClub(ctx, ms);
     if (!this.areaDown) this.drawAmbient(ctx, camX, camY, ms);
@@ -1026,8 +1084,8 @@ export class Engine {
     const goable = me && !me.instance && this.hoverObject?.use?.kind !== 'meetings'
       ? this.store.agenda.find(a => a.start - 10 * 60_000 <= this.store.now() && a.end > this.store.now()) : undefined;
     if (goable) for (const o of this.boards) {
-      const title = goable.title.length > 22 ? `${goable.title.slice(0, 21)}…` : goable.title;
-      this.drawLabel(`📅 ${title} · click to go`, (o.x + 0.5) * TS, o.y * TS - 6 - Math.round((Math.sin(ms / 220) + 1)), camX, camY);
+      const title = goable.title.length > 16 ? `${goable.title.slice(0, 15)}…` : goable.title;
+      this.drawLabel(`📅 ${title} · go`, (o.x + 0.5) * TS, o.y * TS - 4 - Math.round((Math.sin(ms / 220) + 1)), camX, camY, 1, false, 10); // a small nudge: the heads-up toast says the rest
     }
 
     ctx.restore();
@@ -1072,6 +1130,27 @@ export class Engine {
     this.store.dungeonFx = this.store.dungeonFx.filter(f => ms - f.at < 1600);
   };
 
+  /** A swirling violet portal standing on a tile; `s` is how far open it is (0 shut, 1 full). */
+  private drawPortal(tile: Tile, s: number, ms: number) {
+    if (s <= 0.03) return;
+    const ctx = this.ctx, cx = tile.x * TS + 8, cy = (tile.y + 1) * TS - 9, rx = 7 * s, ry = 11 * s;
+    ctx.save();
+    ctx.fillStyle = 'rgba(150,110,255,0.22)'; ctx.beginPath(); ctx.ellipse(cx, cy, rx + 3, ry + 3, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#1d0f45'; ctx.beginPath(); ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = '#8f6cff'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2); ctx.stroke();
+    for (let i = 0; i < 14; i++) { // specks spiralling into the middle
+      const k = (i / 14 + ms / 900) % 1, a = k * Math.PI * 5 + i, r = 1 - k;
+      ctx.fillStyle = i % 3 ? '#b89cff' : '#efe6ff';
+      ctx.fillRect(Math.round(cx + Math.cos(a) * rx * r * 0.85), Math.round(cy + Math.sin(a) * ry * r * 0.85), 1, 1);
+    }
+    const n = Math.max(8, Math.round(26 * s)); // a bright crawling rim
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * Math.PI * 2 + ms / 500;
+      ctx.fillStyle = (i + Math.floor(ms / 120)) % 2 ? '#7a5cff' : '#d8c8ff';
+      ctx.fillRect(Math.round(cx + Math.cos(a) * rx), Math.round(cy + Math.sin(a) * ry), 1, 1);
+    }
+    ctx.restore();
+  }
   private drawSprite(u: ClientUser, p: Pose, ms: number) {
     const ctx = this.ctx, c = this.assets.atlas.character;
     const sheet = this.assets.sheet(u.effects?.length ? effectLook(u.look, u.effects) : u.look);
@@ -1484,16 +1563,16 @@ export class Engine {
     this.drawLabel('Grab a hat? 🎩', (rack.x + rack.w / 2) * TS, rack.y * TS - 8 - Math.round((Math.sin(ms / 220) + 1)), camX, camY, age > 4000 ? 5 - age / 1000 : 1, true);
   }
 
-  private drawLabel(text: string, wx: number, wy: number, camX: number, camY: number, alpha = 1, accent = false) {
+  private drawLabel(text: string, wx: number, wy: number, camX: number, camY: number, alpha = 1, accent = false, size = 12) {
     const ctx = this.ctx, dpr = window.devicePixelRatio || 1;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.font = '600 12px ui-rounded, system-ui, sans-serif';
-    const w = ctx.measureText(text).width + 14;
-    const sx = ((wx - camX) * this.px) / dpr - w / 2, sy = ((wy - camY) * this.px) / dpr - 26;
+    ctx.font = `600 ${size}px ui-rounded, system-ui, sans-serif`;
+    const w = ctx.measureText(text).width + size * 1.17, h = Math.round(size * 1.83);
+    const sx = ((wx - camX) * this.px) / dpr - w / 2, sy = ((wy - camY) * this.px) / dpr - h - 4;
     ctx.globalAlpha = alpha;
-    ctx.fillStyle = accent ? 'rgba(90,50,20,0.96)' : 'rgba(33,22,26,0.94)'; ctx.strokeStyle = accent ? '#f2b45a' : '#8a5a3c'; ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.roundRect(sx, sy, w, 22, 6); ctx.fill(); ctx.stroke();
-    ctx.fillStyle = accent ? '#ffe08a' : '#ffe9c4'; ctx.fillText(text, sx + 7, sy + 15);
+    ctx.fillStyle = accent ? 'rgba(90,50,20,0.96)' : 'rgba(33,22,26,0.94)'; ctx.strokeStyle = accent ? '#f2b45a' : '#8a5a3c'; ctx.lineWidth = size < 12 ? 1.5 : 2;
+    ctx.beginPath(); ctx.roundRect(sx, sy, w, h, size < 12 ? 5 : 6); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = accent ? '#ffe08a' : '#ffe9c4'; ctx.fillText(text, sx + size * 0.58, sy + h * 0.68);
     ctx.globalAlpha = 1;
   }
 
