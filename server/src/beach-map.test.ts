@@ -18,7 +18,7 @@ test('vacation wing extends the office and appends two terrain rooms', () => {
 });
 
 test('the building keeps its bottom edge; the hedge has one gate and the wing furniture comes last', () => {
-  const terrain = /^(sand|water|sea|rock|cliff|trail|snow|pier)/;
+  const terrain = /^(sand|water|sea|rock|cliff|mtn_|trail|snow|pier)/;
   for (let y = 0; y < 34; y++) for (let x = 0; x < map.width; x++)
     for (const layer of ['floor', 'walls'] as const) assert.ok(!terrain.test(map.tiles[map.layers[layer][y][x]] ?? ''), `${layer} ${x},${y}`);
   const gate: number[] = [];

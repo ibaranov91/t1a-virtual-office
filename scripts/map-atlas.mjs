@@ -72,7 +72,7 @@ const plan = (cell, y0 = 0, y1 = H, x0 = 0, x1 = W) => {
   return out.join('\n');
 };
 
-const wallChar = (x, y) => (wallName(x, y) === 'hedge' ? '%' : /^(rock|cliff|sea)$/.test(wallName(x, y)) ? '^' : '#');
+const wallChar = (x, y) => (wallName(x, y) === 'hedge' ? '%' : /^(rock$|cliff$|sea$|mtn_)/.test(wallName(x, y)) ? '^' : '#');
 // * already marks usable furniture; H frees = (previously the hatch) for pier planks.
 const terrainChar = (x, y) => /^water_/.test(tileName(x, y)) ? '~' : tileName(x, y) === 'pier' ? '=' : /^(trail|snow)_/.test(tileName(x, y)) ? ':' : /^sand_/.test(tileName(x, y)) ? '.' : null;
 const roomsPlan = plan((x, y) => {

@@ -2038,6 +2038,75 @@ for (const axis of ['h', 'v']) { // a room door only admins open: the closed doo
     for (let y = 2; y < 16; y++) t.px(2 + Math.floor((15 - y) / 2), y, '#b79b6b');
     t.vline(10, 3, 10, '#d4e2d9'); t.px(9, 2, '#d4e2d9'); t.rect(9, 12, 2, 2, '#c86756'); t.px(10, 14, '#eee8cc'); t.rect(2, 12, 2, 3, '#725b45');
   });
+
+  // Match gen-map's massif and its switchback, summit and pine ledge carves.
+  // Assets also run alone, so this must not depend on the generated tilemap.
+  const mountainOpen = (x, y) =>
+    (y === 41 && x >= 22 && x <= 24) || (x === 22 && y >= 38 && y <= 41) ||
+    (y === 38 && x >= 8 && x <= 22) || (x === 8 && y >= 36 && y <= 38) ||
+    (y === 36 && x >= 8 && x <= 17) || (y >= 34 && y <= 35 && x >= 16 && x <= 18) ||
+    (y === 43 && [4, 10, 16, 20].includes(x));
+  const mountain = (x, y) => x >= 1 && x <= 24 && y >= 34 && y <= 43 && !mountainOpen(x, y);
+  const mountainWalkable = (x, y) => x >= 1 && x <= 83 && y >= 34 && y <= 44 && !mountain(x, y);
+  const mix = (a, b, t) => a + (b - a) * t;
+  const noise = (x, y, seed) => {
+    const ix = Math.floor(x), iy = Math.floor(y), fx = x - ix, fy = y - iy;
+    const sx = fx * fx * (3 - 2 * fx), sy = fy * fy * (3 - 2 * fy);
+    // Avalanche the local hash before interpolation: neighbouring lattice points are independent.
+    const sample = (x, y) => {
+      let h = grain(x, y, seed);
+      h = Math.imul(h ^ h >>> 16, 0x7feb352d);
+      h = Math.imul(h ^ h >>> 15, 0x846ca68b);
+      return ((h ^ h >>> 16) >>> 0) / 4294967295;
+    };
+    return mix(mix(sample(ix, iy), sample(ix + 1, iy), sx),
+      mix(sample(ix, iy + 1), sample(ix + 1, iy + 1), sx), sy);
+  };
+  const ridge = (px, py) => {
+    const u = px + py * 0.38, v = py - px * 0.22;
+    const fold = 1 - Math.abs(2 * noise(u / 46, v / 30, 71) - 1);
+    return fold * 0.66 + noise(u / 23, v / 17, 137) * 0.24 + noise(px / 9, py / 11, 293) * 0.10;
+  };
+  const stone = ['#4b525b', '#676e73', '#8d938e', '#aeb2a6', '#c9cbbf'];
+  const mountainPixel = (px, py) => {
+    const x = Math.floor(px / 16), y = Math.floor(py / 16), j = py - y * 16;
+    const h = ridge(px, py), slope = h - ridge(px - 1, py - 1);
+    const summit = Math.max(0, 1 - Math.hypot(Math.max(256 - px, 0, px - 303), Math.max(544 - py, 0, py - 575)) / 64);
+    const shade = h * 2.4 + slope * 32 + summit * 0.7;
+    let color = stone[Math.max(0, Math.min(4, Math.floor(shade + 0.7)))];
+    if (h < 0.31 || (slope < -0.026 && h < 0.63)) color = stone[0];
+    // Snow settles on the upper, lit faces; its boundary follows the same world-space ridges.
+    if (summit > 0 && h > 0.73 - summit * 0.18 && slope > -0.006)
+      color = slope > 0.005 ? '#f1f5f2' : '#c9d6dc';
+    if (mountainWalkable(x, y + 1)) {
+      const rim = 9 + Math.floor(noise(px / 9, (y + 1) * 16 / 20, 419) * 3);
+      if (j === rim - 1) color = stone[4];
+      if (j >= rim) {
+        const flute = noise(px / 3, py / 42, 521);
+        color = stone[flute < 0.30 || j === 15 ? 0 : flute > 0.64 && j < rim + 3 ? 2 : 1];
+      }
+    }
+    if (mountainWalkable(x, y - 1) && j < 3) {
+      const pebble = noise(px / 2, py / 2, 617);
+      if (pebble > 0.58) color = j === 0 ? stone[3] : stone[1];
+    }
+    if (y >= 41) {
+      const moss = noise(px / 13, py / 7, 733), tuft = noise(px / 2, py / 4, 811);
+      if (moss > 0.59 && tuft > 0.48 && (h < 0.64 || j > 12))
+        color = tuft > 0.65 ? '#8fae67' : '#6f8f55';
+      // Sparse low boulders, anchored to a world-space lattice, can cross frame boundaries.
+      const bx = Math.floor(px / 29), by = Math.floor(py / 19);
+      if (grain(bx, by, 907) % 5 === 0) {
+        const dx = px - (bx * 29 + 14), dy = py - (by * 19 + 10);
+        if (dx * dx / 36 + dy * dy / 16 < 1) color = stone[dy > 1 ? 0 : dx + dy < -1 ? 4 : 2];
+      }
+    }
+    return color;
+  };
+  for (let y = 34; y <= 43; y++) for (let x = 1; x <= 24; x++) if (mountain(x, y))
+    make(`mtn_${x}_${y}`, 16, 16, t => {
+      for (let j = 0; j < 16; j++) for (let i = 0; i < 16; i++) t.px(i, j, mountainPixel(x * 16 + i, y * 16 + j));
+    }, false);
 }
 
 // ---------- pack world atlas (shelf packer) ----------

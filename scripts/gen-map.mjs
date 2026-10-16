@@ -190,6 +190,8 @@ for (let x = 8; x <= 17; x++) carve(x, 36, 'trail');
 for (let y = 34; y <= 35; y++) for (let x = 16; x <= 18; x++) carve(x, y, 'snow');
 // Small walkable slope ledges, off the trail, for pines.
 for (const x of [4, 10, 16, 20]) { walls[43][x] = 0; floor[43][x] = tid(`trail_${hash(x, 43) % 2}`); }
+for (let y = 34; y <= 43; y++) for (let x = 1; x <= 24; x++)
+  if (walls[y][x]) setWall(x, y, `mtn_${x}_${y}`);
 for (let y = 43; y <= 48; y++) for (const x of [62, 63]) floor[y][x] = tid('pier');
 const vacation = { gate: { x: 50, y: 34 }, trailFoot: { x: 24, y: 41 }, summit: { x: 17, y: 34 },
   pierEnds: [{ x: 62, y: 48 }, { x: 63, y: 48 }],
