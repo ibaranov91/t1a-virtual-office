@@ -2175,6 +2175,20 @@ for (const on of [false, true]) {
   frames[on ? 'terminal_on' : 'terminal'] = t.outline();
 }
 
+// ---------- out-of-office beach sign: timber legs, enamel plate and neon tubes ----------
+{
+  const t = new Img(112, 48);
+  t.ellipse(56, 46, 52, 2, [46, 52, 42, 45]);
+  for (const x of [13, 96]) {
+    t.rect(x, 26, 4, 20, '#8b6946'); t.vline(x, 28, 17, '#c6a575');
+    t.rect(x - 3, 44, 10, 2, '#a28459');
+  }
+  t.rect(1, 1, 110, 35, '#795945'); t.hline(2, 1, 108, '#c9a379');
+  t.rect(3, 3, 106, 31, '#233b42'); t.hline(4, 33, 104, '#162c35');
+  for (const x of [2, 109]) for (const y of [2, 34]) t.px(x, y, '#e0c491');
+  frames.out_of_office_sign = t.outline();
+}
+
 // ---------- pack world atlas (shelf packer) ----------
 const names = Object.keys(frames).sort((a, b) => frames[b].h - frames[a].h || frames[b].w - frames[a].w);
 const AW = 256; let x = 0, y = 0, rowH = 0; const rects = {};

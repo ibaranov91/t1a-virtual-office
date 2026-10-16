@@ -11,6 +11,7 @@ import { drawEffects, effectLook, effectSway } from './effects';
 import { CreatureLayer, creaturePose } from './creatures';
 import { lockedDoors, roomDoors, type RoomDoor } from './doors';
 import { voiceSignPositions } from './roomSigns';
+import { drawBeachSign } from './beachSign';
 import { dance, discos, drawDisco, evening, type DanceStep, type Disco } from './disco';
 import type { Assets, Frame } from './assets';
 import { drawText, plateLines, textWidth } from './font';
@@ -453,6 +454,7 @@ export class Engine {
   private drawItem(ctx: CanvasRenderingContext2D, o: Item) {
     if (o.color) return this.drawRug(ctx, o as Rug);
     const s = this.sprite(o); if (s) this.blit(ctx, s.name, s.x, s.y);
+    if (s && o.type === 'out_of_office_sign') drawBeachSign(ctx, s.x, s.y);
   }
 
   // ---------- layout ----------
@@ -1066,6 +1068,7 @@ export class Engine {
         : f.o.type === 'bell' ? this.bellFrame(f.o.id) : f.o.type === 'hat_rack' ? this.hatRackFrame(f.o, ms) : f.o.type === 'reading_table' && this.flickers(f.o, ms) ? 'reading_table_1'
         : f.o.type === 'server_rack' && Math.floor(ms / 500 + f.o.x * 3 + f.o.y) % 2 ? 'server_rack_1' : f.off && !this.isOn(f.o) ? `${f.o.type}_off` : f.o.type, f.x, f.y);
       if (f.o.use?.kind === 'toilet') this.drawStall(ctx, f.o, f.x, f.y);
+      if (f.o.type === 'out_of_office_sign') drawBeachSign(ctx, f.x, f.y);
     }
     while (di < ds.length) drawD(ds[di++]);
     if (!this.areaDown && !me?.instance) this.critters.drawAbove(t, ms);
@@ -1671,6 +1674,10 @@ export class Engine {
       } else ctx.drawImage(this.glow, o.x * TS + 8 - 40, (o.y + o.h) * TS - 26 - 40);
     }
     ctx.restore();
+    const dusk = evening(h);
+    if (dusk && !this.store.users.get(this.store.me)?.instance) for (const f of this.furniture) {
+      if (f.o.type === 'out_of_office_sign' && this.onScreen(f.x - 12, f.y - 12, 136, 72)) drawBeachSign(ctx, f.x, f.y, dusk);
+    }
   }
 
   /** The meetings board says when something's on: a count badge, bouncing and glowing when one is yours to Go to. */

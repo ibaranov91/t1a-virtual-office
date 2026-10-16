@@ -593,6 +593,9 @@ obj('stretch_mat', 20, 30, 2, 1, { walkable: true, use: { kind: 'wellness', acti
 obj('pomodoro_timer', 3, 4, 1, 1, { onTop: true, use: { kind: 'wellness', activity: 'pomodoro', label: 'Pomodoro timer' } });
 for (const { id: _i, x: _x, y: _y, ...t } of objects.slice(firstWellness)) catalog[t.type] ??= t;
 
+// Appended to preserve saved furniture ids. The broad sign sits on dry sand, clear of the gate and pier.
+obj('out_of_office_sign', 48, 39, 7, 1);
+catalog.out_of_office_sign = { type: 'out_of_office_sign', w: 7, h: 1 };
 
 const map = { version: 1, width: W, height: H, tileSize: 16, office: { x: 0, y: 0, w: W, h: OFFICE_H }, dungeon, vacation, tiles, layers: { floor, walls, walkable: [] }, rooms, objects: [], rugs: [], spawn: { x: 7, y: 17 }, exit: EXIT, catalog };
 applyLayout(map, { objects, rugs });
