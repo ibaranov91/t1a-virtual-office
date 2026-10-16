@@ -48,14 +48,14 @@ export function rms(analyser: AnalyserNode) {
   const samples = new Float32Array(analyser.fftSize); analyser.getFloatTimeDomainData(samples);
   return Math.sqrt(samples.reduce((sum, x) => sum + x * x, 0) / samples.length);
 }
-export async function playMedia(el: HTMLAudioElement, current = () => true): Promise<'playing' | 'blocked' | 'error' | 'aborted'> {
+export async function playMedia(el: HTMLAudioElement, current = () => true, quiet = false): Promise<'playing' | 'blocked' | 'error' | 'aborted'> {
   const attempt = {}; attempts.set(el, attempt);
   const valid = () => attempts.get(el) === attempt && current();
   let result: 'playing' | 'blocked' | 'error' | 'aborted' = 'playing';
   try { await el.play(); if (valid()) failed.delete(el); }
   catch (err) {
     if (!valid()) return 'aborted';
-    if (err instanceof DOMException && err.name === 'NotAllowedError') { failed.add(el); result = 'blocked'; }
+    if (err instanceof DOMException && err.name === 'NotAllowedError') { if (!quiet) failed.add(el); result = 'blocked'; }
     else {
       failed.delete(el);
       if (err instanceof DOMException && err.name === 'AbortError') result = 'aborted';

@@ -9,6 +9,7 @@ const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFi
 export class Jukebox {
   state: JukeboxState;
   history: string[] = [];
+  private upcoming = ''; // the shuffle's next pick, made ahead so clients can prefetch it
   private catalog: Map<string, Track>;
   private rand: () => number;
   private id: () => string;
@@ -20,6 +21,14 @@ export class Jukebox {
     const track = tracks[Math.floor(this.rand() * tracks.length)].id;
     this.state = { playId: this.id(), track, by: null, startedAt: now, pausedAt: null, queue: [], last: null };
     this.history = [track];
+    this.plan();
+  }
+  /** Keep `upcoming` a fresh shuffle pick and publish what plays next. */
+  private plan(keep?: string) {
+    const s = this.state, stale = (id: string) => !this.catalog.has(id) || id === s.track || this.history.includes(id) || s.queue.some(e => e.track === id);
+    if (keep && !stale(keep)) this.upcoming = keep;
+    else if (!this.upcoming || stale(this.upcoming)) this.upcoming = this.pick();
+    this.state = { ...s, next: s.queue[0]?.track ?? this.upcoming };
   }
   private pick() {
     let choices = this.tracks.filter(t => !this.history.includes(t.id) && !this.state.queue.some(e => e.track === t.id));
@@ -27,14 +36,18 @@ export class Jukebox {
     return (choices.length ? choices : this.tracks)[Math.floor(this.rand() * (choices.length || this.tracks.length))].id;
   }
   private next(now: number) {
-    const entry = this.state.queue[0], track = entry?.track ?? this.pick();
+    const entry = this.state.queue[0], track = entry?.track ?? (this.upcoming || this.pick());
     this.state = { playId: this.id(), track, by: entry?.by ?? null, startedAt: now, pausedAt: null,
       queue: this.state.queue.slice(entry ? 1 : 0), last: null };
     this.history = [...this.history, track].slice(-5);
+    this.plan();
   }
   advance(now: number): boolean {
-    if (this.state.pausedAt !== null || now - this.state.startedAt < this.catalog.get(this.state.track)!.duration) return false;
-    this.next(now); return true;
+    const end = this.state.startedAt + this.catalog.get(this.state.track)!.duration;
+    if (this.state.pausedAt !== null || now < end) return false;
+    // the next track starts exactly where this one ended, so listeners can start it on time without waiting for this tick;
+    // after downtime (a restart, a stalled tick) it starts now
+    this.next(now - end < 1000 ? end : now); return true;
   }
   act(userId: string, a: JukeboxAction, now: number): { changed: boolean; notice?: string } {
     const changed = this.advance(now), s = this.state;
@@ -43,11 +56,11 @@ export class Jukebox {
       if (s.track === a.track || s.queue.some(e => e.track === a.track)) return { changed, notice: 'Already in the queue' };
       if (s.queue.filter(e => e.by === userId).length >= JUKEBOX_PER_PERSON) return { changed, notice: `You have ${JUKEBOX_PER_PERSON} tracks queued — wait for one to play` };
       if (s.queue.length >= JUKEBOX_QUEUE_MAX) return { changed, notice: 'The queue is full' };
-      this.state = { ...s, queue: [...s.queue, { id: this.id(), track: a.track, by: userId }] };
+      this.state = { ...s, queue: [...s.queue, { id: this.id(), track: a.track, by: userId }] }; this.plan();
     } else if (a.action === 'unqueue') {
       const queue = s.queue.filter(e => e.id !== a.entry || e.by !== userId);
       if (queue.length === s.queue.length) return { changed };
-      this.state = { ...s, queue };
+      this.state = { ...s, queue }; this.plan();
     } else {
       if (a.playId !== s.playId) return { changed };
       if (a.action === 'pause') {
@@ -86,6 +99,7 @@ export class Jukebox {
       j.state.queue.push({ id: e.id, by: e.by, track: e.track }); ids.add(e.id); queued.add(e.track); counts.set(e.by, (counts.get(e.by) ?? 0) + 1);
     }
     if (!known) j.history = [...j.history, track].slice(-5);
+    j.upcoming = ''; j.plan(typeof s.next === 'string' && !j.state.queue.some(e => e.track === s.next) ? s.next : undefined);
     return j;
   }
 }

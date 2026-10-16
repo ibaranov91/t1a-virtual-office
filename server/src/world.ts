@@ -1651,6 +1651,10 @@ export class World {
     if (!this.sockets.get(u.id)?.has(socket)) return;
     if (['move', 'use', 'follow', 'instrument'].includes(msg.t)) this.cancelSeatWalk(u.id);
     if (msg.t === 'voice_claim') { this.setOwner(u.id, socket); return; }
+    if (msg.t === 'ping') { // answered at once: the client times the round trip to estimate the server clock
+      if (Number.isFinite(msg.id)) this.sockets.get(u.id)?.get(socket)?.({ t: 'pong', id: msg.id, serverTime: Date.now() });
+      return;
+    }
     if (typeof msg.t === 'string' && msg.t.startsWith('game_')) {
       if (this.owners.get(u.id) === socket) this.arcade.handle(u, msg);
       return;
