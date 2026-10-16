@@ -4,7 +4,7 @@ import { MAP, type Store } from '../net';
 import type { Voice } from '../voice';
 import { Avatar } from './Avatar';
 import { channelTree } from './model';
-import { VoiceIcons } from './SelfPanel';
+import { VoiceIcons, roomVoiceOf } from './SelfPanel';
 import { rowAnchor } from './PersonRow';
 import type { PersonAnchor } from './PersonCard';
 export function Rail({ store, voice, assets, speaking, onExpand, onGroup, onPerson, onAction }: {
@@ -12,6 +12,7 @@ export function Rail({ store, voice, assets, speaking, onExpand, onGroup, onPers
   onGroup: (id: string) => void; onPerson: (at: PersonAnchor) => void; onAction: () => void;
 }) {
   const me = store.users.get(store.me), peers = me ? store.callPeers(me).filter(u => u.presence !== 'offline') : [];
+  const roomVoice = roomVoiceOf(store, voice);
   const total = [...store.unread.values()].reduce((a, b) => a + b, 0);
   return <aside className="sidebar rail" aria-label="Office sidebar">
     <button aria-label="Show sidebar" onClick={onExpand}><Icon name="chevron-right" /></button>
@@ -22,6 +23,7 @@ export function Rail({ store, voice, assets, speaking, onExpand, onGroup, onPers
       <Avatar assets={assets} user={u} size={28} ring={speaking.has(u.id)} /></button>)}{peers.length > 5 && <span>+{peers.length - 5}</span>}</div>
     <div className="sb-rail-bottom sb-right"><VoiceIcons store={store} voice={voice} rail />
       {me?.callId && !me.instance && !store.roomCallOf(me) && <button className="sb-danger" aria-label="Leave call" onClick={() => store.endCall()}><Icon name="disconnect" /></button>}
+      {roomVoice && <button className="sb-danger" aria-label={`Leave ${roomVoice.name}`} onClick={() => store.leaveRoom()}><Icon name="disconnect" /></button>}
       {me && <button aria-label="Show sidebar" onClick={onExpand}><Avatar assets={assets} user={me} size={28} /></button>}
     </div>
   </aside>;
