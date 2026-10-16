@@ -9,6 +9,10 @@ type Handler = { postMessage(msg: unknown): void };
 const handler = (): Handler | undefined => (window as unknown as { webkit?: { messageHandlers?: { deck?: Handler } } }).webkit?.messageHandlers?.deck;
 
 let covered = false;
+
+/** The meeting heads-ups on screen, for the Mac app's card (id = the meeting's key). */
+export const meetingHeadsUps = (toasts: Store['toasts']) =>
+  toasts.filter(t => t.kind === 'meeting' && t.meetingKey).map(t => ({ id: t.meetingKey!, text: t.text }));
 /** The Mac app says its view is behind other windows: the engine then draws ~2 fps. Always false in a browser. */
 export const isCovered = () => covered;
 
@@ -17,13 +21,15 @@ export const syncWellnessNative = (owner: string, requests: WellnessRequest[]) =
 export const requestWellnessPermission = () => handler()?.postMessage({ type: 'wellnessPermission' });
 export const openNotificationSettings = () => handler()?.postMessage({ type: 'wellnessSettings' });
 
-/** Mirror what the menu bar shows (knocks, call, mute/deafen, busy, unread messages) whenever it changes. The knock card's
- *  Later calls `window.__deckNative.reply`; accepting happens in the page so voice starts from a click.
+/** Mirror what the menu bar shows (knocks, meeting heads-ups, call, mute/deafen, busy, unread messages) whenever it changes.
+ *  The knock card's Later calls `window.__deckNative.reply`, the meeting card's `dismissMeeting`; accepting and Go happen in
+ *  the page so voice starts from a click. Without this a heads-up only lived in the page, unseen behind a closed popover.
  *  Clicking the icon with unread messages calls `__deckNative.openChat`. */
 export function syncNative(store: Store, voice: Voice | null) {
   if (!handler()) return () => {};
   Object.assign(window, { __deckNative: {
     reply: (knockId: string, reply: 'accept' | 'later') => store.replyKnock(knockId, reply),
+    dismissMeeting: (key: string) => store.dismissMeeting(key),
     openChat: (withId: string) => store.openChat(withId),
     setCovered: (c: boolean) => { covered = !!c; },
     openWellness: (kind: string) => { if (kind === 'water' || kind === 'stretch' || kind === 'pomodoro') store.openWellness(kind); },
@@ -47,6 +53,7 @@ export function syncNative(store: Store, voice: Voice | null) {
       speaker: !store.connected || !store.voiceOwner ? 'off' : (voice?.deafened ?? prefs.deafened) ? 'deafened' : 'live',
       busy: me?.presence === 'away' || !!me?.callId || !!me?.vacation, // quiet mode: icon only, no knock card
       knocks: store.toasts.filter(t => t.kind === 'knock_in').map(t => ({ id: t.knockId, text: t.text })),
+      meetings: meetingHeadsUps(store.toasts),
       unread: [...store.unread].map(([id, count]) => ({ id, name: store.name(id), count })), // oldest first
     };
     const key = JSON.stringify(state);

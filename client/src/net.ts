@@ -482,6 +482,8 @@ export class Store {
   dungeonLeave() { this.send({ t: 'dungeon_leave' }); }
   leaveMeeting() { this.send({ t: 'meeting_leave' }); }
   /** Out of the meeting for good: not busy, knocks come through again (Go puts you back in). */
+  /** Put a meeting's heads-up away (the Mac app's Later): still on the agenda, Go stays in the meetings list. */
+  dismissMeeting(key: string) { this.toasts = this.toasts.filter(t => t.meetingKey !== key); this.emit(); }
   leaveMeetingForGood(key: string) { this.send({ t: 'meeting_out', key }); this.toasts = this.toasts.filter(t => t.meetingKey !== key); this.emit(); }
   /** The calendar meeting I'm in right now while out of its room (busy: knocks go to Later). */
   get myBusyMeeting() { const now = this.now(); return this.agenda.find(a => a.start <= now && a.end > now && !a.left) ?? null; }

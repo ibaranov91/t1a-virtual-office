@@ -1,11 +1,13 @@
-// The small card that hangs from the menu bar icon when someone knocks. It only tells you who it is:
-// Open brings up The Deck (where you accept, so voice starts from a click in the page); Later declines.
+// The small card that hangs from the menu bar icon when someone knocks or a calendar meeting is about to start.
+// It only says who or what: Open brings up The Deck (where you accept or Go, so voice starts from a click in the page);
+// Later declines the knock or puts the meeting's heads-up away.
 import AppKit
 
 struct DeckState {
   var connected = false, inCall = false, busy = false
   var mic = "off", speaker = "off" // as the page's buttons: mic idle|live|muted|err|off, speaker live|deafened|off
   var knocks: [(id: String, text: String)] = []
+  var meetings: [(id: String, text: String)] = [] // heads-ups a minute before a meeting; id = the meeting's key
   var unread: [(id: String, name: String, count: Int)] = [] // oldest first
 }
 
@@ -16,8 +18,9 @@ final class FirstMouseButton: NSButton {
 
 final class KnockCard: NSObject {
   let popover = NSPopover()
-  private(set) var knockId: String?
+  private(set) var knockId: String?, meetingKey: String?
   var onLater: (String) -> Void = { _ in }
+  var onMeetingLater: (String) -> Void = { _ in }
   var onOpen: () -> Void = {}
 
   override init() {
@@ -26,24 +29,31 @@ final class KnockCard: NSObject {
   }
 
   func show(id: String, text: String, from anchor: NSView) {
-    knockId = id
-    let vc = NSViewController(); vc.view = build(id, text)
+    knockId = id; meetingKey = nil
+    present(build(text, detail: "Open The Deck to answer", symbol: "door.left.hand.open", color: .systemOrange), from: anchor)
+  }
+  func showMeeting(key: String, text: String, from anchor: NSView) {
+    meetingKey = key; knockId = nil
+    present(build(text, detail: "Open The Deck to step into its room", symbol: "calendar", color: .systemBlue), from: anchor)
+  }
+  private func present(_ view: NSView, from anchor: NSView) {
+    let vc = NSViewController(); vc.view = view
     vc.preferredContentSize = vc.view.fittingSize
     popover.contentViewController = vc
     if !popover.isShown { popover.show(relativeTo: anchor.bounds, of: anchor, preferredEdge: .minY) }
   }
 
-  func close() { knockId = nil; if popover.isShown { popover.performClose(nil) } }
+  func close() { knockId = nil; meetingKey = nil; if popover.isShown { popover.performClose(nil) } }
 
-  private func build(_ id: String, _ text: String) -> NSView {
+  private func build(_ text: String, detail: String, symbol: String, color: NSColor) -> NSView {
     let later = FirstMouseButton(title: "Later", target: self, action: #selector(laterClicked))
     let open = FirstMouseButton(title: "Open", target: self, action: #selector(openClicked))
-    open.keyEquivalent = "\r"; open.bezelColor = .systemOrange
-    let image = NSImageView(image: NSImage(systemSymbolName: "door.left.hand.open", accessibilityDescription: nil)!
-      .withSymbolConfiguration(.init(pointSize: 22, weight: .medium).applying(.init(paletteColors: [.systemOrange])))!)
+    open.keyEquivalent = "\r"; open.bezelColor = color
+    let image = NSImageView(image: NSImage(systemSymbolName: symbol, accessibilityDescription: nil)!
+      .withSymbolConfiguration(.init(pointSize: 22, weight: .medium).applying(.init(paletteColors: [color])))!)
     let t = NSTextField(wrappingLabelWithString: text); t.font = .boldSystemFont(ofSize: 13)
     t.preferredMaxLayoutWidth = 240
-    let d = NSTextField(labelWithString: "Open The Deck to answer"); d.font = .systemFont(ofSize: 11); d.textColor = .secondaryLabelColor
+    let d = NSTextField(labelWithString: detail); d.font = .systemFont(ofSize: 11); d.textColor = .secondaryLabelColor
     let words = NSStackView(views: [t, d]); words.orientation = .vertical; words.alignment = .leading; words.spacing = 2
     let head = NSStackView(views: [image, words]); head.spacing = 10; head.alignment = .centerY
     let row = NSStackView(views: [NSView(), later, open]); row.spacing = 6
@@ -54,6 +64,6 @@ final class KnockCard: NSObject {
     return root
   }
 
-  @objc private func laterClicked() { if let id = knockId { onLater(id) }; close() }
+  @objc private func laterClicked() { if let id = knockId { onLater(id) }; if let key = meetingKey { onMeetingLater(key) }; close() }
   @objc private func openClicked() { close(); onOpen() }
 }
