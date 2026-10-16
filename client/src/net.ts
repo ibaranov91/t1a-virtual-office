@@ -1,5 +1,11 @@
+import { onMap } from '../../shared/beach';
 import { TABLE_GAMES, type TableView, type TableGameId } from '../../shared/table/types';
 import { playTable } from './sounds';
+import { RetroClient } from './retro/client';
+import { games as retroGames } from '../../shared/retro/games';
+import { emptyBoards as emptyRetroBoards } from '../../shared/retro/boards';
+import type { RetroCabinet } from '../../shared/protocol';
+import type { FrameBatch } from './retro/player';
 // WebSocket client + the client-side mirror of server state.
 import mapJson from '../../shared/tilemap.json';
 import { applyLayout, besideObject, doorwayTiles, isWalkable, objectById, pathTo, roomAt, sampleMove, stallDoor, stallOfCall, type Dir, type Room, type Tile, type TileMap } from '../../shared/map';
@@ -72,6 +78,7 @@ export class Store {
   agenda: AgendaItem[] = [];               // my calendar meetings now and soon
   meetingRooms: MeetingRoomInfo[] = [];    // meeting rooms in use (the board)
   meetingsOpen = false;
+  vacationsOpen = false;
   private headsUp = new Set<string>();     // meetings I've had a heads-up for
   build: string | undefined;  // the server's client build when this page loaded
   staleBuild = false;         // server now serves a newer build; reload when not in a call
@@ -84,7 +91,12 @@ export class Store {
   jukeboxOpen: string | null = null;
   private jukeboxReady = false;
   park: ParkLoop | null = null;
-  gameOpen = false;
+  arcadeOpen = false;
+  retroClient = new RetroClient(this);
+  get retro() { return this.retroClient.view; }
+  get gameOpen() { return this.arcadeOpen || !!this.retro; }
+  retroCabinets: RetroCabinet[] = [];
+  retroBoards = emptyRetroBoards('');
   cabinets: CabinetSummary[] = [];
   arcadeRecords: ParkRecords = {};
   arcadeBoards: ArcadeBoards = { records: {}, week: emptyWeek(''), hall: [] };
@@ -132,12 +144,12 @@ export class Store {
     ws.onopen = () => { this.connected = true; this.emit(); };
     ws.onmessage = (e) => this.onMessage(JSON.parse(e.data));
     ws.onclose = (e) => {
-      this.stopClock(); this.clearInstruments(); this.park?.runner.setLocalBits(0); this.cabinets = []; this.connected = false; this.voiceOwner = false; this.jukebox = {}; this.jukeboxReady = false; this.soundscape?.resetCrossings(); this.emit();
+      this.stopClock(); this.retroClient.socketLost(); this.retroCabinets = []; this.clearInstruments(); this.park?.runner.setLocalBits(0); this.cabinets = []; this.connected = false; this.voiceOwner = false; this.jukebox = {}; this.jukeboxReady = false; this.soundscape?.resetCrossings(); this.emit();
       if (e.code === 4001) return this.onUnauthorized();
       if (!this.closed) setTimeout(() => this.connect(), 1500);
     };
   }
-  close() { this.closed = true; this.stopClock(); this.clearInstruments(); this.park?.runner.setLocalBits(0); this.cabinets = []; this.connected = false; this.voiceOwner = false; this.jukebox = {}; this.jukeboxReady = false; this.soundscape?.resetCrossings(); this.emit(); this.ws?.close(); }
+  close() { this.closed = true; this.stopClock(); this.retroClient.destroy(); this.retroCabinets = []; this.clearInstruments(); this.park?.runner.setLocalBits(0); this.cabinets = []; this.connected = false; this.voiceOwner = false; this.jukebox = {}; this.jukeboxReady = false; this.soundscape?.resetCrossings(); this.emit(); this.ws?.close(); }
   send(msg: ClientMsg) { if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(msg)); }
   /** NTP-style clock sync (clockSync.ts): a burst of pings on connect, then one every 20 s to follow drift. Everything timed by
    *  the server (walks, notes, the jukebox) runs on now(), so listeners on slow links hear the jukebox where others do. */
@@ -185,10 +197,13 @@ export class Store {
     return `At the game table · ${game}${peers.length ? ` with ${peers.join(', ')}` : ''}`;
   }
   openRecords(open = true) { this.recordsOpen = open; this.emit(); }
+  retroFrames(batch: FrameBatch) { this.send(batch); }
+  retroLeave() { this.retroClient.leave(); }
+  retroResync() { this.send({ t: 'retro_resync' }); }
   gamePlay() { const s = this.park?.runner.session; if (s) this.send({ t: 'game_play', epoch: s.epoch }); }
   gameLeave() {
     this.send({ t: 'game_leave' }); this.park?.receive({ t: 'game_session', session: null });
-    this.gameOpen = false; this.gameCheers.clear(); this.emit();
+    this.arcadeOpen = false; this.gameCheers.clear(); this.emit();
   }
   gameMenu(op: 'lobby' | 'restart') {
     const s = this.park?.runner.session; if (s) this.send({ t: 'game_menu', epoch: s.epoch, op });
@@ -196,8 +211,14 @@ export class Store {
   crewName(name: string) { this.send({ t: 'crew_name', name }); }
   gamePredict(userId: string) { const s = this.park?.runner.session; if (s) this.send({ t: 'game_predict', epoch: s.epoch, userId }); }
   gameFavourite(userId: string) { const s = this.park?.runner.session; if (s) this.send({ t: 'game_favourite', epoch: s.epoch, userId }); }
-  gameCheer(kind: 0 | 1 | 2) { if (this.gameOpen && this.connected) this.send({ t: 'game_cheer', kind }); }
+  gameCheer(kind: 0 | 1 | 2) { if (this.arcadeOpen && this.connected) this.send({ t: 'game_cheer', kind }); }
   gameDescription(cabinet: string, userId?: string) {
+    const retro = this.retroCabinets.find(s => s.cabinet === cabinet);
+    if (retro) {
+      const title = retro.game === 'tobu' ? 'Tobu Tobu Girl' : retroGames[retro.game].title;
+      if (!retro.player) return `At the ${title} cabinet`;
+      return userId && this.users.get(userId)?.game?.role === 'spectator' ? `Watching ${this.name(retro.player)} play ${title}` : `Playing ${title}`;
+    }
     const s = this.cabinets.find(s => s.cabinet === cabinet);
     if (!s) return 'Arcade · click to play';
     const game = s.game === 'hub' ? 'Arcade hub' : gameDef(s.game).name;
@@ -215,7 +236,7 @@ export class Store {
     const distance = (t: Tile, p: Tile) => Math.abs(t.x - p.x) + Math.abs(t.y - p.y);
     const door = doors.slice().sort((a, b) => Math.min(...a.map(t => distance(t, pose))) - Math.min(...b.map(t => distance(t, pose))))[0];
     if (!door) return;
-    const occupied = new Set([...this.users.values()].filter(u => u.id !== me.id && u.presence !== 'offline' && u.instance === me.instance)
+    const occupied = new Set([...this.users.values()].filter(u => u.id !== me.id && onMap(u) && u.instance === me.instance)
       .map(u => { const t = u.move?.to ?? u.tile; return `${t.x},${t.y}`; }));
     const tiles: Tile[] = [], { x, y, w, h } = room.rect;
     for (let yy = y; yy < y + h; yy++) for (let xx = x; xx < x + w; xx++)
@@ -254,7 +275,7 @@ export class Store {
     if (this.dancing) return this.setEffect(this.me, 'dance', false);
     const o = floorId ? MAP.objects.find(o => o.id === floorId && o.use?.kind === 'dance') : undefined;
     if (o) {
-      const taken = new Set([...this.users.values()].filter(u => u.id !== this.me && u.presence !== 'offline' && !u.instance).map(u => `${u.tile.x},${u.tile.y}`));
+      const taken = new Set([...this.users.values()].filter(u => u.id !== this.me && onMap(u) && !u.instance).map(u => `${u.tile.x},${u.tile.y}`));
       const tiles: Tile[] = [];
       for (let y = o.y; y < o.y + o.h; y++) for (let x = o.x; x < o.x + o.w; x++) if (!taken.has(`${x},${y}`)) tiles.push({ x, y });
       const mine = tiles.find(t => t.x === me.tile.x && t.y === me.tile.y);
@@ -324,6 +345,8 @@ export class Store {
   laterDismiss(id: string) { this.send({ t: 'later_dismiss', id }); }
   laterClear() { this.send({ t: 'later_clear' }); this.laterOpen = false; this.emit(); }
   laterKnockBack(fromId: string) { this.requestKnock(fromId); this.laterOpen = false; this.emit(); } // knocking clears the entry on the server
+  openVacations() { this.vacationsOpen = true; this.emit(); }
+  closeVacations() { this.vacationsOpen = false; this.emit(); }
   openMeetings() { this.meetingsOpen = true; this.emit(); }
   setLofiListening(on: boolean) { this.send({ t: 'listening', on }); }
   openJukebox(id: string) { this.jukeboxOpen = id; this.emit(); }
@@ -343,7 +366,7 @@ export class Store {
     const o = MAP.objects.find(o => o.id === id && o.use?.kind === 'jukebox'), me = this.users.get(this.me);
     if (!o || !me || me.instance || !this.connected) return;
     const pose = this.pose(me), taken = new Set([...this.users.values()]
-      .filter(u => u.id !== me.id && u.presence !== 'offline' && !u.instance)
+      .filter(u => u.id !== me.id && onMap(u) && !u.instance)
       .flatMap(u => [u.tile, this.pose(u).tile].map(t => `${t.x},${t.y}`)));
     const tiles = besideObject(MAP, o).filter(t => !taken.has(`${t.x},${t.y}`));
     tiles.sort((a, b) => Math.hypot(a.x - pose.x, a.y - pose.y) - Math.hypot(b.x - pose.x, b.y - pose.y));
@@ -556,10 +579,15 @@ export class Store {
         this.build ??= msg.build;
         this.sendTz();
         break;
+      case 'retro_session': this.retroClient.session(msg.view, msg.reason); break;
+      case 'retro_frames': this.retroClient.receiveFrames(msg); return;
+      case 'retro_result': this.retroClient.receiveResult(msg); return;
+      case 'retro_cabinets': this.retroCabinets = msg.cabinets; break;
+      case 'retro_boards': this.retroBoards = msg.boards; break;
       case 'game_session':
-        if (msg.session) { this.gameOpen = true; this.gameCheers.clear(); }
+        if (msg.session) { this.arcadeOpen = true; this.gameCheers.clear(); }
         else {
-          this.gameOpen = false; this.gameCheers.clear();
+          this.arcadeOpen = false; this.gameCheers.clear();
           if (msg.reason) this.toast({ kind: 'info', text: msg.reason === 'empty' ? 'Everyone left' : 'Playing in another tab', expires: 6000 });
         }
         this.park?.receive(msg);
@@ -572,7 +600,7 @@ export class Store {
       case 'game_cheer':
         if (msg.kind >= 0 && msg.kind <= 2) {
           this.gameCheers.set(msg.userId, { kind: msg.kind as 0 | 1 | 2, at: performance.now() });
-          if (this.gameOpen) playPark('cheer');
+          if (this.arcadeOpen) playPark('cheer');
         }
         return;
       case 'table': {
@@ -704,6 +732,7 @@ export class Store {
         this.checkAgenda();
         break;
       }
+      case 'vacation': { const u = this.users.get(msg.userId); if (u) u.vacation = msg.vacation; break; }
       case 'meeting': { const u = this.users.get(msg.userId); if (u) u.meeting = msg.until; break; }
       case 'meetings': this.meetingRooms = msg.rooms; break;
       case 'library': this.library = { articles: msg.articles, reads: msg.reads }; break;

@@ -106,6 +106,19 @@ Private data (email, links, inventory) never goes in `PublicUser`; send it in `{
 A saved admin layout overrides generated furniture: after changing the generator, Reset in edit mode (or drop `layout`
 from `data/state.json`). `migrateEastWing` / `withNewFixtures` in world.ts bring new fixtures into old saved layouts.
 
+For `lie` furniture, the only seat is `(o.x + floor((o.w - 1) / 2), o.y)`; the rest blocks walking.
+`engine.ts` routes the whole object's click to that seat and rotates the idle sprite along it, head at the seat end;
+hammocks also swing. `seatAt` identifies the seat; use the current layout object's `lie` flag for the pose.
+
+## Vacation
+
+`shared/beach.ts` owns `terrainAt` and `onMap`: use `onMap` for drawing and tile occupancy, but keep offline
+checks for live interactions. `server/src/vacations.ts` reads current calendar absences and `server/src/beach.ts`
+walks offline vacationers; `net.ts` stores `vacation` updates. `engine.ts` draws terrain poses, 🌴 plates and return
+tooltips; `Vacation.tsx` shares the sorted vacation list and locale-aware return labels between the sign panel and
+People group. Calendar-date `back` values format in UTC, timed `until` values in the viewer's zone. The sign opens
+through `e.onPick`; the panel's store flag must also suppress instrument keys. Native `busy` includes vacation.
+
 ## A panel (React chrome)
 
 | Step | File | Anchor |

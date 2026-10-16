@@ -1,5 +1,8 @@
 import type { TableView, TableGameId, TableStatus } from './table/types';
 export type { TableView, TableGameId } from './table/types';
+import type { RetroView, RetroCabinet, RetroBoards, RetroResult } from './retro/types';
+export type { RetroView, RetroCabinet, RetroBoards, RetroResult, RetroBoard, RetroEntry } from './retro/types';
+export type { RetroGameId } from './retro/games';
 import type { GameRole, ArcadeIncoming, ArcadeOutgoing, ArcadeBoards } from './arcade/types';
 export { PARK_FPS, PARK_INPUT_DELAY, PARK_SERVER_LAG, PARK_SPECTATOR_DELAY, PARK_MAX_PLAYERS } from './arcade/types';
 export type { GameRole, GameEvent, GameMember, GameClear, PublicSession, ParkRecord, ParkRecords, CabinetSummary, ArcadeBoards } from './arcade/types';
@@ -149,6 +152,7 @@ export interface PublicUser {
   listening?: 'lofi' | null; // an audible Lofi TV in one of this person's open pages; never persisted
   reading: string | null;   // library article id they're reading at a reading desk; knocks go to Later
   eating?: Eating;          // having lunch at a picnic table (see shared/lunch.ts)
+  vacation?: { until: number; back?: string } | null; // on vacation now, per their calendar
   meeting: number | null;   // in a calendar meeting until then (ms); knocks go to Later
   instance: string | null;  // meeting room or dungeon: only people in the same instance see each other
   plant: Plant | null;      // on their home desk, or in the Orangery if they have none
@@ -266,6 +270,12 @@ export type ServerMsg =
   | { t: 'listening'; userId: string; on: boolean }
   | { t: 'table'; view: TableView | null } // private: owner socket only
   | { t: 'table_status'; userId: string; table: TableStatus | null }
+  | { t: 'retro_session'; view: RetroView | null; reason?: 'elsewhere' | 'ended' | 'idle' | 'cap' | 'broken' }
+  | { t: 'retro_frames'; runId: string; from: number; upto: number; changes: [number, number][] }
+  | { t: 'retro_result'; runId: string; frame: number; result: RetroResult }
+  | { t: 'retro_cabinets'; cabinets: RetroCabinet[] }
+  | { t: 'retro_boards'; boards: RetroBoards } // retro cabinets
+
   | ArcadeIncoming
   | CreatureServerMsg
   | { t: 'game_status'; userId: string; game: PublicUser['game'] }
@@ -297,6 +307,7 @@ export type ServerMsg =
   | { t: 'calendar'; events?: CalEvent[]; error?: string } // my own events, only to me
   | { t: 'agenda'; items: AgendaItem[] } // my calendar meetings now and soon, only to me
   | { t: 'dungeon'; key: Tile | null; hasKey: boolean; event?: 'fell' | 'key' | 'locked' | 'opening' | 'escaped' | 'gave_up' }
+  | { t: 'vacation'; userId: string; vacation: { until: number; back?: string } | null } // current vacation only
   | { t: 'meeting'; userId: string; until: number | null }
   | { t: 'reading'; userId: string; articleId: string | null }
   | ({ t: 'library' } & LibraryState)
@@ -345,6 +356,10 @@ export type ClientMsg =
   | { t: 'table_resign'; matchId: string }
   | { t: 'table_draw'; matchId: string; offer: boolean } // offer, accept opponent's offer, or decline (false)
   | { t: 'table_leave' }
+  | { t: 'retro_frames'; runId: string; sync: number; from: number; upto: number; changes: [frame: number, bits: number][] }
+  | { t: 'retro_leave' }
+  | { t: 'retro_resync' } // retro cabinets
+
   | { t: 'crew_name'; name: string }
   | { t: 'game_predict'; epoch: number; userId: string }
   | { t: 'game_favourite'; epoch: number; userId: string }

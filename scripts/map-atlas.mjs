@@ -32,7 +32,7 @@ for (const o of map.objects) for (let y = o.y; y < o.y + o.h; y++) for (let x = 
 }
 const spots = new Set(map.rooms.flatMap(r => r.spots.map(s => key(s.x, s.y))));
 const special = new Map([[key(map.spawn.x, map.spawn.y), '@'], [key(map.exit.x, map.exit.y), 'x']]);
-if (map.dungeon) for (const k of ['hole', 'hatch']) special.set(key(map.dungeon[k].x, map.dungeon[k].y), k === 'hole' ? '0' : '=');
+if (map.dungeon) for (const k of ['hole', 'hatch']) special.set(key(map.dungeon[k].x, map.dungeon[k].y), k === 'hole' ? '0' : 'H');
 // each room's id written across the middle of its rect (where it fits), on the rooms plan
 // (the longest run of the room's own tiles, nearest the middle row, so the Terrace doesn't cut into the Garden's label)
 const label = new Map();
@@ -72,12 +72,15 @@ const plan = (cell, y0 = 0, y1 = H, x0 = 0, x1 = W) => {
   return out.join('\n');
 };
 
-const wallChar = (x, y) => (wallName(x, y) === 'hedge' ? '%' : '#');
+const wallChar = (x, y) => (wallName(x, y) === 'hedge' ? '%' : /^(rock$|cliff$|sea$|mtn_)/.test(wallName(x, y)) ? '^' : '#');
+// * already marks usable furniture; H frees = (previously the hatch) for pier planks.
+const terrainChar = (x, y) => /^water_/.test(tileName(x, y)) ? '~' : tileName(x, y) === 'pier' ? '=' : /^(trail|snow)_/.test(tileName(x, y)) ? ':' : /^sand_/.test(tileName(x, y)) ? '.' : null;
 const roomsPlan = plan((x, y) => {
   if (special.has(key(x, y))) return special.get(key(x, y));
   if (door(x, y) && !map.layers.walls[y][x]) return '+';
   if (map.layers.walls[y][x]) return wallChar(x, y);
   if (label.has(key(x, y))) return label.get(key(x, y));
+  const terrain = terrainChar(x, y); if (terrain) return terrain;
   const r = roomAt(map, x, y);
   return r ? letter.get(r.id) : reached.has(key(x, y)) ? '.' : ',';
 });
@@ -88,11 +91,11 @@ const furniturePlan = plan((x, y) => {
   if (map.layers.walls[y][x]) return wo?.use ? '*' : wallChar(x, y);
   const o = objAt.get(key(x, y));
   if (o?.use) return '*';
-  if (o && (o.type === 'chair' || o.type === 'stool' || o.sit)) return 'h';
+  if (o && (o.type === 'chair' || o.type === 'stool' || o.sit || o.lie)) return 'h';
   if (o && !o.walkable) return 'X';
   if (o) return 'w'; // walkable furniture (dance floor)
   if (spots.has(key(x, y))) return 's';
-  return reached.has(key(x, y)) ? '.' : ',';
+  return terrainChar(x, y) ?? (reached.has(key(x, y)) ? '.' : ',');
 });
 
 // ---- free space: the largest empty rectangles in each room (no furniture, seats, spots, doorways or the tiles in front of them) ----
@@ -102,7 +105,11 @@ for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
   if (door(x, y)) for (const [dx, dy] of [[0, 0], [0, -1], [1, 0], [0, 1], [-1, 0]]) blocked.add(key(x + dx, y + dy));
 }
 for (const o of map.objects) if (o.use) for (const t of besideObject(map, o)) blocked.add(key(t.x, t.y)); // keep usable things usable
-for (const o of map.objects) if (o.sit) for (let x = o.x; x < o.x + o.w; x++) blocked.add(key(x, o.y + (o.dir === 'up' ? -1 : 1)));
+for (const o of map.objects) if (o.sit || o.lie) {
+  const xs = o.lie ? [o.x + Math.floor((o.w - 1) / 2)] : Array.from({ length: o.w }, (_, i) => o.x + i);
+  const step = { down: [0, 1], up: [0, -1], left: [-1, 0], right: [1, 0] }[o.dir ?? 'down'];
+  for (const x of xs) blocked.add(key(x + step[0], o.y + step[1]));
+}
 const rugAt = (x, y) => map.rugs.some(r => x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h);
 const freeRects = (room) => {
   const { x: rx, y: ry, w: rw, h: rh } = room.rect, taken = new Set(), out = [];
@@ -163,14 +170,14 @@ p('# The Deck: map atlas',
   '## Rooms plan',
   '',
   'Each room is filled with its letter (table below) and labelled with its id. `#` wall, `%` hedge, `+` doorway,',
-  '`.` walkable outside any room, `,` floor nobody can reach, `@` spawn, `x` exit, `0` garden hole (into the dungeon), `=` hatch.',
+  '`.` walkable outside any room, `,` floor nobody can reach, `@` spawn, `x` exit, `0` garden hole (into the dungeon), `H` hatch. Terrain: `~` water, `^` rock/cliff/sea, `=` pier, `:` trail/snow, `.` sand (room labels take precedence).',
   '',
   '```', roomsPlan, '```',
   '',
   '## Furniture plan',
   '',
   '`*` usable object (has `use`, wall or floor), `X` furniture that blocks walking, `h` seat (chair, stool, sofa, bench),',
-  '`w` walkable furniture (dance floor), `s` standing spot, `.` free floor, `,` unreachable floor; `#` `%` `+` `@` `x` `0` `=` as above.',
+  '`w` walkable furniture (dance floor), `s` standing spot, `.` free floor, `,` unreachable floor; `#` `%` `+` `@` `x` `0` `H` `~` `^` `=` `:` as above.',
   '',
   '```', furniturePlan, '```',
   '',

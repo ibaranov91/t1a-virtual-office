@@ -19,9 +19,9 @@ function view(...us: ClientUser[]): View {
     callPeers(u) { return [...this.users.values()].filter(p => p.id !== u.id && !!u.callId && p.callId === u.callId); },
     names: us => us.map(u => u.name).join(' and '), clock: () => '14:30', instruments: {}, jukebox: {}, presentation: null, sysadmin: false };
 }
-test('all 16 rooms derive their groups from rules, in map order', () => {
-  const expected = { voice: ['Coffee', 'Music', 'Arcade', 'Book Club'], knock: ['Lobby', 'Co-working', 'Desks', 'Orangery', 'Garden', 'Admin', 'Berghain', 'Terrace'], quiet: ['Focus', 'Meeting', 'Studio', 'Library'] };
-  assert.equal(map.rooms.length, 16);
+test('all 18 rooms derive their groups from rules, in map order', () => {
+  const expected = { voice: ['Coffee', 'Music', 'Arcade', 'Book Club'], knock: ['Lobby', 'Co-working', 'Desks', 'Orangery', 'Garden', 'Admin', 'Berghain', 'Terrace', 'Mountains', 'Beach'], quiet: ['Focus', 'Meeting', 'Studio', 'Library'] };
+  assert.equal(map.rooms.length, 18);
   for (const [id, names] of Object.entries(expected)) assert.deepEqual(map.rooms.filter(r => roomGroup(r) === id).map(r => r.name).sort(), names.sort());
   const tree = channelTree(view(), map);
   assert.deepEqual(tree.map(g => g.id), ['voice', 'knock', 'quiet']);
@@ -29,12 +29,13 @@ test('all 16 rooms derive their groups from rules, in map order', () => {
 });
 test('group order, live groups, instances, offline and stable person ordering', () => {
   const v = view(user('z', 'Zoe'), user('a', 'Amy'), user('me', 'You'), user('mt', 'Meeting', 'coffee', { instance: 'event:1' }),
-    user('d', 'Digger', 'coffee', { instance: 'dungeon' }), user('h', 'Hall', 'coffee', { tile: { x: 0, y: 0 } }), user('o', 'Offline', 'coffee', { presence: 'offline' }));
+    user('d', 'Digger', 'coffee', { instance: 'dungeon' }), user('h', 'Hall', 'coffee', { tile: { x: 0, y: 0 } }), user('o', 'Offline', 'coffee', { presence: 'offline' }),
+    user('v', 'Vacationer', 'coffee', { presence: 'offline', vacation: { until: Date.now() + 86_400_000 } }));
   const tree = channelTree(v, map);
   assert.deepEqual(tree.map(g => g.id), GROUPS.map(g => g.id));
   assert.deepEqual(tree[0].rooms.find(r => r.room.id === 'coffee')!.people.map(u => u.id), ['me', 'a', 'z']);
   assert.equal(tree[0].count, 3);
-  for (const id of ['meetings', 'underground', 'hall', 'offline']) assert.equal(tree.find(g => g.id === id)!.people.length, 1);
+  for (const id of ['meetings', 'underground', 'hall', 'vacation', 'offline']) assert.equal(tree.find(g => g.id === id)!.people.length, 1);
   assert.equal(place(v, v.users.get('mt')!), 'In a meeting room');
   assert.equal(place(v, v.users.get('d')!), 'Underground');
   assert.equal(place(v, v.users.get('h')!), 'Hallway');

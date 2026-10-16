@@ -4,7 +4,7 @@
 import { writeFileSync } from 'node:fs';
 import { applyLayout, besideObject, findPath, isWalkable, layoutProblem, roomAt } from '../shared/map.ts';
 
-const W = 85, OFFICE_H = 34; // x 75-83: the Book Club, east of the Library (solid wall above it); x 65-73: the Admin room over Berghain, added beside the Music room and the Arcade
+const W = 85, BUILDING_H = 34, OFFICE_H = 52; // x 75-83: the Book Club, east of the Library (solid wall above it); x 65-73: the Admin room over Berghain, added beside the Music room and the Arcade
 const dungeonRect = { x: 17, y: OFFICE_H + 2, w: 31, h: 19 };
 const H = dungeonRect.y + dungeonRect.h;
 const SOUTH = 23; // the old outer wall: now the building's back wall, the Orangery and the Garden lie beyond it
@@ -97,13 +97,19 @@ const rooms = [
     floor: 'wood_dark', rug: 'orange',
     rules: { voice: 'open', knock: 'allow', label: 'book club · open voice · walk in to talk' },
     meeting: { provider: 'meet', url: 'https://meet.google.com/new' } },
+  { id: 'mountains', name: 'Mountains', type: 'vacation', rect: { x: 1, y: 34, w: 24, h: 15 }, capacity: 30,
+    floor: 'sand', rug: 'orange', rules: { knock: 'allow', label: 'mountains · knock to talk' },
+    meeting: { provider: 'meet', url: 'https://meet.google.com/new' } },
+  { id: 'beach', name: 'Beach', type: 'vacation', rect: { x: 25, y: 34, w: 59, h: 15 }, capacity: 30,
+    floor: 'sand', rug: 'orange', rules: { knock: 'allow', label: 'beach · knock to talk' },
+    meeting: { provider: 'meet', url: 'https://meet.google.com/new' } },
 ];
 
 // ---- base floor everywhere inside the outer walls ----
-for (let y = 0; y < OFFICE_H; y++) for (let x = 0; x < W; x++) {
+for (let y = 0; y < BUILDING_H; y++) for (let x = 0; x < W; x++) {
   floor[y][x] = tid(`wood_${hash(x, y) % 3}`);
 }
-for (const r of rooms) {
+for (const r of rooms.filter(r => r.type !== 'vacation')) {
   for (let y = r.rect.y; y < r.rect.y + r.rect.h; y++)
     for (let x = r.rect.x; x < r.rect.x + r.rect.w; x++) {
       floor[y][x] = r.floor === 'tile_check' ? tid('tile_check')
@@ -114,8 +120,8 @@ for (const r of rooms) {
 // ---- walls ----
 const CAP = 'wall_cap';
 const setWall = (x, y, name) => { walls[y][x] = tid(name); };
-for (let x = 0; x < W; x++) { setWall(x, 0, CAP); setWall(x, OFFICE_H - 1, CAP); }
-for (let y = 0; y < OFFICE_H; y++) { setWall(0, y, CAP); setWall(W - 1, y, CAP); }
+for (let x = 0; x < W; x++) { setWall(x, 0, CAP); setWall(x, BUILDING_H - 1, CAP); }
+for (let y = 0; y < BUILDING_H; y++) { setWall(0, y, CAP); setWall(W - 1, y, CAP); }
 // tall back wall (2 rows of face)
 for (let x = 1; x < W - 1; x++) { setWall(x, 1, 'wall_face_top'); setWall(x, 2, 'wall_face_bottom'); }
 // horizontal divider: cap row 11, short face row 12, with doors
@@ -143,14 +149,14 @@ for (let x = 1; x < W - 1; x++) {
   if (sDoors.includes(x)) continue;
   setWall(x, SOUTH, CAP); setWall(x, SOUTH + 1, x < 15 || x > LIB_X ? 'wall_face_short' : x === 15 || x === LIB_X ? CAP : 'wall_face_ext');
 }
-for (let y = SOUTH; y < OFFICE_H; y++) { if (y === 31 || y === 32) continue; setWall(15, y, CAP); } // Orangery | Garden
+for (let y = SOUTH; y < BUILDING_H; y++) { if (y === 31 || y === 32) continue; setWall(15, y, CAP); } // Orangery | Garden
 // the garden's edge is a hedge, not a wall; the Library east of it is walled in
-for (let x = 16; x < LIB_X; x++) setWall(x, OFFICE_H - 1, 'hedge');
-for (let y = SOUTH + 2; y < OFFICE_H; y++) if (!LIB_DOOR.includes(y)) setWall(LIB_X, y, CAP);
+for (let x = 16; x < LIB_X; x++) setWall(x, BUILDING_H - 1, 'hedge');
+for (let y = SOUTH + 2; y < BUILDING_H; y++) if (!LIB_DOOR.includes(y)) setWall(LIB_X, y, CAP);
 // the Book Club column (x 74 on): solid above the building's back wall, a door from the Library at rows 29-30
 const CLUB_X = 74, CLUB_DOOR = [29, 30];
 for (let y = 0; y <= SOUTH; y++) for (let x = CLUB_X; x < W; x++) setWall(x, y, CAP);
-for (let y = SOUTH + 2; y < OFFICE_H; y++) if (!CLUB_DOOR.includes(y)) setWall(CLUB_X, y, CAP);
+for (let y = SOUTH + 2; y < BUILDING_H; y++) if (!CLUB_DOOR.includes(y)) setWall(CLUB_X, y, CAP);
 // door thresholds get plain wood
 for (const x of hDoors) for (const y of [11, 12]) floor[y][x] = tid('door_floor');
 for (const vx of [13, 26]) for (const y of [6, 7]) floor[y][vx] = tid('door_floor');
@@ -167,6 +173,29 @@ for (const y of CLUB_DOOR) floor[y][CLUB_X] = tid('door_floor');
   for (let x = 16; x < 20; x++) for (const y of [31, 32]) path(x, y);
   for (const x of [18, 19]) path(x, 30);
 }
+
+// ---------- vacation: terrain south of the unchanged building ----------
+for (let y = BUILDING_H; y < OFFICE_H; y++) for (let x = 0; x < W; x++) {
+  floor[y][x] = tid(`${y >= 47 ? 'water_deep' : y >= 45 ? 'water_shallow' : y === 44 ? 'sand_wet' : 'sand'}_${hash(x, y) % 3}`);
+  if (y >= 49 || x === 0 || x === W - 1) setWall(x, y, y >= 45 ? 'sea' : 'cliff');
+  else if (x <= 24 && y <= 43) setWall(x, y, y === 43 || x === 24 ? 'cliff' : 'rock');
+}
+const carve = (x, y, family) => { walls[y][x] = 0; floor[y][x] = tid(`${family}_${hash(x, y) % 2}`); };
+// One narrow switchback; the rock between its legs prevents shortcuts to the plateau.
+for (let x = 22; x <= 24; x++) carve(x, 41, 'trail');
+for (let y = 38; y <= 41; y++) carve(22, y, 'trail');
+for (let x = 8; x <= 22; x++) carve(x, 38, 'trail');
+for (let y = 36; y <= 38; y++) carve(8, y, 'trail');
+for (let x = 8; x <= 17; x++) carve(x, 36, 'trail');
+for (let y = 34; y <= 35; y++) for (let x = 16; x <= 18; x++) carve(x, y, 'snow');
+// Small walkable slope ledges, off the trail, for pines.
+for (const x of [4, 10, 16, 20]) { walls[43][x] = 0; floor[43][x] = tid(`trail_${hash(x, 43) % 2}`); }
+for (let y = 34; y <= 43; y++) for (let x = 1; x <= 24; x++)
+  if (walls[y][x]) setWall(x, y, `mtn_${x}_${y}`);
+for (let y = 43; y <= 48; y++) for (const x of [62, 63]) floor[y][x] = tid('pier');
+const vacation = { gate: { x: 50, y: 34 }, trailFoot: { x: 24, y: 41 }, summit: { x: 17, y: 34 },
+  pierEnds: [{ x: 62, y: 48 }, { x: 63, y: 48 }],
+  swim: [28, 33, 38, 43, 48, 53, 58, 68, 73, 78].map(x => ({ x, y: 48 })) };
 
 // ---- rugs (drawn 9-slice over the floor; admins can move them) ----
 const rugs = [];
@@ -377,6 +406,8 @@ stand('admin', [[70, 9, 'left']]);
 stand('berghain', [[69, 16, 'down'], [71, 17, 'left'], [66, 19, 'right']]);
 stand('library', [[68, 25, 'up'], [71, 25, 'up']]);
 stand('garden', [[42, 29, 'down'], [43, 29, 'down'], [33, 29, 'left'], [56, 28, 'down'], [20, 28, 'down']]);
+stand('mountains', [[2, 44, 'down'], [12, 44, 'down'], [24, 41, 'left'], [16, 34, 'down'], [8, 37, 'up']]);
+stand('beach', [[28, 42, 'down'], [42, 42, 'down'], [52, 38, 'down'], [70, 42, 'down'], [80, 44, 'down']]);
 
 // ---- a separate, deterministic maze under the garden (never furniture) ----
 const random = (() => { let seed = 16; return () => {
@@ -523,8 +554,39 @@ rooms.find(r => r.id === 'bookclub').stand.push({ x: 82, y: 29, dir: 'left' });
 // the Meeting room's "start private room" sign, beside the screen on the top wall (last, so every earlier id stays put)
 obj('room_start', 24, 2, 1, 1, { wall: true, use: { kind: 'room_start', label: 'start private room' } });
 
+// Retro cabinets appended last: all existing object ids stay stable.
+const firstRetro = objects.length;
+obj('retro_tobu', 62, 13, 1, 2, { use: { kind: 'retro', label: 'Tobu Tobu Girl', game: 'tobu' } });
+obj('retro_lobster', 63, 13, 1, 2, { use: { kind: 'retro', label: 'Shock Lobster', game: 'lobster' } });
+for (const { id: _i, x: _x, y: _y, ...t } of objects.slice(firstRetro)) catalog[t.type] ??= t;
 
-const map = { version: 1, width: W, height: H, tileSize: 16, office: { x: 0, y: 0, w: W, h: OFFICE_H }, dungeon, tiles, layers: { floor, walls, walkable: [] }, rooms, objects: [], rugs: [], spawn: { x: 7, y: 17 }, exit: EXIT, catalog };
+// ---------- vacation: props appended after all existing objects ----------
+const firstVacation = objects.length;
+// Check against the complete building furniture before opening the closest free garden pair.
+const freeGarden = x => !walls[32][x] && !objects.some(o => !o.wall && !o.walkable && x >= o.x && x < o.x + o.w && 32 >= o.y && 32 < o.y + o.h);
+const gateX = Array.from({ length: 47 }, (_, i) => i + 16).sort((a, b) => Math.abs(a - 50) - Math.abs(b - 50) || a - b).find(x => freeGarden(x) && freeGarden(x + 1));
+if (gateX === undefined) throw new Error('no free garden pair for the vacation gate');
+for (const x of [gateX, gateX + 1]) { walls[33][x] = 0; floor[33][x] = tid('door_floor'); }
+vacation.gate.x = gateX;
+for (const [x, y] of [[29, 35], [35, 35], [45, 36], [57, 35], [72, 36], [80, 35]]) obj('palm', x, y);
+for (const x of [4, 10, 16, 20]) obj('pine', x, 43);
+for (const x of [30, 38, 46, 54, 70, 78]) {
+  obj('lounger', x, 40, 2, 1, { lie: true, dir: 'down' });
+  obj('umbrella', x, 39);
+}
+obj('hammock', 31, 35, 3, 1, { lie: true, dir: 'down' });
+obj('beach_bar', 65, 35, 3, 1, { use: { kind: 'take', items: [
+  { id: 'cocktail', label: 'Cocktail', icon: '🍹' }, { id: 'coconut', label: 'Coconut', icon: '🥥' }, { id: 'icecream', label: 'Ice cream', icon: '🍦' },
+] } });
+obj('vacation_sign', gateX + 2, 34, 1, 1, { use: { kind: 'vacations' } });
+obj('summit_flag', 18, 34);
+obj('sandcastle', 40, 43);
+obj('shells', 59, 44);
+obj('beach_ball', 75, 42);
+for (const { id: _i, x: _x, y: _y, ...t } of objects.slice(firstVacation)) catalog[t.type] ??= t;
+
+
+const map = { version: 1, width: W, height: H, tileSize: 16, office: { x: 0, y: 0, w: W, h: OFFICE_H }, dungeon, vacation, tiles, layers: { floor, walls, walkable: [] }, rooms, objects: [], rugs: [], spawn: { x: 7, y: 17 }, exit: EXIT, catalog };
 applyLayout(map, { objects, rugs });
 for (const r of rooms) for (const s of r.stand) if (!r.spots.includes(s)) throw new Error(`standing spot ${r.id} ${s.x},${s.y} is under furniture`);
 if (findPath(map, map.spawn, dungeon.landing).length) throw new Error('dungeon connected to office');
@@ -534,9 +596,11 @@ for (const k of ['hole', 'hatch']) {
   const t = dungeon[k];
   if (!isWalkable(map, t.x, t.y) || roomAt(map, t.x, t.y)?.id !== 'garden' || !findPath(map, map.spawn, t).length) throw new Error(`unreachable garden ${k}`);
 }
+for (const t of [vacation.gate, vacation.trailFoot, vacation.summit, ...vacation.pierEnds, ...vacation.swim])
+  if (!isWalkable(map, t.x, t.y) || !findPath(map, map.spawn, t).length) throw new Error(`unreachable vacation destination ${t.x},${t.y}`);
 const problem = layoutProblem(map);
 if (problem) throw new Error(problem);
-for (const o of objects) if (o.use?.kind === 'arcade' && !besideObject(map, o).some(t => findPath(map, map.spawn, t).length)) throw new Error(`unreachable cabinet ${o.id}`);
+for (const o of objects) if ((o.use?.kind === 'arcade' || o.use?.kind === 'retro') && !besideObject(map, o).some(t => findPath(map, map.spawn, t).length)) throw new Error(`unreachable cabinet ${o.id}`);
 for (const x of [58, 59]) if (!findPath(map, map.spawn, { x, y: 11 }).length) throw new Error('Music door is unreachable');
 const admin = rooms.find(r => r.id === 'admin').rect;
 if (!findPath(map, map.spawn, { x: admin.x + 7, y: admin.y + 7 }).length) throw new Error('Admin room is unreachable');

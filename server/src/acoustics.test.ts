@@ -24,7 +24,8 @@ test('doorways are grouped connected non-room tiles, memoized and invalidated by
   assert.notEqual(doorwayTiles(copy, room), before); assert.deepEqual(doorwayTiles(copy, room), before);
 });
 test('room rectangles contain no wall tiles, so same-room distance is Manhattan', () => {
-  for (const { rect: r } of map.rooms) for (let y = r.y; y < r.y + r.h; y++) for (let x = r.x; x < r.x + r.w; x++)
+  // Vacation rooms contain terrain walls; nothing makes sound there.
+  for (const { rect: r } of map.rooms.filter(r => r.type !== 'vacation')) for (let y = r.y; y < r.y + r.h; y++) for (let x = r.x; x < r.x + r.w; x++)
     assert.equal(map.layers.walls[y][x], 0, `${x},${y}`);
 });
 test('distance gain is a gentle inverse law: 1, .625, .417 at 3, 6, 10 tiles, fading out by 18', () => {
