@@ -115,8 +115,8 @@ npm run typecheck    # run before every commit or deploy
   also vanish after 30 min. The ghost of Mazurkevich is client-only (night hours, or 3 min an hour); in dev,
   `__deck.engine.critters.summonGhost()` brings him out.
 - **Presentation mode** (`server/src/presentation.ts`, `client/src/Presentation.tsx`): the Meeting room's wall screen
-  (`use.kind: 'presentation'`) takes PNG/JPG slides or one PDF (rendered with poppler's `pdftoppm` if the machine has it,
-  else refused) behind a PIN (`DECK_PRESENT_PIN`, default `1234`), via `POST /api/present/upload` with the session in
+  (`use.kind: 'presentation'`) takes PNG/JPG slides or one PDF (the browser renders PDF pages to images with pdf.js, `client/src/pdfSlides.ts`,
+  before upload; the server's poppler `pdftoppm` path is only a fallback for old clients) behind a PIN (`DECK_PRESENT_PIN`, default `1234`), via `POST /api/present/upload` with the session in
   `x-deck-session`. Decks are files in `data/decks/<id>/` and survive restarts; who's presenting is memory only. Everyone in
   the screen's room sees the slides as a 90s magazine page; the presenter flips with ← →, Stop ends it, and it ends by itself
   60 s after the presenter's last tab closes.
