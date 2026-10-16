@@ -42,11 +42,12 @@ test('the cleaner walks to a settled cup by a path of walkable tiles, pauses, ta
   const cup = c.addCup(tableTiles[3], 'coffee', 0);
   assert.ok(typeof cup === 'object');
   c.tick(1000, may);
-  assert.equal(lady.walk, null, 'a fresh cup is left alone for a moment');
+  assert.equal(lady.cleaning, undefined, 'a fresh cup is left alone for a moment (she may roam meanwhile)');
   let now = CUP_LINGER_MS;
-  c.tick(now, may);
+  // she may be mid-stroll when the cup settles: let her finish it, then she heads for the cup
+  for (let i = 0; !lady.cleaning && i < 20; i++) { now = Math.max(now, lady.until); c.tick(now, may); }
   const walk = lady.walk!;
-  assert.ok(walk, 'off to the cup');
+  assert.ok(walk && lady.cleaning === cup.id, 'off to the cup');
   for (const p of walk.path) assert.ok(isWalkable(map, p.x, p.y), `walkable ${p.x},${p.y}`);
   for (let i = 1; i < walk.path.length; i++) assert.equal(Math.abs(walk.path[i].x - walk.path[i - 1].x) + Math.abs(walk.path[i].y - walk.path[i - 1].y), 1);
   const end = walk.path[walk.path.length - 1];
@@ -58,7 +59,8 @@ test('the cleaner walks to a settled cup by a path of walkable tiles, pauses, ta
   assert.equal(c.cups.length, 0);
   assert.ok(sent.some(m => m.t === 'cups' && m.cups.length === 0));
   const back = lady.walk!;
-  assert.deepEqual(back.path.at(-1), home, 'and home again');
+  assert.ok(back && !lady.cleaning, 'and off for a stroll');
+  assert.ok(isWalkable(map, back.path.at(-1)!.x, back.path.at(-1)!.y));
 });
 
 test('the cleaner gives up on a cup that went before she got there', () => {
