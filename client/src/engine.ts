@@ -1103,6 +1103,7 @@ export class Engine {
     ctx.globalAlpha = 1;
 
     if (!me?.instance) this.drawBoardBadges(ctx, ms);
+    if (!me?.instance) this.drawTerminalBadge(ctx, ms);
     this.drawLiveScreen(ctx, ms); // the store only holds the show of my own scope
 
     // a meeting's own room: the rest of the office fades away
@@ -1676,6 +1677,24 @@ export class Engine {
       const x = Math.round(bx + TS - w / 2 - 1), y = Math.round(by - 4 - (mine ? Math.round(pulse * 2) : 0));
       ctx.fillStyle = '#3a2329'; ctx.fillRect(x - 1, y - 1, w + 2, h + 2);
       ctx.fillStyle = color; ctx.fillRect(x, y, w, h);
+      drawText(ctx, text, x + 2, y + 1, '#2a1f24');
+    }
+  }
+
+  /** Admins: how many tickets are open, over the bug terminal's screen; amber and bobbing while some wait on an admin. */
+  private drawTerminalBadge(ctx: CanvasRenderingContext2D, ms: number) {
+    if (!this.store.admin) return;
+    const open = this.store.tickets.filter(t => t.status === 'open');
+    if (!open.length) return;
+    const waiting = open.some(t => this.store.ticketUnread(t)), text = String(open.length);
+    const bob = waiting ? Math.round((Math.sin(ms / 220) + 1)) : 0;
+    for (const o of MAP.objects) {
+      if (o.use?.kind !== 'tickets') continue;
+      const fr = this.f(o.type), top = (o.y + o.h) * TS - (fr?.h ?? TS);
+      const w = textWidth(text) + 4, h = 7;
+      const x = Math.round(o.x * TS + o.w * TS / 2 + 6), y = top - 5 - bob;
+      ctx.fillStyle = '#3a2329'; ctx.fillRect(x - 1, y - 1, w + 2, h + 2);
+      ctx.fillStyle = waiting ? '#f2b45a' : '#7cc87c'; ctx.fillRect(x, y, w, h);
       drawText(ctx, text, x + 2, y + 1, '#2a1f24');
     }
   }
