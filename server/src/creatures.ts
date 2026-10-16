@@ -13,6 +13,9 @@ export const PET_FOLLOW_MS = 60_000;       // then it tags along with the person
 export const BAT_CHANCE = 0.7;             // per try
 export const BAT_COOLDOWN_MS = 1000;
 export const BAT_RESPAWN_MS = 10 * 60_000; // after a catch
+export const SAY_MS = 5000;                // a phrase stays up this long
+const PHRASES = ['Who left a cup AGAIN?', 'Spotless. Almost.', 'Mind the wet floor!', 'I saw that crumb.', 'Tables are not coat racks.',
+  'Coffee rings: my nemesis.', 'Dust never sleeps.', 'Somebody loves their mug a bit too much.', 'Cleaner floors, calmer minds.', 'Do not feed the printer.'];
 const SPEED: Record<CreatureKind, number> = { cat: 320, dog: 230, bat: 150, cleaner: 300 };
 
 export interface CreatureHost {
@@ -25,6 +28,7 @@ interface Live extends Creature {
   until: number;                                   // busy (walking, sitting, napping…) until then
   then?: { pose: CreaturePose; ms: number }; // what to do on arrival
   cleaning?: string;                          // the cleaner: the cup she's on her way to (or wiping up)
+  humUntil?: number; sayUntil?: number; nextSayAt?: number; // the cleaner's humming stretch, her phrase, when the next one comes
   follow?: { userId: string; until: number }; // a petted cat or dog trots after its person for a while
 }
 
@@ -52,7 +56,7 @@ export class Creatures {
   constructor(private host: CreatureHost) {}
 
   get map() { return this.host.map(); }
-  toPublic = (c: Live): Creature => ({ id: c.id, kind: c.kind, name: c.name, tile: c.tile, dir: c.dir, pose: c.pose, walk: c.walk });
+  toPublic = (c: Live): Creature => ({ id: c.id, kind: c.kind, name: c.name, tile: c.tile, dir: c.dir, pose: c.pose, walk: c.walk, ...(c.hum ? { hum: true } : {}), ...(c.say ? { say: c.say } : {}) });
   all() { return [...this.list.values()].map(this.toPublic); }
   private announceAll() { this.host.broadcast({ t: 'creatures', creatures: this.all() }); }
   private announce(c: Live) { this.host.broadcast({ t: 'creature', creature: this.toPublic(c) }); }
@@ -113,6 +117,7 @@ export class Creatures {
     const bat = this.list.get('bat');
     if (bat && !this.batSeason(date)) this.remove('bat');
     for (const c of this.list.values()) {
+      if (c.kind === 'cleaner') this.voice(c, now);
       if (now < c.until) continue;
       if (c.then) { // just arrived
         const gone = c.cleaning && !this.cups.some(k => k.id === c.cleaning);
@@ -200,9 +205,26 @@ export class Creatures {
       this.go(c, plan.spot, now, { pose: 'clean', ms: CLEAN_MS }, plan.path);
       return;
     }
-    const home = this.base();
-    if (c.tile.x !== home.x || c.tile.y !== home.y) this.go(c, home, now, { pose: 'idle', ms: 0 });
-    else c.until = now + 1000;
+    this.roam(c, now);
+  }
+  /** Nothing to clean: stroll to a stand tile in a random room (not the admin room), pause, repeat, humming now and then. */
+  private roam(c: Live, now: number) {
+    const rooms = this.map.rooms.filter(r => r.rules.access !== 'admins');
+    for (let i = 0; i < 8; i++) {
+      const spot = pick(pick(rooms).stand.filter(s => isWalkable(this.map, s.x, s.y)));
+      if (!spot || (spot.x === c.tile.x && spot.y === c.tile.y)) continue;
+      if (!(c.humUntil && c.humUntil > now) && Math.random() < 0.5) c.humUntil = now + rand(15_000, 40_000);
+      if (this.go(c, { x: spot.x, y: spot.y }, now, { pose: 'idle', ms: rand(3000, 7000) })) return;
+    }
+    c.until = now + 1000;
+  }
+  /** The cleaner's humming and her occasional phrase: set and cleared by the clock, announced when they change. */
+  private voice(c: Live, now: number) {
+    const hum = !!c.humUntil && now < c.humUntil && c.pose !== 'clean', say = c.sayUntil && now < c.sayUntil ? c.say : undefined;
+    c.nextSayAt ??= now + rand(60_000, 150_000);
+    let nextSay = say;
+    if (!say && now >= c.nextSayAt && c.pose !== 'clean') { nextSay = pick(PHRASES); c.sayUntil = now + SAY_MS; c.nextSayAt = now + rand(120_000, 300_000); }
+    if (hum !== !!c.hum || nextSay !== c.say) { c.hum = hum; c.say = nextSay; this.announce(c); }
   }
   /** Which cup next and where to stand for it: the nearest by path. */
   planClean(from: Tile, now: number) {

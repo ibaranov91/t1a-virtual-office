@@ -78,6 +78,25 @@ export class CreatureLayer {
     ctx.fillStyle = 'rgba(40,20,25,0.25)';
     ctx.beginPath(); ctx.ellipse(cx, bottom - 1.5, rx, 1.6, 0, 0, Math.PI * 2); ctx.fill();
   }
+  /** A ♪ that bobs and sways over the head, drawn in code. */
+  private note(cx: number, y: number, ms: number) {
+    const ctx = this.ctx(), ph = (ms / 900) % 1;
+    ctx.save(); ctx.globalAlpha = Math.min(1, 2 - ph * 2); ctx.font = 'bold 8px system-ui, sans-serif'; ctx.textAlign = 'center';
+    ctx.fillStyle = '#2a1a22'; ctx.fillText('♪', Math.round(cx + 5 + Math.sin(ms / 300) * 2) + 0.4, Math.round(y - ph * 5) + 0.4);
+    ctx.fillStyle = '#ffd86a'; ctx.fillText('♪', Math.round(cx + 5 + Math.sin(ms / 300) * 2), Math.round(y - ph * 5));
+    ctx.restore();
+  }
+  /** A small speech bubble with a tail, centred over the head. */
+  private say(text: string, cx: number, y: number) {
+    const ctx = this.ctx();
+    ctx.save(); ctx.font = '5px system-ui, sans-serif'; ctx.textBaseline = 'middle';
+    const w = Math.ceil(ctx.measureText(text).width) + 6, h = 9, x = Math.round(cx - w / 2), top = y - h - 2;
+    ctx.fillStyle = '#fff8ec'; ctx.strokeStyle = '#2a1a22'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.roundRect(x, top, w, h, 2); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(cx - 2, top + h); ctx.lineTo(cx, top + h + 3); ctx.lineTo(cx + 2, top + h); ctx.fillStyle = '#fff8ec'; ctx.fill();
+    ctx.fillStyle = '#2a1a22'; ctx.textAlign = 'center'; ctx.fillText(text, cx, top + h / 2 + 0.5);
+    ctx.restore();
+  }
   private frameFor(c: Creature, p: CreaturePose, ms: number) {
     const step = Math.floor(ms / (c.kind === 'dog' ? 120 : 160)) % 2;
     if (c.kind === 'bat') return p.walking ? `bat_fly_${Math.floor(ms / 90) % 2}` : 'bat_hang';
@@ -109,6 +128,8 @@ export class CreatureLayer {
         const left = this.left(c, p.dir);
         this.shadow(cx, bottom, c.kind === 'cleaner' ? 5 : 4.5);
         this.drawFrame(this.frameFor(c, p, ms), cx, bottom - (c.kind === 'cleaner' ? 1 : 0), left);
+        if (c.hum) this.note(cx, bottom - 27, ms);
+        if (c.say) this.say(c.say, cx, bottom - 31);
         if (c.pose === 'pet' && !p.walking) for (let i = 0; i < 3; i++) { // hearts drifting up
           const ph = (ms / 900 + i / 3) % 1, ctx = this.ctx();
           ctx.globalAlpha = Math.min(1, 2 - ph * 2); this.blit('heart', Math.round(cx - 3 + (i - 1) * 5 + Math.sin(ph * 6 + i) * 1.5), Math.round(bottom - 16 - ph * 10)); ctx.globalAlpha = 1;

@@ -1317,14 +1317,22 @@ for (const open of [false, true]) {
   };
   frames.cleaner_0 = cleaner(0, 0); frames.cleaner_1 = cleaner(1, 0);
   frames.cleaner_clean_0 = cleaner(0, 1); frames.cleaner_clean_1 = cleaner(0, 2);
-  // the ghost of Mazurkevich, the old office manager: a sheet, a moustache, a little clipboard
+  // the ghost of Mazurkevich, the old office manager: drawn like the office people (short dark hair, white shirt with an open
+  // collar and a little mic clip, grey trousers) and a clipboard as his mark. The client draws him translucent.
   for (const f of [0, 1]) {
-    const t = new Img(16, 22), G = '#eef2ff', GS = '#c8d0ea';
-    t.ellipse(8, 7, 6, 6, G); t.rect(2, 7, 12, 11, G); t.vline(2, 8, 10, GS);
-    for (let x = 2; x < 14; x++) if ((x + f) % 4 < 2) t.rect(x, 18, 1, 2, G); else t.px(x, 18, GS);
-    t.rect(5, 6, 2, 3, '#2a2a3a'); t.rect(9, 6, 2, 3, '#2a2a3a');
-    t.hline(5, 10, 6, '#6a5040'); t.px(4, 11, '#6a5040'); t.px(11, 11, '#6a5040');
-    t.rect(11, 12, 4, 5, '#c8a070'); t.hline(12, 14, 2, '#6a6a7a'); t.hline(12, 15, 2, '#6a6a7a');
+    const t = new Img(16, 24), SH = '#f6f6fa', SHS = '#c9cde0', TR = '#7a7f90', TRS = '#5c6070', HR = '#4a3626', HRS = '#33241a';
+    const lh = f ? 4 : 3, rh = f ? 3 : 4; // legs step in turn as he drifts
+    t.rect(5, 19, 3, lh, TR); t.vline(5, 19, lh, TRS); t.rect(8, 19, 3, rh, TR); t.vline(10, 19, rh, TRS);
+    t.rect(5, 19 + lh, 3, 1, '#3a3a48'); t.rect(8, 19 + rh, 3, 1, '#3a3a48');
+    t.rect(4, 13, 8, 7, SH); t.vline(4, 13, 7, SHS); t.vline(11, 13, 7, SHS); t.hline(4, 19, 8, SHS); t.vline(8, 14, 5, SHS); // button placket
+    t.px(9, 15, '#2a2a3a'); // the mic clip
+    t.rect(3, 13, 1, 5, SHS); t.px(3, 18, '#f2c79b'); t.rect(12, 13, 1, 4, SHS); t.px(12, 17, '#f2c79b');
+    t.rect(3, 4, 10, 9, '#f2c79b'); t.hline(4, 3, 8, '#f2c79b'); t.hline(4, 13, 8, '#d9a073'); // head
+    t.hline(7, 13, 2, '#f2c79b'); t.hline(6, 14, 1, SH); t.hline(9, 14, 1, SH); // open collar
+    t.hline(4, 1, 8, HR); t.rect(3, 2, 10, 3, HR); t.hline(2, 3, 12, HRS); t.rect(2, 3, 12, 2, HR); // short swept hair
+    t.rect(3, 5, 3, 1, HR); t.rect(9, 5, 4, 1, HR); t.vline(2, 5, 2, HRS); t.vline(13, 5, 2, HRS);
+    t.rect(5, 7, 2, 2, '#2b1d1f'); t.rect(9, 7, 2, 2, '#2b1d1f'); t.hline(7, 11, 2, '#c98a70'); // eyes, a small mouth
+    t.rect(0, 14, 5, 6, '#c8a070'); t.hline(1, 13, 3, '#6a6a7a'); t.hline(1, 16, 3, '#6a6a7a'); t.hline(1, 18, 2, '#6a6a7a'); // the clipboard
     frames[`ghost_${f}`] = t.outline('#8a90b8');
   }
   { // a little heart that floats up when a pet is petted
