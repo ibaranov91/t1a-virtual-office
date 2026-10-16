@@ -478,6 +478,7 @@ export class Store {
   presentation: LiveDeck | null = null; // slides on a screen right now
   roomMeetLink: { instance: string; link: string } | null = null; // the Meet room of the meeting room I'm in (members only)
   roomOpen = false;                     // the private-room popup (start one, or invite into mine)
+  kioskSeen = (() => { try { return localStorage.getItem('deck.kioskSeen') === '1'; } catch { return false; } })(); // used the booking kiosk once: its hint stops
   openRoom(on: boolean) { this.roomOpen = on; this.emit(); }
   createRoom(invite: string[], title?: string) { this.send({ t: 'room_create', title: title?.trim() || undefined, invite }); this.roomOpen = false; this.emit(); }
   inviteToRoom(userIds: string[]) { this.send({ t: 'room_invite', userIds }); this.roomOpen = false; this.emit(); }
@@ -731,7 +732,7 @@ export class Store {
       case 'listening': { const u = this.users.get(msg.userId); if (u) u.listening = msg.on ? 'lofi' : null; break; }
       case 'jukebox': if (this.jukeboxReady) this.jukebox = { ...this.jukebox, [msg.id]: msg.state }; break;
       case 'object': this.objects = { ...this.objects, [msg.id]: { on: msg.on } }; break;
-      case 'room_open': this.roomOpen = true; break;
+      case 'room_open': this.roomOpen = true; if (!this.kioskSeen) { this.kioskSeen = true; try { localStorage.setItem('deck.kioskSeen', '1'); } catch { /* storage unavailable */ } } break;
       case 'present_open': this.presentOpen = msg.objectId; break;
       case 'terminal_open': this.terminalOpen = msg.objectId; break;
       case 'tickets': this.tickets = msg.list; break;

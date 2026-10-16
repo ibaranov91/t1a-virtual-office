@@ -539,10 +539,12 @@ for (const n of [1, 2]) {
   frames.screen = t.outline();
 }
 {
-  const t = new Img(16, 16); // "start private room" sign: a little wooden door on a brass plate
-  t.rect(2, 2, 12, 12, '#b08a4a'); t.rect(3, 3, 10, 10, '#f2e8d4');
-  t.rect(5, 5, 6, 8, '#6a4a2e'); t.rect(6, 6, 4, 6, '#8c6240'); t.px(9, 9, '#f0c040');
-  t.px(4, 4, '#c8b080'); t.px(11, 4, '#c8b080');
+  const t = new Img(16, 28); // booking kiosk: a room panel on a post: amber header, green screen with a big "+"
+  t.rect(3, 0, 10, 3, '#e0a040'); t.hline(4, 1, 8, '#f6d080'); // the amber header plate
+  t.rect(2, 3, 12, 11, '#2a2630'); t.rect(3, 4, 10, 9, '#2f8a68'); t.rect(3, 4, 10, 1, '#4ab088');
+  t.rect(7, 5, 2, 7, '#e4f8ee'); t.rect(5, 7, 6, 3, '#e4f8ee'); // +
+  t.rect(7, 14, 2, 10, '#4a4652'); t.vline(7, 14, 10, '#5e5a68');
+  t.rect(4, 24, 8, 3, '#4a4652'); t.hline(4, 24, 8, '#5e5a68');
   frames.room_start = t.outline();
 }
 {

@@ -136,8 +136,8 @@ export function peopleGroups(view: View, query = '') {
     .map(g => { const found = [...view.users.values()].filter(u => group(u) === g.id && (!q || matches(u.name, q) || matches(place(view, u), q))); return { ...g, people: g.id === 'vacation' ? byReturn(found) : ordered(view, found) }; })
     .filter(g => g.people.length);
 }
-const THINGS = new Set(['jukebox', 'youtube', 'records', 'meetings', 'library', 'clock', 'achievements', 'calendar', 'link', 'tickets']);
-type ThingUse = Extract<ObjectUse, { kind: 'jukebox' | 'youtube' | 'records' | 'meetings' | 'library' | 'clock' | 'achievements' | 'calendar' | 'link' | 'tickets' }>;
+const THINGS = new Set(['jukebox', 'youtube', 'records', 'meetings', 'library', 'clock', 'achievements', 'calendar', 'link', 'tickets', 'room_start']);
+type ThingUse = Extract<ObjectUse, { kind: 'jukebox' | 'youtube' | 'records' | 'meetings' | 'library' | 'clock' | 'achievements' | 'calendar' | 'link' | 'tickets' | 'room_start' }>;
 export function roomThings(map: TileMap, room: Room): (MapObject & { use: ThingUse })[] {
   const seen = new Set<string>();
   return map.objects.filter((o): o is MapObject & { use: ThingUse } => {

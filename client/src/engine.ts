@@ -99,6 +99,7 @@ export class Engine {
   private hoverObject: MapObject | null = null;
   private interactive: MapObject[];
   private boards: MapObject[]; // meetings boards: a badge when meetings are on
+  private kiosks: MapObject[]; // the Meeting room's booking kiosk: its screen breathes
   /** The wheel's target, ringed on the floor. */
   selected: Pick | null = null;
   onPick?: (p: Pick | null) => void;
@@ -147,7 +148,7 @@ export class Engine {
 
   constructor(private canvas: HTMLCanvasElement, private store: Store, private assets: Assets) {
     this.ctx = canvas.getContext('2d', { alpha: false })!; // opaque: the frame starts with a full fill, so the compositor can skip blending
-    this.staticLayer = this.furniture = this.lights = this.steamers = this.sounders = this.interactive = this.boards = null!;
+    this.staticLayer = this.furniture = this.lights = this.steamers = this.sounders = this.interactive = this.boards = this.kiosks = null!;
     this.critters = new CreatureLayer(store, () => this.ctx, n => this.f(n), (n, x, y) => this.blit(this.ctx, n, x, y));
     this.refreshLayout();
     this.glow = document.createElement('canvas'); this.glow.width = this.glow.height = 80;
@@ -324,6 +325,7 @@ export class Engine {
     this.plantsVersion = -1; // shelves may have moved
     this.interactive = MAP.objects.filter(o => o.use || o.sit || o.lie);
     this.boards = MAP.objects.filter(o => o.use?.kind === 'meetings');
+    this.kiosks = MAP.objects.filter(o => o.use?.kind === 'room_start');
     this.slots = MAP.rooms.flatMap(r => r.plantSlots ?? []);
     if (this.editSel && !this.item(this.editSel)) this.editSel = null;
     if (this.store.added) { this.editSel = this.store.added; this.store.added = null; }
@@ -1098,7 +1100,7 @@ export class Engine {
     }
     ctx.globalAlpha = 1;
 
-    if (!me?.instance) this.drawBoardBadges(ctx, ms);
+    if (!me?.instance) { this.drawBoardBadges(ctx, ms); this.drawKiosks(ctx, ms); }
     if (!me?.instance) this.drawTerminalBadge(ctx, ms);
     this.drawLiveScreen(ctx, ms); // the store only holds the show of my own scope
 
@@ -1128,6 +1130,12 @@ export class Engine {
     // one of my meetings is on: say so over the board, readable at any zoom
     const goable = me && !me.instance && this.hoverObject?.use?.kind !== 'meetings'
       ? this.store.agenda.find(a => a.start - 10 * 60_000 <= this.store.now() && a.end > this.store.now()) : undefined;
+    // first time in the Meeting room: point at the kiosk until it's been used once
+    if (me && !me.instance && !this.store.kioskSeen && !this.tapZooms && this.hoverObject?.use?.kind !== 'room_start') {
+      const room = this.store.roomOf(me)?.id;
+      for (const o of this.kiosks) if (room && roomAt(MAP, o.x, o.y)?.id === room)
+        this.drawLabel('+ Private room', (o.x + 0.5) * TS, (o.y + 1) * TS - 32 - Math.round((Math.sin(ms / 260) + 1)), camX, camY, 1, true, 10);
+    }
     if (goable) for (const o of this.boards) {
       const title = goable.title.length > 16 ? `${goable.title.slice(0, 15)}…` : goable.title;
       this.drawLabel(`📅 ${title} · go`, (o.x + 0.5) * TS, o.y * TS - 4 - Math.round((Math.sin(ms / 220) + 1)), camX, camY, 1, false, 10); // a small nudge: the heads-up toast says the rest
@@ -1692,6 +1700,15 @@ export class Engine {
       ctx.fillStyle = '#3a2329'; ctx.fillRect(x - 1, y - 1, w + 2, h + 2);
       ctx.fillStyle = waiting ? '#f2b45a' : '#7cc87c'; ctx.fillRect(x, y, w, h);
       drawText(ctx, text, x + 2, y + 1, '#2a1f24');
+    }
+  }
+
+  /** The booking kiosk's screen breathes, so it reads as something to press rather than decor. */
+  private drawKiosks(ctx: CanvasRenderingContext2D, ms: number) {
+    const glow = 0.1 + 0.16 * (Math.sin(ms / 600) + 1) / 2;
+    for (const o of this.kiosks) {
+      const x = o.x * TS + (o.w * TS - 16) / 2, y = (o.y + o.h) * TS - 28; // the sprite's own box (16×28, bottom-aligned)
+      ctx.fillStyle = `rgba(170,255,210,${glow})`; ctx.fillRect(x + 3, y + 4, 10, 9);
     }
   }
 
