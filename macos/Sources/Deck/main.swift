@@ -2,6 +2,7 @@
 // The same web view moves between a popover under the menu bar icon, a normal window and an optional
 // borderless window pinned to the desktop, so there's only ever one page / one WebSocket.
 import AppKit
+import Network
 import WebKit
 
 /// "The Deck" for prod, "The Deck (iva)" for a test instance's app (see macos/build.sh).
@@ -38,6 +39,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
   var windowRoot = NSView() // the window's content: the web view, with the menu bar note on top
   var note: NSView?
   var ringing: Timer?
+  // Offline.swift: page load state, retries, network watch
+  var pageOK = false                // the main page finished loading
+  var loadError: String?            // why the last load failed; the offline card is up while set
+  var attempt = 0                   // failed loads in a row, for the backoff
+  var retryAt: Date?
+  var retryTimer, loadTimeout, networkDebounce, socketTimer: Timer?
+  var socketDownSince: Date?
+  var lastCrash: Date?
+  var offlineView: OfflineView?
+  var pathMonitor: NWPathMonitor?
 
   var url: String {
     get { defaults.string(forKey: "url") ?? instances[0].url }
@@ -103,6 +114,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
 
     load()
     placeWeb()
+    startWatchingNetwork()
     // A menu bar app has no Dock icon, so opening it from Applications looked like nothing happened.
     // Opening it (not a relaunch after a self-update) shows the window plus a note on where it lives.
     if !CommandLine.arguments.contains("--updated") { openedByUser() }
@@ -283,7 +295,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
     func item(_ title: String, _ sel: Selector, on: Bool = false, key: String = "") -> NSMenuItem {
       let i = NSMenuItem(title: title, action: sel, keyEquivalent: key); i.target = self; i.state = on ? .on : .off; return i
     }
-    m.addItem(withTitle: state.connected ? (state.inCall ? "In a call" + voiceNote : "Connected") : "Not connected", action: nil, keyEquivalent: "")
+    if offline {
+      m.addItem(withTitle: "Can't reach \(host)", action: nil, keyEquivalent: "")
+      m.addItem(item("Retry now", #selector(retryLoad)))
+    } else {
+      m.addItem(withTitle: state.connected ? (state.inCall ? "In a call" + voiceNote : "Connected") : "Reconnecting…", action: nil, keyEquivalent: "")
+    }
     if let u = updater.available {
       m.addItem(updater.busy ? NSMenuItem(title: "Updating…", action: nil, keyEquivalent: "") : item("Update to \(u.version) (restarts the app)", #selector(updateClicked)))
     }
@@ -328,7 +345,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
     NSApp.activate()
     if a.runModal() == .alertFirstButtonReturn, URL(string: f.stringValue)?.scheme?.hasPrefix("http") == true { url = f.stringValue; load() }
   }
-  @objc func reloadClicked() { web.reload() }
+  @objc func reloadClicked() { if pageOK { web.reload() } else { retryLoad() } } // nothing to reload after a failed first load
   @objc func openInBrowser() { if let u = URL(string: url) { NSWorkspace.shared.open(u) } }
   @objc func quit() { NSApp.terminate(nil) }
 
@@ -345,10 +362,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
     status.button?.image = Person.image(color: color, mic: micGlyph, speaker: speakerGlyph, dot: dot)
     let total = state.unread.reduce(0) { $0 + $1.count }
     NSApp.dockTile.badgeLabel = total > 0 ? "\(total)" : nil // visible while the window is open (in the Dock); never bounces
-    status.button?.appearsDisabled = !state.connected
+    status.button?.appearsDisabled = offline
     status.button?.toolTip = state.knocks.first?.text
       ?? (state.unread.isEmpty ? nil : "Unread messages from " + state.unread.map(\.name).joined(separator: ", "))
-      ?? (state.inCall ? "In a call" + voiceNote : appName)
+      ?? (offline ? "Can't reach \(host)" : state.inCall ? "In a call" + voiceNote : appName)
   }
 
   /// The person knocks a few times on the icon, so a knock is noticeable even in quiet mode.
@@ -363,7 +380,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
     }
   }
 
-  @objc func updateClicked() { updater.start(in: web) }
+  @objc func updateClicked() {
+    guard !offline else { // the download would fail halfway; say why instead
+      let a = NSAlert(); a.messageText = "Can't update while offline"; a.informativeText = "Connect to \(host) (check NetBird), then try again."
+      NSApp.activate(); a.runModal(); return
+    }
+    updater.start(in: web)
+  }
 
   func openChat(_ id: String) {
     if window.isVisible { showWindow() } else { showPopover() }
@@ -394,6 +417,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
                         (k["id"] as? String).map { ($0, k["text"] as? String ?? "Someone is knocking") } },
                       unread: (m["unread"] as? [[String: Any]] ?? []).compactMap { u in
                         (u["id"] as? String).map { ($0, u["name"] as? String ?? "Someone", u["count"] as? Int ?? 1) } })
+    trackSocket(connected: state.connected)
     renderIcon()
     updateCard(old)
     updateIfIdle()
@@ -401,7 +425,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
 
   /// Updates install themselves when you won't notice the restart: not in a call, no popover or window open.
   func updateIfIdle() {
-    guard updater.available != nil, state.connected, !state.inCall, state.knocks.isEmpty,
+    guard updater.available != nil, pageOK, state.connected, !state.inCall, state.knocks.isEmpty,
           !popover.isShown, !window.isVisible else { return }
     updater.startAutomatically(in: web)
   }
