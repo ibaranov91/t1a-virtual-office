@@ -3,10 +3,10 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { World, type User } from './world';
 import { DeckStore, Presenter } from './presentation';
-import { findPath, doorwayTiles, pathDuration, reindexMap, roomAt, sampleMove, seatAt, voiceRooms, WALK_MS_PER_TILE, type TileMap, type Tile } from '../../shared/map';
+import { findPath, isWalkable, doorwayTiles, pathDuration, reindexMap, roomAt, sampleMove, seatAt, voiceRooms, WALK_MS_PER_TILE, type TileMap, type Tile } from '../../shared/map';
 import { TRACK, TRACKS } from '../../shared/music';
 import { ADMIN_HAT, EFFECTS, hatItem, SPEED_FACTOR, walkMs } from '../../shared/effects';
-import { PLANT_DIES_DAYS, PLANT_STAGES, plantDead, ROOM_VOICE_MAX, type ClientMsg, type ServerMsg } from '../../shared/protocol';
+import { FRAME_MAX_BYTES, FRAME_MIN_INTERVAL_MS, PLANT_DIES_DAYS, PLANT_STAGES, plantDead, ROOM_VOICE_MAX, type ClientMsg, type ServerMsg } from '../../shared/protocol';
 const map: TileMap = JSON.parse(readFileSync(new URL('../../shared/tilemap.json', import.meta.url), 'utf8'));
 const coffee = map.rooms.find(r => r.id === 'coffee')!;
 const memberTile = (m: TileMap, t: Tile, r = coffee) => roomAt(m, t.x, t.y)?.id === r.id || doorwayTiles(m, r).some(g => g.some(p => p.x === t.x && p.y === t.y));
@@ -1229,6 +1229,74 @@ test('presenting needs standing at the board, walking over opens the panel, and 
   w.present.tick(); assert.ok(w.present.live, 'still at the board');
   const away = w.walk(a.u, { x: 20, y: 9 }); assert.notEqual(away, null, 'walk started');
   w.present.tick(); assert.equal(w.present.live, null, 'walking away ends it');
+});
+
+function presenting(t: TestContext) {
+  const ctx = people(t), { w } = ctx, board = w.map.objects.find(o => o.use?.kind === 'presentation')!;
+  w.present = new Presenter(new DeckStore('/nonexistent-decks'), w.map, { scopeOf: id => w.presentScopeOf(id), beside: (id, obj, settled) => w.isBeside(id, obj, settled), toScope: (s, m, x) => w.toScope(s, m, x), name: id => w.users.get(id)?.name ?? '?' });
+  const beside = (u: User) => { const r = w.map.rooms.find(r => r.id === 'meeting')!.rect; for (let y = r.y; y < r.y + r.h; y++) for (let x = r.x; x < r.x + r.w; x++) { u.tile = { x, y }; if (isWalkable(w.map, x, y) && w.isBeside(u.id, board.id)) return; } throw new Error('no spot beside the board'); };
+  const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3]).toString('base64');
+  const key = 'evt-p'; w.meetings.poll = async () => {};
+  w.meetings.events.set(key, { key, title: 'Sync', start: Date.now() - 60_000, end: Date.now() + 30 * 60_000, emails: ['a@t1a.com', 'b@t1a.com'], instance: 'inst-p', owners: new Set() });
+  return { ...ctx, board, beside, jpeg, key };
+}
+const frames = (p: { messages: ServerMsg[] }) => p.messages.filter(m => m.t === 'frame');
+const lives = (p: { messages: ServerMsg[] }) => p.messages.filter((m): m is Extract<ServerMsg, { t: 'presentation' }> => m.t === 'presentation');
+
+test('screen share relays frames to the scope, minus the presenter, with rate, size and type limits', t => {
+  const { w, person, tick, board, beside, jpeg } = presenting(t);
+  const a = person('A'), b = person('B'), c = person('C');
+  beside(a.u); a.u.tile = { ...a.u.tile };
+  w.handle(a.u, { t: 'present_share', objectId: board.id }, a.socket);
+  assert.equal(w.present!.live?.deck, null); assert.equal(w.present!.live?.seq, 0);
+  assert.ok(lives(b).at(-1)?.live?.presenter === a.u.id);
+  beside(c.u); w.handle(c.u, { t: 'present_share', objectId: board.id }, c.socket);
+  assert.match((c.messages.filter(m => m.t === 'notice').at(-1) as any).text, /A is presenting/);
+  assert.equal(w.present!.live?.presenter, a.u.id);
+  const send = (seq: number, data = jpeg) => w.handle(a.u, { t: 'present_frame', seq, data }, a.socket);
+  send(1); assert.equal(frames(b).length, 1); assert.equal(frames(a).length, 0);
+  assert.deepEqual(frames(b)[0], { t: 'frame', scope: 'office', seq: 1, data: jpeg });
+  send(2); assert.equal(frames(b).length, 1, 'too fast');
+  tick(FRAME_MIN_INTERVAL_MS + 1);
+  send(2, Buffer.from('not a jpeg').toString('base64')); assert.equal(frames(b).length, 1, 'not a JPEG');
+  send(2, Buffer.concat([Buffer.from([0xff, 0xd8, 0xff]), Buffer.alloc(FRAME_MAX_BYTES)]).toString('base64')); assert.equal(frames(b).length, 1, 'too big');
+  send(1); assert.equal(frames(b).length, 1, 'old seq');
+  send(2); assert.equal(frames(b).length, 2); assert.equal(w.present!.live?.seq, 2);
+  w.handle(b.u, { t: 'present_frame', seq: 9, data: jpeg }, b.socket); assert.equal(w.present!.live?.seq, 2, 'only the presenter');
+  const d = person('D'); assert.deepEqual(frames(d).at(-1), frames(b).at(-1), 'late joiner gets the last frame');
+});
+
+test('office and instance scopes are independent; entering one sends what is on; leaving as presenter stops it', t => {
+  const { w, person, board, beside, jpeg, key } = presenting(t);
+  const a = person('A', 'a@t1a.com'), b = person('B', 'b@t1a.com'), c = person('C');
+  w.enterMeeting(b.u, key); assert.equal(b.u.instance, 'inst-p');
+  beside(a.u); w.handle(a.u, { t: 'present_share', objectId: board.id }, a.socket);
+  w.handle(a.u, { t: 'present_frame', seq: 1, data: jpeg }, a.socket);
+  assert.equal(lives(b).at(-1)?.live, null, 'the office show is not seen in the meeting'); assert.equal(frames(b).length, 0);
+  beside(b.u); w.handle(b.u, { t: 'present_share', objectId: board.id }, b.socket); // its own scope: no clash
+  assert.equal(w.present!.lives.get('inst-p')?.presenter, b.u.id); assert.equal(w.present!.live?.presenter, a.u.id);
+  w.handle(b.u, { t: 'present_frame', seq: 1, data: jpeg }, b.socket);
+  assert.equal(frames(a).length, 0); assert.equal(frames(c).length, 1, 'office frame only');
+  assert.ok(b.u.instance && w.isBeside(b.u.id, board.id), 'beside works inside a meeting');
+  a.u.instance = null; w.enterMeeting(a.u, key); // A joins the meeting: sees B's show and frame; their own office show stops
+  assert.equal(w.present!.live, null); assert.equal(lives(a).at(-1)?.live?.presenter, b.u.id); assert.equal(frames(a).length, 1);
+  assert.equal(lives(c).at(-1)?.live, null);
+  w.leaveMeeting(b.u); assert.equal(w.present!.lives.has('inst-p'), false, 'presenter left: stopped');
+  assert.equal(lives(a).at(-1)?.live, null);
+  w.leaveMeeting(a.u); assert.equal(w.present!.lives.size, 0);
+});
+
+test('a meeting ending takes its screen down, and a swept deck stops its show', async t => {
+  const { w, person, board, beside, key } = presenting(t);
+  const a = person('A', 'a@t1a.com');
+  w.enterMeeting(a.u, key); beside(a.u); w.handle(a.u, { t: 'present_share', objectId: board.id }, a.socket);
+  assert.ok(w.present!.lives.has('inst-p'));
+  w.endMeetings(Date.now() + 3600_000);
+  assert.equal(w.present!.lives.size, 0); assert.equal(a.u.instance, null);
+  const deck = { id: '0000cccc-0000-0000-0000-000000000000', title: 'T', count: 1, ext: ['png'], by: a.u.id, at: 0, bytes: 1, key: 'k' };
+  w.present!.store.decks.set(deck.id, deck); beside(a.u);
+  w.present!.present(a.u.id, { deck: deck.id, objectId: board.id }); assert.ok(w.present!.live);
+  await w.present!.sweep(Date.now() + 1e12); assert.equal(w.present!.live, null);
 });
 
 test('dancing works only on the Berghain floor and ends when you leave', t => {

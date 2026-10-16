@@ -1,12 +1,8 @@
 // Presentation mode: what's on the Meeting room's wall screen, per scope (the office floor, or one meeting instance).
 // One presenter per scope; a show is a deck from their library (decks.ts) or their screen as JPEG frames.
 // Who's presenting what is in memory only.
-//
-// TODO (live-state session): screen share (`share`, `frame`: rate limit, size check, relay to the scope minus the presenter),
-// `tick`/`gone`/`back` per scope, ending a scope's show when its instance ends, re-sending `presentation` when someone
-// changes scope (World.enterMeeting / leaveMeeting / connect), letting `use`/`isBeside` work for the screen inside an instance.
 import { roomAt, type TileMap } from '../../shared/map';
-import { OFFICE_SCOPE, PRESENT_AWAY_MS, type DeckInfo, type LiveDeck, type ServerMsg } from '../../shared/protocol';
+import { FRAME_MAX_BYTES, FRAME_MIN_INTERVAL_MS, OFFICE_SCOPE, PRESENT_AWAY_MS, type DeckInfo, type LiveDeck, type ServerMsg } from '../../shared/protocol';
 import { DeckStore, PresentError } from './decks';
 
 export { DeckStore, DECK_ID_RE, PresentError } from './decks';
@@ -26,6 +22,7 @@ export class Presenter {
   /** scope → what's on that scope's screen */
   lives = new Map<string, LiveDeck>();
   private awayTimers = new Map<string, NodeJS.Timeout>();
+  private frames = new Map<string, { msg: Extract<ServerMsg, { t: 'frame' }>; at: number }>(); // scope → last accepted frame
 
   constructor(public store: DeckStore, private map: TileMap, private io: PresentIO) {}
 
@@ -68,6 +65,41 @@ export class Presenter {
     this.start(userId, deck, at);
     return deck;
   }
+  /** Start sharing my screen on the board. */
+  share(userId: string, objectId: unknown) {
+    const at = this.claim(userId, objectId);
+    const l = this.lives.get(at.scope);
+    if (l && !l.deck) return; // already sharing: keep the stream
+    this.start(userId, null, at);
+  }
+  /** One frame of the share: relayed to the scope's members (not the presenter), too-fast, oversized or non-JPEG ones dropped. */
+  frame(userId: string, seq: unknown, data: unknown, now = Date.now()) {
+    const l = this.mine(userId);
+    if (!l || l.deck || typeof seq !== 'number' || !Number.isSafeInteger(seq) || seq <= l.seq! || typeof data !== 'string') return;
+    const prev = this.frames.get(l.scope);
+    if (prev && now - prev.at < FRAME_MIN_INTERVAL_MS) return;
+    if (data.length > Math.ceil(FRAME_MAX_BYTES / 3) * 4 + 4) return;
+    const bytes = Buffer.from(data, 'base64');
+    if (bytes.length > FRAME_MAX_BYTES || bytes.length < 3 || bytes[0] !== 0xff || bytes[1] !== 0xd8 || bytes[2] !== 0xff) return;
+    l.seq = seq;
+    const msg = { t: 'frame' as const, scope: l.scope, seq, data };
+    this.frames.set(l.scope, { msg, at: now });
+    this.io.toScope(l.scope, msg, userId);
+  }
+  /** The stored frame of the show `userId` can see (a screen share), for someone who just arrived. */
+  frameFor(userId: string) { const s = this.io.scopeOf(userId); return s && this.lives.get(s)?.deck === null ? this.frames.get(s)?.msg ?? null : null; }
+  /** Hourly: stale decks go, and so does any show of one. */
+  async sweep(now = Date.now()) {
+    for (const d of await this.store.sweep(now)) for (const l of [...this.lives.values()]) if (l.deck?.id === d.id) this.stop(l.presenter);
+  }
+  /** The presenter changed scope (left the meeting, fell underground…): their show doesn't follow them. */
+  moved(userId: string) { const l = this.mine(userId); if (l && l.scope !== this.io.scopeOf(userId)) this.stop(userId); }
+  /** A meeting instance is over. */
+  endScope(scope: string) {
+    const l = this.lives.get(scope); if (l) this.stop(l.presenter);
+    this.clearAway(scope); this.frames.delete(scope);
+  }
+
   /** Delete one of my decks (and take it down if it's up). */
   async remove(userId: string, id: unknown) {
     const deck = await this.store.delete(userId, id);
@@ -75,8 +107,8 @@ export class Presenter {
   }
 
   private start(presenter: string, deck: DeckInfo | null, at: { objectId: string; room: string; scope: string }) {
-    this.clearAway(at.scope);
-    this.lives.set(at.scope, { scope: at.scope, presenter, objectId: at.objectId, room: at.room, deck, slide: 0 });
+    this.clearAway(at.scope); this.frames.delete(at.scope);
+    this.lives.set(at.scope, { scope: at.scope, presenter, objectId: at.objectId, room: at.room, deck, slide: 0, ...(deck ? {} : { seq: 0 }) });
     this.announce(at.scope);
   }
   private announce(scope: string) { this.io.toScope(scope, { t: 'presentation', live: this.lives.get(scope) ?? null }); }
@@ -94,7 +126,7 @@ export class Presenter {
   }
   stop(userId: string) {
     const l = this.mine(userId); if (!l) return;
-    this.clearAway(l.scope); this.lives.delete(l.scope); this.announce(l.scope);
+    this.clearAway(l.scope); this.frames.delete(l.scope); this.lives.delete(l.scope); this.announce(l.scope);
   }
   /** The presenter's last tab closed: keep the show up a minute in case they're back. */
   gone(userId: string) {

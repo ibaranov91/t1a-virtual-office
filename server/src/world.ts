@@ -18,7 +18,7 @@ import { Library } from './library';
 import { migrateBookClub, migrateLibrary, readingSeats } from '../../shared/library';
 import { Meetings } from './meetings';
 import { BAT_COOLDOWN_MS, Creatures } from './creatures';
-import type { Presenter } from './presentation';
+import { PresentError, type Presenter } from './presentation';
 import { Toilets } from './toilets';
 import { authUrl, CALENDAR_SCOPE, createSpace, forgetAccess, googleEnabled, listEvents, revoke, type GoogleLink } from './google';
 
@@ -124,6 +124,12 @@ export class World {
     if (!u || u.presence === 'offline' || underground(u)) return null;
     return presentScope(u.instance);
   }
+  /** What's on the screen in `u`'s scope now (and the last frame of a screen share): on connect and whenever they change scope. */
+  private syncPresentation(u: User, send: (m: ServerMsg) => void = m => this.sendTo(u.id, m)) {
+    if (!this.present) return send({ t: 'presentation', live: null });
+    send({ t: 'presentation', live: this.present.liveFor(u.id) });
+    const frame = this.present.frameFor(u.id); if (frame) send(frame);
+  }
   /** Everyone in a presentation scope (office floor or one meeting instance), except one person. */
   toScope(scope: string, msg: ServerMsg, except?: string) {
     for (const u of this.users.values()) {
@@ -222,7 +228,7 @@ export class World {
     for (const person of this.users.values()) send({ t: 'game_status', userId: person.id, game: person.game });
     if (!u.bot) this.meetings.sendAgenda(u, true);
     send({ t: 'voice_wait', roomId: this.waiting.get(userId) ?? null });
-    send({ t: 'presentation', live: this.present?.liveFor(u.id) ?? null });
+    this.syncPresentation(u, send);
     this.present?.back(u.id);
     const call = u.callId ? this.calls.get(u.callId) : undefined; // a reloaded page gets its call's Meet link back
     if (call) send({ t: 'call', userId: u.id, callId: call.id, link: call.link });
@@ -344,7 +350,7 @@ export class World {
   /** Standing beside the object (or heading to a tile beside it, with `settled` false). */
   isBeside(userId: string, objectId: string, settled = true) {
     const u = this.users.get(userId), o = this.map.objects.find(o => o.id === objectId);
-    if (!u || !o || u.instance || u.presence === 'offline') return false;
+    if (!u || !o || (u.instance && (underground(u) || o.use?.kind !== 'presentation')) || u.presence === 'offline') return false; // a meeting has its own copy of the board
     const p = this.position(u), t = settled ? p.next : p.dest;
     if (settled && (p.next.x !== p.dest.x || p.next.y !== p.dest.y)) return false;
     return Math.max(o.x - t.x, t.x - (o.x + o.w - 1), 0) <= 1 && Math.max(o.y - t.y, t.y - (o.y + o.h - 1), 0) <= 1;
@@ -560,12 +566,12 @@ export class World {
   use(u: User, objectId: string, itemId?: string) {
     this.cancelSeatWalk(u.id);
     const o = this.map.objects.find(o => o.id === objectId);
-    if (!o || !routes(o.use, 'use') || goingOut(u) || u.instance || u.presence === 'offline' || ((o.use.kind === 'arcade' || o.use.kind === 'presentation') && u.bot)) return;
+    if (!o || !routes(o.use, 'use') || goingOut(u) || (u.instance && (underground(u) || o.use.kind !== 'presentation')) || u.presence === 'offline' || ((o.use.kind === 'arcade' || o.use.kind === 'presentation') && u.bot)) return;
     const item = o.use.kind === 'take' ? o.use.items.find(i => i.id === itemId) ?? o.use.items[0] : null;
     if (o.use.kind === 'toilet') return this.useToilet(u, o);
     this.setFollowing(u, null);
     clearTimeout(this.errands.get(u.id));
-    const here = this.position(u).next, occ = this.occupied();
+    const here = this.position(u).next, occ = this.occupied(u.instance);
     let best: { spot: Spot; len: number } | null = null;
     for (const s of besideObject(this.map, o)) {
       const mine = s.x === here.x && s.y === here.y;
@@ -593,7 +599,7 @@ export class World {
     this.errands.set(u.id, setTimeout(() => {
       this.errands.delete(u.id);
       const d = this.position(u).dest;
-      if (d.x !== spot.x || d.y !== spot.y || u.presence === 'offline' || goingOut(u) || u.instance) return; // wandered off on the way
+      if (d.x !== spot.x || d.y !== spot.y || u.presence === 'offline' || goingOut(u) || (u.instance && o.use!.kind !== 'presentation')) return; // wandered off on the way
       const current = this.map.objects.find(it => it.id === objectId);
       if (!current?.use || current.use.kind !== o.use!.kind) return;
       if (current.use.kind === 'arcade') { if (!u.bot && this.sockets.get(u.id)?.size) this.arcade.join(u, current.id); return; }
@@ -1278,6 +1284,7 @@ export class World {
     u.tile = { ...tile }; u.move = null; u.path = null; u.prev = undefined;
     u.dir = seatAt(this.map, tile.x, tile.y)?.dir ?? 'down';
     this.broadcast({ t: 'instance', userId: u.id, instance: u.instance, tile: u.tile, dir: u.dir });
+    this.present?.moved(u.id); this.syncPresentation(u); // a new scope has its own screen
   }
   /** One click from the heads-up: into the meeting's room, at a free chair. */
   enterMeeting(u: User, key: string) {
@@ -1321,7 +1328,7 @@ export class World {
     this.place(u, back);
     if (inst) {
       inst.members.delete(u.id);
-      if (!inst.members.size) this.instances.delete(inst.id);
+      if (!inst.members.size) { this.instances.delete(inst.id); this.present?.endScope(inst.id); }
     }
     if (announce) this.broadcast({ t: 'meetings', rooms: this.meetingRooms() });
   }
@@ -1335,7 +1342,7 @@ export class World {
         this.leaveMeeting(u, false);
         this.sendTo(id, { t: 'notice', text: 'Meeting\'s over: back to the office' });
       }
-      this.instances.delete(inst.id); changed = true;
+      this.instances.delete(inst.id); this.present?.endScope(inst.id); changed = true;
     }
     if (changed) this.broadcast({ t: 'meetings', rooms: this.meetingRooms() });
   }
@@ -1841,6 +1848,8 @@ export class World {
       case 'cup_take': this.takeCup(u, String(msg.cupId)); break;
       case 'give': { const to = this.users.get(String(msg.targetId)); if (to) this.give(u, to); break; }
       case 'present_slide': this.present?.slide(u.id, msg.slide); break;
+      case 'present_share': if (!u.bot) try { this.present?.share(u.id, msg.objectId); } catch (e) { if (e instanceof PresentError) this.sendTo(u.id, { t: 'notice', text: e.message }); else throw e; } break;
+      case 'present_frame': this.present?.frame(u.id, msg.seq, msg.data); break;
       case 'present_stop': this.present?.stop(u.id); break;
     }
   }
