@@ -1,7 +1,7 @@
 import { AFK_MS, type RtcSignal } from '../../shared/protocol';
 import { diag, peerStats, trackInfo } from './voiceDiag';
 import { DIRECT_VOICE, audio, forgetMedia, playMedia, setAudioDeafened } from './audio';
-import { voicePolicy, HINT_SPEECH_MS, HINT_COOLDOWN_MS } from './voicePolicy';
+import { voicePolicy, knockCallStart, shouldReleaseMic, RESUME_MS, HINT_SPEECH_MS, HINT_COOLDOWN_MS, type CallMemory } from './voicePolicy';
 import { playMuteBlip, playDeafenBlip, playKnock } from './sounds';
 import { prefs, savePrefs, subscribePrefs } from './prefs';
 import type { ClientUser, Store } from './net';
@@ -19,6 +19,7 @@ const around = (u: ClientUser) => !u.bot && u.presence !== 'offline' && u.door !
 
 export class Voice {
   muted = true;
+  private mutedSince: number | null = Date.now();
   deafened = prefs.deafened;
   mode = prefs.mode;
   spaceHeld = false;
@@ -93,6 +94,7 @@ export class Voice {
     window.addEventListener('keyup', this.keyUp);
     window.addEventListener('blur', this.blur);
     window.addEventListener('focus', this.focus);
+    window.addEventListener('pagehide', this.pagehide);
     document.addEventListener('visibilitychange', this.visibility);
     this.poseTimer = window.setInterval(() => this.checkInside(), 100);
     this.afk = window.setInterval(() => this.checkPolicy(), 1000);
@@ -128,22 +130,40 @@ export class Voice {
     const callId = me?.callId ?? null;
     const newOwner = owner && !this.owner, newCall = callId !== this.callId;
     if (newCall || newOwner || (this.owner && !owner)) diag.event('call', { oldCallId: this.callId, newCallId: callId, owner, oldOwner: this.owner });
-    if (this.idleLeft && this.store.activeAt > this.idleLeftAt) this.idleLeft = false;
+    if (newCall) this.idleLeft = false; // idle muting belongs to the call it happened in; a new call has its own consent rules
     if (this.idlePromptAt !== null && Math.max(this.store.activeAt, this.lastOwnSpeech, this.store.heardAt) > this.idlePromptAt) this.clearPrompt();
     const wasOwner = this.owner;
-    if (this.owner && this.callId && (newCall || !owner)) this.rememberCall();
+    if (this.owner && this.callId && (newCall || !owner)) {
+      if (newCall && owner && this.privateCall) this.forgetCall(this.callId);
+      else if (!owner) this.rememberCall();
+    }
     if (!owner || newCall) this.stopVoice();
     this.owner = owner; this.callId = callId;
     if (newOwner) this.inst = rid();
     if (owner && (newOwner || newCall)) {
-      this.muted = !this.privateCall; this.deafened = prefs.deafened; this.mode = prefs.mode;
+      const now = Date.now();
+      this.deafened = prefs.deafened; this.mode = prefs.mode;
       const memory = this.privateCall ? this.readCalls()[callId!] : undefined;
-      this.onMeet = !!memory?.meet; this.meetMuted = memory?.muted ?? false;
-      this.muted = memory ? memory.meet || memory.muted : !this.privateCall;
-      this.store.activeAt = this.unmutedAt = this.aloneSince = Date.now();
+      const start = this.privateCall ? knockCallStart({ now, consentAt: this.store.knockConsent?.at, memory }) : null;
+      const resumed = !!memory && now >= memory.at && now - memory.at <= RESUME_MS;
+      if (start?.consumed) this.store.knockConsent = null;
+      this.onMeet = start?.meet ?? false;
+      this.meetMuted = resumed && !start?.consumed ? memory!.muted : false;
+      this.muted = this.idleLeft || (start?.muted ?? true);
+      if (!this.muted) this.mutedSince = null;
+      else this.mutedSince ??= now;
+      if (start) {
+        diag.event('policy', { action: 'consent', live: !this.muted, why: this.idleLeft ? 'idle' : start.consumed ? 'knock/accept' : resumed ? 'resume' : 'no-consent' });
+        if (start.consumed && !this.muted) this.rememberCall();
+      }
+      this.store.activeAt = this.unmutedAt = this.aloneSince = now;
       this.lastOwnSpeech = 0; this.company = ''; this.clearPrompt();
       if (callId) {
         this.store.send({ t: 'mute', muted: this.muted }); this.store.setDeafen(this.deafened);
+      }
+      if (start && !start.consumed && !resumed) {
+        this.store.toast({ kind: 'info', text: `In a call with ${this.store.names(this.store.callPeers(me!)) || 'others'} · you're muted`, expires: 6000,
+          actions: [{ label: 'Unmute', run: () => { if (this.owner && this.callId === callId) this.setMuted(false); } }] });
       }
     }
     if (newCall && !owner) this.onMeet = false;
@@ -171,7 +191,7 @@ export class Voice {
   }
   private sendRule() {
     const track = this.owner && this.callId ? this.local?.getAudioTracks()[0] ?? null : null;
-    const enabled = this.insideRect && this.owner && !!this.callId && !!this.local && !this.muted && !this.deafened && !this.onMeet && (this.mode === 'voice' || this.spaceHeld);
+    const enabled = this.insideRect && this.owner && !!this.callId && !!this.local && !this.muted && !this.idleLeft && !this.deafened && !this.onMeet && (this.mode === 'voice' || this.spaceHeld);
     if (enabled !== this.diagEnabled) { this.diagEnabled = enabled; diag.event('sendRule', { enabled, muted: this.muted, deafened: this.deafened, mode: this.mode, onMeet: this.onMeet, inside: this.insideRect }); }
     for (const t of this.local?.getAudioTracks() ?? []) t.enabled = enabled;
     if (enabled || !this.muted || this.deafened || this.onMeet || this.mode !== 'voice') this.hintSince = 0;
@@ -205,7 +225,7 @@ export class Voice {
       diag.event('requestMic', { phase: 'ok', ms: Math.round(performance.now() - started), tracks: local.getAudioTracks().map(trackInfo) });
       for (const track of local.getAudioTracks()) for (const type of ['mute', 'unmute', 'ended']) track.addEventListener(type, () => diag.event('localTrack', { event: type, ...trackInfo(track) }));
     }
-    if (token !== this.micRequest || !this.owner || this.callId !== callId || this.dead) {
+    if (token !== this.micRequest || !this.owner || this.callId !== callId || this.dead || this.idleLeft || this.onMeet) {
       for (const t of local?.getTracks() ?? []) t.stop(); return;
     }
     this.local = local; this.micError = error;
@@ -214,16 +234,17 @@ export class Voice {
     else this.store.toast({ kind: 'info', text: error!, expires: 6000 });
     this.store.changed();
   }
-  /** Knock calls (not `room:`) start unmuted. Rooms start muted on every entry: walking in never puts you on air. */
+  /** Only knock calls (not `room:`) may start live, with local consent or recent call memory. */
   private get privateCall() { return !!this.callId && !this.callId.startsWith('room:'); }
   get inRoomCall() { return !this.privateCall && !!this.callId; }
   get transmitting() { return !!this.local?.getAudioTracks()[0]?.enabled; }
-  private readCalls(): Record<string, { muted: boolean; meet: boolean; at: number }> {
+  get micOpen() { return !!this.local?.getAudioTracks().some(t => t.readyState === 'live'); }
+  private readCalls(): Record<string, CallMemory> {
     try {
       const value = JSON.parse(localStorage.getItem('deck.voice.calls') ?? '{}');
       return Object.fromEntries(Object.entries(value ?? {}).filter(([, v]) => !!v && typeof v === 'object' &&
         typeof (v as { muted?: unknown }).muted === 'boolean' && typeof (v as { meet?: unknown }).meet === 'boolean' &&
-        typeof (v as { at?: unknown }).at === 'number')) as Record<string, { muted: boolean; meet: boolean; at: number }>;
+        typeof (v as { at?: unknown }).at === 'number')) as Record<string, CallMemory>;
     } catch { return {}; }
   }
   private rememberCall() {
@@ -234,6 +255,13 @@ export class Voice {
       localStorage.setItem('deck.voice.calls', JSON.stringify(Object.fromEntries(Object.entries(calls).sort((a, b) => b[1].at - a[1].at).slice(0, 20))));
     } catch { /* storage may be unavailable */ }
   }
+  private forgetCall(callId: string) {
+    try {
+      const calls = this.readCalls(); delete calls[callId];
+      localStorage.setItem('deck.voice.calls', JSON.stringify(calls));
+    } catch { /* storage may be unavailable */ }
+  }
+  private pagehide = () => { if (this.owner && this.privateCall) this.rememberCall(); };
   setOnMeet(on = true) {
     if (!this.owner || !this.callId || this.onMeet === on) return;
     if (on) { this.meetMuted = this.muted; this.onMeet = true; this.setMuted(true, 'onMeet'); }
@@ -248,17 +276,21 @@ export class Voice {
     if (!this.store.voiceOwner || !this.store.connected) return;
     diag.event('setMuted', { muted, why });
     if (!muted) {
+      if (this.idleLeft && why !== 'user') return;
+      this.idleLeft = false;
       if (this.store.users.get(this.store.me)?.presence === 'away') this.store.setPresence('online');
       this.unmutedAt = Date.now();
       this.micAttempted = false;
     }
     if (this.muted !== muted) playMuteBlip(muted);
+    this.mutedSince = muted ? this.mutedSince ?? Date.now() : null;
     this.muted = muted; this.rememberCall();
+    if (muted && (why === 'idle' || why === 'onMeet')) this.releaseMic();
     this.store.send({ t: 'mute', muted: this.muted }); this.sendRule(); this.openMic(); this.store.changed();
   }
   /** Open only on unmute, so muted entry and restored On Meet never activate the device. */
   private openMic() {
-    if (this.owner && this.callId && !this.muted && !this.onMeet && !this.local && !this.micAttempted) void this.requestMic(this.callId);
+    if (this.owner && this.callId && !this.muted && !this.idleLeft && !this.onMeet && !this.local && !this.micAttempted) void this.requestMic(this.callId);
   }
   toggleMute() {
     this.setMuted(this.micError ? false : !this.muted);
@@ -288,11 +320,16 @@ export class Voice {
     this.stopMic();
     for (const id of [...this.peers.keys()]) this.closePeer(id);
   }
+  private releaseMic() {
+    diag.event('policy', { action: 'release' });
+    this.stopMic(); this.sendRule();
+  }
   destroy() {
     this.unbindDiag();
     this.dead = true; this.unsub(); this.stopVoice(); clearInterval(this.afk); clearInterval(this.watchdog); clearInterval(this.poseTimer); this.store.onRtc = undefined;
     for (const event of ['pointerdown', 'pointermove', 'keydown', 'wheel'] as const) window.removeEventListener(event, this.activity);
     window.removeEventListener('keydown', this.keyDown); window.removeEventListener('keyup', this.keyUp); window.removeEventListener('blur', this.blur); window.removeEventListener('focus', this.focus); document.removeEventListener('visibilitychange', this.visibility); this.clearPrompt();
+    window.removeEventListener('pagehide', this.pagehide);
   }
 
   private createPeer(id: string): Peer {
@@ -448,8 +485,8 @@ export class Voice {
     if (id !== null) this.store.dismiss(id);
   }
   private activity = () => {
-    const now = Date.now(), urgent = this.idlePromptAt !== null || this.idleLeft || !!this.store.users.get(this.store.me)?.afk || now - this.store.activeAt >= AFK_MS * this.policyScale;
-    this.store.activeAt = now; this.idleLeft = false; this.clearPrompt();
+    const now = Date.now(), urgent = this.idlePromptAt !== null || (this.idleLeft && this.store.activeAt <= this.idleLeftAt) || !!this.store.users.get(this.store.me)?.afk || now - this.store.activeAt >= AFK_MS * this.policyScale;
+    this.store.activeAt = now; this.clearPrompt();
     if (urgent) diag.event('policy', { action: 'active' });
     if (urgent || now - this.lastActiveSent >= 60_000) { this.lastActiveSent = now; this.store.send({ t: 'active' }); }
   };
@@ -477,6 +514,9 @@ export class Voice {
   }
   private get policyScale() { return import.meta.env.DEV && Number.isFinite(this.timeScale) && this.timeScale > 0 ? this.timeScale : 1; }
   private checkPolicy() {
+    if (this.local && this.muted && shouldReleaseMic({ now: Date.now(), mutedSince: this.mutedSince, timeScale: this.policyScale })) {
+      this.releaseMic(); this.store.changed();
+    }
     if (this.owner && !this.callId) return this.checkIdle();
     if (!this.owner || !this.callId || this.idleLeft) return;
     const now = Date.now(), peers = this.eligiblePeers(), company = peers.map(u => u.id).sort().join(',');
@@ -506,6 +546,7 @@ export class Voice {
     if (result.leave) {
       diag.event('policy', { action: 'idleLeave' });
       this.idleLeft = true; this.idleLeftAt = now; this.clearPrompt();
+      this.setMuted(true, 'idle');
       const text = me?.instance ? 'Voice off' : this.inRoomCall ? `Left ${room?.name ?? 'the room'}` : `Left the call with ${this.store.names(peers)}`;
       this.store.send({ t: 'afk' });
       this.store.toast({ kind: 'info', text: `${text}: nothing happened for 10 minutes`, expires: 6000 });

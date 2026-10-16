@@ -78,6 +78,7 @@ export class Store {
   toasts: Toast[] = [];
   connected = false;
   voiceOwner = false;
+  knockConsent: { at: number } | null = null; // local Knock/Accept only, consumed by one private join
   activeAt = Date.now();
   heardAt = 0;
   voiceWait: string | null = null;
@@ -288,7 +289,7 @@ export class Store {
     const tile = tiles.find(t => pathTo(MAP, pose.tile, t).length);
     if (tile) this.moveTo(tile);
   }
-  knock(targetId: string) { this.send({ t: 'knock', targetId }); }
+  knock(targetId: string) { this.knockConsent = { at: Date.now() }; this.send({ t: 'knock', targetId }); }
   cancelKnock(knockId: string) {
     this.send({ t: 'knock_cancel', knockId });
     this.toasts = this.toasts.filter(t => t.knockId !== knockId); this.emit();
@@ -337,6 +338,7 @@ export class Store {
   closeChat() { this.chatWith = null; this.emit(); }
   sendChat(toId: string, text: string) { if (text.trim()) this.send({ t: 'chat', toId, text }); }
   replyKnock(knockId: string, reply: 'accept' | 'later') {
+    if (reply === 'accept') this.knockConsent = { at: Date.now() };
     this.send({ t: 'knock_reply', knockId, reply });
     this.dismiss(this.toasts.find(t => t.knockId === knockId)?.id ?? -1);
   }
