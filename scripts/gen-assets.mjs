@@ -628,6 +628,18 @@ for (const [i, hs] of [[0, [1, 2, 1, 2]], [1, [2, 5, 3, 4]], [2, [4, 3, 5, 2]]])
     if (i) t.px(2, 3, '#e8b860'); // a little spark when speaking
   });
 }
+// direct talk across rooms (a phone call): same bubble, a mobile phone whose screen shows the bars; _0 quiet, _1/_2 alternate while speaking
+const phone = (draw) => bubble((t) => {
+  t.rect(4, 2, 7, 8, '#4a4a5a'); t.rect(5, 3, 5, 5, '#cfe6ee'); t.px(7, 9, '#8a8a9a'); // body, screen, home dot
+  draw(t);
+});
+for (const [i, hs] of [[0, [1, 1, 1]], [1, [2, 5, 3]], [2, [4, 2, 5]]]) {
+  frames[`bubble_phone_${i}`] = phone((t) => {
+    const c = i === 0 ? '#5f9a92' : '#2f8f84';
+    hs.forEach((h, k) => t.rect(5 + k * 2, 8 - h, 1, h, c));
+  });
+}
+frames.bubble_phone_muted = phone((t) => { for (let i = 0; i < 8; i++) t.px(3 + i, 2 + i, '#d8463c'); });
 {
   const t = new Img(10, 8); // destination marker
   t.hline(1, 1, 8, '#f8d850'); t.hline(2, 2, 6, '#f8d850'); t.hline(3, 3, 4, '#f8d850'); t.hline(4, 4, 2, '#f8d850');
