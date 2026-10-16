@@ -4,7 +4,7 @@
 import { writeFileSync } from 'node:fs';
 import { applyLayout, besideObject, findPath, isWalkable, layoutProblem, roomAt } from '../shared/map.ts';
 
-const W = 75, OFFICE_H = 34; // x 65-73: the Admin room over Berghain, added beside the Music room and the Arcade
+const W = 85, OFFICE_H = 34; // x 75-83: the Book Club, east of the Library (solid wall above it); x 65-73: the Admin room over Berghain, added beside the Music room and the Arcade
 const dungeonRect = { x: 17, y: OFFICE_H + 2, w: 31, h: 19 };
 const H = dungeonRect.y + dungeonRect.h;
 const SOUTH = 23; // the old outer wall: now the building's back wall, the Orangery and the Garden lie beyond it
@@ -91,6 +91,11 @@ const rooms = [
     floor: 'wood_dark', rug: 'burgundy',
     rules: { knock: 'later', occupantLabel: 'reading', label: 'in the library · knocks wait for later' },
     meeting: { provider: 'meet', url: 'https://meet.google.com/new' } },
+  // the Book Club: through a door in the Library's east wall; armchair talk, so voice is open
+  { id: 'bookclub', name: 'Book Club', type: 'library', rect: { x: 75, y: 25, w: 9, h: 8 }, capacity: 8,
+    floor: 'wood_dark', rug: 'orange',
+    rules: { voice: 'open', knock: 'allow', label: 'book club · open voice · walk in to talk' },
+    meeting: { provider: 'meet', url: 'https://meet.google.com/new' } },
 ];
 
 // ---- base floor everywhere inside the outer walls ----
@@ -141,6 +146,10 @@ for (let y = SOUTH; y < OFFICE_H; y++) { if (y === 31 || y === 32) continue; set
 // the garden's edge is a hedge, not a wall; the Library east of it is walled in
 for (let x = 16; x < LIB_X; x++) setWall(x, OFFICE_H - 1, 'hedge');
 for (let y = SOUTH + 2; y < OFFICE_H; y++) if (!LIB_DOOR.includes(y)) setWall(LIB_X, y, CAP);
+// the Book Club column (x 74 on): solid above the building's back wall, a door from the Library at rows 29-30
+const CLUB_X = 74, CLUB_DOOR = [29, 30];
+for (let y = 0; y <= SOUTH; y++) for (let x = CLUB_X; x < W; x++) setWall(x, y, CAP);
+for (let y = SOUTH + 2; y < OFFICE_H; y++) if (!CLUB_DOOR.includes(y)) setWall(CLUB_X, y, CAP);
 // door thresholds get plain wood
 for (const x of hDoors) for (const y of [11, 12]) floor[y][x] = tid('door_floor');
 for (const vx of [13, 26]) for (const y of [6, 7]) floor[y][vx] = tid('door_floor');
@@ -148,6 +157,7 @@ for (const y of [17, 18]) for (const x of [15, 39, 53, 64]) floor[y][x] = tid('d
 for (const x of sDoors) for (const y of [SOUTH, SOUTH + 1]) floor[y][x] = tid('door_floor');
 for (const y of [31, 32]) floor[y][15] = tid('door_floor');
 for (const y of LIB_DOOR) floor[y][LIB_X] = tid('door_floor');
+for (const y of CLUB_DOOR) floor[y][CLUB_X] = tid('door_floor');
 // garden paths: one along the middle, one from each door down to it, one to the Orangery
 {
   const path = (x, y) => { floor[y][x] = tid(`path_${hash(x, y) % 2}`); };
@@ -494,7 +504,21 @@ for (const type of ['wall_clock', 'dartboard', 'cork_board', 'diploma', 'fire_ex
 for (const type of ['wall_tv', 'pennants', 'wall_plants', 'whiteboard_small']) catalog[type] ??= { type, w: 2, h: 1, wall: true };
 catalog.banner ??= { type: 'banner', w: 1, h: 2, wall: true };
 
-const map ={ version: 1, width: W, height: H, tileSize: 16, office: { x: 0, y: 0, w: W, h: OFFICE_H }, dungeon, tiles, layers: { floor, walls, walkable: [] }, rooms, objects: [], rugs: [], spawn: { x: 7, y: 17 }, exit: EXIT, catalog };
+// the Book Club (last, so every earlier id stays put): shelves on the back wall, a sofa and armchairs round a low table
+const firstClub = objects.length;
+for (const x of [76, 81]) obj('bookshelf_tall', x, 25, 2, 1);
+obj('sofa', 78, 27, 3, 1, { sit: true, dir: 'down' });
+obj('table_round', 79, 29, 1, 1);
+for (const [x, y] of [[78, 29], [80, 29], [79, 30], [78, 30], [80, 30]]) obj('chair', x, y, 1, 1, { walkable: true });
+obj('lamp', 83, 26, 1, 1, LAMP);
+obj('lamp', 75, 32, 1, 1, LAMP);
+obj('plant', 83, 32);
+rug('orange', 77, 28, 5, 4);
+for (const { id: _i, x: _x, y: _y, ...t } of objects.slice(firstClub)) catalog[t.type] ??= t;
+rooms.find(r => r.id === 'bookclub').stand.push({ x: 82, y: 29, dir: 'left' });
+
+
+const map = { version: 1, width: W, height: H, tileSize: 16, office: { x: 0, y: 0, w: W, h: OFFICE_H }, dungeon, tiles, layers: { floor, walls, walkable: [] }, rooms, objects: [], rugs: [], spawn: { x: 7, y: 17 }, exit: EXIT, catalog };
 applyLayout(map, { objects, rugs });
 for (const r of rooms) for (const s of r.stand) if (!r.spots.includes(s)) throw new Error(`standing spot ${r.id} ${s.x},${s.y} is under furniture`);
 if (findPath(map, map.spawn, dungeon.landing).length) throw new Error('dungeon connected to office');
@@ -516,6 +540,11 @@ for (const r of rooms) if (r.id !== 'admin' && r.stand.some(s => !findPath(map, 
   const lib = rooms.find(r => r.id === 'library');
   if (lib.spots.filter(s => objects.some(o => o.type === 'chair' && o.x === s.x && o.y === s.y)).length < 6) throw new Error('the Library seats fewer than six');
   if (lib.stand.some(s => !findPath(map, map.spawn, s, true).length)) throw new Error('the Library is unreachable');
+}
+{
+  const club = rooms.find(r => r.id === 'bookclub');
+  if (club.stand.some(s => !findPath(map, map.spawn, s, true).length)) throw new Error('the Book Club is unreachable');
+  if (club.spots.length < 6) throw new Error('the Book Club seats fewer than six');
 }
 writeFileSync(new URL('../shared/tilemap.json', import.meta.url), JSON.stringify(map));
 console.log(`tilemap: ${W}x${H}, ${tiles.length - 1} tile kinds, ${objects.length} objects, ${rugs.length} rugs, ${rooms.reduce((n, r) => n + r.spots.length, 0)} spots`);

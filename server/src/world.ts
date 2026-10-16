@@ -15,7 +15,7 @@ import { tracksFor } from '../../shared/music';
 import { Arcade } from './arcade';
 import { Jukebox } from './jukebox';
 import { Library } from './library';
-import { migrateLibrary, readingSeats } from '../../shared/library';
+import { migrateBookClub, migrateLibrary, readingSeats } from '../../shared/library';
 import { Meetings } from './meetings';
 import { BAT_COOLDOWN_MS, Creatures } from './creatures';
 import type { Presenter } from './presentation';
@@ -1862,7 +1862,7 @@ export class World {
         if (!covers(r)) return true;
         console.warn(`saved ${r.color} rug dropped: covers the hole or hatch`); return false;
       });
-      const merged = this.withNewFixtures(migrateLibrary(migrateEastWing({ objects, rugs }, this.baseLayout), this.baseLayout, this.map));
+      const merged = this.withNewFixtures(migrateBookClub(migrateLibrary(migrateEastWing({ objects, rugs }, this.baseLayout), this.baseLayout, this.map), this.baseLayout, this.map));
       // ids saved by an older build can clash with this one's (a plant and the safe were both o57): each gets its own,
       // and the next save keeps it
       const layout = uniqueIds(merged, this.baseLayout), was = [...merged.objects, ...merged.rugs].map(o => o.id);
