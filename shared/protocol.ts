@@ -217,6 +217,7 @@ export type ServerMsg =
   // the furniture and rugs: on connect, and to everyone after each admin edit. by: who made it; added: a new thing's id
   | { t: 'layout'; layout: Layout; by?: string; added?: string }
   | { t: 'hello'; you: string; serverTime: number; build?: string } // build: the client bundle the server serves (absent in dev)
+  | { t: 'pong'; id: number; serverTime: number } // the answer to a clock ping, only to the socket that sent it
   | { t: 'state'; users: PublicUser[]; objects: Record<string, ObjectState>; toilets?: Record<string, ToiletState>; jukebox?: Record<string, JukeboxState>; instruments?: Record<string, string | null>; serverTime: number }
   | { t: 'move'; userId: string; from: Tile; to: Tile; startedAt: number; path?: Tile[]; face?: Dir; ms?: number } // ms: per tile, absent = WALK_MS_PER_TILE
   | { t: 'effects'; userId: string; effects: Effect[] }
@@ -272,6 +273,7 @@ export type ClientMsg =
   | { t: 'instrument'; objectId: string; action: 'play' | 'leave' }
   | { t: 'note'; objectId: string; note: number; on: boolean; vel: number; preset: number; at: number }
   | ({ t: 'jukebox'; objectId: string } & JukeboxAction)
+  | { t: 'ping'; id: number } // clock sync (NTP-style): the server answers with its time
   | { t: 'move'; to: Tile }
   | { t: 'status'; status: string }
   | { t: 'tz'; tz: string | null } // share (or hide, with null) my time zone
