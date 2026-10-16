@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { World, type User } from './world';
 import { adminOnly, findPath, layoutProblem, pathDuration, pathTo, roomAt, type TileMap, type Tile } from '../../shared/map';
-import { stallDoor, stallLine } from '../../shared/map';
+import { stallDoor, stallLine, stallVoiceId } from '../../shared/map';
 import { ITEMS_MAX, TOILET_CAPACITY, TOILET_DRAIN_MS, TOILET_FULL, TOILET_USE_MS, type ServerMsg } from '../../shared/protocol';
 const map: TileMap = JSON.parse(readFileSync(new URL('../../shared/tilemap.json', import.meta.url), 'utf8'));
 const admin = map.rooms.find(r => r.id === 'admin')!, club = map.rooms.find(r => r.id === 'berghain')!;
@@ -129,6 +129,41 @@ test('a stall overflows after enough visits, sends its line home, and drains slo
   tick(TOILET_DRAIN_MS);
   assert.equal(w.toilets.state(stall.id).fill, TOILET_FULL - 1);
   assert.ok(kim.messages.some(m => m.t === 'toilet' && m.id === stall.id && m.state.fill === TOILET_FULL - 1), 'everyone hears about it');
+});
+
+test('everyone inside a stall shares its own voice; the line and the next stall don\'t hear it', t => {
+  const { w, add, tick } = setup(t);
+  const [one, two] = toilets, a = add('A', { x: 66, y: 15 }), b = add('B', { x: 67, y: 15 }), c = add('C', { x: 70, y: 16 });
+  const people = ['D', 'E', 'F', 'G'].map((n, i) => add(n, { x: 66 + i, y: 17 }));
+  walkIn(w, a, one.id, tick); tick(300);
+  assert.equal(a.u.callId, stallVoiceId(one.id), 'alone inside: on the stall\'s voice already');
+  walkIn(w, b, one.id, tick); walkIn(w, c, two.id, tick); tick(300);
+  assert.equal(b.u.callId, stallVoiceId(one.id));
+  assert.equal(c.u.callId, stallVoiceId(two.id), 'another stall is another call');
+  assert.ok(b.messages.some(m => m.t === 'call' && m.userId === a.u.id && m.callId === stallVoiceId(one.id)), 'everyone hears who joined');
+  for (const p of people) walkIn(w, p, one.id, tick);
+  tick(300);
+  assert.deepEqual(w.toilets.state(one.id).queue, [people[2].u.id, people[3].u.id], 'four inside, two in line');
+  assert.equal(people[1].u.callId, stallVoiceId(one.id));
+  assert.equal(people[2].u.callId, null, 'waiting in line is outside the door');
+  assert.equal(a.u.presence, 'online', 'a stall is a hall, not a knock call');
+  // walking out leaves the voice; the rest stay on it
+  w.handle(a.u, { t: 'move', to: { x: 66, y: 15 } }, a.socket); tick(300);
+  assert.equal(a.u.callId, null);
+  assert.equal(b.u.callId, stallVoiceId(one.id));
+  tick(TOILET_USE_MS); tick(300);
+  assert.equal(b.u.callId, null, 'time\'s up: out of the stall and off its voice');
+});
+
+test('going into a stall leaves a knock call', t => {
+  const { w, add, tick } = setup(t);
+  const a = add('A', { x: 66, y: 15 }), b = add('B', { x: 67, y: 15 }), c = add('C', { x: 66, y: 18 });
+  w.connectCall(a.u, b.u); w.connectCall(a.u, c.u); tick(300);
+  const knock = a.u.callId!;
+  assert.ok(knock && b.u.callId === knock && c.u.callId === knock);
+  walkIn(w, a, toilets[0].id, tick); tick(300);
+  assert.equal(a.u.callId, stallVoiceId(toilets[0].id));
+  assert.equal(b.u.callId, knock, 'the others keep talking');
 });
 
 test('knocks on someone in a stall go to Later', t => {

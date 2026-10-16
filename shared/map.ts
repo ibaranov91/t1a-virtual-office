@@ -263,6 +263,10 @@ export function besideObject(m: TileMap, o: MapObject): Spot[] {
 
 /** A toilet stall's door: the tile in front of its left half (stalls stand against a wall, door facing the room). */
 export const stallDoor = (o: MapObject): Tile => ({ x: o.x, y: o.y - 1 });
+/** Everyone inside a stall shares its own voice, a hall like Coffee's but only for the people behind that door. */
+export const STALL_VOICE = 'room:stall:';
+export const stallVoiceId = (objectId: string) => STALL_VOICE + objectId;
+export const stallOfCall = (callId?: string | null) => callId?.startsWith(STALL_VOICE) ? callId.slice(STALL_VOICE.length) : undefined;
 /** Where the line for a stall stands: straight out from the door, first in line nearest. */
 export function stallLine(m: TileMap, o: MapObject, n: number): Spot[] {
   const door = stallDoor(o), out: Spot[] = [];
