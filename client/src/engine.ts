@@ -1,18 +1,31 @@
 import { INSTRUMENTS } from '../../shared/instruments';
 // The floor: one <canvas>, one requestAnimationFrame loop.
 // Order: static tilemap → y-sorted furniture + sprites → nameplates & bubbles → ambient tint → UI hints.
-import { adminOnly, applyEdit, FIXED_TYPES, findPath, pathTo, sampleMove, pathDuration, WALK_MS_PER_TILE, isWalkable, layoutProblem, objectById, objectName, roomAt, seatAt, withLayout, type MapObject, type Rect, type Rug, type Tile } from '../../shared/map';
+import { adminOnly, applyEdit, FIXED_TYPES, findPath, pathTo, sampleMove, pathDuration, WALK_MS_PER_TILE, isWalkable, layoutProblem, objectById, objectName, roomAt, rugFrame, seatAt, withLayout, type MapObject, type Rect, type Rug, type Tile } from '../../shared/map';
+import { FOOD_ITEMS, picnicSeat } from '../../shared/lunch';
 import { DungeonView } from './dungeon';
+import { danceBeat, dancePhase } from '../../shared/effects';
 import { drawEffects, effectLook, effectSway } from './effects';
 import { CreatureLayer } from './creatures';
 import { lockedDoors, roomDoors, type RoomDoor } from './doors';
 import type { Assets, Frame } from './assets';
-import { drawText, textWidth } from './font';
+import { drawText, plateLines, textWidth } from './font';
 import { TRACK } from '../../shared/music';
-import { TOILET_CAPACITY, toiletFull, cupTableAt, CUP_ITEMS, underground, MEETING_ROOM_ID, PLANT_REVEAL, PLANT_STAGES, plantDead, plantName, type LayoutEdit } from '../../shared/protocol';
-import { ITEMS, MAP, type ClientUser, type Pose, type Store, type DungeonFx } from './net';
+import { TOILET_CAPACITY, toiletFull, cupTableAt, CUP_ITEMS, underground, MEETING_ROOM_ID, PLANT_REVEAL, PLANT_STAGES, plantDead, plantName, type Cup, type LayoutEdit } from '../../shared/protocol';
+import { isCovered } from './native';
+import { ITEMS, MAP, PORTAL_MS, type ClientUser, type Pose, type PortalFx, type Store, type DungeonFx } from './net';
 
 const TS = MAP.tileSize;
+/** An admin's portal trip, by age in ms: portal opens at the start (0-400), they step in (400-900), it closes (1000-1400); one opens at the end (1000-1400), they step out (1400-1900), it closes (1900-2200). */
+const ease = (k: number) => 1 - (1 - Math.min(1, Math.max(0, k))) ** 2;
+const portalStage = (age: number) => ({
+  from: age < 400 ? ease(age / 400) : age < 1000 ? 1 : 1 - ease((age - 1000) / 400),
+  to: age < 1000 ? 0 : age < 1400 ? ease((age - 1000) / 400) : age < 1900 ? 1 : 1 - ease((age - 1900) / 300),
+  size: age < 400 ? 1 : age < 900 ? 1 - ease((age - 400) / 500) : age < 1400 ? 0 : age < 1900 ? ease((age - 1400) / 500) : 1,
+  atFrom: age < 900, hidden: age >= 900 && age < 1400,
+});
+/** 3x5 pixel digits for the world clocks, one row per number (bit 4 is the left column). */
+const DIGITS = [[7, 5, 5, 5, 7], [2, 6, 2, 2, 7], [7, 1, 7, 4, 7], [7, 1, 7, 1, 7], [5, 5, 7, 1, 1], [7, 4, 7, 1, 7], [7, 4, 7, 5, 7], [7, 1, 1, 1, 1], [7, 5, 7, 5, 7], [7, 5, 7, 1, 7]];
 /** "🕒 14:35 · Warsaw", plus "tomorrow"/"yesterday" when their date isn't mine. */
 function localTime(tz: string) {
   const now = new Date(), day = (z?: string) => new Intl.DateTimeFormat('en-CA', { timeZone: z }).format(now), theirs = day(tz), mine = day();
@@ -38,7 +51,7 @@ const SIT_FRAME = 5;
 type PlacedPlant = { u: ClientUser; x: number; y: number; base: number };
 const FRONT: Record<string, [number, number]> = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
 
-type BubbleKind = 'bubble_game' | 'bubble_watch' | 'bubble_bang' | 'bubble_headset' | 'bubble_zzz' | 'bubble_meeting' | 'bubble_dots' | 'bubble_think' | 'bubble_talk' | 'bubble_hand' | 'bubble_deaf';
+type BubbleKind = 'bubble_game' | 'bubble_watch' | 'bubble_bang' | 'bubble_headset' | 'bubble_zzz' | 'bubble_meeting' | 'bubble_think' | 'bubble_talk' | 'bubble_hand' | 'bubble_deaf' | 'bubble_mute_deaf';
 // where the bag hangs when carried, per facing; behind = drawn before the body
 const BAG_HAND: Record<string, { dx: number; behind: boolean }> = {
   down: { dx: 10, behind: false }, up: { dx: -3, behind: false }, left: { dx: 7, behind: true }, right: { dx: -1, behind: true },
@@ -47,7 +60,7 @@ const BAG_HAND: Record<string, { dx: number; behind: boolean }> = {
 /** What a click landed on; the action wheel opens for it. */
 export type Pick = { kind: 'user' | 'object'; id: string };
 /** Something an admin can pick up in edit mode: a piece of furniture or a rug. */
-type Item = { id: string; x: number; y: number; w: number; h: number; type?: string; wall?: boolean; dir?: string; color?: string };
+type Item = { id: string; x: number; y: number; w: number; h: number; type?: string; wall?: boolean; dir?: string; color?: string; pattern?: string };
 
 // item id -> icon, from whatever the map's objects hand out
 const ITEM_ICON = new Map([...ITEMS].map(([id, i]) => [id, i.icon]));
@@ -66,6 +79,8 @@ export class Engine {
   private ctx: CanvasRenderingContext2D;
   private staticLayer: HTMLCanvasElement;
   private raf = 0;
+  private lastDraw = 0;
+  private lastInput = 0;
   private px = 2;         // art pixels -> device pixels; whole numbers keep the art crisp (fractional only mid-glide)
   private dpr = 1;
   private minPx = 1;      // the whole floor fits
@@ -91,12 +106,15 @@ export class Engine {
   onPick?: (p: Pick | null) => void;
   private hoverTile: { x: number; y: number } | null = null;
   private hoverPlant: PlacedPlant | null = null;
-  private hoverCritter: { text: string; x: number; y: number } | null = null;
+  private hoverCritter: { text: string; x: number; y: number; id?: string } | null = null;
+  private lunchTile: Tile | null = null; // a picnic chair I can eat my food at, under the pointer
   private cupTile: Tile | null = null; // a table I can put my cup down on, under the pointer
+  private hoverCup: Cup | null = null;  // a cup someone left, under the pointer: click to clear it away
   critters: CreatureLayer;
   private plants: PlacedPlant[] = [];
   private plantsVersion = -1; // store.version the plants were placed for
   private glow: HTMLCanvasElement; // one lamp's halo at full strength; drawn with alpha per frame
+  private greenGlow: HTMLCanvasElement; // a banker's lamp on a reading table: a smaller, green pool
   private drag: { x: number; y: number; camX: number; camY: number; moved: boolean } | null = null;
   private bubbleState = new Map<string, { kind: BubbleKind | null; at: number }>();
   private nameplates = new Map<string, HTMLCanvasElement>();
@@ -107,7 +125,8 @@ export class Engine {
   private noteSeen = new Map<string, number>();
   private instrumentNotes: { id: string; at: number }[] = [];
   private sounders: MapObject[];
-  private placedPlates: { x: number; y: number; w: number }[] = [];
+  private statusSeen = new Map<string, { text: string; at: number }>();
+  private placedPlates: { x: number; y: number; w: number; h: number }[] = [];
   private snapped = false;
   private slots: Tile[] = [];
   private layoutSeen = -1;
@@ -125,7 +144,7 @@ export class Engine {
   private ghost: { item: Item; problem: string | null } | null = null;
 
   constructor(private canvas: HTMLCanvasElement, private store: Store, private assets: Assets) {
-    this.ctx = canvas.getContext('2d')!;
+    this.ctx = canvas.getContext('2d', { alpha: false })!; // opaque: the frame starts with a full fill, so the compositor can skip blending
     this.staticLayer = this.furniture = this.lights = this.steamers = this.sounders = this.interactive = this.boards = null!;
     this.critters = new CreatureLayer(store, () => this.ctx, n => this.f(n), (n, x, y) => this.blit(this.ctx, n, x, y));
     this.refreshLayout();
@@ -133,6 +152,10 @@ export class Engine {
     const gc = this.glow.getContext('2d')!, g = gc.createRadialGradient(40, 40, 2, 40, 40, 40);
     g.addColorStop(0, 'rgba(255,200,110,1)'); g.addColorStop(1, 'rgba(255,200,110,0)');
     gc.fillStyle = g; gc.fillRect(0, 0, 80, 80);
+    this.greenGlow = document.createElement('canvas'); this.greenGlow.width = this.greenGlow.height = 56;
+    const lc = this.greenGlow.getContext('2d')!, lg = lc.createRadialGradient(28, 28, 2, 28, 28, 28);
+    lg.addColorStop(0, 'rgba(170,240,150,1)'); lg.addColorStop(0.5, 'rgba(120,200,110,0.45)'); lg.addColorStop(1, 'rgba(90,170,90,0)');
+    lc.fillStyle = lg; lc.fillRect(0, 0, 56, 56);
     this.ro = new ResizeObserver(() => this.resize());
     this.ro.observe(canvas.parentElement!);
     this.resize();
@@ -147,6 +170,7 @@ export class Engine {
     window.addEventListener('keydown', this.onKey);
     window.addEventListener('keyup', this.onKeyUp);
     window.addEventListener('blur', this.stopKeys);
+    for (const ev of ['pointermove', 'pointerdown', 'wheel', 'keydown', 'gesturechange']) window.addEventListener(ev, this.touched, { passive: true });
     this.areaUnsub = store.subscribe(() => this.syncArea());
     this.syncArea();
     this.raf = requestAnimationFrame(this.frame);
@@ -164,6 +188,7 @@ export class Engine {
     this.canvas.removeEventListener('gesturechange', this.onGesture);
     window.removeEventListener('keydown', this.onKey);
     window.removeEventListener('keyup', this.onKeyUp);
+    for (const ev of ['pointermove', 'pointerdown', 'wheel', 'keydown', 'gesturechange']) window.removeEventListener(ev, this.touched);
     window.removeEventListener('blur', this.stopKeys);
   }
 
@@ -185,7 +210,7 @@ export class Engine {
     const r = MAP.rooms.find(r => r.id === id), me = this.store.users.get(this.store.me); if (!r || !me) return;
     if (underground(me)) return this.blockDungeon();
     if (me.instance || roomAt(MAP, me.tile.x, me.tile.y)?.id === id) return this.focusRoom(id); // a meeting's room has no way out but Leave
-    if (r.rules.access && !this.store.admin) { this.focusRoom(id); return this.denyDoor(r.rect.x, r.rect.y); }
+    if (r.rules.access && !this.store.sysadmin) { this.focusRoom(id); return this.denyDoor(r.rect.x, r.rect.y); }
     const { x, y, w, h } = r.rect, cx = x + (w - 1) / 2, cy = y + (h - 1) / 2, taken = this.taken();
     let best: { t: Tile; score: number } | null = null;
     for (let ty = y; ty < y + h; ty++) for (let tx = x; tx < x + w; tx++) {
@@ -293,7 +318,7 @@ export class Engine {
     this.steamers = MAP.objects.filter(o => o.steam);
     this.sounders = MAP.objects.filter(o => o.sound);
     this.plantsVersion = -1; // shelves may have moved
-    this.interactive = MAP.objects.filter(o => o.use || o.sit || o.sound);
+    this.interactive = MAP.objects.filter(o => o.use || o.sit);
     this.boards = MAP.objects.filter(o => o.use?.kind === 'meetings');
     this.slots = MAP.rooms.flatMap(r => r.plantSlots ?? []);
     if (this.editSel && !this.item(this.editSel)) this.editSel = null;
@@ -331,13 +356,13 @@ export class Engine {
     }
     for (const o of MAP.dungeon?.decor ?? []) this.blit(ctx, o.type, o.x * TS, o.y * TS);
     // wall decor + floor-level furniture (chairs) are static
-    for (const o of MAP.objects) if (o.wall || o.walkable) this.drawItem(ctx, o);
+    for (const o of MAP.objects) if ((o.wall || o.walkable) && o.type !== 'dance_floor') this.drawItem(ctx, o); // the dance floor animates: see drawDanceFloor
     return c;
   }
   private drawRug(ctx: CanvasRenderingContext2D, r: Rug) {
     for (let y = r.y; y < r.y + r.h; y++) for (let x = r.x; x < r.x + r.w; x++) {
       const v = y === r.y ? 'n' : y === r.y + r.h - 1 ? 's' : '', h = x === r.x ? 'w' : x === r.x + r.w - 1 ? 'e' : '';
-      this.blit(ctx, `rug_${r.color}_${(v + h) || 'c'}`, x * TS, y * TS);
+      this.blit(ctx, rugFrame(r, (v + h) || 'c'), x * TS, y * TS);
     }
   }
   /** A piece of furniture's sprite and where it goes: centred on its footprint, standing on its bottom edge (decor hangs from the top). */
@@ -346,19 +371,51 @@ export class Engine {
     const fr = this.f(name);
     return fr && { name, fr, x: o.x * TS + (o.w * TS - fr.w) / 2, y: o.wall ? o.y * TS : (o.y + o.h) * TS - fr.h };
   }
+  /** Berghain's floor: two checkered neon frames on the beat, a colour wave of light across the tiles that pulses with the beat, a sweeping spotlight, and a hotter glow under dancers. */
+  private drawDanceFloor(ctx: CanvasRenderingContext2D, poses: Map<string, Pose>) {
+    const now = Date.now(), beat = danceBeat(now), ph = dancePhase(now), pulse = Math.pow(1 - ph, 2);
+    const COLORS = ['255,94,200', '94,240,255', '248,224,112', '154,255,122'];
+    for (const o of MAP.objects) {
+      if (o.type !== 'dance_floor') continue;
+      const name = `dance_floor_${beat % 2}`, fr = this.f(name) ?? this.f(o.type);
+      if (fr) this.blit(ctx, this.f(name) ? name : o.type, o.x * TS, (o.y + o.h) * TS - fr.h);
+      const dancing = new Set<string>();
+      for (const u of this.store.users.values()) {
+        const p = poses.get(u.id);
+        if (!p || p.walking || !u.effects?.some(e => e.kind === 'dance') || p.tile.x < o.x || p.tile.x >= o.x + o.w || p.tile.y < o.y || p.tile.y >= o.y + o.h) continue;
+        dancing.add(`${p.tile.x},${p.tile.y}`);
+      }
+      const sweep = (now / 1500) % (o.w + 2) - 1; // a spotlight crossing the floor left to right
+      for (let y = o.y; y < o.y + o.h; y++) for (let x = o.x; x < o.x + o.w; x++) {
+        const wave = COLORS[(beat + (x - o.x) + (y - o.y)) % COLORS.length];
+        ctx.fillStyle = `rgba(${wave},${(0.1 + pulse * 0.22).toFixed(2)})`; // the whole floor throbs
+        ctx.fillRect(x * TS, y * TS, TS, TS);
+        if (dancing.has(`${x},${y}`)) {
+          ctx.fillStyle = `rgba(${COLORS[(beat + x + y) % 2]},${(0.3 + pulse * 0.3).toFixed(2)})`;
+          ctx.fillRect(x * TS, y * TS, TS, TS);
+          ctx.fillStyle = 'rgba(255,255,255,0.55)'; // bright rim on the beat
+          if (ph < 0.2) { ctx.fillRect(x * TS, y * TS, TS, 1); ctx.fillRect(x * TS, (y + 1) * TS - 1, TS, 1); ctx.fillRect(x * TS, y * TS, 1, TS); ctx.fillRect((x + 1) * TS - 1, y * TS, 1, TS); }
+        }
+        const near = 1 - Math.min(1, Math.abs(x - o.x + 0.5 - sweep));
+        if (near > 0) { ctx.fillStyle = `rgba(255,255,255,${(near * 0.16).toFixed(2)})`; ctx.fillRect(x * TS, y * TS, TS, TS); }
+      }
+    }
+  }
   /** The world clocks' hands, from the real time in each one's zone. */
   private drawClockHands(ctx: CanvasRenderingContext2D) {
     for (const o of MAP.objects) {
       if (o.use?.kind !== 'clock') continue;
       const s = this.sprite(o); if (!s) continue;
-      const { h, m } = zoneHM(o.use.tz), cx = s.x + 8, cy = s.y + 7;
-      const hand = (turns: number, len: number, color: string) => {
-        ctx.fillStyle = color;
-        const a = turns * Math.PI * 2;
-        for (let r = 0; r <= len; r += 0.5) ctx.fillRect(Math.round(cx + Math.sin(a) * r), Math.round(cy - Math.cos(a) * r), 1, 1);
-      };
-      hand(((h % 12) + m / 60) / 12, 2.5, '#3a2a2a'); hand(m / 60, 4, '#3a2a2a');
-      ctx.fillStyle = '#b4534a'; ctx.fillRect(cx, cy, 1, 1);
+      // e-ink: HH:MM in gray 3x5 pixel digits on the off-white panel (the sprite is 24 wide, 22 of it screen)
+      const { h, m } = zoneHM(o.use.tz), cx = s.x + s.fr.w / 2;
+      const digits = [h / 10 | 0, h % 10, m / 10 | 0, m % 10], colon = true; // e-ink doesn't blink
+      ctx.fillStyle = '#55554f';
+      let dx = s.x + 4;
+      digits.forEach((d, i) => {
+        if (i === 2) { if (colon) { ctx.fillRect(dx + 1, s.y + 6, 1, 1); ctx.fillRect(dx + 1, s.y + 8, 1, 1); } dx += 3; }
+        DIGITS[d].forEach((row, y) => { for (let x = 0; x < 3; x++) if (row & (4 >> x)) ctx.fillRect(dx + x, s.y + 5 + y, 1, 1); });
+        dx += 4;
+      });
       ctx.font = 'bold 4px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'top'; // the zone's name under the face
       ctx.fillStyle = 'rgba(40,20,20,0.7)'; ctx.fillText(o.use.label, cx + 0.3, s.y + 15.3);
       ctx.fillStyle = '#ffe9c4'; ctx.fillText(o.use.label, cx, s.y + 15);
@@ -453,7 +510,7 @@ export class Engine {
     return me && underground(me) ? this.store.dungeonFx.find(f => f.user.id === me.id && f.kind === 'fall' && performance.now() - f.at < 900) : undefined;
   }
   private clearAreaInput() {
-    this.stopKeys(); this.manualCam = false; this.hoverUser = this.hoverObject = this.hoverTile = this.hoverPlant = null;
+    this.stopKeys(); this.manualCam = false; this.hoverUser = this.hoverObject = this.hoverTile = this.hoverPlant = this.hoverCup = null;
     this.selected = null; this.onPick?.(null); this.setEditing(false);
     this.drag = this.pinch = this.gesture = null; this.pointers.clear(); this.wheelAcc = 0;
     this.canvas.style.cursor = 'default';
@@ -485,7 +542,7 @@ export class Engine {
   }
   private canWalk(t: Tile) {
     if (this.falling() || !this.inArea(t) || !isWalkable(MAP, t.x, t.y)) return false;
-    if (!this.store.admin && adminOnly(MAP, t.x, t.y)) return false; // the server would refuse it too
+    if (!this.store.sysadmin && adminOnly(MAP, t.x, t.y)) return false; // the server would refuse it too
     if (!this.areaDown) return !this.myInstance() || inMeetingRoom(t.x, t.y);
     const me = this.store.users.get(this.store.me), seen = this.store.dungeon?.seen;
     if (!me || !seen) return false;
@@ -586,6 +643,12 @@ export class Engine {
     const me = this.store.users.get(this.store.me);
     if (!me?.holding || !CUP_ITEMS.includes(me.holding) || me.instance || this.areaDown || !cupTableAt(MAP.objects, t)) return null;
     return this.store.cups.some(c => c.tile.x === t.x && c.tile.y === t.y) ? null : t;
+  }
+  /** Holding food over a chair at a picnic table: that's where lunch happens. */
+  private lunchChair(t: Tile): MapObject | null {
+    const me = this.store.users.get(this.store.me);
+    if (!me?.holding || !FOOD_ITEMS.includes(me.holding) || me.instance || this.areaDown || !picnicSeat(MAP, t)) return null;
+    return MAP.objects.find(o => o.type === 'chair' && o.x === t.x && o.y === t.y) ?? null;
   }
   private objectAt(wx: number, wy: number): MapObject | null {
     let best: MapObject | null = null;
@@ -706,14 +769,16 @@ export class Engine {
     if (this.editing) return this.onEditMove(w);
     this.hoverUser = this.userAt(w.x, w.y);
     const inside = this.myInstance();
-    this.hoverObject = this.hoverUser || inside ? null : this.objectAt(w.x, w.y);
+    this.hoverCup = this.hoverUser || inside || this.areaDown ? null : this.critters.cupAt(w.x, w.y);
+    this.hoverObject = this.hoverUser || this.hoverCup || inside ? null : this.objectAt(w.x, w.y);
     this.hoverPlant = this.hoverUser || this.hoverObject || inside ? null
       : this.plants.find(p => w.x >= p.x - 5 && w.x < p.x + 5 && w.y >= p.y - 18 && w.y < p.y) ?? null;
     const tx = Math.floor(w.x / TS), ty = Math.floor(w.y / TS);
     this.hoverTile = this.clickTarget({ x: tx, y: ty });
     this.hoverCritter = this.hoverUser || this.hoverObject || inside || this.areaDown ? null : this.critters.at(w.x, w.y, this.store.now());
-    this.cupTile = this.hoverUser || this.hoverObject ? null : this.cupTarget({ x: tx, y: ty });
-    this.canvas.style.cursor = this.tapZooms ? 'zoom-in' : this.hoverUser || this.hoverObject || this.cupTile ? 'pointer' : this.hoverTile ? 'crosshair' : 'default';
+    this.cupTile = this.hoverUser || this.hoverObject || this.hoverCup ? null : this.cupTarget({ x: tx, y: ty });
+    this.lunchTile = this.hoverUser || this.hoverObject || inside || !this.lunchChair({ x: tx, y: ty }) ? null : { x: tx, y: ty };
+    this.canvas.style.cursor = this.tapZooms ? 'zoom-in' : this.hoverUser || this.hoverObject || this.hoverCup || this.cupTile || this.lunchTile || this.hoverCritter?.id ? 'pointer' : this.hoverTile ? 'crosshair' : 'default';
   };
   private onEditMove(w: { x: number; y: number }) {
     const tx = Math.floor(w.x / TS), ty = Math.floor(w.y / TS), d = this.editDrag;
@@ -754,6 +819,10 @@ export class Engine {
     const hit = this.userAt(w.x, w.y);
     if (hit) return this.onPick?.({ kind: 'user', id: hit });
     const inside = this.myInstance();
+    const critter = inside || this.areaDown ? null : this.critters.at(w.x, w.y, this.store.now());
+    if (critter?.id) { this.onPick?.(null); this.manualCam = false; return this.store.pet(critter.id); }
+    const cupHit = inside || this.areaDown ? null : this.critters.cupAt(w.x, w.y);
+    if (cupHit) { this.onPick?.(null); this.manualCam = false; return this.store.takeCup(cupHit.id); }
     const obj = inside ? null : this.objectAt(w.x, w.y);
     if (obj?.sit) { this.onPick?.(null); this.manualCam = false; return this.store.moveTo(this.freeSeat(obj, Math.floor(w.x / TS))); }
     if (obj?.sound && obj.use?.kind !== 'jukebox') return this.onPick?.(null);
@@ -762,15 +831,17 @@ export class Engine {
     const tx = Math.floor(w.x / TS), ty = Math.floor(w.y / TS);
     const cup = this.cupTarget({ x: tx, y: ty });
     if (cup) { this.manualCam = false; return this.store.putCup(cup); }
+    const chair = this.lunchChair({ x: tx, y: ty });
+    if (chair) { this.manualCam = false; return this.onPick?.({ kind: 'object', id: chair.id }); }
     const target = this.clickTarget({ x: tx, y: ty });
     if (target) this.walkTo(target);
-    else if (!this.store.admin && !this.areaDown && adminOnly(MAP, tx, ty)) this.denyDoor(tx, ty);
+    else if (!this.store.sysadmin && !this.areaDown && adminOnly(MAP, tx, ty)) this.denyDoor(tx, ty);
   };
   /** A locked room turned me away: its door shakes and says why. */
   private denyDoor(tx: number, ty: number) {
     const room = roomAt(MAP, tx, ty); if (!room) return;
     this.deniedAt.set(room.id, performance.now());
-    this.store.toast({ kind: 'info', text: `🔒 ${room.name}: admins only`, expires: 3000 });
+    this.store.toast({ kind: 'info', text: `🔒 ${room.name}: sysadmins only`, expires: 3000 });
   }
 
   /** Plants stand on their owner's home desk, or on an Orangery shelf if they have none. On the desk it goes to the
@@ -796,8 +867,34 @@ export class Engine {
   }
 
   // ---------- render ----------
+  private touched = () => { this.lastInput = performance.now(); };
+  /** Cap the redraw rate: 60 fps while anything moves or the user is interacting (ProMotion would otherwise draw 120), 30 when the floor is still. */
+  private skipFrame(ms: number) {
+    const gap = ms - this.lastDraw;
+    if (isCovered()) { if (gap < 490) return true; } // the Mac app's view is behind other windows: ~2 fps
+    else if (gap < 15) return true;
+    else if (gap < 49) { // three tiers: 60 while busy, 30 while something small animates, 20 when the floor is still
+      const now = this.store.now(), users = [...this.store.users.values()];
+      const busy = this.glide || this.editing || ms - this.lastInput < 1500 || this.store.version !== this.drawnVersion || this.store.portalFx.some(f => ms - f.at < PORTAL_MS)
+        || users.some(u => { if (!u.move) return false; const p = this.store.pose(u, now); return p.walking && this.visible(u) && this.onScreen(p.x * TS - TS, p.y * TS - TS, 3 * TS, 3 * TS); });
+      if (!busy) {
+        if (gap < 31) return true;
+        const lively = this.store.reactions.length || this.store.dungeonFx.length || users.some(u => this.visible(u) && this.isSpeaking(u));
+        if (!lively) return true;
+      }
+    }
+    this.lastDraw = ms;
+    return false;
+  }
+  private drawnVersion = -1;
+  /** Visible world rect (a tile of margin): anything wholly outside it is not drawn. */
+  private vis = { x0: -1e9, y0: -1e9, x1: 1e9, y1: 1e9 };
+  private onScreen(x: number, y: number, w: number, h: number) {
+    const v = this.vis; return x < v.x1 && x + w > v.x0 && y < v.y1 && y + h > v.y0;
+  }
   private frame = (ms: number) => {
     this.raf = requestAnimationFrame(this.frame);
+    if (document.hidden || this.skipFrame(ms)) return;
     if (this.layoutSeen !== this.store.layoutVersion) this.refreshLayout();
     this.syncArea(); this.keyboardStep();
     const ctx = this.ctx, t = this.store.now();
@@ -809,8 +906,14 @@ export class Engine {
       if (this.selected?.kind === 'user' && !this.visible(this.store.users.get(this.selected.id))) { this.selected = null; this.onPick?.(null); }
       if (this.hoverTile && !this.canWalk(this.hoverTile)) this.hoverTile = null;
     }
-    const users = [...this.store.users.values()].filter(u => this.visible(u));
-    const poses = new Map<string, Pose>(users.map(u => [u.id, this.store.pose(u, t)]));
+    // admins mid-portal: they stay at the origin until they've stepped in, are gone while the far portal opens, then stand at the destination
+    const trips = new Map<string, { fx: PortalFx; age: number }>();
+    if (!this.areaDown) for (const fx of this.store.portalFx) if (ms >= fx.at && ms - fx.at < PORTAL_MS) trips.set(fx.userId, { fx, age: ms - fx.at });
+    const users = [...this.store.users.values()].filter(u => this.visible(u) && !(trips.has(u.id) && portalStage(trips.get(u.id)!.age).hidden));
+    const poses = new Map<string, Pose>(users.map(u => {
+      const trip = trips.get(u.id);
+      return [u.id, trip && portalStage(trip.age).atFrom ? { x: trip.fx.from.x, y: trip.fx.from.y, dir: 'down', walking: false, tile: trip.fx.from } : this.store.pose(u, t)];
+    }));
 
     if (this.glide) { // zooming: the anchor point stays put while the scale eases to the next crisp level
       const g = this.glide, f = Math.min(1, (performance.now() - g.at) / 140);
@@ -820,8 +923,9 @@ export class Engine {
       this.cam = this.clampCam(g.wx - g.sx / this.px, g.wy - g.sy / this.px);
     }
     // camera follows me unless the user dragged
-    else if (me && !this.manualCam && poses.get(me.id)) {
-      const p = poses.get(me.id)!;
+    else if (me && !this.manualCam && (poses.get(me.id) || trips.has(me.id))) {
+      const trip = trips.get(me.id); // mid-portal: the camera heads for the far side early
+      const p = trip && trip.age >= 700 ? { ...this.store.pose(me, t), x: trip.fx.to.x, y: trip.fx.to.y } : poses.get(me.id) ?? this.store.pose(me, t);
       const target = me.instance && !this.areaDown // a meeting's room: keep the room in the middle
         ? this.clampCam((MEETING.x + MEETING.w / 2) * TS - this.viewW / 2, (MEETING.y + MEETING.h / 2) * TS - this.viewH / 2)
         : this.clampCam(p.x * TS + 8 - this.viewW / 2, p.y * TS - this.viewH / 2);
@@ -829,6 +933,8 @@ export class Engine {
       this.cam.x += (target.x - this.cam.x) * k; this.cam.y += (target.y - this.cam.y) * k;
     }
     const camX = Math.round(this.cam.x * this.px) / this.px, camY = Math.round(this.cam.y * this.px) / this.px;
+    this.vis = { x0: camX - TS, y0: camY - TS, x1: camX + this.viewW + TS, y1: camY + this.viewH + TS };
+    this.drawnVersion = this.store.version;
 
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.fillStyle = '#1b1418'; ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
@@ -836,9 +942,13 @@ export class Engine {
     ctx.setTransform(this.px, 0, 0, this.px, -camX * this.px, -camY * this.px);
     ctx.save();
     ctx.beginPath(); ctx.rect(this.area.x * TS, this.area.y * TS, this.area.w * TS, this.area.h * TS); ctx.clip();
-    ctx.drawImage(this.staticLayer, this.area.x * TS, this.area.y * TS, this.area.w * TS, this.area.h * TS,
-      this.area.x * TS, this.area.y * TS, this.area.w * TS, this.area.h * TS);
-    if (this.areaDown) this.drawDungeon(ms); else this.drawClockHands(ctx);
+    {
+      const a = this.area, v = this.vis;
+      const sx = Math.max(a.x * TS, Math.floor(v.x0 / TS) * TS), sy = Math.max(a.y * TS, Math.floor(v.y0 / TS) * TS);
+      const ex = Math.min((a.x + a.w) * TS, Math.ceil(v.x1 / TS) * TS), ey = Math.min((a.y + a.h) * TS, Math.ceil(v.y1 / TS) * TS);
+      if (ex > sx && ey > sy) ctx.drawImage(this.staticLayer, sx, sy, ex - sx, ey - sy, sx, sy, ex - sx, ey - sy);
+    }
+    if (this.areaDown) this.drawDungeon(ms); else { this.drawDanceFloor(ctx, poses); this.drawClockHands(ctx); }
 
     // hover tile + my destination marker
     if (this.hoverTile && !this.hoverUser && !this.tapZooms && !this.editing) {
@@ -872,28 +982,45 @@ export class Engine {
     for (const u of users) { const p = poses.get(u.id)!; ds.push({ base: p.y * TS + TS, u, p }); }
     if (!this.areaDown) for (const fx of this.store.dungeonFx) if (fx.kind === 'fall' && ms >= fx.at && ms - fx.at < 500) ds.push({ base: (fx.tile.y + 1) * TS, fx });
     for (const plant of this.plants) ds.push({ base: plant.base, plant });
+    for (const { fx, age } of trips.values()) { // the two portals sit on their tiles, just behind whoever stands there
+      const st = portalStage(age);
+      ds.push({ base: (fx.from.y + 1) * TS - 1, draw: () => this.drawPortal(fx.from, st.from, ms) }, { base: (fx.to.y + 1) * TS - 1, draw: () => this.drawPortal(fx.to, st.to, ms) });
+    }
     ds.sort((a, b) => a.base - b.base);
     const drawD = (d: D) => {
       if (d.draw) return d.draw();
       if (d.fx) return this.drawDungeonFx(d.fx, ms);
       if (d.u) {
         const fx = this.store.dungeonFx.find(f => f.user.id === d.u!.id && f.kind !== 'fall' && ms >= f.at && ms - f.at < 650 && (this.areaDown === (f.kind === 'land')));
-        return fx ? this.drawDungeonFx(fx, ms) : this.drawSprite(d.u, d.p!, ms);
+        if (fx) return this.drawDungeonFx(fx, ms);
+        if (!this.onScreen(d.p!.x * TS - TS, d.p!.y * TS - 2 * TS, 3 * TS, 4 * TS)) return;
+        const trip = trips.get(d.u.id), size = trip ? portalStage(trip.age).size : 1;
+        if (size >= 1) return this.drawSprite(d.u, d.p!, ms);
+        const cx = d.p!.tile.x * TS + 8, cy = (d.p!.tile.y + 1) * TS - 9; // shrinking into (or growing out of) the middle of the portal
+        ctx.save(); ctx.translate(cx, cy); ctx.scale(size, size); ctx.translate(-cx, -cy);
+        this.drawSprite(d.u, d.p!, ms);
+        return void ctx.restore();
       }
       if (d.door) { // open while someone stands in or right next to the doorway; a locked one stays shut for non-admins
         const door = d.door, open = [...poses.values()].some(p => door.tiles.some(t => Math.abs(t.x - p.tile.x) + Math.abs(t.y - p.tile.y) <= 1));
-        const locked = door.locked && !this.store.admin, age = ms - (this.deniedAt.get(door.room.id) ?? -1e9);
+        const locked = door.locked && !this.store.sysadmin, age = ms - (this.deniedAt.get(door.room.id) ?? -1e9);
         const shake = locked && age < 450 ? Math.round(Math.sin(age / 22) * 2) : 0;
         const name = `door_${door.horizontal ? 'h' : 'v'}_${locked ? 'locked' : open ? 'open' : 'closed'}`, fr = this.f(name);
-        return void (fr && this.blit(ctx, name, door.x * TS + (door.w * TS - fr.w) / 2 + shake, (door.y + door.h) * TS - fr.h));
+        if (!fr || !this.onScreen(door.x * TS + (door.w * TS - fr.w) / 2 - 2, (door.y + door.h) * TS - fr.h, fr.w + 6, fr.h)) return;
+        return void this.blit(ctx, name, door.x * TS + (door.w * TS - fr.w) / 2 + shake, (door.y + door.h) * TS - fr.h);
       }
-      const p = d.plant!, pl = p.u.plant!, kinded = pl.kind && pl.stage >= PLANT_REVEAL;
+      const p = d.plant!, pl = p.u.plant!;
+      if (!this.onScreen(p.x - 16, p.y - 24, 32, 32)) return;
+      const kinded = pl.kind && pl.stage >= PLANT_REVEAL;
       this.blit(ctx, plantDead(pl, t) ? 'pot_dead' : kinded ? `pot_${pl.kind}_${pl.stage}` : `pot_${pl.stage}`, p.x - 6, p.y - 20);
     };
     let di = 0;
     for (const f of this.areaDown ? [] : this.furniture) {
       while (di < ds.length && ds[di].base <= f.base) drawD(ds[di++]);
+      const ff = this.f(f.o.type);
+      if (!this.onScreen(f.x - 2, f.y - 2, ff.w + 4, ff.h + 4)) continue;
       this.blit(ctx, f.o.type === 'arcade' && this.store.cabinets.some(c => c.cabinet === f.o.id) ? `arcade_on_${1 + Math.floor(ms / 320) % 2}` : f.o.use?.kind === 'toilet' ? this.toiletFrame(f.o.id)
+        : f.o.type === 'bell' ? this.bellFrame(f.o.id, ms) : f.o.type === 'hat_rack' ? this.hatRackFrame(f.o, ms) : f.o.type === 'reading_table' && this.flickers(f.o, ms) ? 'reading_table_1'
         : f.o.type === 'server_rack' && Math.floor(ms / 500 + f.o.x * 3 + f.o.y) % 2 ? 'server_rack_1' : f.off && !this.isOn(f.o) ? `${f.o.type}_off` : f.o.type, f.x, f.y);
       if (f.o.use?.kind === 'toilet') this.drawStall(ctx, f.o, f.x, f.y);
     }
@@ -910,7 +1037,7 @@ export class Engine {
       if (o && !(coffeeBusy && o.steam)) this.drawSteam(o, ms);
     }
 
-    for (const o of this.areaDown ? [] : this.sounders) if (o.use?.kind === 'jukebox' ? this.store.connected && this.store.jukebox[o.id]?.pausedAt === null : o.sound?.clip) for (let i = 0; i < 3; i++) {
+    for (const o of this.areaDown ? [] : this.sounders) if (o.use?.kind === 'jukebox' && this.store.connected && this.store.jukebox[o.id]?.pausedAt === null) for (let i = 0; i < 3; i++) {
       const phase = (ms / 2200 + i / 3) % 1;
       ctx.globalAlpha = 1 - phase;
       this.blit(ctx, i % 2 ? 'note_1' : 'note_2', (o.x + o.w / 2) * TS - 4 + Math.round(Math.sin(phase * 6 + i) * 4), o.y * TS - Math.round(phase * 18));
@@ -945,19 +1072,20 @@ export class Engine {
     // overlays: nameplates + bubbles (never occluded)
     const sorted = users.slice().sort((a, b) => poses.get(a.id)!.y - poses.get(b.id)!.y);
     this.placedPlates = [];
-    for (const u of sorted) this.drawOverlay(u, poses.get(u.id)!, ms);
+    for (const u of sorted) { const p = poses.get(u.id)!; if (this.onScreen(p.x * TS - 2 * TS, p.y * TS - 3 * TS, 5 * TS, 5 * TS)) this.drawOverlay(u, p, ms); }
     this.drawReactions(poses, ms);
-
     if (!this.areaDown && !me?.instance) this.drawClub(ctx, ms);
-    if (!this.areaDown) this.drawAmbient(ctx, camX, camY);
+    if (!this.areaDown) this.drawAmbient(ctx, camX, camY, ms);
+    // labels switch the canvas to screen space, so everything drawn in world space (the tint above) comes first
+    if (!this.areaDown && !me?.instance) { this.drawBellDings(poses, camX, camY, ms); this.drawHatNudge(me, poses, camX, camY, ms); }
     if (this.editing) this.drawEdit(ctx, camX, camY, ms);
     if (this.overview && !me?.instance) this.drawRoomTags(users, poses, camX, camY);
     // one of my meetings is on: say so over the board, readable at any zoom
     const goable = me && !me.instance && this.hoverObject?.use?.kind !== 'meetings'
       ? this.store.agenda.find(a => a.start - 10 * 60_000 <= this.store.now() && a.end > this.store.now()) : undefined;
     if (goable) for (const o of this.boards) {
-      const title = goable.title.length > 22 ? `${goable.title.slice(0, 21)}…` : goable.title;
-      this.drawLabel(`📅 ${title} · click to go`, (o.x + 0.5) * TS, o.y * TS - 6 - Math.round((Math.sin(ms / 220) + 1)), camX, camY);
+      const title = goable.title.length > 16 ? `${goable.title.slice(0, 15)}…` : goable.title;
+      this.drawLabel(`📅 ${title} · go`, (o.x + 0.5) * TS, o.y * TS - 4 - Math.round((Math.sin(ms / 220) + 1)), camX, camY, 1, false, 10); // a small nudge: the heads-up toast says the rest
     }
 
     ctx.restore();
@@ -969,15 +1097,20 @@ export class Engine {
       const jukebox = this.store.jukebox[o.id], track = jukebox && TRACK.get(jukebox.track);
       const player = this.store.instruments[o.id];
       const instrumentTip = o.use?.kind === 'instrument' ? `${INSTRUMENTS[o.use.instrument].name} · ${this.store.seat === o.id ? "you're playing · Esc to stand up" : player === this.store.me ? "you're playing in another tab" : player ? `${this.store.name(player).split(' ')[0]} is playing` : 'click to play'}` : '';
-      const what = instrumentTip || (o.use?.kind === 'arcade' ? this.store.gameDescription(o.id) : o.use?.kind === 'records' ? 'Deck Park · team records' : o.use?.kind === 'jukebox' ? !jukebox ? 'Jukebox · Reconnecting…' : jukebox.pausedAt !== null ? 'Jukebox · paused' : `Jukebox · ♪ ${track?.title ?? jukebox.track} — ${track?.artist ?? ''}` : o.sound ? 'Radio · music volume in ⚙' : o.use?.kind === 'toggle' ? `${o.use.label[0].toUpperCase()}${o.use.label.slice(1)} · ${this.isOn(o) ? 'on' : 'off'}`
+      const what = instrumentTip || (o.use?.kind === 'arcade' ? this.store.gameDescription(o.id) : o.use?.kind === 'records' ? 'Deck Park · team records' : o.use?.kind === 'jukebox' ? !jukebox ? 'Jukebox · Reconnecting…' : jukebox.pausedAt !== null ? 'Jukebox · paused' : `Jukebox · ♪ ${track?.title ?? jukebox.track} — ${track?.artist ?? ''}` : o.use?.kind === 'toggle' ? `${o.use.label[0].toUpperCase()}${o.use.label.slice(1)} · ${this.isOn(o) ? 'on' : 'off'}`
         : o.use?.kind === 'calendar' ? 'Calendar · your week' : o.use?.kind === 'achievements' ? 'Notice board · your plant and achievements' : o.use?.kind === 'link' ? `Vault 13 · click to open the ${o.use.label}` : o.use?.kind === 'meetings' ? `Meetings · ${this.store.meetingRooms.length || 'none'} on now`
-        : o.use?.kind === 'presentation' ? (this.store.presentation?.objectId === o.id ? `Screen · LIVE: ${this.store.presentation.deck.title}` : 'Screen · click to present slides') : o.use?.kind === 'clock' ? `Clock · ${o.use.city}, ${zoneTime(o.use.tz)} · click for all our cities` : o.sit ? `${o.type === 'bench' ? 'Bench' : 'Sofa'} · click to sit` : o.type === 'coffee_machine' ? 'Coffee machine' : o.type === 'fridge' ? 'Fridge' : o.use?.kind === 'toilet' ? this.toiletTip(o.id) : o.use?.kind === 'dealer' ? (o.type === 'bouncer' ? 'Bouncer · knows a guy' : 'Hat stand · pick a hat for your pockets') : objectName(o.type));
+        : o.use?.kind === 'presentation' ? (this.store.presentation?.objectId === o.id ? `Screen · LIVE: ${this.store.presentation.deck.title}` : 'Screen · click to present slides') : o.use?.kind === 'clock' ? `Clock · ${o.use.city}, ${zoneTime(o.use.tz)} · click for all our cities` : o.sit ? `${o.type === 'bench' ? 'Bench' : 'Sofa'} · click to sit` : o.type === 'coffee_machine' ? 'Coffee machine' : o.type === 'fridge' ? 'Fridge' : o.use?.kind === 'toilet' ? this.toiletTip(o.id) : o.use?.kind === 'bell' ? 'Reception bell · click to ring' : o.type === 'reading_table' || o.type === 'reading_desk' ? 'Reading table · take a book from the shelf' : o.use?.kind === 'library' ? 'Library shelf · publish or borrow an article' : o.use?.kind === 'dealer' ? (o.type === 'bouncer' ? 'Bouncer · knows a guy' : 'Hat stand · pick a hat for your pockets') : objectName(o.type));
       this.drawLabel(what, (o.x + o.w / 2) * TS, (o.y + o.h) * TS - fr.h + 4, camX, camY);
+    }
+    else if (this.hoverCup && this.store.cups.some(c => c.id === this.hoverCup!.id)) { // gone: the label goes with it
+      const { x, y } = this.hoverCup.tile;
+      this.drawLabel(`${this.hoverCup.item === 'tea' ? '🍵' : '☕'} Someone left this here · click to clear it away`, x * TS + 8, y * TS - 2, camX, camY);
     }
     else if (this.cupTile) {
       const held = me?.holding ? ITEMS.get(me.holding) : undefined;
       this.drawLabel(`${held?.icon ?? '☕'} Put your ${held?.label.toLowerCase() ?? 'cup'} down here`, this.cupTile.x * TS + 8, this.cupTile.y * TS + 4, camX, camY);
     }
+    else if (this.lunchTile) this.drawLabel(`${ITEMS.get(me?.holding ?? '')?.icon ?? '🍽'} Eat lunch here`, this.lunchTile.x * TS + 8, this.lunchTile.y * TS + 4, camX, camY);
     else if (this.hoverCritter) this.drawLabel(this.hoverCritter.text, this.hoverCritter.x, this.hoverCritter.y, camX, camY);
     else if (this.hoverPlant) {
       const { u, x, y } = this.hoverPlant, mine = u.id === this.store.me, p = u.plant!;
@@ -997,6 +1130,27 @@ export class Engine {
     this.store.dungeonFx = this.store.dungeonFx.filter(f => ms - f.at < 1600);
   };
 
+  /** A swirling violet portal standing on a tile; `s` is how far open it is (0 shut, 1 full). */
+  private drawPortal(tile: Tile, s: number, ms: number) {
+    if (s <= 0.03) return;
+    const ctx = this.ctx, cx = tile.x * TS + 8, cy = (tile.y + 1) * TS - 9, rx = 7 * s, ry = 11 * s;
+    ctx.save();
+    ctx.fillStyle = 'rgba(150,110,255,0.22)'; ctx.beginPath(); ctx.ellipse(cx, cy, rx + 3, ry + 3, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#1d0f45'; ctx.beginPath(); ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = '#8f6cff'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2); ctx.stroke();
+    for (let i = 0; i < 14; i++) { // specks spiralling into the middle
+      const k = (i / 14 + ms / 900) % 1, a = k * Math.PI * 5 + i, r = 1 - k;
+      ctx.fillStyle = i % 3 ? '#b89cff' : '#efe6ff';
+      ctx.fillRect(Math.round(cx + Math.cos(a) * rx * r * 0.85), Math.round(cy + Math.sin(a) * ry * r * 0.85), 1, 1);
+    }
+    const n = Math.max(8, Math.round(26 * s)); // a bright crawling rim
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * Math.PI * 2 + ms / 500;
+      ctx.fillStyle = (i + Math.floor(ms / 120)) % 2 ? '#7a5cff' : '#d8c8ff';
+      ctx.fillRect(Math.round(cx + Math.cos(a) * rx), Math.round(cy + Math.sin(a) * ry), 1, 1);
+    }
+    ctx.restore();
+  }
   private drawSprite(u: ClientUser, p: Pose, ms: number) {
     const ctx = this.ctx, c = this.assets.atlas.character;
     const sheet = this.assets.sheet(u.effects?.length ? effectLook(u.look, u.effects) : u.look);
@@ -1010,6 +1164,7 @@ export class Engine {
     let frame = 0, bob = 0;
     if (p.walking) frame = 1 + (Math.floor((ms / 1000) * WALK_FPS * WALK_MS_PER_TILE / (u.move?.ms ?? WALK_MS_PER_TILE)) % 4); // quicker steps when quicker
     else if (seat) { frame = SIT_FRAME; p = { ...p, dir: seat.dir }; }
+    else if (this.store.presentation?.presenter === u.id && !this.store.presentation.away) p = { ...p, dir: 'down' }; // presenting: face the room, back to the board
     else {
       const phase = (ms + hash(u.id) * 37) % 1800;
       bob = u.presence === 'away' ? (phase < 900 ? 1 : 0) : phase < 300 ? 1 : 0; // tiny breathing bob
@@ -1026,7 +1181,7 @@ export class Engine {
     // effects: a sway for the whole figure, then layers behind and in front of the body (see effects.ts)
     const fx = u.effects?.length ? u.effects : null, seed = hash(u.id);
     const sway = fx ? effectSway(fx, ms, seed, p) : null;
-    if (sway && (sway.dx || sway.rot)) { ctx.save(); ctx.translate(x + 8 + sway.dx, baseY); ctx.rotate(sway.rot); ctx.translate(-x - 8, -baseY); }
+    if (sway && (sway.dx || sway.rot || sway.dy)) { ctx.save(); ctx.translate(x + 8 + sway.dx, baseY + sway.dy); ctx.rotate(sway.rot); ctx.translate(-x - 8, -baseY); }
     const top = baseY - c.frameH + bob + walkBob - 1 + (seat ? 2 : 0);
     const fxCtx = fx && { ctx, x, top, baseY, ms, seed, p, blit: (n: string, bx: number, by: number) => this.blit(ctx, n, Math.round(bx), Math.round(by)), has: (n: string) => !!this.f(n) };
     if (fxCtx) drawEffects('back', fxCtx, fx);
@@ -1036,7 +1191,7 @@ export class Engine {
     if (carrying && !hand.behind) drawBag();
     ctx.globalAlpha = 1;
     if (fxCtx) drawEffects('front', fxCtx, fx);
-    if (sway && (sway.dx || sway.rot)) ctx.restore();
+    if (sway && (sway.dx || sway.rot || sway.dy)) ctx.restore();
     const icon = u.holding && !carrying ? ITEM_ICON.get(u.holding) : undefined;
     if (icon) {
       const ih = seat ? ITEM_HAND.down : ITEM_HAND[p.dir] ?? ITEM_HAND.down;
@@ -1044,11 +1199,18 @@ export class Engine {
       ctx.fillText(icon, x + ih.dx, baseY + ih.dy + bob + (p.walking ? swing : 0));
       ctx.textAlign = 'start'; ctx.textBaseline = 'alphabetic';
     }
+    if (u.reading && seat && this.f('reading_book')) this.blit(ctx, 'reading_book', Math.round(x + 2), Math.round(baseY - 16 + bob)); // holding up the book
+    if (u.eating && seat) { // fork down to the plate and up to the mouth; 💬 when they don't mind company
+      const up = Math.floor(ms / 450) % 2, fx = seat.dir === 'left' ? x + 4 : seat.dir === 'right' ? x + 11 : x + 11;
+      if (seat.dir !== 'up') { ctx.fillStyle = '#e8e8f0'; ctx.fillRect(fx, baseY - (up ? 11 : 7), 1, 3); ctx.fillStyle = '#6a6a76'; ctx.fillRect(fx, baseY - (up ? 8 : 4), 1, 1); }
+      if (u.eating.open) { ctx.font = '7px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = '#000'; ctx.fillText('💬', x + 14, top + 2); ctx.textAlign = 'start'; ctx.textBaseline = 'alphabetic'; }
+    }
     // facing a desk: the chair's backrest is in front of the sitter
     if (seat?.dir === 'up' && seat.type === 'chair' && this.f('chair_up_back')) {
       this.blit(ctx, 'chair_up_back', seat.x * TS, seat.y * TS);
     }
   }
+
 
   private drawDeskTag(owner: ClientUser, x: number, y: number) {
     const ctx = this.ctx;
@@ -1067,11 +1229,10 @@ export class Engine {
     if (u.emote === 'knock') return 'bubble_bang';
     // in the Arcade's open voice everyone is in the room call: show the joystick/eyes unless they're talking
     if (u.game && !u.speaking && (!u.callId || u.callId.startsWith('room:'))) return u.game.role === 'player' ? 'bubble_game' : 'bubble_watch';
-    if (u.callId) return u.deafened ? 'bubble_deaf' : 'bubble_talk';
+    if (u.callId) return u.deafened ? u.muted ? 'bubble_mute_deaf' : 'bubble_deaf' : 'bubble_talk';
     if (!underground(u) && (u.instance || u.meeting)) return 'bubble_meeting'; // a real calendar meeting, not just standing in the Meeting room; beats a manual "In a call"
     if (u.presence === 'in_call') return 'bubble_headset';
     if (u.presence === 'away') return 'bubble_zzz';
-    if (u.status) return 'bubble_dots';
     return null;
   }
 
@@ -1083,25 +1244,38 @@ export class Engine {
     const key = `${u.name}|${isMe}`;
     let plate = this.nameplates.get(key);
     if (!plate) {
-      const label = u.name.split(/\s+/)[0].slice(0, 10);
-      const w = textWidth(label) + 4;
-      plate = document.createElement('canvas'); plate.width = w; plate.height = 8;
+      const lines = plateLines(u.name);
+      const w = Math.max(...lines.map(textWidth)) + 4, h = lines.length * 7 + 1;
+      plate = document.createElement('canvas'); plate.width = w; plate.height = h;
       const pc = plate.getContext('2d')!;
       pc.fillStyle = isMe ? 'rgba(90,50,20,0.85)' : 'rgba(30,18,22,0.72)';
-      pc.fillRect(1, 0, w - 2, 8); pc.fillRect(0, 1, w, 6);
-      drawText(pc, label, 2, 1, isMe ? '#ffe08a' : '#fff4e0');
+      pc.fillRect(1, 0, w - 2, h); pc.fillRect(0, 1, w, h - 2);
+      lines.forEach((l, i) => drawText(pc, l, Math.floor((w - textWidth(l)) / 2), 1 + i * 7, isMe ? '#ffe08a' : '#fff4e0'));
       this.nameplates.set(key, plate);
     }
     // neighbours side by side: stagger plates so names stay readable
     const px = x + 8 - Math.floor(plate.width / 2);
     let py = baseY + 1;
     for (let tries = 0; tries < 4; tries++) {
-      const hit = this.placedPlates.some(r => px < r.x + r.w + 1 && px + plate!.width + 1 > r.x && Math.abs(py - r.y) < 8);
+      const hit = this.placedPlates.some(r => px < r.x + r.w + 1 && px + plate!.width + 1 > r.x && py < r.y + r.h && py + plate!.height > r.y);
       if (!hit) break;
-      py += 8;
+      py += plate.height;
     }
-    this.placedPlates.push({ x: px, y: py, w: plate.width });
+    this.placedPlates.push({ x: px, y: py, w: plate.width, h: plate.height });
     ctx.drawImage(plate, px, py);
+
+    // a status that just changed: a small note fades up for a few seconds (the hover card keeps the text)
+    const seen = this.statusSeen.get(u.id), cur = u.status ?? '';
+    if (!seen) this.statusSeen.set(u.id, { text: cur, at: -1e9 });
+    else if (seen.text !== cur) { seen.text = cur; seen.at = cur ? ms : -1e9; }
+    const sAge = ms - (this.statusSeen.get(u.id)?.at ?? -1e9);
+    if (sAge >= 0 && sAge < 4000) {
+      const a = sAge < 3000 ? 1 : 1 - (sAge - 3000) / 1000, nx = px + plate.width - 2, ny = py - 7 - Math.floor(sAge / 700);
+      ctx.save(); ctx.globalAlpha = a;
+      ctx.fillStyle = '#fff4e0'; ctx.fillRect(nx, ny, 7, 5); ctx.fillRect(nx + 1, ny + 5, 2, 1);
+      ctx.fillStyle = '#7a5a50'; ctx.fillRect(nx + 1, ny + 1, 5, 1); ctx.fillRect(nx + 1, ny + 3, 3, 1);
+      ctx.restore();
+    }
 
     // emote bubble with a 2-frame pop
     const kind = this.bubbleFor(u, p);
@@ -1118,7 +1292,7 @@ export class Engine {
     }
     if (kind === 'bubble_bang') dy += Math.floor(ms / 180) % 2 ? -1 : 0;
     else dy += Math.floor((ms + hash(u.id) * 13) / 600) % 2 ? 0 : -1;
-    this.blit(ctx, kind, x + 9, baseY - 24 - 12 + dy);
+    this.blit(ctx, kind, x + (kind === 'bubble_mute_deaf' ? 4 : 9), baseY - 24 - 12 + dy); // the wide bubble shifts left so its tail stays over the head
   }
 
   /** Fake turn-taking for two people on a call, from server time so every viewer sees the same conversation. */
@@ -1224,7 +1398,7 @@ export class Engine {
 
   private toiletTip(id: string) {
     const s = this.store.toilets[id];
-    if (toiletFull(s)) return this.store.admin ? 'Toilet · full 🤢 · click to plunge' : 'Toilet · out of order 🤢';
+    if (toiletFull(s)) return 'Toilet · out of order 🤢';
     const names = (ids: string[]) => ids.map(id => this.store.name(id).split(' ')[0]).join(', ');
     const line = s?.queue.length ? ` · ${s.queue.length} in line` : '';
     if (s?.in.includes(this.store.me)) return `Toilet · you're in here${s.in.length > 1 ? ` with ${names(s.in.filter(id => id !== this.store.me))}` : ''}`;
@@ -1267,7 +1441,7 @@ export class Engine {
       ctx.restore();
     }
   }
-  private drawAmbient(ctx: CanvasRenderingContext2D, camX: number, camY: number) {
+  private drawAmbient(ctx: CanvasRenderingContext2D, camX: number, camY: number, ms: number) {
     const now = new Date(); const h = now.getHours() + now.getMinutes() / 60;
     // [hour, r,g,b, alpha] keyframes for a multiply tint
     const K: [number, number, number, number, number][] = [
@@ -1288,9 +1462,14 @@ export class Engine {
     // lamps that are on glow: softly by day, warmly in the evening
     ctx.globalCompositeOperation = 'lighter';
     ctx.globalAlpha = Math.max(0.1, alpha * 0.55);
+    const day = ctx.globalAlpha;
     for (const o of this.lights) {
       if (!this.isOn(o)) continue;
-      ctx.drawImage(this.glow, o.x * TS + 8 - 40, (o.y + o.h) * TS - 26 - 40);
+      if (o.type === 'reading_table') { // the banker's lamp sits mid-table, its pool on the top and a little beyond
+        ctx.globalAlpha = Math.max(0.18, day) * (this.flickers(o, ms) ? 0.6 : 1);
+        ctx.drawImage(this.greenGlow, (o.x + o.w / 2) * TS - 28, (o.y + o.h) * TS - 14 - 28);
+        ctx.globalAlpha = day;
+      } else ctx.drawImage(this.glow, o.x * TS + 8 - 40, (o.y + o.h) * TS - 26 - 40);
     }
     ctx.restore();
   }
@@ -1344,16 +1523,56 @@ export class Engine {
     if (mp) this.drawLabel('You', mp.x * TS + 8, mp.y * TS + TS - 26, camX, camY, 1, true);
   }
 
-  private drawLabel(text: string, wx: number, wy: number, camX: number, camY: number, alpha = 1, accent = false) {
+  /** Two frames: the bell dips a pixel for the first ~300 ms after a ring. */
+  private bellFrame(id: string, ms: number) {
+    const ring = this.store.bells[id], age = ring ? performance.now() - ring.at : Infinity;
+    return age < 300 && Math.floor(age / 100) % 2 === 0 ? 'bell_1' : 'bell';
+  }
+  /** A reading table's lamp dips for a moment now and then (offset per table so they don't flicker together). */
+  private flickers(o: MapObject, ms: number) {
+    const t = (ms + hash(o.id) * 1301) % 7000;
+    return t < 90 || (t > 180 && t < 240);
+  }
+  /** Two frames: every few seconds one hat swings for a moment (offset per rack so several don't sync). */
+  private hatRackFrame(o: MapObject, ms: number) {
+    return (ms + hash(o.id) * 997) % 4500 < 450 ? 'hat_rack_1' : 'hat_rack';
+  }
+  /** A small "ding" over whoever rang a bell, for about a second. */
+  private drawBellDings(poses: Map<string, Pose>, camX: number, camY: number, ms: number) {
+    const now = performance.now();
+    for (const ring of Object.values(this.store.bells)) {
+      const age = now - ring.at, p = poses.get(ring.userId);
+      if (age > 1000 || !p) continue;
+      this.drawLabel('ding!', p.x * TS + 8, p.y * TS - 18 - Math.round(age / 120), camX, camY, age < 700 ? 1 : 1 - (age - 700) / 300);
+    }
+  }
+  /** Once per device: walking within two tiles of the hat rack with nothing in your pockets suggests a hat. */
+  private hatNudgeAt: number | null = null;
+  private drawHatNudge(me: ClientUser | undefined, poses: Map<string, Pose>, camX: number, camY: number, ms: number) {
+    const p = me && poses.get(me.id);
+    if (!p || !this.store.connected || this.store.items.some(i => i.startsWith('hat:'))) return;
+    const rack = MAP.objects.find(o => o.type === 'hat_rack'); if (!rack) return;
+    const near = Math.max(rack.x - p.tile.x, p.tile.x - (rack.x + rack.w - 1), 0) <= 2 && Math.max(rack.y - p.tile.y, p.tile.y - (rack.y + rack.h - 1), 0) <= 2;
+    if (this.hatNudgeAt === null) {
+      if (!near) return;
+      try { if (localStorage.getItem('deck.hatNudge')) { this.hatNudgeAt = -Infinity; return; } localStorage.setItem('deck.hatNudge', '1'); } catch { /* private mode: nudge once per page */ }
+      this.hatNudgeAt = ms;
+    }
+    const age = ms - this.hatNudgeAt;
+    if (age > 5000) return;
+    this.drawLabel('Grab a hat? 🎩', (rack.x + rack.w / 2) * TS, rack.y * TS - 8 - Math.round((Math.sin(ms / 220) + 1)), camX, camY, age > 4000 ? 5 - age / 1000 : 1, true);
+  }
+
+  private drawLabel(text: string, wx: number, wy: number, camX: number, camY: number, alpha = 1, accent = false, size = 12) {
     const ctx = this.ctx, dpr = window.devicePixelRatio || 1;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.font = '600 12px ui-rounded, system-ui, sans-serif';
-    const w = ctx.measureText(text).width + 14;
-    const sx = ((wx - camX) * this.px) / dpr - w / 2, sy = ((wy - camY) * this.px) / dpr - 26;
+    ctx.font = `600 ${size}px ui-rounded, system-ui, sans-serif`;
+    const w = ctx.measureText(text).width + size * 1.17, h = Math.round(size * 1.83);
+    const sx = ((wx - camX) * this.px) / dpr - w / 2, sy = ((wy - camY) * this.px) / dpr - h - 4;
     ctx.globalAlpha = alpha;
-    ctx.fillStyle = accent ? 'rgba(90,50,20,0.96)' : 'rgba(33,22,26,0.94)'; ctx.strokeStyle = accent ? '#f2b45a' : '#8a5a3c'; ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.roundRect(sx, sy, w, 22, 6); ctx.fill(); ctx.stroke();
-    ctx.fillStyle = accent ? '#ffe08a' : '#ffe9c4'; ctx.fillText(text, sx + 7, sy + 15);
+    ctx.fillStyle = accent ? 'rgba(90,50,20,0.96)' : 'rgba(33,22,26,0.94)'; ctx.strokeStyle = accent ? '#f2b45a' : '#8a5a3c'; ctx.lineWidth = size < 12 ? 1.5 : 2;
+    ctx.beginPath(); ctx.roundRect(sx, sy, w, h, size < 12 ? 5 : 6); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = accent ? '#ffe08a' : '#ffe9c4'; ctx.fillText(text, sx + size * 0.58, sy + h * 0.68);
     ctx.globalAlpha = 1;
   }
 
@@ -1366,13 +1585,14 @@ export class Engine {
     const voiceRoom = this.store.roomCallOf(u);
     const presence = voiceRoom ? `in ${voiceRoom.name} voice` : u.door === 'thinking' ? 'packing up…' : u.door === 'leaving' ? 'heading out' : u.door === 'arriving' ? 'just arrived'
       : underground(u) ? 'somewhere underground' : u.instance ? 'in the meeting' : u.meeting ? `in a meeting until ${this.store.clock(u.meeting)}`
-      : u.callId ? `talking with ${this.store.names(this.store.callPeers(u))}` : u.presence === 'in_call' ? 'in a call' : u.presence === 'away' ? 'away' : room?.rules.occupantLabel ?? 'around';
+      : u.eating ? `eating ${ITEMS.get(u.eating.item)?.label.toLowerCase() ?? 'lunch'}${u.eating.open ? ' · open to talk' : ''}` : u.callId ? `talking with ${this.store.names(this.store.callPeers(u))}` : u.presence === 'in_call' ? 'in a call' : u.presence === 'away' ? 'away' : room?.rules.occupantLabel ?? 'around';
     const lines = [`${u.name}${u.id === this.store.me ? ' (you)' : ''} · ${presence}`];
     if (u.game) lines.push(this.store.gameDescription(u.game.cabinet, u.id));
     if (u.status) lines.push(`“${u.status}”`);
     if (u.tz && u.id !== this.store.me) lines.push(localTime(u.tz));
     const extra = [u.following && `following ${this.store.name(u.following).split(' ')[0]}`, u.holding && ITEM_ICON.get(u.holding)].filter(Boolean).join(' · ');
     if (extra) lines.push(extra);
+    if (u.reading) lines.push(`📖 reading ${this.store.library.articles.find(a => a.id === u.reading)?.title ?? 'an article'}`);
     if (this.selected?.id !== id) lines.push(u.id === this.store.me ? 'click to react'
       : this.store.sameRoomCall(u) ? 'click for volume & more' : room?.rules.knock === 'disabled' ? `${room.name}: no knocking · click for more` : 'click for actions');
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);

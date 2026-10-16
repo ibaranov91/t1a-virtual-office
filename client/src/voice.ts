@@ -1,5 +1,5 @@
 import { AFK_MS, type RtcSignal } from '../../shared/protocol';
-import { audio, forgetMedia, needsGesture, playMedia, resume, setAudioDeafened } from './audio';
+import { audio, forgetMedia, playMedia, setAudioDeafened } from './audio';
 import { prefs, savePrefs, subscribePrefs } from './prefs';
 import type { ClientUser, Store } from './net';
 
@@ -12,7 +12,7 @@ const rid = () => Math.random().toString(36).slice(2, 10);
 const around = (u: ClientUser) => !u.bot && u.presence !== 'offline' && u.door !== 'thinking' && u.door !== 'leaving';
 
 export class Voice {
-  muted = prefs.muted;
+  muted = true;
   deafened = prefs.deafened;
   mode = prefs.mode;
   spaceHeld = false;
@@ -48,8 +48,8 @@ export class Voice {
     this.afk = window.setInterval(() => this.checkAfk(), 15000);
     setAudioDeafened(this.deafened);
     this.unsub = subscribePrefs(() => {
-      const changed = this.muted !== prefs.muted || this.deafened !== prefs.deafened || this.mode !== prefs.mode;
-      this.muted = prefs.muted; this.deafened = prefs.deafened; this.mode = prefs.mode;
+      const changed = this.deafened !== prefs.deafened || this.mode !== prefs.mode;
+      this.deafened = prefs.deafened; this.mode = prefs.mode;
       if (!changed) return;
       this.spaceHeld = false; setAudioDeafened(this.deafened);
       if (this.owner && this.callId) {
@@ -58,8 +58,6 @@ export class Voice {
       this.sendRule(); this.store.changed();
     });
   }
-  get needsGesture() { return needsGesture(); }
-  resumeAudio() { void resume(); }
 
   // Used for creation, incoming signals, pruning and both UI counts.
   private eligible(u: ClientUser) {
@@ -77,7 +75,7 @@ export class Voice {
     if (!owner || newCall) this.stopVoice();
     if (newOwner) this.inst = rid();
     if (owner && (newOwner || newCall)) {
-      this.muted = prefs.muted; this.deafened = prefs.deafened; this.mode = prefs.mode;
+      this.muted = !this.privateCall; this.deafened = prefs.deafened; this.mode = prefs.mode;
       this.lastActivity = Date.now();
       if (callId) {
         this.store.send({ t: 'mute', muted: this.muted }); this.store.setDeafen(this.deafened);
@@ -133,10 +131,16 @@ export class Voice {
     else this.store.toast({ kind: 'info', text: error!, expires: 6000 });
     this.store.changed();
   }
-  toggleMute() {
+  /** Knock calls (not `room:`) start unmuted. Rooms start muted on every entry: walking in never puts you on air. */
+  private get privateCall() { return !!this.callId && !this.callId.startsWith('room:'); }
+  get inRoomCall() { return !this.privateCall && !!this.callId; }
+  setMuted(muted: boolean) {
     if (!this.store.voiceOwner || !this.store.connected) return;
-    this.muted = !this.muted; prefs.muted = this.muted; savePrefs();
+    this.muted = muted;
     this.store.send({ t: 'mute', muted: this.muted }); this.sendRule(); this.store.changed();
+  }
+  toggleMute() {
+    this.setMuted(!this.muted);
   }
   toggleDeafen() {
     if (!this.store.voiceOwner || !this.store.connected) return;

@@ -53,6 +53,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
   }
 
   func applicationDidFinishLaunching(_ note: Notification) {
+    NotificationCenter.default.addObserver(forName: NSWindow.didChangeOcclusionStateNotification, object: nil, queue: .main) { [weak self] n in
+      if (n.object as? NSWindow) === self?.web.window { self?.updateCovered() }
+    }
     NSApp.mainMenu = editMenu()
 
     let config = WKWebViewConfiguration()
@@ -168,6 +171,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
     else { web.removeFromSuperview() }
     if onDesk { desk.orderFront(nil) } else { desk.orderOut(nil) }
     pinButton?.state = pinned ? .on : .off
+    DispatchQueue.main.async { self.updateCovered() } // the web view's window may have just changed
+  }
+
+  /// Tell the page when whatever hosts the web view is fully hidden behind other windows, so it stops drawing
+  /// (a pinned desktop window is "visible" to WebKit all day). No window at all counts as covered too.
+  var covered = false
+  func updateCovered() {
+    let now = web.window.map { !$0.occlusionState.contains(.visible) } ?? true
+    guard now != covered else { return }
+    covered = now
+    js("window.__deckNative?.setCovered(\(now))")
   }
 
   func fill(_ parent: NSView, with child: NSView) {
@@ -404,6 +418,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
   func webView(_ w: WKWebView, requestMediaCapturePermissionFor origin: WKSecurityOrigin, initiatedByFrame frame: WKFrameInfo,
                type: WKMediaCaptureType, decisionHandler: @escaping (WKPermissionDecision) -> Void) {
     decisionHandler(type == .microphone ? .grant : .deny)
+  }
+
+  // <input type=file> (Slides in presentation mode): WKWebView draws no picker of its own.
+  func webView(_ w: WKWebView, runOpenPanelWith parameters: WKOpenPanelParameters, initiatedByFrame frame: WKFrameInfo,
+               completionHandler: @escaping ([URL]?) -> Void) {
+    let panel = NSOpenPanel()
+    panel.allowsMultipleSelection = parameters.allowsMultipleSelection
+    panel.canChooseDirectories = parameters.allowsDirectories
+    panel.canChooseFiles = true
+    if #available(macOS 11.0, *) { panel.allowedContentTypes = [.png, .jpeg, .pdf] }
+    else { panel.allowedFileTypes = ["png", "jpg", "jpeg", "pdf"] }
+    if let host = w.window, host.isVisible {
+      panel.beginSheetModal(for: host) { completionHandler($0 == .OK ? panel.urls : nil) }
+    } else {
+      // Popover: it's transient and would close when the panel takes focus, taking the web view (and the page's file input) with it.
+      let behavior = popover.behavior
+      popover.behavior = .applicationDefined
+      NSApp.activate()
+      let ok = panel.runModal() == .OK
+      popover.behavior = behavior
+      completionHandler(ok ? panel.urls : nil)
+    }
   }
 
   // target=_blank / window.open (Meet links etc.) go to the default browser.

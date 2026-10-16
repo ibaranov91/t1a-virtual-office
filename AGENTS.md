@@ -5,16 +5,31 @@ one shared floor. You walk by clicking, knock on someone to start a voice call, 
 glance. Product intent and design rules are in `REQUIREMENTS.md`; read it before adding features.
 Hackathon project: favor small, working, demo-able steps.
 
+## Start here
+1. **[docs/MAP.md](docs/MAP.md)**: generated floor plans (rooms, furniture, doorways, dungeon), the rooms table, every
+   clickable object with its tile, and free space per room. Read it instead of decoding `gen-map.mjs`.
+2. **[docs/ADDING-A-FEATURE.md](docs/ADDING-A-FEATURE.md)**: which files to touch, by grep anchor, for a new clickable
+   object (`use.kind`), intent, per-person field, effect, creature behavior, sprite, room or panel, plus the merge rules.
+3. **`npm run where -- <thing>`**: a use.kind, object type, room, object id (`o224`) or tile (`11,14`): where it is on
+   the grid and every line of code that mentions it; for a use.kind, a ✓/✗ list of the places it must be wired.
+4. How a click on each `use.kind` is routed lives in one table, `USE_KINDS` in `shared/map.ts`.
+
+`npm run gen` regenerates `shared/tilemap.json`, `docs/MAP.md` and the art; commit all three after changing a generator.
+
 ## Layout
 - `shared/`: code and data used by both sides. `map.ts` (A* pathfinding, rooms, seats), `protocol.ts`
   (every WebSocket message), `tilemap.json` (generated, don't hand-edit).
 - `server/src/`: Node + `ws`, one process, state in memory, saved to `data/state.json` every 30 s.
+  A file that fails to load is moved to `data/state.json.bad-<time>` (never overwritten) and the server starts empty;
+  `data/backups/` keeps one copy a day (last 7) plus deploy.sh's `state-predeploy-*` (last 10). The dump has a
+  `version` (`STATE_VERSION` in `world.ts`): new migrations key on it.
   `world.ts` holds users, moves, knocks, calls, desks and the door. `bots.ts` holds dev bots. `index.ts` does
   REST, login, static files and WebSocket.
 - `client/src/`: React only for chrome (`App.tsx`). The floor is one `<canvas>` (`engine.ts`).
   `net.ts` is the store plus the WebSocket client, `voice.ts` is WebRTC voice, `sounds.ts` is synthesized UI sounds.
 - `macos/`: the menu bar app (Swift, AppKit + WKWebView). See "macOS app" below.
-- `scripts/`: `gen-map.mjs` (writes `shared/tilemap.json`), `gen-assets.mjs` (writes `client/public/assets/*`),
+- `scripts/`: `gen-map.mjs` (writes `shared/tilemap.json`), `map-atlas.mjs` (writes `docs/MAP.md`), `where.mjs`
+  (`npm run where`), `gen-assets.mjs` (writes `client/public/assets/*`),
   `gen-music.mjs` (`npm run gen:music`, needs ffmpeg: the jukebox library from `scripts/music.json`), `deploy.sh`
   and `instances.txt`.
 - The art is procedural placeholder art. Run `npm run gen` after changing either generator, and commit the regenerated files.
@@ -84,8 +99,8 @@ npm run typecheck    # run before every commit or deploy
   later arrivals watch from the balcony, and the records board shows best runs by level and team size. The server
   sequences inputs; clients predict locally and roll back with the shared `Runner`. `npm test` includes the deterministic
   simulation and delayed-transport netcode harness; `scripts/park-replay.mjs <level> <team> [--every 30]` replays solutions.
-- **Edit mode** (pencil in the top bar, admins only: `DECK_ADMINS`, emails, default `ivan.baranov@t1a.com`; `npm run dev`
-  adds the name `dev`, and names only count for logins without an email). Admins drag furniture and rugs, add from the
+- **Edit mode** (pencil in the top bar, admins only: `DECK_ADMINS`, comma-separated emails, no default: set it in `/etc/the-deck.env` (and each instance's env file); `npm run dev` and `npm test` set their own
+  (dev adds the name `dev`), and names only count for logins without an email). Admins drag furniture and rugs, add from the
   catalog (one of each generated type), recolor/resize rugs, Reset. Walls, floors and rooms stay as generated; the
   furniture and rugs are a `Layout` the server owns (`edit` → `layout` to everyone, saved in `state.json` once changed).
   `applyLayout` in `shared/map.ts` derives walkable tiles, chair facing, seats and plant slots from it; `layoutProblem`
@@ -100,26 +115,32 @@ npm run typecheck    # run before every commit or deploy
   and the cleaner. Not users: their own `creatures`/`creature` messages, never in the people list, never knock. They run
   everywhere, prod included (`PETS=0` turns them off). Holding a coffee or tea, click a table tile to put the cup down
   (`cup_put`; at most `MAX_CUPS`, saved in `state.json`); the cleaner paths to settled cups, wipes, takes them away. Cups
-  also vanish after 30 min. The ghost of Mazurkevich is client-only (night hours, or 3 min an hour); in dev,
+  also vanish after 30 min. Clicking someone's cup walks you over and clears it (`cup_take`, plates excluded); if the cleaner
+  is in that room she praises you (`Creatures.praise`) and you earn `tidy`. The ghost of Mazurkevich is client-only (night hours, or 3 min an hour); in dev,
   `__deck.engine.critters.summonGhost()` brings him out.
 - **Presentation mode** (`server/src/presentation.ts`, `client/src/Presentation.tsx`): the Meeting room's wall screen
-  (`use.kind: 'presentation'`) takes PNG/JPG slides or one PDF (rendered with poppler's `pdftoppm` if the machine has it,
-  else refused) behind a PIN (`DECK_PRESENT_PIN`, default `1234`), via `POST /api/present/upload` with the session in
+  (`use.kind: 'presentation'`) takes PNG/JPG slides or one PDF (the browser renders PDF pages to images with pdf.js, `client/src/pdfSlides.ts`,
+  before upload; the server's poppler `pdftoppm` path is only a fallback for old clients) behind a PIN (`DECK_PRESENT_PIN`, default `1234`), via `POST /api/present/upload` with the session in
   `x-deck-session`. Decks are files in `data/decks/<id>/` and survive restarts; who's presenting is memory only. Everyone in
   the screen's room sees the slides as a 90s magazine page; the presenter flips with ← →, Stop ends it, and it ends by itself
   60 s after the presenter's last tab closes.
-- **Admin room & Berghain** (east column, x 65-73): a room with `rules.access: 'admins'` is walkable only for admins
+- **Admin room & Berghain** (east column, x 65-73): a room with `rules.access: 'admins'` is walkable only for sysadmins (`DECK_SYSADMINS`, no default, set in the same env file; admins who are not listed there are locked out like everyone else)
   (`findPath`/`pathTo` take `keepOut`; the server sends non-admins' paths in `move` so clients match). Berghain's
   `use.kind: 'toilet'` stalls live in `server/src/toilets.ts` (in memory): up to `TOILET_CAPACITY` (4) inside (hidden,
   heads over the half door), the rest line up straight out from the door (`stallLine`) and move in as places free up.
-  Full after `TOILET_FULL` visits; drains over time or an admin plunges. Knocks on someone inside go to Later. With
+  Full after `TOILET_FULL` visits; drains over time. Knocks on someone inside go to Later. With
   company inside, "Rack a line" puts a line + card on the stall's shelf; it needs `drugs` in your inventory. The
   bouncer (`use.kind: 'dealer'`) puts `drugs` in your inventory (`User.items`, saved, sent only to you in `me`, at most
   `ITEMS_MAX` of a kind); racking takes one. **Sniff** (`toilet_sniff`) takes a line off the shelf and gives you the `unicorns` effect.
-- **Pockets (inventory)** are `User.items` (strings): `drugs` from the bouncer and hats as `hat:<style>` from the Lobby hat stand
+- **Teleport** (office admins; "Teleport" on a person's action wheel and in the GM panel): `teleport` → `World.teleport` moves the admin at once to the nearest free tile beside the target (same room, never into the Admin room unless a sysadmin) and broadcasts `teleport {from, to}`; the 2.2 s portal animation is client-only (`portalStage` / `drawPortal` in engine.ts: portal opens at the origin, they step in, one opens at the destination, they step out; the camera heads for the far side early). Not from or into a meeting or the dungeon.
+- **Renaming people** (office admins; "Rename" on a person's action wheel and in the GM panel): `rename` → `World.rename` sets `User.name` and rebroadcasts the `state` snapshot. Names stay unique (case-insensitive), never empty, 24 chars, never a plain-name admin entry; bots can't be renamed. The name is what pin-login instances match on, so a renamed impostor frees the original name.
+- **Reception bell** (Lobby, `use.kind: 'bell'`, `onTop` so it shares the counter's tile): `ring` → `bell` broadcast, one ring a second per person; from farther away the server walks you over first; the first ring earns `bellringer`. Bots never ring. The sound is panned and faded by `Soundscape.ringBell` (never silent: a faint carry from other rooms).
+- **Pockets (inventory)** are `User.items` (strings): `drugs` from the bouncer and hats as `hat:<style>` from the Lobby hat rack by reception
   (`use.kind: 'dealer'` hands out one of its `items`; one of each hat). The 🎒 button lists them; wearing a hat is the `hat`
-  effect, and a non-GM may only wear a hat that's in their pockets. Judges (`DECK_JUDGES`) find `hat:judge` and office admins
-  `hat:admin` in their pockets on connect (`grantHats`, by sign-in email; put on the first time, removable after).
+  effect, and a non-GM may only wear a hat that's in their pockets. Office admins find `hat:admin` in their
+  pockets on connect (`grantHats`, by sign-in email; put on the first time, removable after). Special hats (`SPECIAL_HATS`: the judge's
+  hat and the Odyssey laurel, winged and crested helmets) are gifted: in the GM panel an admin picks a person and clicks a hat under
+  "Gift a hat" (`gift_hat`), which puts `hat:<style>` in their pockets (even offline) and on their head.
 - **Room behavior is data.** Knock rules, meeting links and home-desk rooms live in `tilemap.json`
   (from `gen-map.mjs`), not in code.
 

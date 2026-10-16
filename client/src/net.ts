@@ -1,10 +1,11 @@
 // WebSocket client + the client-side mirror of server state.
 import mapJson from '../../shared/tilemap.json';
-import { applyLayout, besideObject, doorwayTiles, isWalkable, pathTo, roomAt, sampleMove, type Dir, type Tile, type TileMap } from '../../shared/map';
-import { ACHIEVEMENTS, underground, DUNGEON_INSTANCE, PLANT_STAGES, plantName, ROOM_VOICE_MAX, type JukeboxState, type JukeboxAction, type AgendaItem, type LayoutEdit, type CalEvent, type MeetingRoomInfo, type ChatMsg, type LiveDeck, type ObjectState, type ToiletState, type ClientMsg, type PublicUser, type Reaction, type RtcSignal, type ServerMsg, type Creature, type Cup, CUP_ITEMS } from '../../shared/protocol';
+import { applyLayout, besideObject, doorwayTiles, isWalkable, objectById, pathTo, roomAt, sampleMove, type Dir, type Tile, type TileMap } from '../../shared/map';
+import { FOOD_ITEMS } from '../../shared/lunch';
+import { ACHIEVEMENTS, underground, DUNGEON_INSTANCE, PLANT_STAGES, plantName, ROOM_VOICE_MAX, type JukeboxState, type JukeboxAction, type AgendaItem, type LayoutEdit, type CalEvent, type MeetingRoomInfo, type ChatMsg, type LiveDeck, type ObjectState, type ToiletState, type ClientMsg, type PublicUser, type Reaction, type RtcSignal, type ServerMsg, type Creature, type Cup, CUP_ITEMS, type LibraryState } from '../../shared/protocol';
 import { ParkLoop } from './park/loop';
 import type { CabinetSummary, ParkRecords } from '../../shared/protocol';
-import { playPark, playHand, playKnock, playPop, playDungeon } from './sounds';
+import { playPark, playHand, playKnock, playPop, playDungeon, playPet } from './sounds';
 import type { Soundscape } from './soundscape';
 import { bestOffset, clockSample, CLOCK_SAMPLES, type ClockSample } from './clockSync';
 
@@ -22,6 +23,7 @@ export interface Toast {
   id: number; kind: 'knock_in' | 'knock_out' | 'knock_again' | 'chat' | 'info' | 'link' | 'meeting' | 'call_moved';
   text: string; link?: string; knockId?: string; expires?: number; hint?: string;
   roomId?: string;
+  actions?: { label: string; run: () => void; ghost?: boolean }[]; // extra buttons (the one-time mute prompt)
   meetingKey?: string; // meeting: one-click Go into its room
   userId?: string; // the other person, for knock_again and chat
 }
@@ -32,6 +34,9 @@ export interface Flying { fromId: string; toId: string; emoji: string; at: numbe
 /** Item id -> what it looks like, from whatever the map's objects hand out. */
 export const ITEMS = new Map(MAP.objects.flatMap(o => (o.use?.kind === 'take' ? o.use.items : [])).map(i => [i.id, i]));
 
+/** An admin's portal trip: a portal opens at `from`, they step in, one opens at `to`, they step out (timeline in engine.ts). `at` is performance.now(). */
+export const PORTAL_MS = 2200; // the whole trip, see engine.ts
+export interface PortalFx { userId: string; from: Tile; to: Tile; at: number }
 export interface DungeonFx { kind: 'fall' | 'land' | 'climb'; user: ClientUser; tile: Tile; at: number }
 
 export interface Pose { x: number; y: number; dir: Dir; walking: boolean; tile: Tile }
@@ -82,6 +87,7 @@ export class Store {
   unread = new Map<string, number>();
   chatWith: string | null = null;       // open conversation
   reactions: Flying[] = [];             // the engine draws and prunes these
+  bells: Record<string, { userId: string; at: number }> = {}; // the last ring of each bell (the engine bounces it and shows a ding)
   objectFx: { objectId: string; at: number }[] = []; // someone just used it (coffee steam)
   dungeon: { key: Tile | null; hasKey: boolean; seen: Set<number> } | null = null;
   dungeonOpening = false;
@@ -91,7 +97,8 @@ export class Store {
   version = 0;    // bumps on any change, including scene-only ones (the engine reads the store every frame)
   uiVersion = 0;  // bumps only when React chrome has something new to show
   admin = false;      // may rearrange the office (and is a GM: may put effects on anyone)
-  judge = false;      // a hackathon judge: wears the judge's hat
+  sysadmin = false;   // may also walk into the Admin room
+  portalFx: PortalFx[] = [];
   items: string[] = []; // my inventory (what the bouncer sold me)
   layoutVersion = 0;  // bumps whenever the furniture changes; the engine redraws the floor
   added: string | null = null; // the thing I just added, to select it
@@ -209,12 +216,36 @@ export class Store {
   }
   follow(targetId: string | null) { this.send({ t: 'follow', targetId }); }
   react(targetId: string, emoji: Reaction) { this.send({ t: 'react', targetId, emoji }); }
+  ring(objectId: string) { this.send({ t: 'ring', objectId }); }
   use(objectId: string, item?: string) { this.send({ t: 'use', objectId, item }); }
-  plunge(objectId: string) { this.send({ t: 'toilet_plunge', objectId }); }
   rackLine(objectId: string) { this.send({ t: 'toilet_shelf', objectId }); }
+  get dancing() { return !!this.users.get(this.me)?.effects?.some(e => e.kind === 'dance'); }
+  /** Dance in Berghain: on the dance floor object, walk onto a free tile of it first. Dancing already: stop. */
+  dance(floorId?: string) {
+    const me = this.users.get(this.me);
+    if (!me) return;
+    if (this.dancing) return this.setEffect(this.me, 'dance', false);
+    const o = floorId ? MAP.objects.find(o => o.id === floorId && o.use?.kind === 'dance') : undefined;
+    if (o) {
+      const taken = new Set([...this.users.values()].filter(u => u.id !== this.me && u.presence !== 'offline' && !u.instance).map(u => `${u.tile.x},${u.tile.y}`));
+      const tiles: Tile[] = [];
+      for (let y = o.y; y < o.y + o.h; y++) for (let x = o.x; x < o.x + o.w; x++) if (!taken.has(`${x},${y}`)) tiles.push({ x, y });
+      const mine = tiles.find(t => t.x === me.tile.x && t.y === me.tile.y);
+      const dist = (t: Tile) => Math.abs(t.x - me.tile.x) + Math.abs(t.y - me.tile.y);
+      const to = mine ?? tiles.sort((a, b) => dist(a) - dist(b))[0];
+      if (!to) return this.toast({ kind: 'info', text: 'The dance floor is packed 🕺', expires: 3000 });
+      if (!mine) this.moveTo(to);
+    }
+    this.setEffect(this.me, 'dance', true);
+  }
   sniffLine(objectId: string) { this.send({ t: 'toilet_sniff', objectId }); }
   drop() { this.send({ t: 'drop' }); }
   putCup(tile: Tile) { this.send({ t: 'cup_put', tile }); }
+  takeCup(cupId: string) { this.send({ t: 'cup_take', cupId }); }
+  pet(creatureId: string) { this.send({ t: 'pet', creatureId }); }
+  devBat() { this.send({ t: 'dev_bat' }); }
+  lunch(tile: Tile, open: boolean) { this.send({ t: 'lunch', tile, open }); }
+  lunchOpen(open: boolean) { this.send({ t: 'lunch_open', open }); }
   give(targetId: string) { this.send({ t: 'give', targetId }); }
   openChat(withId: string) {
     this.chatWith = withId; this.unread.delete(withId);
@@ -239,8 +270,13 @@ export class Store {
   setPickedTz(tz: string | null) { try { if (tz) localStorage.setItem('deck.tz', tz); else localStorage.removeItem('deck.tz'); } catch { /* storage unavailable */ } this.sendTz(); this.emit(); }
   private sendTz() { this.send({ t: 'tz', tz: this.shareTz ? this.pickedTz ?? this.detectedTz : null }); }
   setStatus(status: string) { this.send({ t: 'status', status }); }
-  setLook(look: PublicUser['look']) { this.send({ t: 'look', look }); }
+  setLook(look: PublicUser['look'], name?: string) { this.send({ t: 'look', look, name }); }
   /** Put an effect on someone (yourself, or anyone if you're a GM), or take it off. */
+  gmItems = new Map<string, string[]>(); // GM only: pockets of the people I looked at
+  requestGmItems(targetId: string) { this.send({ t: 'gm_items', targetId }); }
+  teleport(targetId: string) { this.send({ t: 'teleport', targetId }); }
+  rename(targetId: string, name: string) { this.send({ t: 'rename', targetId, name }); }
+  giftHat(targetId: string, style: string) { this.send({ t: 'gift_hat', targetId, style }); }
   setEffect(targetId: string, kind: string, on: boolean, style?: string) { this.send({ t: 'effect', targetId, kind, on, style }); }
   setPresence(presence: 'online' | 'away' | 'in_call') { this.send({ t: 'presence', presence }); }
   setMeetLink(link: string) { this.send({ t: 'meet_link', link }); }
@@ -282,6 +318,24 @@ export class Store {
     if (to) this.moveTo({ x: to.x, y: to.y });
   }
   achievementsOpen = false;
+  library: LibraryState = { articles: [], reads: [] };
+  libraryOpen = false;
+  fetching: string | null = null; // the article I picked, until I'm sitting down with it
+  private fetchTimer?: ReturnType<typeof setTimeout>;
+  openLibrary(open = true) { this.libraryOpen = open; this.emit(); }
+  publishArticle(url: string, title: string, topic: string) { this.send({ t: 'article_add', url, title, topic }); }
+  removeArticle(id: string) { this.send({ t: 'article_remove', id }); }
+  readArticle(id: string) {
+    this.fetching = id; this.libraryOpen = false; this.emit();
+    clearTimeout(this.fetchTimer); this.fetchTimer = setTimeout(() => { this.fetching = null; this.emit(); }, 20_000);
+    this.send({ t: 'read_start', articleId: id });
+  }
+  readDone() { this.fetching = null; this.send({ t: 'read_done' }); }
+  /** Distinct people who finished this article (not its author). */
+  readCount(articleId: string) {
+    const by = this.library.articles.find(a => a.id === articleId)?.by;
+    return new Set(this.library.reads.filter(r => r.articleId === articleId && r.userId !== by).map(r => r.userId)).size;
+  }
   openAchievements(open = true) { this.achievementsOpen = open; this.emit(); }
   closeMeetings() { this.meetingsOpen = false; this.emit(); }
   goToMeeting(key: string) {
@@ -328,7 +382,7 @@ export class Store {
   linkOpen: { label: string; url: string } | null = null;
   presentation: LiveDeck | null = null; // slides on a screen right now
   presentOpen: string | null = null;    // the screen whose upload panel is open
-  slidesHidden = false;                 // I closed the slides for this deck (the Live chip brings them back)
+  slidesHidden = true;                  // not watching: viewers sit down and say Watch (or use the Live chip)
   openPresent(id: string | null) { this.presentOpen = id; this.emit(); }
   presentSlide(slide: number) { if (this.presentation?.presenter === this.me) this.send({ t: 'present_slide', slide }); }
   presentStop() { this.send({ t: 'present_stop' }); }
@@ -478,7 +532,13 @@ export class Store {
         this.soundscape?.resetCrossings();
         break;
       }
+      case 'user': {
+        const p = msg.user;
+        this.users.set(p.id, { ...p, game: p.game ?? null, path: null, prev: null, faceOverride: null, speaking: false });
+        break;
+      }
       case 'follow': { const u = this.users.get(msg.userId); if (u) u.following = msg.targetId; break; }
+      case 'eating': { const u = this.users.get(msg.userId); if (u) { if (msg.eating) u.eating = msg.eating; else delete u.eating; } break; }
       case 'holding': {
         const u = this.users.get(msg.userId); if (u) u.holding = msg.item;
         if (msg.objectId) this.objectFx = [...this.objectFx.filter(f => performance.now() - f.at < 4000), { objectId: msg.objectId, at: performance.now() }];
@@ -488,16 +548,30 @@ export class Store {
           if (msg.userId === this.me) { playPop(); this.toast({ kind: 'info', text: `${this.name(msg.fromId)} handed you ${it.label.toLowerCase()} ${it.icon}`, expires: 5000 }); }
         }
         if (msg.objectId && it && msg.userId === this.me && CUP_ITEMS.includes(it.id)) this.toast({ kind: 'info', text: `${it.icon} Click a table to put your cup down`, expires: 5000 });
+        if (msg.objectId && it && msg.userId === this.me && FOOD_ITEMS.includes(it.id)) this.toast({ kind: 'info', text: `${it.icon} Click a chair at a picnic table to eat`, expires: 5000 });
         break;
       }
       case 'creatures': this.creatures = new Map(msg.creatures.map(c => [c.id, c])); break;
-      case 'creature': this.creatures.set(msg.creature.id, msg.creature); break;
+      case 'creature': {
+        const was = this.creatures.get(msg.creature.id), me = this.users.get(this.me), c = msg.creature;
+        if (c.pose === 'pet' && was?.pose !== 'pet' && me && Math.hypot(me.tile.x - c.tile.x, me.tile.y - c.tile.y) < 8) playPet(c.kind === 'dog');
+        this.creatures.set(c.id, c); break;
+      }
       case 'cups': this.cups = msg.cups; break;
       case 'instrument': this.setInstruments({ ...this.instruments, [msg.id]: msg.player }); break;
       case 'seat': this.seat = msg.id; break;
       case 'note': this.soundscape?.receiveNote(msg.id, msg.by, msg.note, msg.on, msg.vel, msg.preset, msg.at); return;
       case 'jukebox': if (this.jukeboxReady) this.jukebox = { ...this.jukebox, [msg.id]: msg.state }; break;
       case 'object': this.objects = { ...this.objects, [msg.id]: { on: msg.on } }; break;
+      case 'present_open': this.presentOpen = msg.objectId; break;
+      case 'bell': {
+        const me = this.users.get(this.me), by = this.users.get(msg.userId);
+        if (me?.instance || by?.instance) break;
+        this.bells = { ...this.bells, [msg.objectId]: { userId: msg.userId, at: performance.now() } };
+        const o = objectById(MAP, msg.objectId);
+        if (o) this.soundscape?.ringBell(o);
+        break;
+      }
       case 'toilet': this.toilets = { ...this.toilets, [msg.id]: msg.state }; break;
       case 'react':
         this.reactions.push({ fromId: msg.fromId, toId: msg.toId, emoji: msg.emoji, at: performance.now() });
@@ -529,10 +603,16 @@ export class Store {
         if (this.google === null && msg.google) this.toast({ kind: 'info', text: `Google connected as ${msg.google}`, hint: 'Calls you start now get their own Meet room', expires: 6000 });
         if (!this.calendarAccess && msg.calendar && this.google) this.toast({ kind: 'info', text: 'Google Calendar connected', expires: 4000 });
         const calendarNow = !!msg.calendar && !this.calendarAccess;
-        this.meetLink = msg.meetLink; this.email = msg.email ?? null; this.google = msg.google; this.calendarAccess = !!msg.calendar; this.admin = !!msg.admin; this.judge = !!msg.judge; this.items = msg.items ?? [];
+        this.meetLink = msg.meetLink; this.email = msg.email ?? null; this.google = msg.google; this.calendarAccess = !!msg.calendar; this.admin = !!msg.admin; this.sysadmin = !!msg.sysadmin; this.items = msg.items ?? [];
         if (msg.google !== null) this.googleAuthUrl = null;
         if (this.calendarAccess) this.calendarAuthUrl = null;
         if (calendarNow && this.calendarOpen) this.loadCalendar(); // just granted from the open panel
+        break;
+      }
+      case 'gm_items': this.gmItems.set(msg.targetId, msg.items); break;
+      case 'teleport': {
+        const at = performance.now();
+        this.portalFx = [...this.portalFx.filter(f => at - f.at < PORTAL_MS && f.userId !== msg.userId), { userId: msg.userId, from: msg.from, to: msg.to, at }];
         break;
       }
       case 'agenda': {
@@ -544,6 +624,12 @@ export class Store {
       }
       case 'meeting': { const u = this.users.get(msg.userId); if (u) u.meeting = msg.until; break; }
       case 'meetings': this.meetingRooms = msg.rooms; break;
+      case 'library': this.library = { articles: msg.articles, reads: msg.reads }; break;
+      case 'reading': {
+        const u = this.users.get(msg.userId); if (u) u.reading = msg.articleId;
+        if (msg.userId === this.me) { this.fetching = null; clearTimeout(this.fetchTimer); }
+        break;
+      }
       case 'dungeon': {
         const me = this.users.get(this.me);
         if (me && underground(me)) {
@@ -633,11 +719,11 @@ export class Store {
       case 'mute': { const u = this.users.get(msg.userId); if (u) { u.muted = msg.muted; if (msg.muted) u.speaking = false; } break; }
       case 'status': { const u = this.users.get(msg.userId); if (u) u.status = msg.status; break; }
       case 'presentation': {
-        if (msg.live?.deck.id !== this.presentation?.deck.id) this.slidesHidden = false;
+        if (msg.live?.deck.id !== this.presentation?.deck.id) this.slidesHidden = msg.live?.presenter !== this.me; // viewers are asked first (LiveChip)
         this.presentation = msg.live; break;
       }
       case 'tz': { const u = this.users.get(msg.userId); if (u) { if (msg.tz) u.tz = msg.tz; else delete u.tz; } break; }
-      case 'look': { const u = this.users.get(msg.userId); if (u) { u.look = msg.look; u.lookSet = msg.lookSet; } break; }
+      case 'look': { const u = this.users.get(msg.userId); if (u) { u.look = msg.look; u.lookSet = msg.lookSet; if (msg.name) u.name = msg.name; } break; }
       case 'effects': { const u = this.users.get(msg.userId); if (u) u.effects = msg.effects; break; }
       case 'presence': { const u = this.users.get(msg.userId); if (u) u.presence = msg.presence; break; }
       case 'emote': { const u = this.users.get(msg.userId); if (u) u.emote = msg.emote; break; }

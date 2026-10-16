@@ -1,5 +1,5 @@
 import { createServer, type IncomingMessage } from 'node:http';
-import { createReadStream, existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
+import { copyFileSync, createReadStream, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { mkdir, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -40,8 +40,24 @@ const STATE_FILE = new URL('state.json', DATA);
 const map: TileMap = JSON.parse(readFileSync(new URL('../../shared/tilemap.json', import.meta.url), 'utf8'));
 const world = new World(map);
 const DECKS_DIR = fileURLToPath(new URL('decks/', DATA));
-world.present = new Presenter(DECKS_DIR, map, msg => world.broadcast(msg));
+world.present = new Presenter(DECKS_DIR, map, msg => world.broadcast(msg), (id, obj, settled) => world.isBeside(id, obj, settled));
 const sessions = new Map<string, string>(); // session id -> user id
+
+const BACKUPS = new URL('backups/', DATA);
+// One copy a day (the first save of the day), the last BACKUP_DAYS kept. Snapshots from deploy.sh
+// (state-predeploy-*) share the folder and are pruned by deploy.sh itself.
+const BACKUP_DAYS = 7;
+const backup = () => {
+  try {
+    if (!existsSync(STATE_FILE)) return;
+    const file = `state-${new Date().toISOString().slice(0, 10)}.json`;
+    mkdirSync(BACKUPS, { recursive: true });
+    if (existsSync(new URL(file, BACKUPS))) return;
+    copyFileSync(STATE_FILE, new URL(file, BACKUPS));
+    const daily = readdirSync(BACKUPS).filter(f => /^state-\d{4}-\d{2}-\d{2}\.json$/.test(f)).sort();
+    for (const f of daily.slice(0, -BACKUP_DAYS)) unlinkSync(new URL(f, BACKUPS));
+  } catch (e) { console.warn('could not back up state:', e); }
+};
 
 if (existsSync(STATE_FILE)) {
   try {
@@ -49,7 +65,15 @@ if (existsSync(STATE_FILE)) {
     world.load(saved);
     for (const [s, u] of Object.entries(saved.sessions ?? {})) sessions.set(s, u as string);
     console.log(`loaded ${world.users.size} users`);
-  } catch (e) { console.warn('could not load state:', e); }
+    backup();
+  } catch (e) {
+    // Keep running (an office that won't start is worse than an empty one), but move the file aside first so
+    // the next save can't overwrite it. To restore: stop the service, copy this file or one from backups/ to
+    // state.json, start it again.
+    const bad = new URL(`state.json.bad-${new Date().toISOString().replace(/[:.]/g, '-')}`, DATA);
+    renameSync(STATE_FILE, bad);
+    console.error(`could not load state, moved it to ${fileURLToPath(bad)}; starting empty (backups in ${fileURLToPath(BACKUPS)}):`, e);
+  }
 }
 // Written only when something changed; the periodic save goes through the async fs so it never stalls the event loop.
 let lastSaved = '';
@@ -59,6 +83,7 @@ const save = () => {
   mkdirSync(DATA, { recursive: true });
   const tmp = new URL('state.json.tmp', DATA);
   writeFileSync(tmp, json); renameSync(tmp, STATE_FILE); lastSaved = json;
+  backup();
 };
 let saving = false;
 const saveAsync = async () => {
@@ -69,6 +94,7 @@ const saveAsync = async () => {
     await mkdir(DATA, { recursive: true });
     const tmp = new URL('state.json.tmp', DATA);
     await writeFile(tmp, json); await rename(tmp, STATE_FILE); lastSaved = json;
+    backup();
   } catch (e) { console.warn('could not save state:', e); }
   finally { saving = false; }
 };
@@ -79,7 +105,7 @@ for (const sig of ['SIGINT', 'SIGTERM'] as const) process.on(sig, () => { save()
 if (process.env.BOTS && process.env.BOTS !== '0') startBots(world, Number(process.env.BOT_COUNT ?? 4));
 else for (const u of [...world.users.values()]) if (u.bot) world.users.delete(u.id); // bots saved before they were turned off
 // The cat, the dog, the October bat and the cleaner run everywhere, prod included, unless PETS=0.
-startCreatures(world.creatures, process.env.PETS !== '0');
+startCreatures(world.creatures, process.env.PETS !== '0', process.env.BAT === '1');
 
 // ---------- macOS app (macos/dist, built by `macos/build.sh --dist` during deploy) ----------
 // One-command install: curl -fsSL <base>/api/mac/install.sh | bash. curl doesn't quarantine what it
@@ -159,9 +185,14 @@ const netbirdEmail = async (req: IncomingMessage): Promise<string | null> => {
   const email = (Array.isArray(raw) ? raw[0] : raw ?? '').trim().toLowerCase();
   return /^[^\s@]{1,64}@[^\s@]{1,190}$/.test(email) ? email : null;
 };
-/** "ivan.baranov@t1a.com" -> "Ivan Baranov" */
-const nameFromEmail = (email: string) =>
-  email.split('@')[0].split(/[._+-]+/).filter(Boolean).map(w => w[0].toUpperCase() + w.slice(1)).join(' ').slice(0, 24) || email;
+/** "ivan.baranov@t1a.com" -> "Ivan Bar": first name plus the first three letters of the last name */
+const nameFromEmail = (email: string) => {
+  const [first, ...rest] = email.split('@')[0].split(/[._+-]+/).filter(Boolean).map(w => w[0].toUpperCase() + w.slice(1));
+  const last = rest.at(-1);
+  return (last ? `${first} ${last.slice(0, 3)}` : first)?.slice(0, 24) || email;
+};
+/** The name an email sign-in shows: a name the person set themselves wins. */
+const emailName = (email: string) => { const u = world.findByEmail(email); return u?.nameSet ? u.name : nameFromEmail(email); };
 
 const newSession = (userId: string) => { const s = randomUUID(); sessions.set(s, userId); return s; };
 
@@ -176,8 +207,9 @@ const server = createServer(async (req, res) => {
   if (req.url === '/api/auth/netbird' && (req.method === 'GET' || req.method === 'POST')) {
     const email = await netbirdEmail(req);
     if (!email) return json(res, 404, { error: 'not signed in via NetBird' });
-    if (req.method === 'GET') return json(res, 200, { email, name: world.findByEmail(email)?.name ?? nameFromEmail(email) });
+    if (req.method === 'GET') return json(res, 200, { email, name: emailName(email) });
     const user = world.findByEmail(email) ?? world.addUser(nameFromEmail(email), false, undefined, email);
+    if (!user.nameSet && user.name !== nameFromEmail(email)) user.name = nameFromEmail(email);
     return json(res, 200, { session: newSession(user.id), userId: user.id });
   }
   if (req.method === 'POST' && req.url?.startsWith('/api/logout')) {
@@ -283,7 +315,10 @@ wss.on('connection', (ws, req) => {
   const userId = sessions.get(session);
   const user = userId ? world.users.get(userId) : undefined;
   if (!user) { ws.close(4001, 'unauthorized'); return; }
-  const { socket, close } = world.connect(user.id, msg => { if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(msg)); });
+  if (user.email && !user.nameSet && user.name !== nameFromEmail(user.email)) user.name = nameFromEmail(user.email); // sessions outlive sign-in: bring old "Ivan Baranov" names to the current rule
+  const { socket, close } = world.connect(user.id,
+    msg => { if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(msg)); },
+    json => { if (ws.readyState === ws.OPEN) ws.send(json); });
   ws.on('message', raw => {
     try {
       const msg: unknown = JSON.parse(String(raw));

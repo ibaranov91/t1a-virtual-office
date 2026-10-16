@@ -2,9 +2,10 @@ import { test, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { World, type User } from './world';
+import { Presenter } from './presentation';
 import { findPath, doorwayTiles, pathDuration, reindexMap, roomAt, sampleMove, seatAt, voiceRooms, WALK_MS_PER_TILE, type TileMap, type Tile } from '../../shared/map';
-import { TRACKS } from '../../shared/music';
-import { ADMIN_HAT, EFFECTS, JUDGE_HAT, hatItem, SPEED_FACTOR, walkMs } from '../../shared/effects';
+import { TRACK, TRACKS } from '../../shared/music';
+import { ADMIN_HAT, EFFECTS, hatItem, SPEED_FACTOR, walkMs } from '../../shared/effects';
 import { PLANT_DIES_DAYS, PLANT_STAGES, plantDead, ROOM_VOICE_MAX, type ClientMsg, type ServerMsg } from '../../shared/protocol';
 const map: TileMap = JSON.parse(readFileSync(new URL('../../shared/tilemap.json', import.meta.url), 'utf8'));
 const coffee = map.rooms.find(r => r.id === 'coffee')!;
@@ -270,7 +271,7 @@ test('room calls have no two-hour expiry; disconnect retains grace then leaves',
   const { w, add, join, tick } = setup(t), a = add('A'); join(a.u); tick(2 * 60 * 60_000 + 1); assert.equal(a.u.callId, 'room:coffee');
   a.close(); tick(4999); assert.equal(a.u.callId, 'room:coffee'); tick(1); assert.equal(a.u.callId, null); assert.equal(w['calls'].has('room:coffee'), false);
 });
-const jukebox = map.objects.find(o => o.use?.kind === 'jukebox')!;
+const jukebox = map.objects.find(o => o.use?.kind === 'jukebox' && !o.use.genres)!;
 const stateOf = (w: World) => (w.snapshot() as Extract<ServerMsg, { t: 'state' }>).jukebox![jukebox.id];
 test('jukebox snapshot, actions, private refusals, broadcasts and tick', t => {
   const { w, add, tick } = setup(t), a = add('A', { x: 57, y: 7 }), b = add('B', { x: 60, y: 8 });
@@ -333,7 +334,7 @@ test('jukebox dump/load preserves state, ignores removed objects and loads old s
   assert.notEqual(stateOf(w).pausedAt, null);
   const saved = w.dump(); saved.jukebox.removed = saved.jukebox[jukebox.id];
   const restored = new World(map); restored.load(saved);
-  assert.deepEqual(stateOf(restored), stateOf(w)); assert.deepEqual(Object.keys(restored.dump().jukebox), [jukebox.id]);
+  assert.deepEqual(stateOf(restored), stateOf(w)); assert.deepEqual(Object.keys(restored.dump().jukebox).sort(), [jukebox.id, map.objects.find(o => o.type === 'dj_booth')!.id].sort());
   const old = { ...saved }; delete (old as Partial<typeof saved>).jukebox;
   restored.load(old); assert.ok(stateOf(restored).track);
 });
@@ -378,6 +379,15 @@ test('a saved layout with plain world clocks gets their zones, where the admin l
   assert.equal(got.length, 3); // the missing ones come back at their generated spots
   const berlin = got.find(o => o.type === 'clock_berlin')!;
   assert.deepEqual([berlin.id, berlin.x, berlin.use], ['old', 30, clocks[1].use]);
+});
+test('a saved layout with a plain DJ booth gets its techno jukebox, where the admin left it', t => {
+  const { w } = setup(t), booth = map.objects.find(o => o.type === 'dj_booth')!;
+  const objects = map.objects.map(o => (o.id === booth.id ? { id: o.id, type: o.type, x: o.x, y: o.y + 1, w: o.w, h: o.h } : o));
+  const r = new World(structuredClone(map));
+  r.load({ ...w.dump(), layout: structuredClone({ objects, rugs: map.rugs }) });
+  const got = r.map.objects.find(o => o.type === 'dj_booth')!;
+  assert.deepEqual([got.y, got.use], [booth.y + 1, booth.use]);
+  assert.ok(Object.keys((r.snapshot() as Extract<ServerMsg, { t: 'state' }>).jukebox!).includes(got.id));
 });
 // gen-map.mjs numbers objects in order, so a build that adds one shifts every id after it (the safe took o57 from a plant)
 const olderBuild = (objects: TileMap['objects']) => objects.map(o => ({ ...structuredClone(o), id: `o${Number(o.id.slice(1)) + 1}` }));
@@ -1037,7 +1047,7 @@ test('note bucket permits the burst then only the sustained rate, including afte
 });
 
 // ---------- effects ----------
-const GM_EMAIL = 'ivan.baranov@t1a.com', JUDGE_EMAIL = 'oleg.mikhov@t1a.com';
+const GM_EMAIL = 'ivan.baranov@t1a.com';
 function people(t: TestContext) {
   const s = setup(t);
   const person = (name: string, email?: string, tile: Tile = { x: 32, y: 12 }) => {
@@ -1091,23 +1101,46 @@ test('effects: people only put hats on themselves; GM-only and server-only effec
   assert.deepEqual(w2.users.get(a.u.id)!.items, ['hat:wizard', 'hat:cowboy', 'hat:top'], 'pockets survive a restart');
 });
 
-test('effects: judges and admins find their hats in their pockets, put on once, and wear only what they own', t => {
-  const { w, person } = people(t), judge = person('Oleg', JUDGE_EMAIL), gm = person('Gm', GM_EMAIL, { x: 32, y: 8 }), a = person('A', undefined, { x: 33, y: 8 });
-  assert.deepEqual(judge.u.items, [hatItem(JUDGE_HAT)]);
-  assert.deepEqual(judge.u.effects, [{ kind: 'hat', data: { style: JUDGE_HAT } }]);
-  assert.ok(judge.messages.some(m => m.t === 'me' && m.judge && m.items?.includes(hatItem(JUDGE_HAT))));
+test('effects: admins find their cap in their pockets, put on once, and everyone wears only what they own', t => {
+  const { w, person } = people(t), judge = person('Oleg', 'oleg.mikhov@t1a.com', { x: 34, y: 8 }), gm = person('Gm', GM_EMAIL, { x: 32, y: 8 }), a = person('A', undefined, { x: 33, y: 8 });
+  assert.deepEqual(judge.u.items, [], 'nobody finds a special hat on their own');
+  const gift = (from: typeof gm, to: User, style: string): ClientMsg => ({ t: 'gift_hat', targetId: to.id, style });
+  w.handle(a.u, gift(a, judge.u, 'laurel'), a.socket);
+  assert.deepEqual(judge.u.items, [], 'only admins gift');
+  w.handle(gm.u, gift(gm, judge.u, 'nonsense'), gm.socket);
+  assert.deepEqual(judge.u.items, [], 'only real hats');
+  w.handle(gm.u, gift(gm, judge.u, 'laurel'), gm.socket);
+  assert.deepEqual(judge.u.items, [hatItem('laurel')], 'gifted: in the pockets');
+  assert.deepEqual(judge.u.effects, [{ kind: 'hat', data: { style: 'laurel' } }], 'and on the head');
+  assert.ok(judge.messages.some(m => m.t === 'me' && m.items?.includes(hatItem('laurel'))));
+  assert.ok(judge.messages.some(m => m.t === 'notice' && m.text.includes('laurel')), 'the receiver is told');
+  w.handle(gm.u, gift(gm, judge.u, 'winged'), gm.socket);
+  assert.deepEqual(judge.u.items, [hatItem('laurel'), hatItem('winged')], 'a second gift adds to the pockets');
+  assert.deepEqual(judge.u.effects, [{ kind: 'hat', data: { style: 'winged' } }], 'and replaces what is worn');
+  w.handle(gm.u, gift(gm, judge.u, 'winged'), gm.socket);
+  assert.deepEqual(judge.u.items, [hatItem('laurel'), hatItem('winged')], 'no duplicates');
+  // the GM looks into pockets; nobody else does
+  const looks = (who: typeof gm) => who.messages.filter(m => m.t === 'gm_items').length;
+  w.handle(a.u, { t: 'gm_items', targetId: judge.u.id }, a.socket);
+  assert.equal(looks(a), 0, 'only admins look');
+  w.handle(gm.u, { t: 'gm_items', targetId: 'nobody' }, gm.socket);
+  const before = looks(gm);
+  w.handle(gm.u, { t: 'gm_items', targetId: judge.u.id }, gm.socket);
+  assert.equal(looks(gm), before + 1);
+  assert.deepEqual(gm.messages.filter(m => m.t === 'gm_items').at(-1), { t: 'gm_items', targetId: judge.u.id, items: [hatItem('laurel'), hatItem('winged')] });
+  assert.ok(!JSON.stringify((w as any).toPublic(judge.u)).includes('hat:laurel'), 'pockets stay out of the public user');
   assert.deepEqual(gm.u.items, [hatItem(ADMIN_HAT)]);
   assert.deepEqual(gm.u.effects, [{ kind: 'hat', data: { style: ADMIN_HAT } }]);
   w.handle(judge.u, effect(judge.u.id, 'hat', false), judge.socket);
   assert.equal(judge.u.effects.length, 0, 'a judge may take the hat off');
   w.handle(judge.u, effect(judge.u.id, 'hat', true, 'party'), judge.socket);
   assert.equal(judge.u.effects.length, 0, 'not in the pockets');
-  w.handle(judge.u, effect(judge.u.id, 'hat', true, JUDGE_HAT), judge.socket);
-  assert.deepEqual(judge.u.effects, [{ kind: 'hat', data: { style: JUDGE_HAT } }]);
-  w.handle(a.u, effect(a.u.id, 'hat', true, JUDGE_HAT), a.socket);
+  w.handle(judge.u, effect(judge.u.id, 'hat', true, 'laurel'), judge.socket);
+  assert.deepEqual(judge.u.effects, [{ kind: 'hat', data: { style: 'laurel' } }]);
+  w.handle(a.u, effect(a.u.id, 'hat', true, 'laurel'), a.socket);
   w.handle(a.u, effect(a.u.id, 'hat', true, 'top'), a.socket);
   assert.equal(a.u.effects.length, 0, 'no hats in the pockets, nothing to wear');
-  const stand = w.map.objects.find(o => o.type === 'hat_stand')!;
+  const stand = w.map.objects.find(o => o.type === 'hat_rack')!;
   a.u.tile = { x: stand.x, y: stand.y + 1 };
   w.use(a.u, stand.id, 'hat:top'); t.mock.timers.tick(2000);
   assert.deepEqual(a.u.items, ['hat:top']);
@@ -1159,4 +1192,172 @@ test('a clock ping is answered at once with the server time, only to the socket 
   w.handle(a.u, { t: 'ping', id: 7 }, a.socket);
   assert.deepEqual(a.messages, [{ t: 'pong', id: 7, serverTime: Date.now() }]); assert.deepEqual(other, []);
   w.handle(a.u, { t: 'ping', id: NaN }, second.socket); assert.deepEqual(other, []);
+});
+
+test('the reception bell rings for everyone, once a second, from beside it, and only for real bells', t => {
+  const { w, person } = people(t), bell = w.map.objects.find(o => o.use?.kind === 'bell')!;
+  const a = person('A', undefined, { x: bell.x, y: bell.y + 1 }), b = person('B', undefined, { x: bell.x + 1, y: bell.y + 1 }), far = person('Far', undefined, { x: 40, y: 8 });
+  const rings = (p: typeof a) => p.messages.filter(m => m.t === 'bell');
+  w.handle(a.u, { t: 'ring', objectId: bell.id }, a.socket);
+  assert.deepEqual(rings(b), [{ t: 'bell', userId: a.u.id, objectId: bell.id }]);
+  w.handle(a.u, { t: 'ring', objectId: bell.id }, a.socket);
+  assert.equal(rings(b).length, 1, 'one ring a second');
+  t.mock.timers.tick(1100);
+  w.handle(a.u, { t: 'ring', objectId: bell.id }, a.socket);
+  assert.equal(rings(b).length, 2);
+  w.handle(a.u, { t: 'ring', objectId: 'nope' }, a.socket);
+  w.handle(b.u, { t: 'ring', objectId: w.map.objects.find(o => o.type === 'reception')!.id }, b.socket);
+  assert.equal(rings(a).length, 2, 'only bells ring');
+  w.handle(far.u, { t: 'ring', objectId: bell.id }, far.socket);
+  assert.equal(rings(a).length, 2, 'too far away: it walks over first, no ring yet');
+});
+
+test('presenting needs standing at the board, walking over opens the panel, and walking away ends it', t => {
+  const { w, person } = people(t), board = w.map.objects.find(o => o.use?.kind === 'presentation')!;
+  w.present = new Presenter('/nonexistent-decks', w.map, msg => w.broadcast(msg), (id, obj, settled) => w.isBeside(id, obj, settled));
+  const a = person('A', undefined, { x: 40, y: 12 });
+  assert.throws(() => w.present!.present(a.u.id, { pin: '1234', deck: 'x', objectId: board.id }), /Walk up/, 'too far away');
+  w.handle(a.u, { t: 'use', objectId: board.id }, a.socket);
+  assert.equal(a.messages.filter(m => m.t === 'present_open').length, 0, 'not there yet');
+  t.mock.timers.tick(60_000);
+  assert.deepEqual(a.messages.filter(m => m.t === 'present_open'), [{ t: 'present_open', objectId: board.id }], 'panel opens on arrival');
+  assert.ok(w.isBeside(a.u.id, board.id));
+  const deck = { id: 'd', title: 'T', count: 1, ext: ['png'], by: a.u.id, at: 0 };
+  w.present.decks.set('d', deck);
+  w.present.present(a.u.id, { pin: '1234', deck: 'd', objectId: board.id });
+  assert.ok(w.present.live);
+  w.present.tick(); assert.ok(w.present.live, 'still at the board');
+  const away = w.walk(a.u, { x: 20, y: 9 }); assert.notEqual(away, null, 'walk started');
+  w.present.tick(); assert.equal(w.present.live, null, 'walking away ends it');
+});
+
+test('dancing works only on the Berghain floor and ends when you leave', t => {
+  const { w, add, settle } = setup(t), a = add('A');
+  const club = map.rooms.find(r => r.id === 'berghain')!, [s0, s1] = club.spots;
+  const dancing = () => a.u.effects.some(e => e.kind === 'dance');
+  w.handle(a.u, effect(a.u.id, 'dance'), a.socket);
+  assert.equal(dancing(), false, 'not in the club');
+  settle(a.u, s0); a.u.instance = 'meeting:x';
+  w.handle(a.u, effect(a.u.id, 'dance'), a.socket);
+  assert.equal(dancing(), false, 'instances do not count');
+  a.u.instance = null;
+  w.handle(a.u, effect(a.u.id, 'dance'), a.socket);
+  assert.equal(dancing(), true);
+  w.handle(a.u, effect(a.u.id, 'dance', false), a.socket);
+  assert.equal(dancing(), false);
+  w.handle(a.u, effect(a.u.id, 'dance'), a.socket);
+  w.walk(a.u, s1);
+  assert.equal(dancing(), true, 'moving inside the club keeps it');
+  settle(a.u, s1);
+  w.walk(a.u, { x: 32, y: 12 });
+  assert.equal(dancing(), false, 'walking out ends it');
+});
+
+test('30 minutes of dancing earns the raver badge', t => {
+  const { w, add, settle, tick } = setup(t), a = add('A');
+  settle(a.u, map.rooms.find(r => r.id === 'berghain')!.spots[0]);
+  for (let i = 0; i < 10; i++) {
+    w.handle(a.u, effect(a.u.id, 'dance'), a.socket);
+    assert.equal(a.u.achievements.raver, undefined);
+    for (let k = 0; k < 720; k++) tick(250);
+  }
+  tick(250);
+  assert.ok(a.u.achievements.raver);
+});
+test('the DJ booth plays only techno and the Music room jukebox never does', t => {
+  const { w } = setup(t), booth = map.objects.find(o => o.type === 'dj_booth')!;
+  const state = (w.snapshot() as Extract<ServerMsg, { t: 'state' }>).jukebox!;
+  assert.equal(TRACK.get(state[booth.id].track)?.genre, 'Techno');
+  assert.notEqual(TRACK.get(state[jukebox.id].track)?.genre, 'Techno');
+});
+
+test('ringing the bell the first time earns the bellringer achievement, once', t => {
+  const { w, person } = people(t), bell = w.map.objects.find(o => o.use?.kind === 'bell')!;
+  const a = person('A', undefined, { x: bell.x, y: bell.y + 1 });
+  w.handle(a.u, { t: 'ring', objectId: bell.id }, a.socket);
+  const earned = a.u.achievements.bellringer;
+  assert.ok(earned);
+  assert.ok(a.messages.some(m => m.t === 'plant' && m.userId === a.u.id && m.achievements.bellringer === earned), 'everyone hears about it');
+  t.mock.timers.tick(1100);
+  w.handle(a.u, { t: 'ring', objectId: bell.id }, a.socket);
+  assert.equal(a.u.achievements.bellringer, earned, 'earned once, when first rung');
+});
+
+test('clicking a cup walks you over and clears it; the cleaner praises you (and you earn tidy) only from the same room', t => {
+  const { w, person, tick } = people(t);
+  const counter = { x: 30, y: 3 }, lobby = w.map.rooms.find(r => r.id === 'lobby')!;
+  const a = person('A', undefined, { x: 32, y: 8 });
+  const cupOn = (tile: Tile, item = 'coffee') => { const c = w.creatures.addCup(tile, item, Date.now()); assert.ok(typeof c === 'object'); return c; };
+  const lady = w.creatures.add('cleaner', 'Valentina', lobby.stand[0]);
+
+  const first = cupOn(counter);
+  w.handle(a.u, { t: 'cup_take', cupId: first.id }, a.socket);
+  assert.equal(w.creatures.cups.length, 1, 'still there until you get to it');
+  tick(10_000);
+  assert.equal(w.creatures.cups.length, 0, 'cleared away');
+  assert.equal(a.u.holding, null, 'not picked up: tidied away');
+  assert.ok(Math.max(Math.abs(a.u.tile.x - counter.x), Math.abs(a.u.tile.y - counter.y)) <= 1, 'walked over to it');
+  assert.equal(lady.say, undefined, 'the cleaner was in the Lobby: nobody saw');
+  assert.equal(a.u.achievements.tidy, undefined);
+
+  w.creatures.list.get('cleaner')!.tile = w.map.rooms.find(r => r.id === 'coffee')!.stand[0];
+  const second = cupOn({ x: 28, y: 3 });
+  w.handle(a.u, { t: 'cup_take', cupId: second.id }, a.socket);
+  tick(10_000);
+  assert.equal(w.creatures.cups.length, 0);
+  assert.ok(lady.say, 'she says something nice');
+  assert.ok(a.u.achievements.tidy);
+  assert.ok(a.messages.some(m => m.t === 'creature' && m.creature.kind === 'cleaner' && m.creature.say === lady.say), 'everyone sees her bubble');
+
+  const plate = cupOn({ x: 29, y: 3 }, 'plate:pizza');
+  w.handle(a.u, { t: 'cup_take', cupId: plate.id }, a.socket);
+  w.handle(a.u, { t: 'cup_take', cupId: 'nope' }, a.socket);
+  tick(10_000);
+  assert.deepEqual(w.creatures.cups.map(c => c.id), [plate.id], 'plates stay: someone may still be eating');
+});
+
+test('a cup the cleaner takes first is simply gone when you arrive', t => {
+  const { w, person, tick } = people(t), a = person('A', undefined, { x: 32, y: 8 });
+  const cup = w.creatures.addCup({ x: 30, y: 3 }, 'tea', Date.now());
+  assert.ok(typeof cup === 'object');
+  w.handle(a.u, { t: 'cup_take', cupId: cup.id }, a.socket);
+  w.creatures.removeCup(cup.id);
+  tick(10_000);
+  assert.equal(a.u.achievements.tidy, undefined);
+  assert.equal(w.creatures.cups.length, 0);
+});
+
+test('walking onto the Berghain dance floor starts dancing on arrival; changing course or being a bot does not', t => {
+  const { w, add, settle, tick } = setup(t), floor = map.objects.find(o => o.use?.kind === 'dance')!;
+  const club = map.rooms.find(r => r.id === 'berghain')!, door = club.stand.find(s => !(s.x >= floor.x && s.x < floor.x + floor.w && s.y >= floor.y && s.y < floor.y + floor.h))!;
+  const a = add('A'), bot = add('Bot', undefined, true);
+  const dancing = (u: User) => u.effects.some(e => e.kind === 'dance');
+  settle(a.u, door);
+  w.handle(a.u, { t: 'move', to: { x: floor.x + 1, y: floor.y + 1 } }, a.socket);
+  assert.equal(dancing(a.u), false, 'not until you get there');
+  tick(10_000);
+  assert.equal(dancing(a.u), true, 'on the floor: dancing');
+
+  const b = add('B'); settle(b.u, door);
+  w.handle(b.u, { t: 'move', to: { x: floor.x + 2, y: floor.y } }, b.socket);
+  w.handle(b.u, { t: 'move', to: door }, b.socket); // changed their mind on the way
+  tick(10_000);
+  assert.equal(dancing(b.u), false);
+
+  settle(bot.u, door);
+  w.walk(bot.u, { x: floor.x + 3, y: floor.y + 2 });
+  tick(10_000);
+  assert.equal(dancing(bot.u), false, 'bots stay off the floor');
+});
+
+test('a broadcast is stringified once for wire listeners; a join sends one user, not the snapshot', t => {
+  const { w, add } = setup(t), a = add('A'); a.messages.length = 0;
+  const wired: string[] = [], other: string[] = [];
+  w.connect(a.u.id, () => {}, j => wired.push(j)); w.connect(a.u.id, () => {}, j => other.push(j));
+  a.messages.length = 0; wired.length = 0; other.length = 0;
+  const b = w.addUser('B');
+  assert.equal(wired.length, 1); assert.equal(wired[0], other[0]); // the same string to both
+  assert.deepEqual(a.messages.map(m => m.t), ['user']);
+  const msg = a.messages[0] as Extract<ServerMsg, { t: 'user' }>;
+  assert.equal(msg.user.id, b.id); assert.ok(!('email' in msg.user));
 });

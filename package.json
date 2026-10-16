@@ -7,8 +7,9 @@
     "client"
   ],
   "scripts": {
-    "test": "node --import tsx --test server/src/*.test.ts client/src/*.test.ts",
-    "gen": "node --import tsx scripts/gen-map.mjs && node scripts/gen-assets.mjs",
+    "test": "DECK_ADMINS=ivan.baranov@t1a.com,varvara.tikhonova@t1a.com,andrii.butko@t1a.com DECK_SYSADMINS=ivan.baranov@t1a.com node --import tsx --test server/src/*.test.ts client/src/*.test.ts",
+    "gen": "node --import tsx scripts/gen-map.mjs && node --import tsx scripts/map-atlas.mjs && node scripts/gen-assets.mjs",
+    "where": "node --import tsx scripts/where.mjs",
     "dev": "concurrently -k -n server,client -c yellow,cyan \"npm run dev -w server\" \"npm run dev -w client\"",
     "typecheck": "tsc -p server --noEmit && tsc -p client --noEmit",
     "dev:mesh": "DECK_MESH=1 npm run dev",

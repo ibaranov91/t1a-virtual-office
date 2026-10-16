@@ -195,7 +195,9 @@ export class JukeboxPlayer {
   }
   private prefetch(play: Play, current: Deck | null, perf: number) {
     const url = urlFor(play.track), nextUrl = play.next && TRACK.has(play.next) ? urlFor(play.next) : undefined;
-    for (const [cached, entry] of this.cache) if ((cached !== url && cached !== nextUrl) || (cached === url && current && !current.local)) {
+    // keep the next track's file; drop the rest, and the current one's too if it plays from the network (one track that
+    // repeats is both, and stays)
+    for (const [cached, entry] of this.cache) if (cached !== nextUrl && (cached !== url || (current && !current.local))) {
       entry.controller.abort(); this.cache.delete(cached);
     }
     if (play.predicted || !nextUrl || (!play.paused && current?.phase !== 'live') || this.badBlobs.has(nextUrl)) return;

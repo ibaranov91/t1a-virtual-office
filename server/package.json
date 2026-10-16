@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "DECK_HOST=${DECK_HOST:-127.0.0.1} BOTS=${BOTS:-1} DECK_ADMINS=${DECK_ADMINS:-ivan.baranov@t1a.com,dev} DECK_JUDGES=${DECK_JUDGES:-oleg.mikhov@t1a.com,judge} tsx watch src/index.ts",
+    "dev": "DECK_HOST=${DECK_HOST:-127.0.0.1} BOTS=${BOTS:-1} BAT=${BAT:-1} DECK_ADMINS=${DECK_ADMINS:-ivan.baranov@t1a.com,varvara.tikhonova@t1a.com,andrii.butko@t1a.com,dev} DECK_SYSADMINS=${DECK_SYSADMINS:-ivan.baranov@t1a.com,dev} tsx watch src/index.ts",
     "start": "tsx src/index.ts"
   },
   "dependencies": {

@@ -24,7 +24,9 @@ export interface UseItem { id: string; label: string; icon: string }
 /** What clicking an object offers: take something from it, flip it on/off, or look at your calendar on it. */
 export type ObjectUse = { kind: 'take'; items: UseItem[] } | { kind: 'toggle'; label: string } | { kind: 'calendar'; label: string }
   | { kind: 'instrument'; instrument: InstrumentKind; label: string }
-  | { kind: 'jukebox'; label: string }
+  | { kind: 'jukebox'; label: string; genres?: string[] } // genres: play only these (the club's DJ booth); without it, everything but the club-only genres
+  | { kind: 'dance'; label: string } // Berghain's dance floor: step on and dance
+  | { kind: 'library'; label: string } // the Library's shelf: publish and pick articles; reading happens at its reading tables
   | { kind: 'arcade'; label: string; game: 'park' } | { kind: 'records'; label: string }
   | { kind: 'meetings'; label: string } // the board by the Meeting room: which calendar meetings are on
   | { kind: 'achievements'; label: string } // the Lobby notice board: your plant and your badges
@@ -32,17 +34,44 @@ export type ObjectUse = { kind: 'take'; items: UseItem[] } | { kind: 'toggle'; l
   | { kind: 'presentation'; label: string } // the Meeting room screen: upload slides and present them
   | { kind: 'link'; label: string; url: string } // opens a page in a new tab (the safe: the vault)
   | { kind: 'dealer'; label: string; items: string[] } // hands out items into your inventory (the bouncer, the hat stand)
+  | { kind: 'bell'; label: string } // the Lobby reception bell: ring it from beside the desk
   | { kind: 'toilet'; label: string }; // a stall: occupied for a while, fills up with use (see Toilets on the server)
+export type UseKind = ObjectUse['kind'];
+/** How a click on each use.kind is routed. A new kind fails typecheck until it has a row (docs/ADDING-A-FEATURE.md).
+ *  wheel: clicking opens App.tsx's ActionWheel (add its buttons there); otherwise App.tsx's `e.onPick` acts on the click
+ *    straight away (add a line there). use: the server's generic `use` intent handles it (World.use: walk beside it, wait
+ *    USE_MS, act); otherwise `use` ignores it (it has its own intent, or it's a client-only panel). reach: people walk up
+ *    to it, so layoutProblem refuses a layout that leaves no free tile beside it. */
+export const USE_KINDS = {
+  take: { wheel: true, use: true, reach: true },
+  toggle: { wheel: true, use: true, reach: true },
+  toilet: { wheel: true, use: true }, // reached through its door instead: layoutProblem checks stallDoor
+  dealer: { wheel: true, use: true },
+  bell: { use: true },
+  arcade: { use: true, reach: true },
+  instrument: { reach: true },
+  library: { reach: true },
+  calendar: {}, jukebox: {}, dance: {}, records: {}, meetings: {}, achievements: {}, clock: {}, link: {},
+  presentation: { use: true, reach: true }, // walk to the board first; the panel opens on arrival
+} as const satisfies Record<UseKind, { wheel?: true; use?: true; reach?: true }>;
+type KindsWith<F extends string> = { [K in UseKind]: (typeof USE_KINDS)[K] extends Record<F, true> ? K : never }[UseKind];
+/** True when this use's kind has that flag in USE_KINDS; narrows the use to those kinds. */
+export const routes = <F extends 'wheel' | 'use' | 'reach'>(use: ObjectUse | undefined, flag: F): use is Extract<ObjectUse, { kind: KindsWith<F> }> =>
+  !!use && (USE_KINDS[use.kind] as Partial<Record<F, true>>)[flag] === true;
 export interface MapObject {
   id: string; type: string; x: number; y: number; w: number; h: number;
-  sound?: { clip?: string; gain: number };
+  sound?: { gain: number };
   wall?: boolean; walkable?: boolean; light?: boolean; steam?: boolean; dir?: Dir;
   use?: ObjectUse; on?: boolean; // on: starting state of a toggle
+  onTop?: boolean; // sits on top of another object (the reception bell): allowed to share its tile
   sit?: boolean; // a sofa: blocks walking, but every tile is a seat facing `dir`, reached from the tile in front
 }
 /** A rug, drawn over the floor (9-slice). Never blocks. */
-export interface Rug { id: string; color: string; x: number; y: number; w: number; h: number }
-export const RUG_COLORS = ['green', 'blue', 'orange', 'red', 'teal'] as const;
+export interface Rug { id: string; color: string; pattern?: string; x: number; y: number; w: number; h: number } // pattern: one of RUG_PATTERNS, diamond when missing
+export const RUG_COLORS = ['green', 'blue', 'orange', 'red', 'teal', 'burgundy'] as const;
+export const RUG_PATTERNS = ['diamond', 'stripes', 'checks', 'dots', 'zigzag', 'plaid', 'plain'] as const;
+/** The atlas frame of one rug tile (`part` is n, se, c…); diamond keeps the original frame names. */
+export const rugFrame = (r: Pick<Rug, 'color' | 'pattern'>, part: string) => !r.pattern || r.pattern === 'diamond' ? `rug_${r.color}_${part}` : `rug_${r.color}_${r.pattern}_${part}`;
 /** What office admins can rearrange: the furniture and the rugs. Walls, floors and rooms stay as generated. */
 export interface Layout { objects: MapObject[]; rugs: Rug[] }
 /** A kind of object an admin can add: everything but its id and position. */
@@ -268,7 +297,7 @@ export function doorwayTiles(m: TileMap, room: Room): Tile[][] {
 }
 
 // ---------- layout: what the furniture decides ----------
-const inRect = (o: { x: number; y: number; w: number; h: number }, x: number, y: number) => x >= o.x && x < o.x + o.w && y >= o.y && y < o.y + o.h;
+export const inRect = (o: { x: number; y: number; w: number; h: number }, x: number, y: number) => x >= o.x && x < o.x + o.w && y >= o.y && y < o.y + o.h;
 const footprint = (o: { x: number; y: number; w: number; h: number }) => {
   const out: Tile[] = [];
   for (let y = o.y; y < o.y + o.h; y++) for (let x = o.x; x < o.x + o.w; x++) out.push({ x, y });
@@ -313,7 +342,7 @@ export function layoutProblem(m: TileMap, checkDungeonReach = true): string | nu
     const entrance = coversEntrance(t);
     if (entrance && !o.wall) return `that covers the ${entrance}`;
     if (o.wall ? !walls[t.y][t.x] : walls[t.y][t.x]) return o.wall ? `the ${objectName(o.type)} goes on a wall` : `the ${objectName(o.type)} can't stand in a wall`;
-    const had = claim(`${o.wall ? 'w' : 'f'}${t.x},${t.y}`, objectName(o.type));
+    const had = o.onTop ? undefined : claim(`${o.wall ? 'w' : 'f'}${t.x},${t.y}`, objectName(o.type));
     if (had) return `the ${objectName(o.type)} overlaps the ${had}`;
   }
   for (const r of m.rugs) for (const t of footprint(r)) {
@@ -339,17 +368,17 @@ export function layoutProblem(m: TileMap, checkDungeonReach = true): string | nu
     if (!ok({ x: s.x + step.x, y: s.y + step.y })) return `that cuts off a seat in ${r.name}`;
   }
   // you walk over to these to use them (the calendars and boards just open)
-  for (const o of m.objects) if ((o.use?.kind === 'take' || o.use?.kind === 'toggle' || o.use?.kind === 'arcade' || o.use?.kind === 'instrument') && !besideObject(m, o).some(ok)) return `nobody could reach the ${objectName(o.type)}`;
+  for (const o of m.objects) if (routes(o.use, 'reach') && !besideObject(m, o).some(ok)) return `nobody could reach the ${objectName(o.type)}`;
   for (const o of m.objects) if (o.use?.kind === 'toilet' && !ok(stallDoor(o))) return `nobody could get into the ${objectName(o.type)}`;
   return null;
 }
 
 /** What to call an object type in the UI: "big table", not table_big. */
 export const objectName = (type: string) => ({ table_long: 'long table', table_big: 'big table', table_round: 'round table', plant_shelf: 'plant shelf',
-  painting_small: 'small painting', coffee_machine: 'coffee machine', meetings_board: 'meetings board', noticeboard: 'notice board', exit_door: 'exit door', server_rack: 'server rack', dj_booth: 'DJ booth', neon_sign: 'neon sign' } as Record<string, string>)[type] ?? type.replace(/_/g, ' ');
+  painting_small: 'small painting', coffee_machine: 'coffee machine', meetings_board: 'meetings board', noticeboard: 'notice board', table_picnic: 'picnic table', food_cart: 'food cart', exit_door: 'exit door', server_rack: 'server rack', dj_booth: 'DJ booth', neon_sign: 'neon sign', bookshelf_tall: 'tall bookshelf' } as Record<string, string>)[type] ?? type.replace(/_/g, ' ');
 
 /** Types that are one of a kind (the way out, the coffee machine…): they can be moved but not removed. */
-export const KEEP_TYPES = new Set(['exit_door', 'coffee_machine', 'fridge', 'jukebox', 'arcade', 'records', 'meetings_board', 'noticeboard', 'clock_nyc', 'clock_berlin', 'clock_moscow', 'safe', 'keyboard', 'drum_kit', 'bass_amp', 'screen', 'toilet', 'bouncer', 'hat_stand']);
+export const KEEP_TYPES = new Set(['exit_door', 'coffee_machine', 'fridge', 'jukebox', 'arcade', 'records', 'meetings_board', 'noticeboard', 'clock_nyc', 'clock_berlin', 'clock_moscow', 'safe', 'keyboard', 'drum_kit', 'bass_amp', 'screen', 'toilet', 'bouncer', 'hat_rack', 'bell', 'food_cart', 'dj_booth']);;
 /** Types that stay exactly where they are. */
 export const FIXED_TYPES = new Set(['exit_door']);
 export const RUG_MIN = 2, RUG_MAX = 24;
@@ -386,9 +415,10 @@ export function applyEdit(m: TileMap, edit: LayoutEdit, newId: () => string): La
       const r = edit.op === 'rug' ? rugs.find(r => r.id === edit.id) : { id: newId(), color: 'green', x: edit.x, y: edit.y, w: 3, h: 2 };
       if (!r) return 'it\'s gone';
       if (edit.color !== undefined) r.color = edit.color;
+      if (edit.pattern !== undefined) r.pattern = edit.pattern;
       if (edit.w !== undefined) r.w = edit.w;
       if (edit.h !== undefined) r.h = edit.h;
-      if (!(RUG_COLORS as readonly string[]).includes(r.color)) return 'no such rug';
+      if (!(RUG_COLORS as readonly string[]).includes(r.color) || (r.pattern !== undefined && !(RUG_PATTERNS as readonly string[]).includes(r.pattern))) return 'no such rug';
       if (!int(r.x) || !int(r.y) || !int(r.w) || !int(r.h) || r.w < RUG_MIN || r.h < RUG_MIN || r.w > RUG_MAX || r.h > RUG_MAX) return 'bad rug size';
       if (edit.op === 'rug_add') rugs.push(r);
       break;

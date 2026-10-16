@@ -1,9 +1,9 @@
 import { test, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { CLEAN_MS, CUP_LINGER_MS, CUP_TTL_MS, Creatures, flightPath } from './creatures';
+import { BAT_RESPAWN_MS, CLEAN_MS, STALL_CLEAN_MS, CUP_LINGER_MS, CUP_TTL_MS, PET_FOLLOW_MS, PET_MS, Creatures, flightPath } from './creatures';
 import { World } from './world';
-import { isWalkable, type TileMap, type Tile } from '../../shared/map';
+import { isWalkable, stallDoor, type TileMap, type Tile } from '../../shared/map';
 import { MAX_CUPS, type ServerMsg } from '../../shared/protocol';
 
 const map: TileMap = JSON.parse(readFileSync(new URL('../../shared/tilemap.json', import.meta.url), 'utf8'));
@@ -42,11 +42,12 @@ test('the cleaner walks to a settled cup by a path of walkable tiles, pauses, ta
   const cup = c.addCup(tableTiles[3], 'coffee', 0);
   assert.ok(typeof cup === 'object');
   c.tick(1000, may);
-  assert.equal(lady.walk, null, 'a fresh cup is left alone for a moment');
+  assert.equal(lady.cleaning, undefined, 'a fresh cup is left alone for a moment (she may roam meanwhile)');
   let now = CUP_LINGER_MS;
-  c.tick(now, may);
+  // she may be mid-stroll when the cup settles: let her finish it, then she heads for the cup
+  for (let i = 0; !lady.cleaning && i < 20; i++) { now = Math.max(now, lady.until); c.tick(now, may); }
   const walk = lady.walk!;
-  assert.ok(walk, 'off to the cup');
+  assert.ok(walk && lady.cleaning === cup.id, 'off to the cup');
   for (const p of walk.path) assert.ok(isWalkable(map, p.x, p.y), `walkable ${p.x},${p.y}`);
   for (let i = 1; i < walk.path.length; i++) assert.equal(Math.abs(walk.path[i].x - walk.path[i - 1].x) + Math.abs(walk.path[i].y - walk.path[i - 1].y), 1);
   const end = walk.path[walk.path.length - 1];
@@ -58,7 +59,8 @@ test('the cleaner walks to a settled cup by a path of walkable tiles, pauses, ta
   assert.equal(c.cups.length, 0);
   assert.ok(sent.some(m => m.t === 'cups' && m.cups.length === 0));
   const back = lady.walk!;
-  assert.deepEqual(back.path.at(-1), home, 'and home again');
+  assert.ok(back && !lady.cleaning, 'and off for a stroll');
+  assert.ok(isWalkable(map, back.path.at(-1)!.x, back.path.at(-1)!.y));
 });
 
 test('the cleaner gives up on a cup that went before she got there', () => {
@@ -101,4 +103,82 @@ test('putting a cup down: walk to the table, cup appears, hands empty; creatures
   const state = msgs.find(m => m.t === 'state');
   assert.ok(state && state.t === 'state' && state.users.every(p => p.name !== 'Biscuit'));
   assert.deepEqual(w.dump().cups.map(c => c.tile), [tile]);
+});
+
+test('petting: hearts for a moment, then the pet tags along with that person for about a minute', () => {
+  const sent: ServerMsg[] = [];
+  const person = { x: 30, y: 8 };
+  const c = new Creatures({ map: () => map, broadcast: m => sent.push(m), people: () => [person], personTile: () => person });
+  const cat = c.add('cat', 'Biscuit', { x: 31, y: 8 });
+  c.petBy(cat, 'u1', 1000);
+  assert.equal(cat.pose, 'pet');
+  assert.ok(sent.some(m => m.t === 'creature' && m.creature.pose === 'pet'));
+  c.tick(1000 + PET_MS - 1); assert.equal(cat.pose, 'pet');
+  c.tick(1000 + PET_MS); assert.notEqual(cat.pose, 'pet'); assert.ok(cat.follow, 'still following');
+  person.x = 34; person.y = 8; // they walk off: the cat goes after them
+  c.tick(1000 + PET_MS + 2000);
+  assert.ok(cat.walk, 'trots after them');
+  const end = cat.walk!.path.at(-1)!;
+  assert.ok(Math.max(Math.abs(end.x - 34), Math.abs(end.y - 8)) <= 1);
+  c.tick(1000 + PET_FOLLOW_MS + 1); c.tick(1000 + PET_FOLLOW_MS + 5000); assert.equal(cat.follow, undefined, 'back to its own business');
+});
+
+test('the bat: a miss darts off, a catch removes it for ten minutes and gives the hat once', (t: TestContext) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date', 'setInterval'], now: 1_000_000 });
+  const w = new World(map);
+  const u = w.addUser('A', false, { x: 21, y: 14 }); u.presence = 'online';
+  w.connect(u.id, () => {});
+  const notes: string[] = [];
+  w.connect(w.addUser('B', false, { x: 40, y: 8 }).id, m => { if (m.t === 'notice') notes.push(m.text); });
+  const bat = w.creatures.add('bat', 'Bat', { x: 21, y: 13 });
+  bat.pose = 'hang'; w.creatures.batAlways = true;
+  w.creatures.rng = () => 0.9;
+  w.petCreature(u, 'bat');
+  assert.ok(w.creatures.list.has('bat'), 'a miss keeps the bat'); assert.ok(bat.walk, 'and sends it flying');
+  bat.pose = 'hang'; bat.walk = null; bat.tile = { x: 21, y: 13 };
+  w.creatures.rng = () => 0.1;
+  t.mock.timers.tick(500); w.petCreature(u, 'bat');
+  assert.ok(w.creatures.list.has('bat'), 'one try a second');
+  t.mock.timers.tick(1500); w.petCreature(u, 'bat');
+  assert.ok(!w.creatures.list.has('bat'), 'caught');
+  assert.deepEqual(u.items.filter(i => i === 'hat:bat'), ['hat:bat']);
+  assert.ok(u.achievements.batcatcher);
+  assert.ok(notes.some(n => /A caught the bat/.test(n)));
+  w.creatures.wantBat(Date.now() + 1000); assert.ok(!w.creatures.list.has('bat'), 'away for a while');
+  w.creatures.wantBat(Date.now() + BAT_RESPAWN_MS + 1); assert.ok(w.creatures.list.has('bat'), 'and back');
+  w.creatures.list.get('bat')!.pose = 'hang';
+  t.mock.timers.tick(2000); w.petCreature(u, 'bat');
+  assert.equal(u.items.filter(i => i === 'hat:bat').length, 1, 'one hat per person');
+});
+
+test('petting both the cat and the dog in a day makes a whisperer', (t: TestContext) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date', 'setInterval'], now: 1_000_000 });
+  const w = new World(map);
+  const u = w.addUser('A', false, { x: 30, y: 8 }); u.presence = 'online';
+  w.connect(u.id, () => {});
+  w.creatures.add('cat', 'Biscuit', { x: 31, y: 8 }); w.creatures.add('dog', 'Pixel', { x: 29, y: 8 });
+  w.petCreature(u, 'cat'); assert.equal(w.creatures.list.get('cat')!.pose, 'pet');
+  assert.ok(!u.achievements.whisperer);
+  w.petCreature(u, 'dog');
+  assert.ok(u.achievements.whisperer);
+  w.petCreature(u, 'cleaner'); // not a pet: ignored
+});
+
+test('the cleaner scrubs an out-of-order toilet stall and puts it back in order', () => {
+  const stall = map.objects.find(o => o.use?.kind === 'toilet')!, door = stallDoor(stall), may = new Date(2026, 4, 1);
+  let dirty = true;
+  const cleaned: string[] = [];
+  const c = new Creatures({ map: () => map, broadcast: () => {}, people: () => [],
+    fullStalls: () => dirty ? [{ id: stall.id, door }] : [], cleanStall: id => { cleaned.push(id); dirty = false; } });
+  const lady = c.add('cleaner', 'Valentina', c.base());
+  let now = 0;
+  for (let i = 0; !lady.cleaning && i < 20; i++) { now = Math.max(now, lady.until); c.tick(now, may); }
+  assert.equal(lady.cleaning, `stall:${stall.id}`);
+  const walk = lady.walk!, end = walk.path[walk.path.length - 1];
+  assert.deepEqual(end, door, 'stands at the stall door');
+  now = walk.startedAt + (walk.path.length - 1) * walk.ms;
+  c.tick(now, may);
+  assert.equal(lady.pose, 'clean'); assert.deepEqual(cleaned, [], 'still dirty while she scrubs');
+  c.tick(now + STALL_CLEAN_MS, may);
+  assert.deepEqual(cleaned, [stall.id]);
 });

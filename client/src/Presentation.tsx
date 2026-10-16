@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { drawText, textWidth } from './font';
 import { MAP, type Store } from './net';
+import { PdfError, renderPdf } from './pdfSlides';
 import { PRESENT_AWAY_MS, PRESENT_MAX_BYTES, PRESENT_MAX_SLIDES, slideUrl, type DeckInfo } from '../../shared/protocol';
 
 /** Chunky text in the office's own 3×5 pixel font, with a hard drop shadow. */
@@ -17,7 +18,8 @@ export function PixelText({ text, scale = 3, color = '#fff', shadow = '#1a0f2e',
   return <canvas ref={ref} className={`pixel-text${className ? ` ${className}` : ''}`} width={w * scale} height={h * scale} role="img" aria-label={text} />;
 }
 
-const readBase64 = (f: File) => new Promise<string>((ok, fail) => {
+const isPdf = (f: File) => f.type === 'application/pdf' || /\.pdf$/i.test(f.name);
+const readBase64 = (f: Blob) => new Promise<string>((ok, fail) => {
   const r = new FileReader();
   r.onload = () => ok(String(r.result).replace(/^data:[^,]*,/, '')); r.onerror = () => fail(r.error);
   r.readAsDataURL(f);
@@ -29,6 +31,7 @@ export function PresentPanel({ store, id }: { store: Store; id: string }) {
   const [title, setTitle] = useState('');
   const [files, setFiles] = useState<File[]>([]);
   const [busy, setBusy] = useState(false);
+  const [progress, setProgress] = useState('');
   const [err, setErr] = useState<string | null>(null);
   const [decks, setDecks] = useState<DeckInfo[] | null>(null);
   const live = store.presentation, mine = live?.presenter === store.me;
@@ -48,10 +51,17 @@ export function PresentPanel({ store, id }: { store: Store; id: string }) {
   const upload = async () => {
     const size = files.reduce((n, f) => n + f.size, 0);
     if (size > PRESENT_MAX_BYTES) return setErr(`Too big: ${Math.round(PRESENT_MAX_BYTES / 1024 / 1024)} MB at most.`);
-    if (files.length > PRESENT_MAX_SLIDES) return setErr(`At most ${PRESENT_MAX_SLIDES} slides.`);
     const sorted = [...files].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
-    setBusy(true);
-    const data = await Promise.all(sorted.map(readBase64)).catch(() => null);
+    setBusy(true); setErr(null);
+    let slides: Blob[] = sorted;
+    if (sorted.length === 1 && isPdf(sorted[0])) { // pages become images here, so any server can show them
+      try { slides = await renderPdf(sorted[0], PRESENT_MAX_SLIDES, (n, total) => setProgress(`Rendering page ${n}/${total}…`)); }
+      catch (e) { setProgress(''); setBusy(false); return setErr(e instanceof PdfError ? e.message : 'Couldn\'t read that PDF.'); }
+      setProgress('');
+      if (slides.reduce((n, b) => n + b.size, 0) > PRESENT_MAX_BYTES) { setBusy(false); return setErr(`Those pages come to more than ${Math.round(PRESENT_MAX_BYTES / 1024 / 1024)} MB. Use a shorter PDF.`); }
+    }
+    if (slides.length > PRESENT_MAX_SLIDES) { setBusy(false); return setErr(`At most ${PRESENT_MAX_SLIDES} slides.`); }
+    const data = await Promise.all(slides.map(readBase64)).catch(() => null);
     if (!data) { setBusy(false); return setErr('Couldn\'t read those files.'); }
     await call('/api/present/upload', { title: title || sorted[0].name.replace(/\.[^.]+$/, ''), files: data });
   };
@@ -72,7 +82,7 @@ export function PresentPanel({ store, id }: { store: Store; id: string }) {
           <label className="present-file">Slides <input type="file" multiple accept="image/png,image/jpeg,application/pdf,.pdf" onChange={e => setFiles([...(e.target.files ?? [])])} /></label>
           {files.length > 0 && <span className="small muted">{files.length} file{files.length > 1 ? 's' : ''} · {(files.reduce((n, f) => n + f.size, 0) / 1024 / 1024).toFixed(1)} MB</span>}
           {err && <p className="err">{err}</p>}
-          <div className="row"><button type="submit" disabled={!pinOk || !files.length || busy}>{busy ? 'Uploading…' : 'Upload & present'}</button></div>
+          <div className="row"><button type="submit" disabled={!pinOk || !files.length || busy}>{busy ? (progress || 'Uploading…') : 'Upload & present'}</button></div>
         </form>
         {!!decks?.length && <div className="present-decks">
           <span className="small muted">Shown before{pinOk ? '' : ' (enter the PIN first)'}</span>
@@ -86,8 +96,6 @@ export function PresentPanel({ store, id }: { store: Store; id: string }) {
   );
 }
 
-const SCORES = ['GRAPHICS', 'SOUND', 'GAMEPLAY', 'SLIDES'];
-
 /** The slides as a page out of a 90s games magazine. The presenter turns pages with ← →. */
 export function SlideOverlay({ store }: { store: Store }) {
   const live = store.presentation!, deck = live.deck, mine = live.presenter === store.me;
@@ -96,6 +104,7 @@ export function SlideOverlay({ store }: { store: Store }) {
   useEffect(() => { setAwaySince(live.away ? Date.now() : null); }, [live.away]);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !mine && !(e.target instanceof Element && e.target.closest('input, textarea, select'))) return store.hideSlides(true);
       if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey || (e.target instanceof Element && e.target.closest('input, textarea, select, [contenteditable], [role="dialog"]'))) return;
       const step = mine ? ({ ArrowRight: 1, ArrowDown: 1, PageDown: 1, ' ': 1, ArrowLeft: -1, ArrowUp: -1, PageUp: -1 } as Record<string, number>)[e.key] : undefined;
       if (step) { e.preventDefault(); store.presentSlide(live.slide + step); }
@@ -110,6 +119,23 @@ export function SlideOverlay({ store }: { store: Store }) {
   const presenter = store.name(live.presenter).split(' ')[0];
   const left = awaySince === null ? 0 : Math.max(0, Math.ceil((PRESENT_AWAY_MS - (Date.now() - awaySince)) / 1000));
   const issue = String(new Date(deck.at).getMonth() + 1).padStart(2, '0');
+  if (!mine) return (
+    <div className="modal-backdrop watch-backdrop" onClick={e => { if (e.target === e.currentTarget) store.hideSlides(true); }}>
+      <div className="watch-modal" role="dialog" aria-label={`Slides: ${deck.title}`}>
+        <div className="watch-head">
+          <span><b className="live-dot">● LIVE</b> {deck.title} · {presenter}</span>
+          <button type="button" className="ghost" onClick={() => store.hideSlides(true)} aria-label="Close">×</button>
+        </div>
+        <div className="watch-slide">
+          <img key={n} src={slideUrl(deck, live.slide)} alt={`Slide ${n} of ${total}`} draggable={false} />
+        </div>
+        <div className="watch-foot">
+          {live.away && <span className="mag-away">{presenter} lost connection · ends in {left}s</span>}
+          <span className="mag-page">{n} / {total}</span>
+        </div>
+      </div>
+    </div>
+  );
   return (
     <div className="mag-wrap" role="region" aria-label={`Slides: ${deck.title}`}>
       <div className="mag">
@@ -124,18 +150,6 @@ export function SlideOverlay({ store }: { store: Store }) {
             <img key={n} src={slideUrl(deck, live.slide)} alt={`Slide ${n} of ${total}`} draggable={false} />
             <figcaption>PAGE {n} · {deck.title}</figcaption>
           </figure>
-          <aside className="mag-side">
-            <div className="mag-score">
-              <div className="mag-score-head">REVIEW SCORE</div>
-              <div className="mag-score-big"><PixelText text={String(n)} scale={n > 9 ? 7 : 9} color="#ffe14f" shadow="#d0006f" /></div>
-              <div className="mag-score-of">SLIDE {n} OF {total}</div>
-              <div className="mag-meter"><i style={{ width: `${(n / total) * 100}%` }} /></div>
-            </div>
-            <ul className="mag-bars">
-              {SCORES.map((s, i) => <li key={s} style={{ ['--c' as string]: ['#00e5ff', '#ff2d95', '#7cff4f', '#ffe14f'][i] }}><span>{s}</span><b>{90 + ((n * 7 + i * 3) % 10)}%</b></li>)}
-            </ul>
-            <div className="mag-tip"><b>HOT TIP!</b> {mine ? 'Press ← → to flip pages.' : `${presenter} turns the pages. Esc hides them.`}</div>
-          </aside>
         </div>
         <footer className="mag-foot">
           {live.away && <span className="mag-away">{presenter} lost connection · ends in {left}s</span>}
@@ -155,16 +169,43 @@ export function SlideOverlay({ store }: { store: Store }) {
   );
 }
 
-/** Slides are up somewhere I can't see them: say so, and take me there. */
+/** One chip for slides I'm not looking at: in the screen's room it asks once per deck (Watch / Not now), then offers Show;
+ *  elsewhere it takes me there. Leaving the room closes the slides. */
 export function LiveChip({ store, onGo }: { store: Store; onGo: (room: string) => void }) {
+  const [ask, setAsk] = useState(false);
+  const asked = useRef<string | null>(null);
+  useEffect(() => {
+    const tick = () => {
+      const live = store.presentation, me = store.users.get(store.me);
+      if (!live || !me || me.bot || live.presenter === me.id) { asked.current = null; setAsk(false); return; }
+      if (store.inPresentationRoom()) {
+        if (!store.pose(me).walking && asked.current !== live.deck.id) { asked.current = live.deck.id; if (store.slidesHidden) setAsk(true); }
+      } else {
+        if (!store.slidesHidden) store.hideSlides(true);
+        asked.current = null; setAsk(false);
+      }
+    };
+    tick();
+    const t = setInterval(tick, 400);
+    return () => clearInterval(t);
+  }, [store]);
   const live = store.presentation;
   if (!live) return null;
   const here = store.inPresentationRoom();
   if (here && !store.slidesHidden) return null;
-  const go = () => (here ? store.hideSlides(false) : onGo(live.room));
+  const who = store.name(live.presenter).split(' ')[0];
+  const show = () => { setAsk(false); store.hideSlides(false); };
+  if (ask && here) return (
+    <div className="desk-chip live-chip watch-ask" role="dialog" aria-label="Watch the presentation?">
+      <span><b className="live-dot">● LIVE</b> {who} is presenting '{live.deck.title}'. Watch?</span>
+      <button onClick={show}>Watch</button>
+      <button className="ghost" onClick={() => setAsk(false)}>Not now</button>
+    </div>
+  );
+  const go = () => (here ? show() : onGo(live.room));
   return (
     <div className="desk-chip live-chip" onClick={go}>
-      <span><b className="live-dot">● LIVE</b> {live.deck.title} · {store.name(live.presenter).split(' ')[0]}</span>
+      <span><b className="live-dot">● LIVE</b> {live.deck.title} · {who}</span>
       <button onClick={e => { e.stopPropagation(); go(); }}>{here ? 'Show' : 'Go watch'}</button>
     </div>
   );

@@ -3,6 +3,17 @@
 
 import { audio, categoryOutput } from './audio';
 
+function tone(c: AudioContext, dest: AudioNode, at: number, o: { hz: number; to?: number; glide?: number; level: number; attack: number; decay: number; type?: OscillatorType }) {
+  const osc = c.createOscillator(), gain = c.createGain();
+  gain.gain.setValueAtTime(0, at);
+  gain.gain.linearRampToValueAtTime(o.level, at + o.attack);
+  gain.gain.exponentialRampToValueAtTime(.0001, at + o.decay);
+  osc.type = o.type ?? 'sine'; osc.frequency.setValueAtTime(o.hz, at);
+  if (o.to !== undefined && o.to !== o.hz) osc.frequency.exponentialRampToValueAtTime(o.to, at + (o.glide ?? o.decay));
+  osc.connect(gain).connect(dest); osc.start(at); osc.stop(at + o.decay + .02);
+  osc.onended = () => { osc.disconnect(); gain.disconnect(); };
+}
+
 /** One soft knuckle tap on wood: a low body thump plus a filtered click, decaying in ~0.1 s. */
 function tap(c: AudioContext, at: number, pitch: number, level: number, dest: AudioNode) {
   const out = c.createGain();
@@ -39,7 +50,8 @@ function tap(c: AudioContext, at: number, pitch: number, level: number, dest: Au
 }
 
 /** "tok-tok": two gentle knocks, the second a touch softer and lower. */
-export function playKnock(dest: AudioNode = categoryOutput('effects')) {
+export function playKnock() {
+  const dest = categoryOutput('effects');
   try {
     const c = audio();
     const t = c.currentTime + 0.02;
@@ -52,17 +64,27 @@ export function playKnock(dest: AudioNode = categoryOutput('effects')) {
 export function playPop() {
   try {
     const c = audio(), at = c.currentTime + 0.01;
-    const g = c.createGain();
-    g.gain.setValueAtTime(0, at);
-    g.gain.linearRampToValueAtTime(0.09, at + 0.01);
-    g.gain.exponentialRampToValueAtTime(0.0001, at + 0.16);
-    g.connect(categoryOutput('effects'));
-    const o = c.createOscillator();
-    o.type = 'sine';
-    o.frequency.setValueAtTime(520, at);
-    o.frequency.exponentialRampToValueAtTime(880, at + 0.08);
-    o.connect(g); o.start(at); o.stop(at + 0.18);
-    o.onended = () => { o.disconnect(); g.disconnect(); };
+    tone(c, categoryOutput('effects'), at, { hz: 520, to: 880, glide: .08, level: .09, attack: .01, decay: .16 });
+  } catch { /* audio unavailable: stay silent */ }
+}
+
+/** A cat's purr (a low, wobbling rumble) or a dog's yip (two quick rising chirps). */
+export function playPet(dog: boolean) {
+  try {
+    const c = audio(), at = c.currentTime + 0.01, out = categoryOutput('effects');
+    const blip = (t0: number, f0: number, f1: number, len: number, vol: number, type: OscillatorType) => {
+      const g = c.createGain(), o = c.createOscillator();
+      g.gain.setValueAtTime(0, t0); g.gain.linearRampToValueAtTime(vol, t0 + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t0 + len);
+      o.type = type; o.frequency.setValueAtTime(f0, t0); o.frequency.exponentialRampToValueAtTime(f1, t0 + len * 0.8);
+      o.connect(g); g.connect(out); o.start(t0); o.stop(t0 + len + 0.02);
+      o.onended = () => { o.disconnect(); g.disconnect(); };
+      return o;
+    };
+    if (dog) { blip(at, 520, 900, 0.1, 0.1, 'triangle'); blip(at + 0.14, 600, 1050, 0.12, 0.1, 'triangle'); return; }
+    const o = blip(at, 38, 34, 1.1, 0.16, 'sawtooth'); // purr: a rumble with a 25 Hz flutter
+    const lfo = c.createOscillator(), depth = c.createGain();
+    lfo.frequency.value = 25; depth.gain.value = 12; lfo.connect(depth); depth.connect(o.frequency); lfo.start(at); lfo.stop(at + 1.15);
+    blip(at, 110, 90, 1.0, 0.04, 'sine');
   } catch { /* audio unavailable: stay silent */ }
 }
 
@@ -81,16 +103,28 @@ export function playDoorOpen(dest: AudioNode = categoryOutput('effects')) {
 export function playDoorClose(dest: AudioNode = categoryOutput('effects')) {
   const c = audio(); tap(c, c.currentTime + .01, 130, .09, dest);
 }
-export function playHand(dest: AudioNode = categoryOutput('effects')) {
-  const c = audio(), t = c.currentTime + .02;
-  for (const [delay, hz] of [[0, 660], [.12, 880]]) {
-    const osc = c.createOscillator(), gain = c.createGain(), at = t + delay;
-    osc.frequency.value = hz; gain.gain.setValueAtTime(0, at);
-    gain.gain.linearRampToValueAtTime(.055, at + .008);
-    gain.gain.exponentialRampToValueAtTime(.0001, at + .18);
-    osc.connect(gain).connect(dest); osc.start(at); osc.stop(at + .2);
-    osc.onended = () => { osc.disconnect(); gain.disconnect(); };
-  }
+export function playHand() {
+  const dest = categoryOutput('effects'), c = audio(), t = c.currentTime + .02;
+  for (const [delay, hz] of [[0, 660], [.12, 880]])
+    tone(c, dest, t + delay, { hz, level: .055, attack: .008, decay: .18 });
+}
+
+/** A brass desk bell: a bright strike with two inharmonic partials, ringing out for about a second. */
+export function playBell(dest: AudioNode = categoryOutput('effects')) {
+  try {
+    const c = audio(), at = c.currentTime + .01;
+    const out = c.createGain();
+    out.gain.setValueAtTime(0, at); out.gain.linearRampToValueAtTime(1, at + .004); out.gain.exponentialRampToValueAtTime(.0001, at + 1.1);
+    out.connect(dest);
+    const oscs = [[1568, .09, 1.1], [1568 * 2.76, .05, .45], [1568 * 5.4, .02, .18]].map(([hz, level, ring]) => {
+      const osc = c.createOscillator(), g = c.createGain();
+      osc.type = 'sine'; osc.frequency.value = hz;
+      g.gain.setValueAtTime(level, at); g.gain.exponentialRampToValueAtTime(.0001, at + ring);
+      osc.connect(g).connect(out); osc.start(at); osc.stop(at + ring + .05);
+      return { osc, g };
+    });
+    oscs[0].osc.onended = () => { for (const { osc, g } of oscs) { osc.disconnect(); g.disconnect(); } out.disconnect(); };
+  } catch { /* audio unavailable: stay silent */ }
 }
 
 /** Short cabinet effects, all routed through the shared Effects mix and deafen control. */
@@ -103,12 +137,8 @@ export function playPark(kind: import('../../shared/park/sim').FxKind | 'cheer')
   try {
     const c = audio(), dest = categoryOutput('effects'), sequence = notes[kind];
     sequence.forEach((hz, i) => {
-      const at = c.currentTime + .01 + i * .055, osc = c.createOscillator(), gain = c.createGain();
-      osc.type = kind === 'death' || kind === 'stomp' ? 'triangle' : 'sine'; osc.frequency.value = hz;
-      gain.gain.setValueAtTime(0, at); gain.gain.linearRampToValueAtTime(.055, at + .005);
-      gain.gain.exponentialRampToValueAtTime(.0001, at + .12);
-      osc.connect(gain).connect(dest); osc.start(at); osc.stop(at + .14);
-      osc.onended = () => { osc.disconnect(); gain.disconnect(); };
+      tone(c, dest, c.currentTime + .01 + i * .055, { hz, level: .055, attack: .005, decay: .12,
+        type: kind === 'death' || kind === 'stomp' ? 'triangle' : 'sine' });
     });
   } catch { /* audio unavailable: stay silent */ }
 }
@@ -117,14 +147,8 @@ export function playPark(kind: import('../../shared/park/sim').FxKind | 'cheer')
 export function playDungeon(event: 'fell' | 'key' | 'locked' | 'opening' | 'escaped') {
   try {
     const c = audio(), t = c.currentTime + .01, dest = categoryOutput('effects');
-    const note = (delay: number, hz: number, end: number, duration: number, level: number, type: OscillatorType = 'sine') => {
-      const at = t + delay, o = c.createOscillator(), g = c.createGain();
-      o.type = type; o.frequency.setValueAtTime(hz, at); o.frequency.exponentialRampToValueAtTime(end, at + duration);
-      g.gain.setValueAtTime(0, at); g.gain.linearRampToValueAtTime(level, at + .008);
-      g.gain.exponentialRampToValueAtTime(.0001, at + duration);
-      o.connect(g).connect(dest); o.start(at); o.stop(at + duration + .02);
-      o.onended = () => { o.disconnect(); g.disconnect(); };
-    };
+    const note = (delay: number, hz: number, end: number, duration: number, level: number, type: OscillatorType = 'sine') =>
+      tone(c, dest, t + delay, { hz, to: end, level, attack: .008, decay: duration, type });
     if (event === 'fell') { note(0, 950, 180, .42, .035); tap(c, t + .43, 100, .08, dest); }
     else if (event === 'key') { note(0, 1047, 1047, .18, .045); note(.12, 1568, 1568, .24, .04); }
     else if (event === 'locked') for (let i = 0; i < 3; i++) note(i * .045, 870 + i * 170, 570, .055, .022, 'triangle');

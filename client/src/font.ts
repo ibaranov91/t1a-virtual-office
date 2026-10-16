@@ -13,6 +13,13 @@ const G: Record<string, string> = {
 };
 const FOLD: Record<string, string> = { Á: 'A', À: 'A', Ä: 'A', É: 'E', È: 'E', Í: 'I', Ó: 'O', Ö: 'O', Ú: 'U', Ü: 'U', Ñ: 'N', Ç: 'C' };
 
+/** Nameplate lines: one for short names; "First Las" stacks when longer than 10 glyphs. A long word ends in a dot. */
+export const plateLines = (name: string): string[] => {
+  const clip = (w: string) => w.length > 9 ? `${w.slice(0, 8)}.` : w;
+  const n = name.trim().replace(/\s+/g, ' ');
+  const sp = n.indexOf(' ');
+  return n.length <= 10 || sp < 0 ? [n.length > 10 ? clip(n) : n] : [clip(n.slice(0, sp)), clip(n.slice(sp + 1))];
+};
 export const textWidth = (s: string) => Math.max(0, s.length * 4 - 1);
 
 /** Draws uppercase pixel text at (x, y) in the current transform (1 unit = 1 art pixel). */
