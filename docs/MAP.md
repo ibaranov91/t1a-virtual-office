@@ -4,7 +4,7 @@
 
 Grid 85×73 tiles of 16px. Office: 0,0 85×52 (camera, overview and edit mode stay inside it). Dungeon: 17,54 31×19, not connected to the office.
 Spawn 7,17, exit 12,13, garden hole 63,25, hatch 20,32.
-Coordinates are tile x,y (x right, y down). Object ids are positional (o1…o314): append new objects at the end of gen-map.mjs so saved layouts keep their ids.
+Coordinates are tile x,y (x right, y down). Object ids are positional (o1…o315): append new objects at the end of gen-map.mjs so saved layouts keep their ids.
 
 Look things up from the shell: `npm run where -- <roomId|objectType|useKind|objectId|x,y>`.
 
@@ -80,7 +80,7 @@ Each room is filled with its letter (table below) and labelled with its id. `#` 
     0123456789012345678901234567890123456789012345678901234567890123456789012345678901234
   0 #####################################################################################
   1 ##################*****###########*##################################################
-  2 ##################*****##############################################################
+  2 ##################*****#*############################################################
   3 #X.........XX#X...........#.XXXX*XX.*.X#X...........*#X........X#XXXXX....###########
   4 #.XX.XX.XX...#...h.h.h....#..s.........#.XX.XX.XX.XX.#,**.**.*..#......XX.###########
   5 #..h.h..h....#...XXXXXXh..#......s.....#.h..h..h..h..#X...**...X#X.....h.X###########
@@ -237,8 +237,9 @@ Every object with a `use` (wall decor counts toward the room below it). Routing 
 | o222 | `bell` | `bell` | use | 11,14 | 1×1 | lobby | bell |
 | o283 | `lamp` | `toggle` | wheel use reach | 83,26 | 1×1 | bookclub | lamp |
 | o284 | `lamp` | `toggle` | wheel use reach | 75,32 | 1×1 | bookclub | lamp |
-| o309 | `beach_bar` | `take` | wheel use reach | 65,35 | 3×1 | beach | cocktail, coconut, icecream |
-| o310 | `vacation_sign` | `vacations` | — | 52,34 | 1×1 | beach |  |
+| o286 | `room_start` | `room_start` | use reach | 24,2 | 1×1 | meeting | start private room (on a wall) |
+| o310 | `beach_bar` | `take` | wheel use reach | 65,35 | 3×1 | beach | cocktail, coconut, icecream |
+| o311 | `vacation_sign` | `vacations` | — | 52,34 | 1×1 | beach |  |
 
 Kinds with no object on the map yet: none.
 
@@ -247,7 +248,7 @@ Kinds with no object on the map yet: none.
 | room | objects (type ×count) |
 | --- | --- |
 | `focus` | window ×2, desk ×5, chair ×5, bookshelf, lamp ×2, plant, wall_shelf, wall_ivy, poster |
-| `meeting` | painting, table_long, chair ×8, plant ×2, lamp, screen, poster ×2, wall_ivy |
+| `meeting` | painting, table_long, chair ×8, plant ×2, lamp, screen, poster ×2, wall_ivy, room_start |
 | `coffee` | window ×2, counter ×6, coffee_machine, fridge, plant ×2, table_round ×2, stool ×4, sofa, lamp, calendar, wall_shelf, wall_ivy, poster |
 | `lobby` | noticeboard, painting_small, plant ×3, sofa, table_round, reception, safe, bookshelf, hat_rack, exit_door, lamp, bell, palm, water_cooler, coat_stand, side_table, poster, mirror |
 | `cowork` | clock_nyc, clock_berlin, clock_moscow, table_big ×8, chair ×16, plant ×2, lamp, calendar, meetings_board |
@@ -274,7 +275,7 @@ A 3×3 feature fits where both sides are ≥ 3. `layoutProblem` (shared/map.ts) 
 | room | free rects (x,y w×h) |
 | --- | --- |
 | `focus` | 1,6 6×2 · 4,8 5×2 · 9,5 3×3 |
-| `meeting` | 15,7 3×3 · 21,8 3×3 (rug) · 15,3 2×3 · 23,3 3×2 · 23,6 2×2 (rug) |
+| `meeting` | 15,7 3×3 · 21,8 3×3 (rug) · 15,3 2×3 · 24,4 2×2 · 23,6 2×2 (rug) |
 | `coffee` | 32,7 5×3 (rug) · 37,4 2×3 · 27,4 2×2 · 30,4 2×2 · 34,4 2×2 · 28,7 2×2 (rug) · +1 smaller |
 | `lobby` | 9,16 5×5 (rug) · 2,14 8×2 · 4,18 2×5 (rug) · 7,18 2×5 (rug) |
 | `cowork` | 17,16 8×3 · 26,16 12×2 (rug) · 17,21 10×2 · 29,21 8×2 · 36,14 3×2 · 25,18 3×2 (rug) · +3 smaller |

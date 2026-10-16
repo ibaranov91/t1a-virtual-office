@@ -1,6 +1,6 @@
 import { NoteClock, type InstrumentKind } from '../../shared/instruments';
 import { startVoice, type SynthVoice } from './synth';
-import { reverbImpulse, soundModel } from '../../shared/acoustics';
+import { distanceGain, reverbImpulse, soundModel } from '../../shared/acoustics';
 import { roomAt, type MapObject, type Room, type Tile } from '../../shared/map';
 import { audio, categoryOutput, rms, subscribeAudio } from './audio';
 import { TRACK } from '../../shared/music';
@@ -227,7 +227,7 @@ export class Soundscape {
       const hall = s.kind === 'voice' && room && u?.callId === me.callId ? room : undefined;
       const model = soundModel(MAP, pose, p, { room: hall,
         knock: s.kind === 'voice' && !!me.callId && !room && u?.callId === me.callId });
-      const visible = !me.instance && (!u || u.instance === me.instance);
+      const visible = me.instance ? s.kind === 'voice' && !!u && u.instance === me.instance : !u || u.instance === me.instance; // in a meeting room you hear only its voices
       const gain = visible ? model.gain : 0;
       const send = gain ? model.send : 0;
       s.modelGain = gain;
@@ -273,14 +273,16 @@ export class Soundscape {
     } finally { this.updating = false; }
   }
 
-  /** A reception bell rang: loud in its own room (panned to where it is), a faint carry-through from farther away. */
+  /** A reception bell rang: heard only by people inside its room, quieter with distance, panned to where it is. */
   ringBell(o: MapObject) {
     const me = this.store.users.get(this.store.me); if (!me || me.instance || !this.store.connected) return;
     const pose = this.store.pose(me), tile = { x: o.x, y: o.y };
+    const room = roomAt(MAP, tile.x, tile.y);
+    if (!room || roomAt(MAP, pose.tile.x, pose.tile.y)?.id !== room.id) return;
     const model = soundModel(MAP, pose, { x: tile.x, y: tile.y, tile }, {});
-    const gain = Math.max(model.gain, .12);
+    const gain = Math.max(distanceGain(Math.abs(pose.tile.x - tile.x) + Math.abs(pose.tile.y - tile.y)), .08);
     const g = audio().createGain(), p = audio().createStereoPanner();
-    g.gain.value = gain; p.pan.value = model.gain ? model.pan : 0;
+    g.gain.value = gain; p.pan.value = model.pan;
     g.connect(p).connect(categoryOutput('effects'));
     playBell(g);
     window.setTimeout(() => { g.disconnect(); p.disconnect(); }, 1500);
@@ -300,7 +302,7 @@ export class Soundscape {
         const onDoor = (t: Tile) => door.tiles.some(p => p.x === t.x && p.y === t.y);
         const inside = (t: Tile) => roomAt(MAP, t.x, t.y)?.id === door.room.id;
         const enter = onDoor(prev) && inside(tile), exit = inside(prev) && onDoor(tile);
-        if (!(enter || exit) || (u.id !== me.id && !inside(pose.tile))) continue;
+        if (!(enter || exit) || u.id !== me.id) continue;
         const p = audio().createStereoPanner();
         p.pan.value = Math.max(-.35, Math.min(.35, (door.x + door.w / 2 - (pose.x + .5)) / 10));
         p.connect(categoryOutput('effects'));

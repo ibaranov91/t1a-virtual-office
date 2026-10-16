@@ -546,6 +546,8 @@ obj('plant', 83, 32);
 rug('orange', 77, 28, 5, 4);
 for (const { id: _i, x: _x, y: _y, ...t } of objects.slice(firstClub)) catalog[t.type] ??= t;
 rooms.find(r => r.id === 'bookclub').stand.push({ x: 82, y: 29, dir: 'left' });
+// the Meeting room's "start private room" sign, beside the screen on the top wall (last, so every earlier id stays put)
+obj('room_start', 24, 2, 1, 1, { wall: true, use: { kind: 'room_start', label: 'start private room' } });
 
 // ---------- vacation: props appended after all existing objects ----------
 const firstVacation = objects.length;
