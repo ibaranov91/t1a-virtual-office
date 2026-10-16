@@ -10,6 +10,7 @@ import type { TileMap } from '../../shared/map';
 import { PRESENT_MAX_BYTES, type ClientMsg, type DecksReply } from '../../shared/protocol';
 import { USER_QUOTA } from './decks';
 import { World } from './world';
+import { LofiLive } from './lofi';
 import { serveStatic } from './static';
 import { startBots } from './bots';
 import { startCreatures } from './creatures';
@@ -206,11 +207,14 @@ const emailName = (email: string) => { const u = world.findByEmail(email); retur
 
 const newSession = (userId: string) => { const s = randomUUID(); sessions.set(s, userId); return s; };
 
+const lofiLive = new LofiLive();
+
 // ---------- REST ----------
 const json = (res: import('node:http').ServerResponse, code: number, body: unknown) => {
   res.writeHead(code, { 'content-type': 'application/json', 'cache-control': 'no-store' }); res.end(JSON.stringify(body));
 };
 const server = createServer(async (req, res) => {
+  if (req.method === 'GET' && req.url === '/api/lofi') return json(res, 200, await lofiLive.get());
   if (req.method === 'GET' && req.url === '/api/health') return json(res, 200, { ok: true, users: world.users.size });
   if (req.method === 'GET' && req.url === '/api/config') return json(res, 200, { netbird: NETBIRD, tokenLogin: TOKEN_LOGIN, tokenRequired: !OPEN_LOGIN, iceServers: ICE_SERVERS });
   // Two-step NetBird login: GET only says who you are (so logout doesn't bounce you back in), POST signs in.

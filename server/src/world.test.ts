@@ -25,6 +25,27 @@ function setup(t: TestContext) {
   return { w, add, settle, join, fill, tick: (ms: number) => t.mock.timers.tick(ms) };
 }
 const voiceChanges = (messages: ServerMsg[]) => messages.filter(m => m.t === 'call' || m.t === 'voice_wait');
+test('Lofi listening is shared, limited to Music, cleared on exit, and never persisted', t => {
+  const { w, add, settle } = setup(t), a = add('A', { x: 58, y: 8 }), b = add('B', { x: 60, y: 8 });
+  w.handle(a.u, { t: 'listening', on: true }, a.socket);
+  assert.equal(a.u.listening, 'lofi');
+  assert.ok(b.messages.some(m => m.t === 'listening' && m.userId === a.u.id && m.on));
+  assert.equal('listening' in w.dump().users.find(u => u.id === a.u.id)!, false);
+  settle(a.u, { x: 58, y: 13 }); w.voiceTick(); assert.equal(a.u.listening, null);
+  w.handle(a.u, { t: 'listening', on: true }, a.socket); assert.equal(a.u.listening, null);
+  settle(a.u, { x: 58, y: 8 }); a.u.instance = 'private';
+  w.handle(a.u, { t: 'listening', on: true }, a.socket); assert.equal(a.u.listening, null);
+});
+test('one tab stopping cannot clear another tab listening; closing the last listening tab clears it', t => {
+  const { w, add } = setup(t), a = add('A', { x: 58, y: 8 });
+  const second = w.connect(a.u.id, () => {});
+  w.handle(a.u, { t: 'listening', on: true }, a.socket);
+  w.handle(a.u, { t: 'listening', on: true }, second.socket);
+  w.handle(a.u, { t: 'listening', on: false }, a.socket); assert.equal(a.u.listening, 'lofi');
+  second.close(); assert.equal(a.u.listening, null);
+  w.handle(a.u, { t: 'listening', on: true }, a.socket); assert.equal(a.u.listening, 'lofi');
+  a.close(); assert.equal(a.u.listening, null);
+});
 test('Music joins visitors into one hall call and removes them when they walk out', t => {
   const { w, add, settle } = setup(t);
   const a = add('A', { x: 58, y: 8 }), b = add('B', { x: 60, y: 8 });

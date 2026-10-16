@@ -325,6 +325,7 @@ export class Store {
   laterClear() { this.send({ t: 'later_clear' }); this.laterOpen = false; this.emit(); }
   laterKnockBack(fromId: string) { this.requestKnock(fromId); this.laterOpen = false; this.emit(); } // knocking clears the entry on the server
   openMeetings() { this.meetingsOpen = true; this.emit(); }
+  setLofiListening(on: boolean) { this.send({ t: 'listening', on }); }
   openJukebox(id: string) { this.jukeboxOpen = id; this.emit(); }
   closeJukebox() { this.jukeboxOpen = null; this.emit(); }
   jukeboxAction(id: string, action: JukeboxAction) {
@@ -626,6 +627,7 @@ export class Store {
       case 'instrument': this.setInstruments({ ...this.instruments, [msg.id]: msg.player }); break;
       case 'seat': this.seat = msg.id; break;
       case 'note': this.soundscape?.receiveNote(msg.id, msg.by, msg.note, msg.on, msg.vel, msg.preset, msg.at); return;
+      case 'listening': { const u = this.users.get(msg.userId); if (u) u.listening = msg.on ? 'lofi' : null; break; }
       case 'jukebox': if (this.jukeboxReady) this.jukebox = { ...this.jukebox, [msg.id]: msg.state }; break;
       case 'object': this.objects = { ...this.objects, [msg.id]: { on: msg.on } }; break;
       case 'room_open': this.roomOpen = true; break;

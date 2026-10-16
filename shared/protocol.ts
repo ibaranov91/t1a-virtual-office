@@ -146,6 +146,7 @@ export interface PublicUser {
   muted: boolean;        // mic muted in that call
   following: string | null; // walks along with this person
   holding: string | null;   // a UseItem id (coffee, snack…) in hand for a while
+  listening?: 'lofi' | null; // an audible Lofi TV in one of this person's open pages; never persisted
   reading: string | null;   // library article id they're reading at a reading desk; knocks go to Later
   eating?: Eating;          // having lunch at a picnic table (see shared/lunch.ts)
   meeting: number | null;   // in a calendar meeting until then (ms); knocks go to Later
@@ -262,6 +263,7 @@ export interface DecksReply { decks: DeckInfo[]; used: number; limit: number }
 
 // server -> client
 export type ServerMsg =
+  | { t: 'listening'; userId: string; on: boolean }
   | { t: 'table'; view: TableView | null } // private: owner socket only
   | { t: 'table_status'; userId: string; table: TableStatus | null }
   | ArcadeIncoming
@@ -336,6 +338,7 @@ export type ServerMsg =
 
 // client -> server
 export type ClientMsg =
+  | { t: 'listening'; on: boolean }
   | { t: 'table_pick'; game: TableGameId; invite?: string[]; rematch?: boolean } // host invitations, or a rematch proposal
   | { t: 'table_start' } // invited sitter: Join; host: Start
   | { t: 'table_move'; matchId: string; revision: number; move: unknown }
