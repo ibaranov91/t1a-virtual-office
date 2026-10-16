@@ -28,34 +28,7 @@ const readBase64 = (f: Blob) => new Promise<string>((ok, fail) => {
 
 const mb = (n: number) => (n / 1024 / 1024).toFixed(n < 10 * 1024 * 1024 ? 1 : 0);
 const age = (at: number) => { const m = Math.max(0, Math.round((Date.now() - at) / 60_000)); return m < 60 ? `${m} min` : `${Math.round(m / 60)} h`; };
-interface Spot { name: string; url: string; title?: string }
-
-/** Spot tab: my spots (when Spot allows our origin), or a URL field. Either way the page opens in a new tab to pick in the share dialog. */
-function SpotTab({ share, disabled }: { share: (url: string) => void; disabled: boolean }) {
-  const [spots, setSpots] = useState<Spot[] | null | 'fail'>(null);
-  const [url, setUrl] = useState('');
-  useEffect(() => {
-    fetch('https://spot.t1a.dev/api/sites/manageable?limit=50', { credentials: 'omit' }).then(r => r.ok ? r.json() : Promise.reject()).then(d => setSpots(d.sites ?? [])).catch(() => setSpots('fail'));
-  }, []);
-  const open = (u: string) => { window.open(u, '_blank', 'noopener'); share(u); };
-  return (
-    <div className="present-spot">
-      <span className="small muted">Opens the spot in a new tab. In the share dialog, pick that tab.</span>
-      {spots === null && <span className="small muted">Loading spots…</span>}
-      {Array.isArray(spots) && (spots.length ? spots.map(sp => <div key={sp.name} className="row">
-        <span className="present-deck-title" title={sp.url}>{sp.title || sp.name}<span className="muted small"> · {sp.url.replace(/^https?:\/\//, '')}</span></span>
-        <button className="ghost" disabled={disabled} onClick={() => open(sp.url)}>Open &amp; share</button>
-      </div>) : <span className="small muted">You have no spots yet.</span>)}
-      {spots === 'fail' && <form className="row" onSubmit={e => { e.preventDefault(); if (/^https?:\/\//.test(url) && !disabled) open(url); }}>
-        <input value={url} placeholder="https://my-site.spot.t1a.dev/" onChange={e => setUrl(e.target.value.trim())} />
-        <button className="ghost" type="submit" disabled={disabled || !/^https?:\/\//.test(url)}>Open &amp; share</button>
-      </form>}
-      {spots === 'fail' && <span className="small muted">Spot list unavailable from this origin</span>}
-    </div>
-  );
-}
-
-/** The screen's panel: slides (images or a PDF), my deck library, screen share and Spot. */
+/** The screen's panel: slides (images or a PDF), my deck library, and screen share. */
 export function PresentPanel({ store, id }: { store: Store; id: string }) {
   const [title, setTitle] = useState('');
   const [files, setFiles] = useState<File[]>([]);
@@ -63,7 +36,6 @@ export function PresentPanel({ store, id }: { store: Store; id: string }) {
   const [progress, setProgress] = useState('');
   const [err, setErr] = useState<string | null>(null);
   const [lib, setLib] = useState<DecksReply | null>(null);
-  const [tab, setTab] = useState<'slides' | 'spot'>('slides');
   const live = store.presentation, mine = live?.presenter === store.me, taken = !!live && !mine;
   const close = () => store.openPresent(null);
   const headers = { 'x-deck-session': store.sessionId };
@@ -119,20 +91,17 @@ export function PresentPanel({ store, id }: { store: Store; id: string }) {
           <span>{taken ? <><b>{store.name(live.presenter)}</b> is presenting <b>{live.deck?.title ?? 'their screen'}</b></> : <>LIVE: <b>{live.deck?.title ?? 'Your screen'}</b> · you're presenting</>}</span>
           {mine ? <button onClick={() => { store.presentStop(); close(); }}>Stop</button> : <button className="ghost" onClick={watch}>Watch</button>}
         </div>}
-        <div className="present-tabs" role="tablist">
-          <button role="tab" aria-selected={tab === 'slides'} className={tab === 'slides' ? 'on' : ''} onClick={() => setTab('slides')}>Slides</button>
-          <button role="tab" aria-selected={tab === 'spot'} className={tab === 'spot' ? 'on' : ''} onClick={() => setTab('spot')}>Spot</button>
+        <div className="present-tabs">
+          <span className="present-tab-label">Slides</span>
           <button className="present-share" disabled={taken || busy} onClick={() => void shareScreen()}>🖥 Share screen</button>
         </div>
-        {tab === 'slides' ? <>
-          <p className="small muted">Put slides up for everyone {store.users.get(store.me)?.instance ? 'in this meeting' : `in the ${MAP.rooms.find(r => r.id === (live?.room ?? 'meeting'))?.name ?? 'Meeting'} room`}. PNG or JPG images (one per slide, in file-name order) or one PDF.{taken && ' Uploads are saved to your decks until the screen is free.'}</p>
-          <form className="present-form" onSubmit={e => { e.preventDefault(); if (files.length && !busy) void upload(); }}>
-            <label>Title <input value={title} maxLength={60} placeholder="Sprint demo" onChange={e => setTitle(e.target.value)} /></label>
-            <label className="present-file">Slides <input type="file" multiple accept="image/png,image/jpeg,application/pdf,.pdf" onChange={e => setFiles([...(e.target.files ?? [])])} /></label>
-            {files.length > 0 && <span className="small muted">{files.length} file{files.length > 1 ? 's' : ''} · {mb(files.reduce((n, f) => n + f.size, 0))} MB</span>}
-            <div className="row"><button type="submit" disabled={!files.length || busy}>{busy ? (progress || 'Uploading…') : taken ? 'Upload to my decks' : 'Upload & present'}</button></div>
-          </form>
-        </> : <SpotTab disabled={taken || busy} share={() => void shareScreen()} />}
+        <p className="small muted">Put slides up for everyone {store.users.get(store.me)?.instance ? 'in this meeting' : `in the ${MAP.rooms.find(r => r.id === (live?.room ?? 'meeting'))?.name ?? 'Meeting'} room`}. PNG or JPG images (one per slide, in file-name order) or one PDF.{taken && ' Uploads are saved to your decks until the screen is free.'}</p>
+        <form className="present-form" onSubmit={e => { e.preventDefault(); if (files.length && !busy) void upload(); }}>
+          <label>Title <input value={title} maxLength={60} placeholder="Sprint demo" onChange={e => setTitle(e.target.value)} /></label>
+          <label className="present-file">Slides <input type="file" multiple accept="image/png,image/jpeg,application/pdf,.pdf" onChange={e => setFiles([...(e.target.files ?? [])])} /></label>
+          {files.length > 0 && <span className="small muted">{files.length} file{files.length > 1 ? 's' : ''} · {mb(files.reduce((n, f) => n + f.size, 0))} MB</span>}
+          <div className="row"><button type="submit" disabled={!files.length || busy}>{busy ? (progress || 'Uploading…') : taken ? 'Upload to my decks' : 'Upload & present'}</button></div>
+        </form>
         {err && <p className="err">{err}</p>}
         {lib && <div className="present-decks">
           <span className="small muted">My decks (they expire after 24 h)</span>
