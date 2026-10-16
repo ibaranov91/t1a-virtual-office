@@ -11,7 +11,7 @@ import { lockedDoors, roomDoors, type RoomDoor } from './doors';
 import type { Assets, Frame } from './assets';
 import { drawText, textWidth } from './font';
 import { TRACK } from '../../shared/music';
-import { TOILET_CAPACITY, toiletFull, cupTableAt, CUP_ITEMS, underground, MEETING_ROOM_ID, PLANT_REVEAL, PLANT_STAGES, plantDead, plantName, type LayoutEdit } from '../../shared/protocol';
+import { TOILET_CAPACITY, toiletFull, cupTableAt, CUP_ITEMS, underground, MEETING_ROOM_ID, PLANT_REVEAL, PLANT_STAGES, plantDead, plantName, type Cup, type LayoutEdit } from '../../shared/protocol';
 import { ITEMS, MAP, type ClientUser, type Pose, type Store, type DungeonFx } from './net';
 
 const TS = MAP.tileSize;
@@ -96,6 +96,7 @@ export class Engine {
   private hoverCritter: { text: string; x: number; y: number; id?: string } | null = null;
   private lunchTile: Tile | null = null; // a picnic chair I can eat my food at, under the pointer
   private cupTile: Tile | null = null; // a table I can put my cup down on, under the pointer
+  private hoverCup: Cup | null = null;  // a cup someone left, under the pointer: click to clear it away
   critters: CreatureLayer;
   private plants: PlacedPlant[] = [];
   private plantsVersion = -1; // store.version the plants were placed for
@@ -492,7 +493,7 @@ export class Engine {
     return me && underground(me) ? this.store.dungeonFx.find(f => f.user.id === me.id && f.kind === 'fall' && performance.now() - f.at < 900) : undefined;
   }
   private clearAreaInput() {
-    this.stopKeys(); this.manualCam = false; this.hoverUser = this.hoverObject = this.hoverTile = this.hoverPlant = null;
+    this.stopKeys(); this.manualCam = false; this.hoverUser = this.hoverObject = this.hoverTile = this.hoverPlant = this.hoverCup = null;
     this.selected = null; this.onPick?.(null); this.setEditing(false);
     this.drag = this.pinch = this.gesture = null; this.pointers.clear(); this.wheelAcc = 0;
     this.canvas.style.cursor = 'default';
@@ -751,15 +752,16 @@ export class Engine {
     if (this.editing) return this.onEditMove(w);
     this.hoverUser = this.userAt(w.x, w.y);
     const inside = this.myInstance();
-    this.hoverObject = this.hoverUser || inside ? null : this.objectAt(w.x, w.y);
+    this.hoverCup = this.hoverUser || inside || this.areaDown ? null : this.critters.cupAt(w.x, w.y);
+    this.hoverObject = this.hoverUser || this.hoverCup || inside ? null : this.objectAt(w.x, w.y);
     this.hoverPlant = this.hoverUser || this.hoverObject || inside ? null
       : this.plants.find(p => w.x >= p.x - 5 && w.x < p.x + 5 && w.y >= p.y - 18 && w.y < p.y) ?? null;
     const tx = Math.floor(w.x / TS), ty = Math.floor(w.y / TS);
     this.hoverTile = this.clickTarget({ x: tx, y: ty });
     this.hoverCritter = this.hoverUser || this.hoverObject || inside || this.areaDown ? null : this.critters.at(w.x, w.y, this.store.now());
-    this.cupTile = this.hoverUser || this.hoverObject ? null : this.cupTarget({ x: tx, y: ty });
+    this.cupTile = this.hoverUser || this.hoverObject || this.hoverCup ? null : this.cupTarget({ x: tx, y: ty });
     this.lunchTile = this.hoverUser || this.hoverObject || inside || !this.lunchChair({ x: tx, y: ty }) ? null : { x: tx, y: ty };
-    this.canvas.style.cursor = this.tapZooms ? 'zoom-in' : this.hoverUser || this.hoverObject || this.cupTile || this.lunchTile || this.hoverCritter?.id ? 'pointer' : this.hoverTile ? 'crosshair' : 'default';
+    this.canvas.style.cursor = this.tapZooms ? 'zoom-in' : this.hoverUser || this.hoverObject || this.hoverCup || this.cupTile || this.lunchTile || this.hoverCritter?.id ? 'pointer' : this.hoverTile ? 'crosshair' : 'default';
   };
   private onEditMove(w: { x: number; y: number }) {
     const tx = Math.floor(w.x / TS), ty = Math.floor(w.y / TS), d = this.editDrag;
@@ -802,6 +804,8 @@ export class Engine {
     const inside = this.myInstance();
     const critter = inside || this.areaDown ? null : this.critters.at(w.x, w.y, this.store.now());
     if (critter?.id) { this.onPick?.(null); this.manualCam = false; return this.store.pet(critter.id); }
+    const cupHit = inside || this.areaDown ? null : this.critters.cupAt(w.x, w.y);
+    if (cupHit) { this.onPick?.(null); this.manualCam = false; return this.store.takeCup(cupHit.id); }
     const obj = inside ? null : this.objectAt(w.x, w.y);
     if (obj?.sit) { this.onPick?.(null); this.manualCam = false; return this.store.moveTo(this.freeSeat(obj, Math.floor(w.x / TS))); }
     if (obj?.sound && obj.use?.kind !== 'jukebox') return this.onPick?.(null);
@@ -1025,6 +1029,10 @@ export class Engine {
         : o.use?.kind === 'calendar' ? 'Calendar · your week' : o.use?.kind === 'achievements' ? 'Notice board · your plant and achievements' : o.use?.kind === 'link' ? `Vault 13 · click to open the ${o.use.label}` : o.use?.kind === 'meetings' ? `Meetings · ${this.store.meetingRooms.length || 'none'} on now`
         : o.use?.kind === 'presentation' ? (this.store.presentation?.objectId === o.id ? `Screen · LIVE: ${this.store.presentation.deck.title}` : 'Screen · click to present slides') : o.use?.kind === 'clock' ? `Clock · ${o.use.city}, ${zoneTime(o.use.tz)} · click for all our cities` : o.sit ? `${o.type === 'bench' ? 'Bench' : 'Sofa'} · click to sit` : o.type === 'coffee_machine' ? 'Coffee machine' : o.type === 'fridge' ? 'Fridge' : o.use?.kind === 'toilet' ? this.toiletTip(o.id) : o.use?.kind === 'bell' ? 'Reception bell · click to ring' : o.type === 'reading_table' || o.type === 'reading_desk' ? 'Reading table · take a book from the shelf' : o.use?.kind === 'library' ? 'Library shelf · publish or borrow an article' : o.use?.kind === 'dealer' ? (o.type === 'bouncer' ? 'Bouncer · knows a guy' : 'Hat stand · pick a hat for your pockets') : objectName(o.type));
       this.drawLabel(what, (o.x + o.w / 2) * TS, (o.y + o.h) * TS - fr.h + 4, camX, camY);
+    }
+    else if (this.hoverCup && this.store.cups.some(c => c.id === this.hoverCup!.id)) { // gone: the label goes with it
+      const { x, y } = this.hoverCup.tile;
+      this.drawLabel(`${this.hoverCup.item === 'tea' ? '🍵' : '☕'} Someone left this here · click to clear it away`, x * TS + 8, y * TS - 2, camX, camY);
     }
     else if (this.cupTile) {
       const held = me?.holding ? ITEMS.get(me.holding) : undefined;

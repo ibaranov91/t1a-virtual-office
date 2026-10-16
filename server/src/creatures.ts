@@ -1,7 +1,7 @@
 // Office animals and helpers: a cat and a dog that wander, sit by people and nap; a bat in October; and the cleaner,
 // who takes away the cups people leave on tables. They are not users: their own `creatures` message, never knocked on,
 // never counted. Cups are server state, saved with the rest.
-import { dirBetween, findPath, isWalkable, type Tile, type TileMap } from '../../shared/map';
+import { dirBetween, findPath, isWalkable, roomAt, type Tile, type TileMap } from '../../shared/map';
 import { isPlate, LUNCH_MS, MAX_PLATES } from '../../shared/lunch';
 import { cupTableAt, MAX_CUPS, type Creature, type CreatureKind, type CreaturePose, type Cup, type ServerMsg } from '../../shared/protocol';
 
@@ -14,6 +14,7 @@ export const BAT_CHANCE = 0.7;             // per try
 export const BAT_COOLDOWN_MS = 1000;
 export const BAT_RESPAWN_MS = 10 * 60_000; // after a catch
 export const SAY_MS = 5000;                // a phrase stays up this long
+const PRAISE = ['Oh! Thank you, dear.', 'Finally, someone with manners!', 'Look at you, tidying up!', 'I could kiss you. I won\'t.', 'A rare and beautiful sight.'];
 const PHRASES = ['Who left a cup AGAIN?', 'Spotless. Almost.', 'Mind the wet floor!', 'I saw that crumb.', 'Tables are not coat racks.',
   'Coffee rings: my nemesis.', 'Dust never sleeps.', 'Somebody loves their mug a bit too much.', 'Cleaner floors, calmer minds.', 'Do not feed the printer.'];
 const SPEED: Record<CreatureKind, number> = { cat: 320, dog: 230, bat: 150, cleaner: 300 };
@@ -225,6 +226,17 @@ export class Creatures {
     let nextSay = say;
     if (!say && now >= c.nextSayAt && c.pose !== 'clean') { nextSay = pick(PHRASES); c.sayUntil = now + SAY_MS; c.nextSayAt = now + rand(120_000, 300_000); }
     if (hum !== !!c.hum || nextSay !== c.say) { c.hum = hum; c.say = nextSay; this.announce(c); }
+  }
+  /** Someone cleared a cup away themselves. If the cleaner is in that room right now (mid-walk counts where she is),
+   *  she says so: true. */
+  praise(roomId: string | undefined, now: number) {
+    const c = [...this.list.values()].find(c => c.kind === 'cleaner');
+    if (!c || !roomId) return false;
+    const at = c.walk ? c.walk.path[Math.max(0, Math.min(c.walk.path.length - 1, Math.floor((now - c.walk.startedAt) / c.walk.ms)))] : c.tile;
+    if (roomAt(this.map, at.x, at.y)?.id !== roomId) return false;
+    c.say = pick(PRAISE); c.sayUntil = now + SAY_MS; c.nextSayAt = now + rand(120_000, 300_000);
+    this.announce(c);
+    return true;
   }
   /** Which cup next and where to stand for it: the nearest by path. */
   planClean(from: Tile, now: number) {
