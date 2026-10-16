@@ -71,6 +71,9 @@ controls and hang-up hover. Do not color a settings title orange.
 - No emoji or text glyphs (×, ⋯, ▶, 🎙, 🎧) as controls. Emoji are content only: activity lines, reactions and items.
 
 ## Surfaces
+
+Your profile popout: the one place to manage yourself (look, pockets, achievements,
+status, presence, sign out). Don't add self-management buttons to the top bar.
 Use the existing surface before inventing another. Escape closes the innermost open surface. Opening a surface
 moves focus inside; closing it restores focus to its trigger (or the nearest remaining sensible control).
 

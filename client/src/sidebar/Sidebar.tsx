@@ -31,9 +31,10 @@ function load(): Settings {
 function save(s: Settings) { try { localStorage.setItem('deck.sidebar', JSON.stringify(s)); } catch { /* storage unavailable */ } }
 export const Sidebar = forwardRef<{ close: () => void }, {
   store: Store; voice: Voice | null; engine: Engine | null; assets: Assets | null;
+  onProfile: (opener: HTMLButtonElement) => void;
   sheetOpen?: boolean; onCloseSheet?: () => void; surfaceOpen: boolean;
   onPerson: (at: PersonAnchor) => void; onRoom: (at: RoomAnchor) => void;
-}>(function Sidebar({ store, voice, engine, assets, sheetOpen, onCloseSheet, surfaceOpen, onPerson, onRoom }, ref) {
+}>(function Sidebar({ store, voice, engine, assets, sheetOpen, onCloseSheet, surfaceOpen, onPerson, onRoom, onProfile }, ref) {
   const compact = useMedia(COMPACT), narrow = useMedia('(max-width: 899px)');
   const [settings, setSettings] = useState(load), current = useRef(settings); current.current = settings;
   const [over, setOver] = useState(false), [full, setFull] = useState(false), [query, setQuery] = useState('');
@@ -79,7 +80,7 @@ export const Sidebar = forwardRef<{ close: () => void }, {
         onKeyDown={e => { if (!overlayOpen(store) && e.key === 'Escape' && !surfaceOpen && !popoverOpen()) { e.stopPropagation(); if (query) setQuery(''); else e.currentTarget.blur(); } }} />
         {settings.view === 'rooms' ? <ChannelTree {...list} onRoom={onRoom} /> : <PeopleList {...list} />}
       </div>
-      {!compact && <SelfPanel store={store} voice={voice} assets={assets} />}
+      {!compact && <SelfPanel onProfile={onProfile} store={store} voice={voice} assets={assets} />}
       {!compact && <div className="sb-resize" role="separator" aria-label="Sidebar width" aria-orientation="vertical" aria-valuemin={260} aria-valuemax={400} aria-valuenow={settings.width} tabIndex={0}
         onDoubleClick={() => update({ width: WIDTH })} onPointerDown={e => { drag.current = { x: e.clientX, width: settings.width }; e.currentTarget.setPointerCapture(e.pointerId); }}
         onPointerMove={e => { if (drag.current) { const next = { ...current.current, width: clamp(drag.current.width + e.clientX - drag.current.x) }; current.current = next; setSettings(next); } }}

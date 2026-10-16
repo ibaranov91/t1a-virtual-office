@@ -1,10 +1,11 @@
 import { onMap } from '../../shared/beach';
 import { VacationPanel } from './Vacation';
+import { ProfilePopout } from './sidebar/ProfilePopout';
 import { Sidebar } from './sidebar/Sidebar';
 import { PersonCard, type PersonAnchor } from './sidebar/PersonCard';
 import { RoomMenu, type RoomAnchor } from './sidebar/RoomMenu';
 import { PRESENCE_COLOR } from './sidebar/model';
-import { COMPACT, useMedia } from './sidebar/hooks';
+import { COMPACT, overlayOpen, useMedia } from './sidebar/hooks';
 import { IdentityPill, VoiceIcons, CallChip, RoomVoiceChip, voiceState } from './sidebar/SelfPanel';
 import { RetroOverlay } from './retro/RetroOverlay';
 import { INSTRUMENTS, DRUM_PADS, VELOCITIES, VELOCITY_START, keyNote, noteName, type InstrumentKind } from '../../shared/instruments';
@@ -217,19 +218,24 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
   const down = !!me && underground(me);
   useEffect(() => { engine?.setEditing(editing && store.admin && !down); }, [engine, editing, store.admin, down]);
   useEffect(() => { setPick(null); setPersonMenu(null); setEditing(false); }, [down]);
+  const [profileOpener, setProfileOpener] = useState<HTMLButtonElement | null>(null);
+  const openProfile = (opener: HTMLButtonElement) => {
+    if (overlayOpen(store)) return;
+    opener.focus(); setPersonMenu(null); setRoomMenu(null); setProfileOpener(opener);
+  };
+  const profileAction = (run: () => void) => { setShowRooms(false); sidebarRef.current?.close(); run(); };
   const myRoom = me ? store.roomOf(me) : undefined;
   useEffect(() => { if (me && !me.lookSet) setShowAppearance(true); }, [me?.id, me?.lookSet]);
 
   return (
     <div className="office">
       <div className="office-chrome" ref={chromeRef}>
-      <TopBar store={store} voice={voice} roomName={myRoom?.name} onLogout={onLogout}
-        onToggleMeet={() => setShowMeet(s => !s)} onToggleAppearance={() => setShowAppearance(s => me?.lookSet ? !s : true)}
-        editing={editing} onToggleEdit={() => setEditing(e => !e)} gmOpen={gmOpen} onToggleGm={() => { setGmOpen(o => !o); setPocketsOpen(false); }}
-        pocketsOpen={pocketsOpen} onTogglePockets={() => { setPocketsOpen(o => !o); setGmOpen(false); }} />
+      <TopBar store={store} voice={voice} roomName={myRoom?.name}
+        onToggleMeet={() => setShowMeet(s => !s)} onProfile={openProfile}
+        editing={editing} onToggleEdit={() => setEditing(e => !e)} gmOpen={gmOpen} onToggleGm={() => { setGmOpen(o => !o); setPocketsOpen(false); }} />
       <div className="workspace">
         {!isCompact && <Sidebar ref={sidebarRef} store={store} voice={voice} engine={engine} assets={assets} onPerson={openPerson}
-          onRoom={at => { setPersonMenu(null); setRoomMenu(at); }} surfaceOpen={!!(personMenu || roomMenu)} />}
+          onRoom={at => { setPersonMenu(null); setRoomMenu(at); }} onProfile={openProfile} surfaceOpen={!!(personMenu || roomMenu || profileOpener)} />}
       <div className={`stage${editing && store.admin && !down && engine ? ' editing' : ''}`}>
         <div className="canvas-wrap"><canvas ref={canvasRef} /></div>
         {engine && <ZoomCluster engine={engine} />}
@@ -237,7 +243,7 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
         {!store.connected && assets && <div className="loading small">Reconnecting…</div>}
         {store.presentation && store.inPresentationRoom() && !store.slidesHidden && <SlideOverlay store={store} />}
         {isCompact && <Sidebar ref={sidebarRef} store={store} voice={voice} engine={engine} assets={assets} sheetOpen={showRooms}
-          onCloseSheet={() => setShowRooms(false)} onPerson={openPerson} onRoom={at => { setPersonMenu(null); setRoomMenu(at); }} surfaceOpen={!!(personMenu || roomMenu)} />}
+          onCloseSheet={() => setShowRooms(false)} onPerson={openPerson} onRoom={at => { setPersonMenu(null); setRoomMenu(at); }} onProfile={openProfile} surfaceOpen={!!(personMenu || roomMenu || profileOpener)} />}
         {editing && store.admin && !down && engine && <EditPanel store={store} engine={engine} assets={assets} onDone={() => setEditing(false)} />}
         {gmOpen && store.admin && !editing && <GmPanel store={store} picked={pick?.kind === 'user' ? pick.id : null} assets={assets} onClose={() => setGmOpen(false)} />}
         {pocketsOpen && me && <PocketsPanel store={store} me={me} assets={assets} onClose={() => setPocketsOpen(false)} />}
@@ -273,13 +279,18 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
         <div className="self-stack">
           {store.chatWith && <ChatPanel key={store.chatWith} store={store} withId={store.chatWith} />}
         </div>
+        {profileOpener && <ProfilePopout store={store} assets={assets} engine={engine} compact={isCompact} opener={profileOpener}
+          thirsty={!!me?.plant && needsWater(me.plant, store.now())} onClose={() => setProfileOpener(null)}
+          onAppearance={() => profileAction(() => setShowAppearance(true))}
+          onPockets={() => profileAction(() => { setPocketsOpen(true); setGmOpen(false); })}
+          onAchievements={() => profileAction(() => store.openAchievements(true))} onLogout={onLogout} />}
         {personMenu && <PersonCard key={personMenu.id} store={store} engine={engine} assets={assets} at={personMenu} compact={isCompact}
           onClose={() => setPersonMenu(null)} onAction={() => { setPersonMenu(null); setShowRooms(false); sidebarRef.current?.close(); }}
           onAppearance={() => setShowAppearance(s => me?.lookSet ? !s : true)} />}
         {roomMenu && <RoomMenu key={roomMenu.id} store={store} engine={engine} at={roomMenu} compact={isCompact} onTv={setTv}
           onClose={() => setRoomMenu(null)} onAction={() => { setRoomMenu(null); setShowRooms(false); sidebarRef.current?.close(); }} />}
         {store.seat && <InstrumentPanel key={store.seat} store={store} id={store.seat}
-          dialogOpen={!!(store.table || showAppearance || showMeet || store.pendingKnock || store.calendarOpen || store.laterOpen || store.meetingsOpen || store.vacationsOpen || store.clockOpen || store.jukeboxOpen || store.libraryOpen || !!me?.reading || store.achievementsOpen || store.presentOpen || store.roomOpen || store.chatWith || personMenu || roomMenu || pick)} />}
+          dialogOpen={!!(store.table || showAppearance || showMeet || store.pendingKnock || store.calendarOpen || store.laterOpen || store.meetingsOpen || store.vacationsOpen || store.clockOpen || store.jukeboxOpen || store.libraryOpen || !!me?.reading || store.achievementsOpen || store.presentOpen || store.roomOpen || store.chatWith || personMenu || roomMenu || profileOpener || pick)} />}
         <Dock store={store} voice={voice} engine={engine} roomsOpen={showRooms} onRooms={() => setShowRooms(s => !s)} />
       </div>
       </div>
@@ -371,9 +382,9 @@ function InstrumentPanel({ store, id, dialogOpen }: { store: Store; id: string; 
   </section>;
 }
 
-function TopBar({ store, voice, roomName, onToggleMeet, onToggleAppearance, onLogout, editing, onToggleEdit, gmOpen, onToggleGm, pocketsOpen, onTogglePockets }: {
-  store: Store; voice: Voice | null; roomName?: string; onToggleMeet: () => void; onToggleAppearance: () => void; onLogout: () => void;
-  editing: boolean; onToggleEdit: () => void; gmOpen: boolean; onToggleGm: () => void; pocketsOpen: boolean; onTogglePockets: () => void;
+function TopBar({ store, voice, roomName, onToggleMeet, onProfile, editing, onToggleEdit, gmOpen, onToggleGm }: {
+  store: Store; voice: Voice | null; roomName?: string; onToggleMeet: () => void; onProfile: (opener: HTMLButtonElement) => void;
+  editing: boolean; onToggleEdit: () => void; gmOpen: boolean; onToggleGm: () => void;
 }) {
   const me = store.users.get(store.me);
   const [more, setMore] = useState(false);
@@ -388,7 +399,7 @@ function TopBar({ store, voice, roomName, onToggleMeet, onToggleAppearance, onLo
     <header className="topbar">
       <div className="top-left">
         <span className="brand">The Deck</span>
-        {isCompact && me && <IdentityPill store={store} roomName={roomName} />}
+        {isCompact && me && <IdentityPill store={store} onProfile={onProfile} roomName={roomName} />}
       </div>
       <div className="top-right">
         {isCompact && <VoiceIcons store={store} voice={voice} />}
@@ -399,25 +410,14 @@ function TopBar({ store, voice, roomName, onToggleMeet, onToggleAppearance, onLo
           <button onClick={onToggleMeet} className={`chip meet-btn${store.meetLink === '' && !store.google ? ' unset' : ''}`}
             title={store.google ? `Google connected: ${store.google}` : store.meetLink ? `Your Meet room: ${store.meetLink}` : 'Set up Google Meet'}><Icon name="monitor" />Meet</button>
           <MacAppButton />
-          <button onClick={onLogout} title="Sign out" className="chip ghost"><Icon name="logout" />Leave</button>
         </div>
         <div className="hangers">
-          <button onClick={() => store.openAchievements(!store.achievementsOpen)} className="chip hanger-btn trophy-btn"
-            title={me?.plant && needsWater(me.plant, store.now()) ? 'Achievements · your plant needs a status today' : 'Achievements and your plant'} aria-label="Achievements and your plant">
-            <Icon name="trophy" />
-            {me?.plant && needsWater(me.plant, store.now()) && <b className="dot" />}
-          </button>
           {store.admin && me && !underground(me) && <button onClick={onToggleEdit} className={`chip hanger-btn${editing ? ' on' : ''}`} aria-pressed={editing}
             title={editing ? 'Done rearranging' : 'Rearrange the office (admins)'} aria-label="Rearrange the office">
             <Icon name="edit" />
           </button>}
           {store.admin && me && <button onClick={onToggleGm} className={`chip hanger-btn gm-btn${gmOpen ? ' on' : ''}`} aria-pressed={gmOpen}
             title="GM superpowers: buffs and debuffs (admins)" aria-label="GM superpowers"><Icon name="sparkles" /></button>}
-          <button onClick={onTogglePockets} className={`chip hanger-btn gm-btn${pocketsOpen ? ' on' : ''}`} aria-pressed={pocketsOpen}
-            title={`Pockets · ${store.items.length || 'nothing'} ${store.items.length === 1 ? 'thing' : 'things'}`} aria-label="Pockets"><Icon name="backpack" /></button>
-          <button onClick={onToggleAppearance} className="chip hanger-btn" title="Character appearance" aria-label="Character appearance">
-            <Icon name="shirt" />
-          </button>
         </div>
       </div>
     </header>
