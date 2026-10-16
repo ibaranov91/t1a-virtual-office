@@ -42,6 +42,7 @@ export function activityLine(view: View, u: ClientUser) {
     : u.reading ? '📖 reading'
     : u.eating ? `🍽 having lunch${u.eating.open ? ' · open to talk' : ''}`
     : playing ? `${playing.icon} playing ${playing.name}`
+    : u.listening === 'lofi' ? '🎧 listening to Lofi Girl'
     : u.presence === 'away' ? 'away' : '';
   return line ? `${line}${u.status ? ` · ${u.status}` : ''}` : u.status || '';
 }

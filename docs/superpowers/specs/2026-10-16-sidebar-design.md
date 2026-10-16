@@ -136,8 +136,9 @@ unread badge (no second line, no other marks). Order inside a room or group: you
 6. `u.reading` → `📖 reading`
 7. `u.eating` → `🍽 having lunch` + (`u.eating.open` ? ` · open to talk` : '')
 8. playing an instrument (`store.instruments[objectId] === u.id`) → `<INSTRUMENTS[kind].icon> playing <INSTRUMENTS[kind].name>`
-9. presence `away` → `away`
-10. nothing matched → the status text alone, or empty.
+9. an audible Lofi TV (`u.listening === 'lofi'`) → `🎧 listening to Lofi Girl` (like Discord's "Listening to")
+10. presence `away` → `away`
+11. nothing matched → the status text alone, or empty.
 
 So `Tomas` away with a status reads `away · debugging a flaky pipeline`; `Andrii` in a knock call reads `📞 with Ines`.
 

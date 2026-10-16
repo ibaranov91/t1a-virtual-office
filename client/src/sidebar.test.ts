@@ -72,6 +72,7 @@ test('every activity branch, precedence and status joining', () => {
     [{ game: { cabinet: 'o1', role: 'spectator' } }, '👀 watching Deck Park'], [{ reading: 'article' }, '📖 reading'],
     [{ eating: { item: 'food', until: 0, open: false } }, '🍽 having lunch'],
     [{ eating: { item: 'food', until: 0, open: true } }, '🍽 having lunch · open to talk'],
+    [{ listening: 'lofi', presence: 'away' }, '🎧 listening to Lofi Girl'],
     [{ presence: 'away' }, 'away'], [{ status: 'debugging' }, 'debugging'], [{}, ''], [{ callId: 'room:coffee' }, ''],
   ];
   for (const [extra, expected] of cases) {
