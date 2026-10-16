@@ -35,7 +35,10 @@ const ICE_SERVERS = (() => {
 // OPEN_LOGIN: pick any name, no token. Only for instances already gated in front (e.g. a NetBird PIN on a
 // public reverse proxy, where NetBird sign-in can't pass identity). Anyone past the gate can be any name.
 const OPEN_LOGIN = process.env.OPEN_LOGIN === 'true';
-const TOKEN_LOGIN = OPEN_LOGIN || (process.env.TOKEN_LOGIN ? process.env.TOKEN_LOGIN === 'true' : !NETBIRD);
+// EMAIL_LOGIN: type your email, no confirmation; the user is found or created by that email (the demo instance).
+// Anyone can claim any email, so such an instance must not list DECK_ADMINS / DECK_SYSADMINS someone could guess.
+const EMAIL_LOGIN = process.env.EMAIL_LOGIN === 'true';
+const TOKEN_LOGIN = OPEN_LOGIN || EMAIL_LOGIN || (process.env.TOKEN_LOGIN ? process.env.TOKEN_LOGIN === 'true' : !NETBIRD);
 const DATA = new URL('../../data/', import.meta.url);
 const STATE_FILE = new URL('state.json', DATA);
 
@@ -199,8 +202,17 @@ const netbirdEmail = async (req: IncomingMessage): Promise<string | null> => {
   if (!TRUSTED_CIDRS.some(c => inCidr(src, c))) return null;
   if (!(await isProxyPeer(src))) return null;
   const raw = req.headers['x-netbird-user'];
-  const email = (Array.isArray(raw) ? raw[0] : raw ?? '').trim().toLowerCase();
+  return cleanEmail(Array.isArray(raw) ? raw[0] : raw);
+};
+const cleanEmail = (raw: unknown) => {
+  const email = String(raw ?? '').trim().toLowerCase();
   return /^[^\s@]{1,64}@[^\s@]{1,190}$/.test(email) ? email : null;
+};
+/** Sign in by email (NetBird or typed): find or create that person, with the name the email gives. */
+const emailUser = (email: string) => {
+  const user = world.findByEmail(email) ?? world.addUser(nameFromEmail(email), false, undefined, email);
+  if (!user.nameSet && user.name !== nameFromEmail(email)) user.name = nameFromEmail(email);
+  return user;
 };
 /** "ivan.baranov@t1a.com" -> "Ivan Bar": first name plus the first three letters of the last name */
 const nameFromEmail = (email: string) => {
@@ -222,14 +234,13 @@ const json = (res: import('node:http').ServerResponse, code: number, body: unkno
 const server = createServer(async (req, res) => {
   if (req.method === 'GET' && req.url === '/api/lofi') return json(res, 200, await lofiLive.get());
   if (req.method === 'GET' && req.url === '/api/health') return json(res, 200, { ok: true, users: world.users.size });
-  if (req.method === 'GET' && req.url === '/api/config') return json(res, 200, { netbird: NETBIRD, tokenLogin: TOKEN_LOGIN, tokenRequired: !OPEN_LOGIN, iceServers: ICE_SERVERS });
+  if (req.method === 'GET' && req.url === '/api/config') return json(res, 200, { netbird: NETBIRD, tokenLogin: TOKEN_LOGIN, tokenRequired: !OPEN_LOGIN && !EMAIL_LOGIN, emailLogin: EMAIL_LOGIN, iceServers: ICE_SERVERS });
   // Two-step NetBird login: GET only says who you are (so logout doesn't bounce you back in), POST signs in.
   if (req.url === '/api/auth/netbird' && (req.method === 'GET' || req.method === 'POST')) {
     const email = await netbirdEmail(req);
     if (!email) return json(res, 404, { error: 'not signed in via NetBird' });
     if (req.method === 'GET') return json(res, 200, { email, name: emailName(email) });
-    const user = world.findByEmail(email) ?? world.addUser(nameFromEmail(email), false, undefined, email);
-    if (!user.nameSet && user.name !== nameFromEmail(email)) user.name = nameFromEmail(email);
+    const user = emailUser(email);
     return json(res, 200, { session: newSession(user.id), userId: user.id });
   }
   if (req.method === 'POST' && req.url?.startsWith('/api/logout')) {
@@ -243,7 +254,13 @@ const server = createServer(async (req, res) => {
     req.on('data', c => { body += c; if (body.length > 4096) req.destroy(); });
     req.on('end', () => {
       try {
-        const { name, token } = JSON.parse(body || '{}');
+        const { name, token, email } = JSON.parse(body || '{}');
+        if (EMAIL_LOGIN) {
+          const clean = cleanEmail(email);
+          if (!clean) return json(res, 400, { error: 'that doesn’t look like an email' });
+          const user = emailUser(clean);
+          return json(res, 200, { session: newSession(user.id), userId: user.id });
+        }
         if (!OPEN_LOGIN && token !== TOKEN) return json(res, 401, { error: 'bad token' });
         const clean = String(name ?? '').trim().slice(0, 24);
         if (!clean) return json(res, 400, { error: 'name required' });
@@ -356,4 +373,4 @@ wss.on('connection', (ws, req) => {
 });
 
 server.listen(PORT, process.env.DECK_HOST ?? '0.0.0.0', () => console.log(
-  `The Deck server on :${PORT} · netbird=${NETBIRD} trusted=${TRUSTED_CIDRS.join(',')}${TRUSTED_PEER ? ` peer~${TRUSTED_PEER.source}` : ''} · ${OPEN_LOGIN ? 'open login (name only)' : `token login=${TOKEN_LOGIN}${TOKEN_LOGIN ? ` (${TOKEN === 'deck' ? 'deck' : '***'})` : ''}`}`));
+  `The Deck server on :${PORT} · netbird=${NETBIRD} trusted=${TRUSTED_CIDRS.join(',')}${TRUSTED_PEER ? ` peer~${TRUSTED_PEER.source}` : ''} · ${EMAIL_LOGIN ? 'email login (unconfirmed)' : OPEN_LOGIN ? 'open login (name only)' : `token login=${TOKEN_LOGIN}${TOKEN_LOGIN ? ` (${TOKEN === 'deck' ? 'deck' : '***'})` : ''}`}`));

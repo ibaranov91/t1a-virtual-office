@@ -29,9 +29,10 @@ SRC=/tmp/deck-src-$NAME
 # INSTALL_URL: where `curl … | bash` can fetch the Mac app. The PIN page blocks curl, so PIN instances
 # hand out their NetBird address instead (works for anyone on NetBird).
 case "$LOGIN" in
-  sso) NETBIRD_AUTH=true;  OPEN_LOGIN=false; INSTALL_URL=$URL ;; # "Continue as <you>" via NetBird sign-in
-  pin) NETBIRD_AUTH=false; OPEN_LOGIN=true;  INSTALL_URL=http://$BIND:$PORT ;; # any name, no password: the PIN on the proxy is the gate
-  *) echo "instance '$NAME': login must be sso or pin, got '$LOGIN'" >&2; exit 1 ;;
+  sso) NETBIRD_AUTH=true;  OPEN_LOGIN=false; EMAIL_LOGIN=false; INSTALL_URL=$URL ;; # "Continue as <you>" via NetBird sign-in
+  pin) NETBIRD_AUTH=false; OPEN_LOGIN=true;  EMAIL_LOGIN=false; INSTALL_URL=http://$BIND:$PORT ;; # any name, no password: the PIN on the proxy is the gate
+  email) NETBIRD_AUTH=false; OPEN_LOGIN=false; EMAIL_LOGIN=true; INSTALL_URL=$URL ;; # type any email, no confirmation: a public demo
+  *) echo "instance '$NAME': login must be sso, pin or email, got '$LOGIN'" >&2; exit 1 ;;
 esac
 
 REV=$(git rev-parse HEAD)
@@ -141,6 +142,7 @@ fi
 setenv() { if sudo grep -q "^\$1=" $ENVF; then sudo sed -i "s|^\$1=.*|\$1=\$2|" $ENVF; else echo "\$1=\$2" | sudo tee -a $ENVF >/dev/null; fi; }
 setenv NETBIRD_AUTH $NETBIRD_AUTH
 setenv OPEN_LOGIN $OPEN_LOGIN
+setenv EMAIL_LOGIN $EMAIL_LOGIN
 setenv DECK_PUBLIC_URL $URL
 setenv DECK_INSTALL_URL $INSTALL_URL
 # no bots on prod: drop the setting entirely (bots are opt-in); test instances keep BOTS=1

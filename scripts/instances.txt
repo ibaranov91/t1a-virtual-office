@@ -2,8 +2,10 @@
 #   name   port   login   owner (GitHub)   public URL (NetBird reverse proxy -> http://10.200.142.211:<port>)
 # login: sso = NetBird sign-in (proxy entry uses NetBird SSO, passes X-NetBird-User)
 #        pin = pick any name, no password (proxy entry is public, protected by a NetBird PIN)
+#        email = type any email, no confirmation; people are keyed by it (public demo, no admins in its env)
 # Add a line + a NetBird proxy entry, then: scripts/deploy.sh <name>
 prod   8080   sso   ibaranov91   https://voffice.t1a.io
 andr   8081   pin   booandrew    https://voffice-andr.pub.t1a.cloud
 var    8082   pin   varvaratikhonova-ui   https://voffice-var.pub.t1a.cloud
 iva    8083   pin   ibaranov91   https://voffice-iva.pub.t1a.cloud
+demo   8084   email ibaranov91   https://voffice-demo.pub.t1a.cloud
