@@ -1,0 +1,6 @@
+# One name per person in `git log` / `git shortlog` (each of us committed from more than one identity).
+Ivan Baranov <73073851+ibaranov91@users.noreply.github.com> ibaranov91 <73073851+ibaranov91@users.noreply.github.com>
+Ivan Baranov <73073851+ibaranov91@users.noreply.github.com> <ibaranov@me.com>
+Andrii Butko <63796184+booandrew@users.noreply.github.com> <booandrew23@gmail.com>
+Varya Tikhonova <varvara.tikhonova@t1a.com> Varya <varya@Varyas-MacBook-Air.local>
+Varya Tikhonova <varvara.tikhonova@t1a.com> varvaratikhonova-ui <varvara.tikhonova@t1a.com>

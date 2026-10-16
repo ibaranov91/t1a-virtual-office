@@ -3,6 +3,8 @@
 Owner: Andrii Butko · 2026-10-16 · status: v2, after a Codex spec review; product decisions made with Andrii in
 brainstorming, the idea approved by Ivan. Built in one pass: everything below ships together.
 
+**Shipped** in #109 (the shared Travel&Day-off calendar: #116).
+
 ## Goal
 
 A new outdoor wing south of the Garden: **mountains** in the west, a **beach** with the sea along the bottom.

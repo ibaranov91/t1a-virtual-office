@@ -8,8 +8,10 @@ import type { Assets } from '../assets';
 import type { Store } from '../net';
 import { prefs } from '../prefs';
 import type { Voice } from '../voice';
-import { ParkInput } from './input';
-import { CHEERS, parkTime, renderPark } from './render';
+import { GameInput, type ButtonBits } from '../gameInput';
+import { COMPACT } from '../sidebar/hooks';
+import { CHEERS, parkTime } from '../arcade/paint';
+import { renderArcade } from '../arcade/render';
 import { LEVELS } from '../../../shared/park/levels';
 import { gameDef } from '../../../shared/arcade/registry';
 import { ranked, weeklyTotal } from '../../../shared/arcade/weeks';
@@ -17,11 +19,13 @@ import { crewName } from '../../../shared/arcade/names';
 import type { VoteOptions } from '../../../shared/arcade/vote';
 import type { GameId } from '../../../shared/arcade/types';
 
-const COMPACT = '(max-width: 560px), (max-height: 500px)';
+/** Arcade input bits, as the sims read them: 1 left, 2 right, 4 up, 8 down, 16 jump, 32 action. */
+const ARCADE_BUTTONS: ButtonBits = { left: 1, right: 2, up: 4, down: 8, a: 16, b: 32 };
+
 
 export function ArcadeOverlay({ store, assets, voice }: { store: Store; assets: Assets; voice: Voice | null }) {
   const root = useRef<HTMLDivElement>(null), canvas = useRef<HTMLCanvasElement>(null), area = useRef<HTMLDivElement>(null);
-  const input = useRef<ParkInput | null>(null), menuRef = useRef(false);
+  const input = useRef<GameInput | null>(null), menuRef = useRef(false);
   const [menu, setMenu] = useState(false), [scale, setScale] = useState(1);
   const [touch, setTouch] = useState(() => navigator.maxTouchPoints > 0 || matchMedia(COMPACT).matches);
   const [, update] = useState(0);
@@ -56,7 +60,7 @@ export function ArcadeOverlay({ store, assets, voice }: { store: Store; assets: 
     return () => ro.disconnect();
   }, []);
   useEffect(() => {
-    const controls = new ParkInput(root.current!, {
+    const controls = new GameInput(root.current!, ARCADE_BUTTONS, {
       enabled: () => store.gameOpen && store.connected && !menuRef.current,
       ptt: () => prefs.mode === 'ptt', menu: () => actions.current.toggleMenu(),
       spectator: () => runner.slot === undefined, cheer: kind => store.gameCheer(kind),
@@ -65,7 +69,7 @@ export function ArcadeOverlay({ store, assets, voice }: { store: Store; assets: 
     let last = '';
     const ctx = canvas.current!.getContext('2d')!;
     const stop = loop.start(() => controls.sample(), () => {
-      renderPark(ctx, assets, runner, store);
+      renderArcade(ctx, assets, runner, store);
       // The spectator's epoch changes 150 ms after receipt; React follows the presented session.
       const s = runner.session, next = `${s?.epoch}:${s?.view.kind}:${runner.slot}:${s?.players.length}:${s?.crew.name}:${s?.view.kind === 'screen' ? JSON.stringify(s.view.data.votes) : ''}:${Math.floor(runner.serverNow / 250)}`;
       if (next !== last) { last = next; update(n => n + 1); }

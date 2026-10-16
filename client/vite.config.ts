@@ -37,6 +37,12 @@ const meshAddr = mesh ? meshIp() : '';
 
 export default defineConfig({
   plugins: [react(), ...(mesh ? [basicSsl(), onlyMeshAndLocal(meshAddr)] : [])],
+  build: {
+    // React gets its own chunk, so the many deploys a day don't make browsers download it again.
+    rollupOptions: { output: { manualChunks: { react: ['react', 'react-dom'] } } },
+    // The app chunk (~550 kB, ~170 kB gzipped) and the lazy pdf.js chunk (~540 kB) are both expected sizes.
+    chunkSizeWarningLimit: 600,
+  },
   server: {
     host: mesh ? '0.0.0.0' : 'localhost',
     port: Number(process.env.VITE_PORT ?? 5173),

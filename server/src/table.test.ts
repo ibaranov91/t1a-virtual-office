@@ -1,13 +1,12 @@
 import test, { type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { Table, TABLE_TURN_MS, type Session } from './table';
+import { Table, TABLE_TURN_MS } from './table';
 import { Arcade } from './arcade';
 import { World } from './world';
-import type { PublicUser, ServerMsg, ClientMsg } from '../../shared/protocol';
-import { TABLE_GAMES, type TableGameId, type TableView } from '../../shared/table/types';
+import type { PublicUser, ServerMsg } from '../../shared/protocol';
+import type { TableGameId, TableView } from '../../shared/table/types';
 import * as rules from '../../shared/table/rules';
-import * as dominoes from '../../shared/table/dominoes';
 import * as lastcard from '../../shared/table/lastcard';
 import { besideObject, findPath, isWalkable, KEEP_TYPES, layoutProblem, pathDuration, withLayout, type TileMap, type Tile } from '../../shared/map';
 type Person = Pick<PublicUser,'id'|'name'|'bot'|'table'|'game'>;

@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { readFileSync } from 'node:fs';
-import { pathTo, isWalkable, pathDuration, WALK_MS_PER_TILE, type Tile, type TileMap } from '../../shared/map';
+import { pathTo, isWalkable, pathDuration, WALK_MS_PER_TILE, type TileMap } from '../../shared/map';
 import { DUNGEON_INSTANCE, type ServerMsg } from '../../shared/protocol';
 import { DungeonView } from './dungeon';
 

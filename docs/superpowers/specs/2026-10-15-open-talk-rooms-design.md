@@ -2,6 +2,9 @@
 
 Owner: Andrii Butko · 2026-10-15 · status: v3, after two Codex spec reviews
 
+**Shipped** in #8, then changed: hall voice by position in sound v2 (#15), sealed rooms in sound v3 (#29), and the
+Lobby radio was replaced by the Music room jukebox (#28). Read this as history; the sound v3 spec is current.
+
 ## Goal
 
 1. **Open talk rooms.** Walk into Coffee and you are in its voice channel, like clicking a voice channel in Discord:

@@ -4,6 +4,8 @@ Owner: Andrii Butko · 2026-10-16 · status: v3, after two Codex spec reviews ·
 `2026-10-15-arcade-deck-park-design.md` (cabinets, sessions, server-sequenced inputs, rollback `Runner`, balcony,
 records). Only what changes is written here.
 
+**Shipped** in #91.
+
 ## Why
 
 Andrii's verdict on Deck Park after playing it on prod: the levels are boring, too easy and all alike, there is no

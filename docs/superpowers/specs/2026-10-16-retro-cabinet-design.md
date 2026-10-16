@@ -4,6 +4,8 @@ Owner: Andrii Butko · 2026-10-16 · status: v3, after two Codex spec reviews ·
 `2026-10-16-arcade-party-pack-design.md` (Arcade boards popover, weeks) and `2026-10-15-sound-v3-design.md` (sealed
 rooms). Branch `andr/retro-cabinet`, cut from `andr/arcade-party` step 1 (`e6c4630`).
 
+**Shipped** in #108 (volume and mute: #111).
+
 ## Why
 
 Andrii wants known, polished 8-bit games in the Arcade without writing them from scratch, with their scores on the
@@ -40,9 +42,9 @@ Built in one pass (section 13 splits it into two executor steps, each leaving th
 **Vendored files** (committed, with their licences):
 
 - `vendor/binjgb/binjgb.mjs` = upstream `docs/binjgb.js` (binji/binjgb `16621111ed0ee73bcc45c912a823bcebedcffc0f`)
-  with one line appended: `export default Binjgb;`. `vendor/binjgb/binjgb.wasm` = upstream `docs/binjgb.wasm`.
-  `vendor/binjgb/LICENSE` (MIT, © 2016 Ben Smith).
-- `client/public/retro/binjgb.wasm` is a copy of the wasm (the client fetches it; the server reads the vendor copy).
+  with one line appended: `export default Binjgb;`. `vendor/binjgb/LICENSE` (MIT, © 2016 Ben Smith).
+- `client/public/retro/binjgb.wasm` = upstream `docs/binjgb.wasm`, the only copy: the client fetches it and the server
+  reads the same file.
 - ROMs, unchanged from the gbdev/database repo, in `client/public/retro/`:
   - `tobudx.gb` (262144 bytes, sha256 `0a0e8018dbbc8d7f8cd99f05e7cdc7b4cc9e358ecfe9377ebfb2291a84c6e310`,
     from `entries/tobutobugirldeluxe/tobudx.gb`);

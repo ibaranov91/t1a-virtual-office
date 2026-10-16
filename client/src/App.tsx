@@ -10,11 +10,10 @@ import { COMPACT, overlayOpen, useMedia } from './sidebar/hooks';
 import { IdentityPill, VoiceIcons, CallChip, RoomVoiceChip, voiceState } from './sidebar/SelfPanel';
 import { RetroOverlay } from './retro/RetroOverlay';
 import { INSTRUMENTS, DRUM_PADS, VELOCITIES, VELOCITY_START, keyNote, noteName, type InstrumentKind } from '../../shared/instruments';
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { loadAssets, type Assets } from './assets';
 import { Engine, type Pick } from './engine';
 import { Voice } from './voice';
-import { TableOverlay } from './table/TableOverlay';
 import { Icon, IconButton } from './Icon';
 import { VoiceToggle } from './VoiceToggle';
 import { ArcadeOverlay, RecordsPopover } from './park/ArcadeOverlay';
@@ -29,11 +28,14 @@ import { fakeShare } from './share';
 import { LiveChip, PresentPanel, SlideOverlay } from './Presentation';
 import { RoomPopup } from './RoomPopup';
 import { LibraryPanel, ReadingOverlay } from './Library';
-import { ACHIEVEMENTS, underground, dayNumber, JUKEBOX_PER_PERSON, JUKEBOX_QUEUE_MAX, MAX_CHAT_LEN, ROOM_VOICE_MAX, MEET_LINK_RE, meetAs, normalizeMeetLink, plantDead, REACTIONS, TOILET_CAPACITY, TOILET_SHELF_ITEM, TOILET_SHELF_MAX, TOILET_USE_MS, toiletFull, type JukeboxState, type Plant } from '../../shared/protocol';
+import { ACHIEVEMENTS, goingOut, LOOK_COLORS, underground, dayNumber, JUKEBOX_PER_PERSON, JUKEBOX_QUEUE_MAX, MAX_CHAT_LEN, ROOM_VOICE_MAX, meetAs, normalizeMeetLink, plantDead, REACTIONS, TOILET_CAPACITY, TOILET_SHELF_ITEM, TOILET_SHELF_MAX, TOILET_USE_MS, toiletFull, type JukeboxState, type Plant } from '../../shared/protocol';
 import { jukeboxPosition, TRACK, tracksFor } from '../../shared/music';
-import { ALL_HATS, DANCE_ROOM, EFFECTS, HAT_NAMES, REFRESHMENT_HINTS, effectOf, hatItem, hatOf } from '../../shared/effects';
+import { ALL_HATS, DANCE_ROOM, EFFECTS, HAT_NAMES, REFRESHMENT_HINTS, effectOf, hatOf } from '../../shared/effects';
 import { FIXED_TYPES, KEEP_TYPES, objectName, RUG_COLORS, RUG_MAX, RUG_MIN, RUG_PATTERNS, SEAT_TYPES, routes, rugFrame, seatAt } from '../../shared/map';
-import { LUNCH_MS, picnicSeat } from '../../shared/lunch';
+import { picnicSeat } from '../../shared/lunch';
+
+// The game table (and chess.js) loads the first time someone sits down at it.
+const TableOverlay = lazy(() => import('./table/TableOverlay').then(m => ({ default: m.TableOverlay })));
 
 // Dev server: sign in automatically as ?as=<name> (default "Dev"); each name keeps its own session,
 // so several tabs can be different people.
@@ -144,7 +146,7 @@ function Login({ onLogin }: { onLogin: (s: string) => void }) {
 function Office({ session, onLogout, onExpired }: { session: string; onLogout: () => void; onExpired: () => void }) {
   const store = useMemo(() => new Store(session, onExpired), [session]);
   useSyncExternalStore(store.subscribe, store.getVersion);
-  const [assets, setAssets] = useState<Assets | null>(null);
+  const [assets, setAssets] = useState<Assets | null>(null), [assetsFailed, setAssetsFailed] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const chromeRef = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => { if (chromeRef.current) chromeRef.current.inert = store.gameOpen || !!store.table; }, [store.gameOpen, store.table]);
@@ -172,16 +174,17 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
   useEffect(() => syncNative(store, voice), [store, voice]);
   useEffect(() => {
     let v: Voice | null = null, unsub = () => {}, cancelled = false;
-    fetch('/api/config').then(r => r.json()).then(c => {
+    // Without the config, voice still starts: host candidates connect directly on NetBird.
+    fetch('/api/config').then(r => r.json()).then(c => c.iceServers ?? [], () => []).then(iceServers => {
       if (cancelled) return;
-      v = new Voice(store, c.iceServers ?? []);
+      v = new Voice(store, iceServers);
       unsub = store.subscribe(() => v!.sync());
       v.sync(); setVoice(v);
       if (import.meta.env.DEV) Object.assign(window, { __voice: v });
-    }).catch(() => {});
+    });
     return () => { cancelled = true; unsub(); v?.destroy(); };
   }, [store]);
-  useEffect(() => { loadAssets().then(setAssets); }, []);
+  useEffect(() => { loadAssets().then(setAssets, e => { console.warn('could not load the art:', e); setAssetsFailed(true); }); }, []);
   useEffect(() => {
     if (!assets || !canvasRef.current) return;
     const e = new Engine(canvasRef.current, store, assets);
@@ -247,7 +250,7 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
       <div className={`stage${editing && store.admin && !down && engine ? ' editing' : ''}`}>
         <div className="canvas-wrap"><canvas ref={canvasRef} /></div>
         {engine && <ZoomCluster engine={engine} />}
-        {!assets && <div className="loading">Unlocking the door…</div>}
+        {!assets && <div className="loading">{assetsFailed ? 'The office didn\'t load. Reload the page to try again.' : 'Unlocking the door…'}</div>}
         {!store.connected && assets && <div className="loading small">Reconnecting…</div>}
         {store.presentation && store.inPresentationRoom() && !store.slidesHidden && <SlideOverlay store={store} />}
         {isCompact && <Sidebar ref={sidebarRef} store={store} voice={voice} engine={engine} assets={assets} sheetOpen={showRooms}
@@ -269,7 +272,7 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
         {store.presentOpen && <PresentPanel key={store.presentOpen} store={store} id={store.presentOpen} />}
         {store.clockOpen && <ClockPanel store={store} />}
         {store.achievementsOpen && me && <AchievementsPanel store={store} me={me} assets={assets} backdrop={backdropClose(() => store.openAchievements(false))} />}
-        {(showMeet || store.pendingKnock) && <MeetSetup key={store.pendingKnock ?? 'panel'} store={store} onClose={() => setShowMeet(false)} />}
+        {showMeet && <MeetSetup store={store} onClose={() => setShowMeet(false)} />}
         {showAppearance && me && <AppearanceMenu key={me.id} look={me.look} name={me.name} assets={assets} firstTime={!me.lookSet} store={store}
           onSave={(look, name) => { store.setLook(look, name); setShowAppearance(false); }} onClose={() => setShowAppearance(false)} />}
         <div className="chips">
@@ -298,22 +301,17 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
         {roomMenu && <RoomMenu key={roomMenu.id} store={store} engine={engine} at={roomMenu} compact={isCompact} onTv={setTv}
           onClose={() => setRoomMenu(null)} onAction={() => { setRoomMenu(null); setShowRooms(false); sidebarRef.current?.close(); }} />}
         {store.seat && <InstrumentPanel key={store.seat} store={store} id={store.seat}
-          dialogOpen={!!(store.table || showAppearance || showMeet || store.pendingKnock || store.calendarOpen || store.laterOpen || store.meetingsOpen || store.vacationsOpen || store.clockOpen || store.jukeboxOpen || store.libraryOpen || !!me?.reading || store.achievementsOpen || store.presentOpen || store.roomOpen || store.chatWith || personMenu || roomMenu || profileOpener || pick)} />}
+          dialogOpen={!!(store.table || showAppearance || showMeet || store.calendarOpen || store.laterOpen || store.meetingsOpen || store.vacationsOpen || store.clockOpen || store.jukeboxOpen || store.libraryOpen || !!me?.reading || store.achievementsOpen || store.presentOpen || store.roomOpen || store.chatWith || personMenu || roomMenu || profileOpener || pick)} />}
         <Dock store={store} voice={voice} engine={engine} roomsOpen={showRooms} onRooms={() => setShowRooms(s => !s)} />
       </div>
       </div>
       </div>
-      {store.table && assets && <TableOverlay store={store} assets={assets} />}
+      {store.table && assets && <Suspense fallback={null}><TableOverlay store={store} assets={assets} /></Suspense>}
       {store.retro && <RetroOverlay store={store} />}
       {store.arcadeOpen && assets && store.park && <ArcadeOverlay store={store} assets={assets} voice={voice} />}
     </div>
   );
 }
-
-const instrumentIcon = (store: Store, user: string) => {
-  const o = MAP.objects.find(o => o.use?.kind === 'instrument' && store.instruments[o.id] === user);
-  return o?.use?.kind === 'instrument' ? ` ${INSTRUMENTS[o.use.instrument].icon}` : '';
-};
 
 function InstrumentPanel({ store, id, dialogOpen }: { store: Store; id: string; dialogOpen: boolean }) {
   const object = MAP.objects.find(o => o.id === id);
@@ -432,17 +430,6 @@ function TopBar({ store, voice, roomName, onToggleMeet, onProfile, editing, onTo
   );
 }
 
-const LOOK_COLORS = {
-  skin: ['#f8dcc0', '#f2c79b', '#e2ad7f', '#c98d5e', '#a46a43', '#7c4f32'],
-  hair: ['#2b1d1f', '#4f2b1a', '#6b3e26', '#a0603a', '#d8a050', '#ecd59a', '#b4473a', '#8c8a98', '#3e5a8a', '#c8789a'],
-  eyes: ['#2b1d1f', '#4b2e1e', '#3e5a8a', '#4f7d45', '#6b9ac4', '#7a4c32'],
-  shirt: ['#4a7ab0', '#b4534a', '#7a9a55', '#d0a040', '#8a5aa0', '#4f9a92', '#d8805a', '#e8e0d0', '#5a5a6e', '#c8607a', '#6a8ad0', '#9a7a50'],
-  pants: ['#3d3a52', '#2c3e5a', '#5a4030', '#4a4a4a', '#6a5a7a', '#3a5a4a'],
-  shoes: ['#4a3028', '#282832', '#68432e', '#85766b', '#b05b42', '#d0b58a'],
-  glassesColor: ['#282832', '#4a3028', '#d0b58a', '#85766b', '#3e5a8a', '#b4473a', '#e8e0d0'],
-  hatColor: ['#3e5a8a', '#b4534a', '#3a5a4a', '#282832', '#d0a040', '#e8e0d0', '#6b3e26'],
-};
-
 /** Whether colleagues see my local time, and which zone: the browser's, or one picked by hand (a laptop set to the wrong zone, a VPN). */
 function TimeZoneField({ store }: { store: Store }) {
   const zones = useMemo(() => { try { return Intl.supportedValuesOf('timeZone'); } catch { return []; } }, []);
@@ -533,22 +520,20 @@ function AppearanceMenu({ look, name, assets, firstTime, store, onSave, onClose 
 
 type PublicLook = import('../../shared/protocol').Look;
 
-/** Meet room setup: from the Meet button, or as a guided step the first time you knock without one. */
+/** Meet room setup, from the Meet button: connect Google, or paste a reusable room of your own. */
 function MeetSetup({ store, onClose }: { store: Store; onClose: () => void }) {
-  const knockTo = store.pendingKnock ? store.users.get(store.pendingKnock) : undefined;
   const [value, setValue] = useState(store.meetLink ?? '');
   const parsed = value.trim() ? normalizeMeetLink(value) : '';
-  const done = (action: 'saved' | 'skip' | 'cancel') => { if (knockTo) store.finishKnockSetup(action); onClose(); };
-  const save = (link: string) => { store.setMeetLink(link); done('saved'); };
+  const save = (link: string) => { store.setMeetLink(link); onClose(); };
   const pasteFromClipboard = async () => { try { setValue(await navigator.clipboard.readText()); } catch { /* not allowed: user pastes by hand */ } };
   const google = store.google;
   useEffect(() => { if (google === null) store.prepareGoogle(); }, [store, google]);
   return (
-    <div className={knockTo ? 'modal-backdrop' : ''} {...(knockTo ? backdropClose(() => done('cancel')) : {})}>
-      <form className={`meet-panel${knockTo ? ' guided' : ''}`} onSubmit={e => { e.preventDefault(); if (parsed) save(parsed); }}>
+    <div>
+      <form className="meet-panel" onSubmit={e => { e.preventDefault(); if (parsed) save(parsed); }}>
         <div className="rooms-head">
-          <span>{knockTo ? `Before you knock on ${knockTo.name.split(' ')[0]}…` : google ? 'Google Meet' : 'Your Google Meet room'}</span>
-          <button aria-label="Close" type="button" className="ghost" onClick={() => done('cancel')}><Icon name="close" /></button>
+          <span>{google ? 'Google Meet' : 'Your Google Meet room'}</span>
+          <button aria-label="Close" type="button" className="ghost" onClick={onClose}><Icon name="close" /></button>
         </div>
         {google !== undefined && <div className="google-row">
           {google
@@ -562,10 +547,7 @@ function MeetSetup({ store, onClose }: { store: Store; onClose: () => void }) {
         {/* with Google connected every call gets its own room, so there's nothing to set up by hand */}
         {!google && <>
         {google !== undefined && <p className="muted small">Or use your own reusable room:</p>}
-        <p className="muted">
-          {knockTo ? 'Set up your own Meet room once. When someone accepts your knock, you both join it — no more two separate calls.'
-            : 'When you knock and they accept, you both join this room.'}
-        </p>
+        <p className="muted">When you knock and they accept, you both join this room.</p>
         <ol className="steps">
           <li>Open <ExternalLink href={meetAs('https://meet.google.com/', store.meetAccount)}>meet.google.com</ExternalLink> (opens a new tab)
             {store.meetAccount && <> as <b>{store.meetAccount}</b></>}</li>
@@ -578,9 +560,8 @@ function MeetSetup({ store, onClose }: { store: Store; onClose: () => void }) {
         </div>
         {parsed === null && <p className="err">That doesn't look like a Meet room link (abc-defg-hij).</p>}
         <div className="row">
-          {knockTo && <button type="button" className="ghost" onClick={() => done('skip')}>Knock without a room</button>}
-          {!knockTo && store.meetLink && <button type="button" className="ghost" onClick={() => save('')}>Clear</button>}
-          <button disabled={!parsed || parsed === store.meetLink}>{knockTo ? `Save & knock` : 'Save'}</button>
+          {store.meetLink && <button type="button" className="ghost" onClick={() => save('')}>Clear</button>}
+          <button disabled={!parsed || parsed === store.meetLink}>Save</button>
         </div>
         </>}
       </form>
@@ -1184,7 +1165,7 @@ function Toasts({ store }: { store: Store }) {
             <button className="ghost" onClick={() => store.replyKnock(t.knockId!, 'later')}>Later</button>
           </>}
           {t.kind === 'knock_out' && t.knockId && <button className="ghost" onClick={() => store.cancelKnock(t.knockId!)}>Cancel</button>}
-          {t.kind === 'knock_again' && t.userId && <button onClick={() => { store.dismiss(t.id); store.requestKnock(t.userId!); }}>
+          {t.kind === 'knock_again' && t.userId && <button onClick={() => { store.dismiss(t.id); store.knock(t.userId!); }}>
             {t.text.startsWith('Missed') ? 'Knock back' : 'Knock again'}
           </button>}
           {t.kind === 'call_moved' && t.roomId && <button onClick={() => { store.joinRoom(t.roomId!); store.dismiss(t.id); }}>Join them</button>}
@@ -1235,11 +1216,11 @@ function ActionWheel({ store, engine, pick, assets, onPerson, onClose }: { store
       else if (held) items.push({ icon: held.icon, label: 'Finish', title: `Finish your ${held.label.toLowerCase()}`, onClick: act(() => store.drop()) });
       if (isMe && me?.following) items.push({ icon: <Icon name="stop" />, label: 'Stop following', onClick: act(() => store.follow(null)) });
     } else {
-      const away = u.door === 'thinking' || u.door === 'leaving';
+      const away = goingOut(u);
       const dungeon = store.dungeonReason(u);
       const following = me?.following === u.id, noKnock = store.knockReason(u);
       items = [
-        { icon: <Icon name="knock" />, label: 'Knock', onClick: act(() => store.requestKnock(u.id)), disabled: !!noKnock,
+        { icon: <Icon name="knock" />, label: 'Knock', onClick: act(() => store.knock(u.id)), disabled: !!noKnock,
           title: noKnock ?? 'Knock for a voice call' },
         { icon: <Icon name="follow" />, label: following ? 'Unfollow' : 'Follow', active: following, onClick: act(() => store.follow(following ? null : u.id)), disabled: away || !!dungeon, title: dungeon ?? undefined },
         { icon: <Icon name="smile" />, label: 'React', onClick: () => setEmoji(true) },

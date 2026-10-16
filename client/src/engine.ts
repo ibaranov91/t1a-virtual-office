@@ -1071,7 +1071,7 @@ export class Engine {
       const ff = this.f(f.o.type);
       if (!this.onScreen(f.x - 2, f.y - 2, ff.w + 4, ff.h + 4)) continue;
       this.blit(ctx, f.o.use?.kind === 'retro' && this.store.retroCabinets.some(c => c.cabinet === f.o.id && c.player) ? `${f.o.type}_on` : f.o.type === 'game_table' && [...this.store.users.values()].some(u => u.table?.objectId === f.o.id && u.table.running) ? 'game_table_on' : f.o.type === 'arcade' && this.store.cabinets.some(c => c.cabinet === f.o.id) ? `arcade_on_${1 + Math.floor(ms / 320) % 2}` : f.o.use?.kind === 'toilet' ? this.toiletFrame(f.o.id)
-        : f.o.type === 'bell' ? this.bellFrame(f.o.id, ms) : f.o.type === 'hat_rack' ? this.hatRackFrame(f.o, ms) : f.o.type === 'reading_table' && this.flickers(f.o, ms) ? 'reading_table_1'
+        : f.o.type === 'bell' ? this.bellFrame(f.o.id) : f.o.type === 'hat_rack' ? this.hatRackFrame(f.o, ms) : f.o.type === 'reading_table' && this.flickers(f.o, ms) ? 'reading_table_1'
         : f.o.type === 'server_rack' && Math.floor(ms / 500 + f.o.x * 3 + f.o.y) % 2 ? 'server_rack_1' : f.off && !this.isOn(f.o) ? `${f.o.type}_off` : f.o.type, f.x, f.y);
       if (f.o.use?.kind === 'toilet') this.drawStall(ctx, f.o, f.x, f.y);
     }
@@ -1132,7 +1132,7 @@ export class Engine {
     if (!this.areaDown && !me?.instance) this.drawClub(ctx, ms);
     if (!this.areaDown) this.drawAmbient(ctx, camX, camY, ms, hour);
     // labels switch the canvas to screen space, so everything drawn in world space (the tint above) comes first
-    if (!this.areaDown && !me?.instance) { this.drawBellDings(poses, camX, camY, ms); this.drawHatNudge(me, poses, camX, camY, ms); }
+    if (!this.areaDown && !me?.instance) { this.drawBellDings(poses, camX, camY); this.drawHatNudge(me, poses, camX, camY, ms); }
     if (this.editing) this.drawEdit(ctx, camX, camY, ms);
     if (this.overview && !me?.instance) this.drawRoomTags(users, poses, camX, camY);
     // one of my meetings is on: say so over the board, readable at any zoom
@@ -1395,7 +1395,7 @@ export class Engine {
     const r = places.size > 1; this.apartCache.set(id, r); return r;
   }
 
-  private bubbleFor(u: ClientUser, p: Pose): BubbleKind | null {
+  private bubbleFor(u: ClientUser): BubbleKind | null {
     if (u.hand) return 'bubble_hand';
     if (u.door === 'thinking') return 'bubble_think';
     if (u.door === 'leaving') return null;
@@ -1464,7 +1464,7 @@ export class Engine {
     }
 
     // emote bubble with a 2-frame pop
-    const kind = this.bubbleFor(u, p);
+    const kind = this.bubbleFor(u);
     const st = this.bubbleState.get(u.id);
     if (!st || st.kind !== kind) this.bubbleState.set(u.id, { kind, at: ms });
     if (!kind) return;
@@ -1717,7 +1717,7 @@ export class Engine {
   }
 
   /** Two frames: the bell dips a pixel for the first ~300 ms after a ring. */
-  private bellFrame(id: string, ms: number) {
+  private bellFrame(id: string) {
     const ring = this.store.bells[id], age = ring ? performance.now() - ring.at : Infinity;
     return age < 300 && Math.floor(age / 100) % 2 === 0 ? 'bell_1' : 'bell';
   }
@@ -1731,7 +1731,7 @@ export class Engine {
     return (ms + hash(o.id) * 997) % 4500 < 450 ? 'hat_rack_1' : 'hat_rack';
   }
   /** A small "ding" over whoever rang a bell, for about a second. */
-  private drawBellDings(poses: Map<string, Pose>, camX: number, camY: number, ms: number) {
+  private drawBellDings(poses: Map<string, Pose>, camX: number, camY: number) {
     const now = performance.now();
     for (const ring of Object.values(this.store.bells)) {
       const age = now - ring.at, p = poses.get(ring.userId);

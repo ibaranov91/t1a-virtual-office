@@ -5,7 +5,7 @@ import { createGb } from '../../shared/retro/gb';
 import { normalize } from '../../shared/retro/buttons';
 import { games } from '../../shared/retro/games';
 
-const wasm = readFileSync(new URL('../../vendor/binjgb/binjgb.wasm', import.meta.url));
+const wasm = readFileSync(new URL('../../client/public/retro/binjgb.wasm', import.meta.url));
 const rom = (game: keyof typeof games) => readFileSync(new URL(`../../client/public/retro/${games[game].rom}`, import.meta.url));
 test('retro buttons cancel opposing directions', () => {
   assert.equal(normalize(255), 240); assert.equal(normalize(17), 17);

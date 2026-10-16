@@ -5,6 +5,8 @@ sealed) the jukebox is heard only inside the Music room: the door leak described
 `2026-10-15-open-talk-rooms-design.md` (soundscape, emitters) and `2026-10-15-sound-v2-design.md` (mixer: the Music
 category). Only what changes is here.
 
+**Shipped** in #28 (clean starts on entry and on track changes: #48).
+
 ## Goal
 
 The Music room (east end, door from Desks) gets a **jukebox** instead of the looping radio:

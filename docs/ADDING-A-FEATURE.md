@@ -17,12 +17,12 @@ what arrives → `engine.ts` draws it, `App.tsx` gives it buttons/panels → `ge
 | --- | --- | --- |
 | 1. Add the kind to the union | shared/map.ts | `export type ObjectUse =` |
 | 2. Route it (typecheck fails until you do) | shared/map.ts | `export const USE_KINDS =` |
-| 3. Place the object (append at the end) | scripts/gen-map.mjs | last `obj(` before `// ---- standing spots`, or after `const catalog` for `onTop` things |
+| 3. Place the object (append at the very end, never in the middle: object ids are positional and saved layouts key on them) | scripts/gen-map.mjs | a new block after the last one (`// ---------- vacation: props appended after all existing objects`), before `const map = {`; end it with `for (… of objects.slice(first…)) catalog[t.type] ??= t;` like the blocks above it |
 | 4a. No `wheel` flag: act on click | client/src/App.tsx | `e.onPick = p =>` (one `if (use?.kind === '…')` line) |
 | 4b. `wheel` flag: wheel buttons | client/src/App.tsx | `} else if (o.use.kind === 'toggle') {` (ActionWheel branches) |
 | 5a. `use` flag: server action on arrival | server/src/world.ts | `use(u: User, objectId` (and `USE_MS`) |
 | 5b. Own intent instead | see "A new intent" | |
-| 6. Hover tooltip (else `objectName(type)`) | client/src/engine.ts | `const what = instrumentTip \|\|` |
+| 6. Hover tooltip (else `objectName(type)`) | client/src/engine.ts | `const what = retroTip \|\| instrumentTip \|\|` |
 | 7. Display name for the type | shared/map.ts | `export const objectName` |
 | 8. One of a kind? can't be removed in edit mode | shared/map.ts | `export const KEEP_TYPES` |
 | 9. Art: frame named exactly like the type | scripts/gen-assets.mjs | see "A sprite" |
@@ -58,7 +58,7 @@ Only-to-you data goes through `this.sendTo(u.id, …)`, everyone through `this.b
 | 5. Setter that broadcasts (`{ t: '<field>', userId, … }`) | server/src/world.ts | e.g. `private setEating(` |
 | 6. Apply it on clients | client/src/net.ts | `case 'eating':` |
 | 7. Draw / describe it | client/src/engine.ts | `private drawSprite(` / `private drawOverlay(` / tooltip status near `u.eating ?` |
-| 8. Busy → knocks go to Later | server/src/world.ts | `const stall = this.toilets.inside(to.id)` in `knock(` |
+| 8. Busy → knocks go to Later | server/src/world.ts | `private laterWhy(to: User)` (add the condition and its label) |
 | 9. Timed? expire it in the 250 ms tick | server/src/world.ts | `this.lunchTick(now)` in the constructor's `setInterval` |
 
 Private data (email, links, inventory) never goes in `PublicUser`; send it in `{ t: 'me' }` (`case 'me':` in net.ts).
@@ -127,7 +127,7 @@ through `e.onPick`; the panel's store flag must also suppress instrument keys. N
 | 2. Render it | client/src/App.tsx | `{store.libraryOpen && <LibraryPanel` |
 | 3. Keep instrument keys quiet while it's open | client/src/App.tsx | `dialogOpen={!!(` on `<InstrumentPanel` |
 | 4. Bigger panels: their own file | client/src/<Feature>.tsx | like `Library.tsx`, `Presentation.tsx` |
-| 5. Styles | client/src/styles.css | phones/short windows: `COMPACT` media query |
+| 5. Styles | client/src/styles.css | phones/short windows: `@media (max-width: 560px), (max-height: 500px)` (the CSS twin of `COMPACT` in `client/src/sidebar/hooks.ts`); type sizes per [UI.md](UI.md) |
 
 ## Merge rules for parallel sessions
 

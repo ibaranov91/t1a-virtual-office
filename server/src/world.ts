@@ -1,12 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import {
-  adminOnly, applyEdit, stallDoor, stallLine, stallVoiceId, tableVoiceId, applyLayout, besideObject, playSpots, dirBetween, doorwayTiles, KEEP_TYPES, migrateBeach, resetBeach, migrateEastWing, layoutProblem, objectName, voiceRooms, findPath, isWalkable, pathDuration, pathTo, roomAt, routes, sampleMove, seatAt, uniqueIds, withLayout, WALK_MS_PER_TILE,
+  adminOnly, applyEdit, inRect, stallDoor, stallLine, stallVoiceId, tableVoiceId, applyLayout, besideObject, playSpots, dirBetween, doorwayTiles, KEEP_TYPES, migrateBeach, resetBeach, migrateEastWing, layoutProblem, objectName, voiceRooms, findPath, isWalkable, pathDuration, pathTo, roomAt, routes, sampleMove, seatAt, uniqueIds, withLayout, WALK_MS_PER_TILE,
   type MapObject, type Dir, type Layout, type Room, type Spot, type TileMap, type Tile,
 } from '../../shared/map';
 import {
-  NOTE_RATE, NOTE_BURST, ITEMS_MAX, TOILET_SHELF_ITEM, toiletFull, NOTE_HELD_MAX, SEAT_CHANGES_PER_10S, DUNGEON_INSTANCE, underground, MAX_CALL_SIZE, LATER_MAX, MEETING_ROOM_ID, MAX_CHAT_LEN, normalizeMeetLink, REACTIONS, ROOM_VOICE_MAX,
+  NOTE_RATE, NOTE_BURST, ITEMS_MAX, TOILET_SHELF_ITEM, toiletFull, NOTE_HELD_MAX, SEAT_CHANGES_PER_10S, DUNGEON_INSTANCE, goingOut, LOOK_COLORS, underground, MAX_CALL_SIZE, LATER_MAX, MEETING_ROOM_ID, MAX_CHAT_LEN, normalizeMeetLink, REACTIONS, ROOM_VOICE_MAX,
   CUP_ITEMS, BOOK_ITEM, BOOKWORM_READS, EDITOR_READERS, dayNumber, isTimeZone, plantDead, BOTANIST_KINDS, PLANT_KINDS, PLANT_STAGES, presentScope, type Plant,
-  type ChatMsg, type ClientMsg, type Door, type Effect, type Knock, type LaterItem, type LayoutEdit, type Look, type Presence, type PublicUser, type Reaction, type ServerMsg,
+  type ChatMsg, type ClientMsg, type Door, type Effect, type Knock, type LaterItem, type LayoutEdit, type Look, type Presence, type PublicUser, type Reaction, type RtcSignal, type ServerMsg,
 } from '../../shared/protocol';
 import { FOOD_ITEMS, LUNCH_MS, PLATE_PREFIX, picnicSeat, type Eating } from '../../shared/lunch';
 import { INSTRUMENTS, validNote } from '../../shared/instruments';
@@ -60,10 +60,7 @@ interface Instance { id: string; end: number; members: Set<string>; talk: Set<st
 export const STATE_VERSION = 4;
 const WALK_HOME_AFTER_MS = 5 * 60_000; // back within this: return to where you were, else your home desk
 
-const SKINS = ['#f8dcc0', '#f2c79b', '#e2ad7f', '#c98d5e', '#a46a43', '#7c4f32'];
-const HAIRS = ['#2b1d1f', '#4f2b1a', '#6b3e26', '#a0603a', '#d8a050', '#ecd59a', '#b4473a', '#8c8a98', '#3e5a8a', '#c8789a'];
-const SHIRTS = ['#4a7ab0', '#b4534a', '#7a9a55', '#d0a040', '#8a5aa0', '#4f9a92', '#d8805a', '#e8e0d0', '#5a5a6e', '#c8607a', '#6a8ad0', '#9a7a50'];
-const PANTS = ['#3d3a52', '#2c3e5a', '#5a4030', '#4a4a4a', '#6a5a7a', '#3a5a4a'];
+const { skin: SKINS, hair: HAIRS, shirt: SHIRTS, pants: PANTS } = LOOK_COLORS;
 
 const hashStr = (s: string) => { let h = 2166136261; for (const c of s) h = Math.imul(h ^ c.charCodeAt(0), 16777619); return h >>> 0; };
 export const lookFor = (name: string): Look => {
@@ -81,8 +78,6 @@ type Wire = (json: string) => void;
 
 const LEAVE_GRACE_MS = 5000; // a dropped tab or quick re-login shouldn't send anyone home
 const DOOR_PAUSE_MS = 400;   // a beat at the door before vanishing
-/** Packing up or walking out: not around any more, as far as knocks go. */
-const goingOut = (u: User) => u.door === 'thinking' || u.door === 'leaving';
 const FOLLOW_LAG_MS = 300;   // followers set off a beat after the person they follow
 const HOLD_MS = 3 * 60_000;  // a coffee lasts this long
 const USE_MS = { take: 1200, toggle: 150, toilet: 300, dealer: 350, bell: 100, presentation: 100, room_start: 100 }; // brewing a coffee vs flicking a switch
@@ -96,6 +91,12 @@ const listed = (list: string[], u: User) => !u.bot && list.some(a => (a.includes
 
 /** Dev bots answer DMs and reactions so there's something to talk to when testing alone. */
 export interface BotHooks { chat(bot: User, from: User, text: string): void; react(bot: User, from: User, emoji: Reaction): void }
+
+/** A WebRTC signal worth relaying: one of the four kinds, and no bigger than an SDP with its candidates gets. */
+const RTC_SIGNAL_MAX = 64 * 1024;
+const rtcSignal = (s: unknown): s is RtcSignal =>
+  !!s && typeof s === 'object' && ['hello', 'offer', 'answer', 'ice'].includes(String((s as { kind?: unknown }).kind)) &&
+  JSON.stringify(s).length <= RTC_SIGNAL_MAX;
 
 export class World {
   users = new Map<string, User>();
@@ -1037,7 +1038,7 @@ export class World {
     return u.presence !== 'offline' && !u.instance && roomAt(this.map, u.tile.x, u.tile.y)?.id === DANCE_ROOM && !seatAt(this.map, u.tile.x, u.tile.y)
       && !this.toilets.inside(u.id) && !this.toilets.waiting(u.id);
   }
-  private onDanceFloor(t: Tile) { return this.map.objects.some(o => o.use?.kind === 'dance' && t.x >= o.x && t.x < o.x + o.w && t.y >= o.y && t.y < o.y + o.h); }
+  private onDanceFloor(t: Tile) { return this.map.objects.some(o => o.use?.kind === 'dance' && inRect(o, t.x, t.y)); }
   startDance(u: User, now = Date.now()) {
     if (!this.canDance(u)) return;
     this.addEffect(u, 'dance', {}, now);
@@ -1316,7 +1317,7 @@ export class World {
   private sameTile(a: Tile, b: Tile) { return a.x === b.x && a.y === b.y; }
   private inDungeon(t: Tile) {
     const r = this.map.dungeon?.rect;
-    return !!r && t.x >= r.x && t.x < r.x + r.w && t.y >= r.y && t.y < r.y + r.h;
+    return !!r && inRect(r, t.x, t.y);
   }
   private walkDone(u: User) { return !!u.move && !!u.path && Date.now() >= u.move.startedAt + pathDuration(u.path, u.move.ms); }
   private bumpWalk(u: User) {
@@ -1410,7 +1411,7 @@ export class World {
     return [...this.instances.values()].map(i => ({ id: i.id, until: i.end, members: [...i.members], voice: [...(this.calls.get(`room:${i.id}`)?.members ?? [])] }));
   }
   private meetingRect() { return this.map.rooms.find(r => r.id === MEETING_ROOM_ID)!.rect; }
-  private inMeetingRoom(t: Tile) { const r = this.meetingRect(); return t.x >= r.x && t.x < r.x + r.w && t.y >= r.y && t.y < r.y + r.h; }
+  private inMeetingRoom(t: Tile) { return inRect(this.meetingRect(), t.x, t.y); }
   setMeeting(u: User, until: number | null) {
     if (u.meeting === until) return;
     u.meeting = until;
@@ -1648,8 +1649,6 @@ export class World {
         this.lofiListeners.delete(u.id); u.listening = null; this.broadcast({ t: 'listening', userId: u.id, on: false });
       }
       if (u.bot || u.afk || u.presence === 'offline' || goingOut(u) || !this.sockets.get(u.id)?.size) { this.setWaiting(u, null); if (u.instance) { const c = this.calls.get(u.callId ?? ''); if (c?.instance) this.leaveCall(u, now); } continue; }
-      const t = this.position(u, now).tile;
-      const inside = rooms.find(r => t.x >= r.rect.x && t.x < r.rect.x + r.rect.w && t.y >= r.rect.y && t.y < r.rect.y + r.rect.h);
       const call = u.callId ? this.calls.get(u.callId) : undefined;
       if (u.instance) { // a meeting room's voice lives only inside that room, and sits outside the floor's halls
         const inst = this.instanceOf(u);
@@ -1991,7 +1990,7 @@ export class World {
       if (from) { this.clearLater(to, from.id); this.clearLater(from, to.id); }
       // the link goes only to the two people involved; everyone else just learns the knock is over
       const pair = new Set([k.fromId, k.toId]);
-      for (const id of pair) this.sendTo(id, { ...base, link: call?.link, fallback: call?.fallback });
+      for (const id of pair) this.sendTo(id, { ...base, link: call?.link });
       for (const [id] of this.sockets) if (!pair.has(id)) this.sendTo(id, base);
     } else this.broadcast(base);
     setTimeout(() => this.knocks.delete(k.id), 60_000);
@@ -2024,11 +2023,12 @@ export class World {
       case 'instrument': this.instrument(u, msg, socket); break;
       case 'note': this.note(u, msg, socket); break;
       case 'move': {
+        if (!msg.to || typeof msg.to !== 'object') break; // checked before anything changes
+        const to = { x: msg.to.x | 0, y: msg.to.y | 0 };
         u.afk = false;
         for (const k of this.knocks.values()) if (k.fromId === u.id && k.state === 'walking') this.closeKnock(k, 'later', 'Knock cancelled', true);
         if (u.door === 'arriving') { this.doorTimer(u, null); this.setDoor(u, null); } // off on their own way: bag's put away
         this.setFollowing(u, null);
-        const to = { x: msg.to.x | 0, y: msg.to.y | 0 };
         if (underground(u) ? !this.inDungeon(to) : u.instance && !this.inMeetingRoom(to)) break;
         if (!this.isSysadmin(u) && adminOnly(this.map, to.x, to.y)) { this.sendTo(u.id, { t: 'notice', text: `🔒 ${roomAt(this.map, to.x, to.y)?.name ?? 'That room'}: sysadmins only` }); break; }
         const at = this.walk(u, to);
@@ -2053,6 +2053,7 @@ export class World {
         break;
       }
       case 'look': {
+        if (!msg.look || typeof msg.look !== 'object') break;
         const color = (v: unknown, fallback: string) => typeof v === 'string' && /^#[0-9a-f]{6}$/i.test(v) ? v : fallback;
         const int = (v: unknown, max: number) => Math.max(0, Math.min(max, Number.isInteger(v) ? Number(v) : 0));
         u.look = {
@@ -2134,6 +2135,7 @@ export class World {
       // voice: relay WebRTC signaling only between members of the same call
       case 'rtc': {
         const to = this.users.get(String(msg.to));
+        if (!rtcSignal(msg.signal)) break; // relayed as is, so at least its shape and size
         if (u.callId && to?.callId === u.callId && to.id !== u.id && !u.bot && !to.bot && !goingOut(u) && !goingOut(to) && u.presence !== 'offline' && to.presence !== 'offline') {
           const owner = this.owners.get(to.id);
           if (owner) this.sockets.get(to.id)?.get(owner)?.({ t: 'rtc', from: u.id, signal: msg.signal });
@@ -2236,7 +2238,7 @@ export class World {
     }
     if (data.layout) { // an admin rearranged the office; if it no longer fits the generated floor, start over from that
       const covers = (o: { x: number; y: number; w: number; h: number }) => this.map.dungeon &&
-        [this.map.dungeon.hole, this.map.dungeon.hatch].some(t => t.x >= o.x && t.x < o.x + o.w && t.y >= o.y && t.y < o.y + o.h);
+        [this.map.dungeon.hole, this.map.dungeon.hatch].some(t => inRect(o, t.x, t.y));
       const objects = data.layout.objects.filter(o => {
         if (!covers(o)) return true;
         console.warn(`saved ${objectName(o.type)} dropped: covers the hole or hatch`); return false;

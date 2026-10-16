@@ -1,6 +1,6 @@
 # Sidebar: rooms as channels, people, and your own voice strip
 
-Date: 2026-10-16 · Owner: Andrii Butko · Status: approved design, ready for implementation
+Date: 2026-10-16 · Owner: Andrii Butko · Status: shipped in #105 (Discord-style bottom card and unified control icons: #115)
 
 ## Why
 

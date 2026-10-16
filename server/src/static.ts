@@ -4,8 +4,9 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { extname, join, normalize, resolve, sep } from 'node:path';
 
 const MIME: Record<string, string> = {
-  '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json',
-  '.png': 'image/png', '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.woff2': 'font/woff2',
+  '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css',
+  '.json': 'application/json', '.md': 'text/markdown; charset=utf-8', '.wasm': 'application/wasm',
+  '.png': 'image/png', '.jpg': 'image/jpeg', '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.woff2': 'font/woff2',
   '.m4a': 'audio/mp4', '.mp3': 'audio/mpeg',
 };
 
@@ -31,7 +32,7 @@ export function serveStatic(dir: string, req: IncomingMessage, res: ServerRespon
   const headers: Record<string, string | number> = {
     'content-type': MIME[extname(file)] ?? 'application/octet-stream',
     'cache-control': file.includes('/assets/') && /-[\w-]{8}\./.test(file) ? 'public, max-age=31536000, immutable' : 'no-cache',
-    'accept-ranges': 'bytes', 'content-length': size,
+    'accept-ranges': 'bytes', 'content-length': size, 'x-content-type-options': 'nosniff',
   };
   let start = 0, end = size - 1, status = 200;
   const range = req.method === 'HEAD' ? null : req.headers.range?.match(/^bytes=(\d*)-(\d*)$/);

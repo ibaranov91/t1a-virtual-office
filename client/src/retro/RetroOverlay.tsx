@@ -2,13 +2,14 @@ import { useEffect, useRef, useState } from 'react';
 import type { Store } from '../net';
 import { prefs, savePrefs, subscribePrefs } from '../prefs';
 import { games } from '../../../shared/retro/games';
-import { RetroInput } from './input';
-const COMPACT = '(max-width: 560px), (max-height: 500px)';
+import { GameInput } from '../gameInput';
+import { COMPACT } from '../sidebar/hooks';
+import { A, B, DOWN, LEFT, RIGHT, SELECT, START, UP } from '../../../shared/retro/buttons';
 const LEGEND = 'D-pad: arrows / WASD · A: Z / J / Space (unless push-to-talk) · B: X / K · Start: Enter · Select: Shift';
 export function RetroOverlay({ store }: { store: Store }) {
   const client = store.retroClient, view = store.retro!;
   const root = useRef<HTMLDivElement>(null), canvas = useRef<HTMLCanvasElement>(null), area = useRef<HTMLDivElement>(null);
-  const input = useRef<RetroInput | null>(null);
+  const input = useRef<GameInput | null>(null);
   const [page, setPage] = useState<'menu' | 'controls' | 'credits'>('menu'), [scale, setScale] = useState(1);
   const [, prefsChanged] = useState(0);
   useEffect(() => subscribePrefs(() => prefsChanged(n => n + 1)), []);
@@ -31,7 +32,7 @@ export function RetroOverlay({ store }: { store: Store }) {
     return () => ro.disconnect();
   }, []);
   useEffect(() => {
-    const controls = new RetroInput(root.current!, {
+    const controls = new GameInput(root.current!, { left: LEFT, right: RIGHT, up: UP, down: DOWN, a: A, b: B, select: SELECT, start: START }, {
       enabled: () => !!client.player && !client.reconnecting && !client.menu && !client.loading && !client.notice,
       ptt: () => prefs.mode === 'ptt', menu: () => actions.current(), spectator: () => !client.player,
     }); input.current = controls;

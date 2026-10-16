@@ -2,7 +2,8 @@
 
 The Deck is a cozy pixel-art virtual office for T1A (~30 people, fully remote). Each person is a sprite on
 one shared floor. You walk by clicking, knock on someone to start a voice call, and see who's around at a
-glance. Product intent and design rules are in `REQUIREMENTS.md`; read it before adding features.
+glance. Product intent and design rules are in `REQUIREMENTS.md`; read it before adding features. `README.md` is
+the overview for newcomers and hackathon judges, and `docs/FEATURES.md` maps every feature to its code and tests.
 Hackathon project: favor small, working, demo-able steps.
 
 ## Start here
@@ -29,10 +30,13 @@ Hackathon project: favor small, working, demo-able steps.
 - `client/src/`: React only for chrome (`App.tsx`). The floor is one `<canvas>` (`engine.ts`).
   `net.ts` is the store plus the WebSocket client, `voice.ts` is WebRTC voice, `sounds.ts` is synthesized UI sounds.
 - `macos/`: the menu bar app (Swift, AppKit + WKWebView). See "macOS app" below.
+- `vendor/binjgb/`: the Game Boy emulator's JavaScript glue (MIT); its wasm and the homebrew ROMs are in
+  `client/public/retro/` with their licences (`LICENSES.md`), read by both the client and the server.
+- `docs/superpowers/specs/`: the design spec written before each bigger feature (its status line says what shipped).
 - `scripts/`: `gen-map.mjs` (writes `shared/tilemap.json`), `map-atlas.mjs` (writes `docs/MAP.md`), `where.mjs`
   (`npm run where`), `gen-assets.mjs` (writes `client/public/assets/*`),
-  `gen-music.mjs` (`npm run gen:music`, needs ffmpeg: the jukebox library from `scripts/music.json`), `deploy.sh`
-  and `instances.txt`.
+  `gen-music.mjs` (`npm run gen:music`, needs ffmpeg: the jukebox library from `scripts/music.json`),
+  `park-replay.mjs` (replays the Deck Park solutions), `deploy.sh` and `instances.txt`.
 - The art is procedural placeholder art. Run `npm run gen` after changing either generator, and commit the regenerated files.
 
 ## Running locally
@@ -47,7 +51,8 @@ npm run typecheck    # run before every commit or deploy
   instances have `BOTS=1`, and prod never has bots (deploy.sh removes the setting). Bots only knock on other bots, never on people.
 - `VITE_PORT` / `DECK_PORT` run a second copy beside the first. Port 5174 may be held by another worktree's
   session, so leave other sessions' processes alone and pick a free port.
-- Debug handles exist in dev only: `window.__deck` = `{ store, engine }` and `window.__voice`.
+- Debug handles exist in dev only: `window.__deck` = `{ store, engine, share }`, `window.__voice`, `window.__soundscape`,
+  `window.__park` and `window.__lofiPlayer`.
   `engine.setZoom(cssScale)`, `engine.toggleOverview()` and `engine.focusUser(id)` help with screenshots. `store.knock(id)` and
   `store.replyKnock(id, 'accept')` drive the knock flow without clicking.
 
@@ -58,8 +63,10 @@ npm run typecheck    # run before every commit or deploy
 - **Knocks → calls.** Accepting a knock puts both people in a call (`callId`). Others can knock their way in,
   except in the Meeting room, where knocks go to Later. A call ends when fewer than two people are left. Calls are
   in memory only, so a server restart drops them.
-- **Voice** is an audio-only WebRTC mesh, capped at `MAX_CALL_SIZE` = 5. The server relays signaling only between
-  members of the same call. The lower user id makes the offer. Signals carry `conn` (one attempt) and `inst` (one page)
+- **Voice** is an audio-only WebRTC mesh. A knock call holds at most `MAX_CALL_SIZE` = 5. Walking into an open-voice
+  room (`rules.voice: 'open'`: Coffee, Music, Arcade, Book Club) joins the room's call, up to `ROOM_VOICE_MAX` = 12
+  speakers and then a waiting line (`voice_wait`); after `AFK_MS` (10 min) without speaking you are walked out.
+  The server relays signaling only between members of the same call. The lower user id makes the offer. Signals carry `conn` (one attempt) and `inst` (one page)
   so stale offers or answers are dropped and reloads reconnect. If you touch this, re-test: two tabs, call, Leave,
   call again (must connect), and reload each side mid-call.
 - **Talking bubbles** come from real mic activity (`speaking` messages). Bots fake turn-taking.
@@ -81,13 +88,15 @@ npm run typecheck    # run before every commit or deploy
   list (by sign-in email) gets an `agenda` (titles only to attendees), shows `meeting` (busy: knocks go to Later) and a
   heads-up a minute before with **Go** and the event's own call link. Go puts you in the meeting's **instance**: a copy
   of the Meeting room (same tiles), where only people with the same `instance` see each other; the office sees them on
-  the board by the Meeting room and under "In meetings". No voice inside. Leave, or the meeting's end, puts you back
+  the board by the Meeting room and under "In meetings". Voice inside is opt-in (`room_voice`, a hall scoped to the
+  instance, up to `ROOM_VOICE_MAX`; Meet otherwise). The Meeting room's "start private room" sign (`use.kind:
+  'room_start'` → `room_create`) opens the same kind of instance for invited people, with voice on entry. Leave, or the meeting's end, puts you back
   where you were, still in the meeting (busy). The chip then offers **Rejoin** or **Leave meeting** (`meeting_out`): no longer
   busy, knocks come through again, Go puts you back in. Instances and who left live in memory only.
 - **Zoom** is whole device pixels per art pixel (crisp; on Retina that includes 1.5×, 2.5×), glides 140 ms between levels
   and is remembered per device (`deck.zoom`). The lowest level fits the whole floor: the overview, with room tags and a
   "You" pin; when it's small, a tap zooms in instead of walking. Pinch, ⌘/ctrl-scroll, `+ − 0`, `M`. Phones and short
-  windows (`COMPACT` in App.tsx, same media query in styles.css) get a thumb dock and bottom sheets instead of top-bar buttons.
+  windows (`COMPACT` in `client/src/sidebar/hooks.ts`, same media query in styles.css) get a thumb dock and bottom sheets instead of top-bar buttons.
 - **Sidebar** (`client/src/sidebar/`, spec `docs/superpowers/specs/2026-10-16-sidebar-design.md`): Discord-style, docked left.
   Rooms are channels grouped by their rules (`roomGroup` in `model.ts`: open voice / knock / quiet, so a new room lands in
   the right group by itself), people sit under the room they stand in; a person row opens `PersonCard` (actions, voice
@@ -103,16 +112,27 @@ npm run typecheck    # run before every commit or deploy
   Range (`server/src/static.ts`), which media seeking needs. `npm run gen:music -- --force`
   re-encodes everything, and new content hashes add ~35 MB to git history each time, so use it only when the
   pipeline itself changes.
-- **Arcade**: three cabinets and a game table. A cabinet session starts in the **hub** (PARTY / CO-OP pads, crew sign,
+- **Lofi TV** (Music room, `server/src/lofi.ts`, `client/src/LofiTV.tsx`): plays the live Lofi Girl "lofi hip hop radio"
+  stream in an embedded YouTube player. The server finds the current broadcast on the public channel page (no API key;
+  it depends on YouTube's page format) and caches it for 5 min (`/api/lofi`); open players check every 30 s and switch
+  when a broadcast ends. No live radio shows Offline, a failed lookup shows Unavailable and retries after a minute, and a
+  stream found earlier stays playable for up to 30 min during an outage. A "Listening to Lofi Girl" tag appears above a
+  character only while it is audible (`listening`, per connection, never saved).
+- **Arcade**: three cabinets, two retro Game Boy cabinets and a game table. A cabinet session starts in the **hub** (PARTY / CO-OP pads, crew sign,
   EXIT door). PARTY runs a **Break Set**: 3 rounds (vote among cards → title → round → scores), final ×2, bonus star,
   awards, weekly boards ("Arcade boards"); CO-OP plays a Deck Park level. Every game is a deterministic `GameDef` in
-  `shared/arcade/games/` (`registry.ts` lists them and their eligibility); the server sequences inputs, clients predict
+  `shared/arcade/games/` (`shared/arcade/registry.ts` lists them and their eligibility); the server sequences inputs, clients predict
   and roll back with `shared/arcade/runner.ts`, and screens between rounds are epochs without inputs. Later arrivals watch
   from the balcony (cheers, predictions, crowd favourite). The **game table** (`server/src/table.ts`, rules in
   `shared/table/`) is turn-based and server-authoritative: chess (`chess.js`), Russian draughts, dominoes, Last Card;
   each player only ever receives their own hand. `npm test` covers the sims, the delayed-transport orchestration
   harness and the table rules; `scripts/park-replay.mjs` replays Deck Park solutions. Spec:
   `docs/superpowers/specs/2026-10-16-arcade-party-pack-design.md`.
+- **Retro cabinets** (`server/src/retro.ts`, `shared/retro/`, `client/src/retro/`, `use.kind: 'retro'`): two Game Boy
+  homebrew games (Tobu Tobu Girl DX, Shock Lobster) on the binjgb emulator. The player's browser runs the game and sends
+  its button changes per frame (`retro_frames`); the server replays them in its own emulator, so only scores it
+  reproduced reach the Arcade boards, and watchers replay the same stream. Spec:
+  `docs/superpowers/specs/2026-10-16-retro-cabinet-design.md`.
 - **Edit mode** (pencil in the top bar, admins only: `DECK_ADMINS`, comma-separated emails, no default: set it in `/etc/the-deck.env` (and each instance's env file); `npm run dev` and `npm test` set their own
   (dev adds the name `dev`), and names only count for logins without an email). Admins drag furniture and rugs, add from the
   catalog (one of each generated type), recolor/resize rugs, Reset. Walls, floors and rooms stay as generated; the
@@ -125,7 +145,7 @@ npm run typecheck    # run before every commit or deploy
   Only a human's own `move` ending on the garden hole can fall into `instance: 'dungeon'`; `walkSeq` cancels stale
   fall/key/door timers on any later walk or placement. The server owns key state and sends it only to its owner;
   client discovery resets per visit. Neither is persisted.
-- **Creatures and cups** (`server/src/creatures.ts`, drawn by `client/src/creatures.ts`): a cat, a dog, a bat (October only)
+- **Creatures and cups** (`server/src/creatures.ts`, drawn by `client/src/creatures.ts`): a cat, a dog, a bat (October only; `BAT=1`, which `npm run dev` sets, keeps it out all year)
   and the cleaner. Not users: their own `creatures`/`creature` messages, never in the people list, never knock. They run
   everywhere, prod included (`PETS=0` turns them off). Holding a coffee or tea, click a table tile to put the cup down
   (`cup_put`; at most `MAX_CUPS`, saved in `state.json`); the cleaner paths to settled cups, wipes, takes them away. Cups
@@ -189,7 +209,7 @@ defaults write io.t1a.deck url "http://localhost:5173/?as=Mac"   # or pick an in
   icon is a pixel person drawn in code (`Person.swift`): orange on a knock, green with waves in a call.
 - The app sits in the Dock only while its window is open; closing the window leaves it in the menu bar.
 
-**Distribution.** Every deploy from a Mac builds the app (`macos/build.sh --dist` → `macos/dist/`) and the
+**Distribution.** Every deploy from a Mac builds the app (`macos/build.sh --dist <instance>` → `macos/dist/`) and the
 instance serves it. People install with one command, shown under "Mac app" in the top bar:
 `curl -fsSL <instance>/api/mac/install.sh | bash`. curl doesn't quarantine downloads, so Gatekeeper never
 blocks it. The command uses the public URL for `sso` instances and the NetBird address for `pin` ones (the PIN
@@ -199,7 +219,7 @@ page answers curl with 401); deploy.sh sets `DECK_PUBLIC_URL` / `DECK_INSTALL_UR
   The app checks the sha256 and that the new app has the same signer, swaps itself and relaunches.
   The build id is a hash of the app's sources, so deploys without native changes don't update anything.
 - **Signing:** `macos/make-cert.sh` creates the self-signed "T1A Deck" identity in `~/.deck-signing` (its own
-  keychain). A stable signer keeps the mic permission across updates and lets updates verify the signer.
+  keychain; `DECK_SIGNING_DIR` moves it, and `make-cert.sh import <p12>` reads the password from `DECK_P12_PASSWORD`). A stable signer keeps the mic permission across updates and lets updates verify the signer.
   **Everyone who deploys must use the same identity** (`make-cert.sh import <p12>`, never a new one), or
   installed apps refuse the update. Without it, or if the Mac build fails, deploy.sh keeps the signed app the
   instance already serves as long as the app's sources haven't changed (same build id), and stops if they have
@@ -290,7 +310,10 @@ Several people and agents merge and deploy at the same time. Prod must always ru
 
 ## Conventions
 - UI follows docs/UI.md; `client/src/styles.test.ts` enforces the type scale.
-- TypeScript strict, both sides. Match the surrounding style: compact, comments only where the *why* isn't obvious.
+- TypeScript strict, both sides, with `noUnusedLocals` and `noUnusedParameters` (prefix a parameter you must keep with
+  `_`). CI (`.github/workflows/ci.yml`) runs `npm run typecheck`, `npm test` and `npm run build -w client` on every PR.
+- `npm test` runs every `*.test.ts` under `server/src`, `client/src` and `shared`, so a new test can sit next to its code.
+- Match the surrounding style: compact, comments only where the *why* isn't obvious.
 - Protocol changes go in `shared/protocol.ts` first. The server validates everything a client sends.
 - Keep REQUIREMENTS.md's "not now" list in mind: design for it (data, not code), don't build it.
 - **Never work in `main` and never commit or push to it directly.** `main` is the shared branch. Before editing, pull

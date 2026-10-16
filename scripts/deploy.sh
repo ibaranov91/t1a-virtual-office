@@ -113,7 +113,7 @@ else
 fi
 rsync -az --delete \
   --exclude node_modules --exclude data --exclude .claude --exclude .git --exclude '*.log' \
-  --exclude macos/.build --exclude macos/build \
+  --exclude macos/.build --exclude macos/build --exclude .music-src \
   ./ "$HOST:$SRC/"
 
 ssh "$HOST" bash -s <<EOF

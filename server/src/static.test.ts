@@ -11,6 +11,7 @@ async function setup(t: TestContext) {
   const bytes = Buffer.from(Array.from({ length: 256 }, (_, i) => i));
   writeFileSync(join(dir, 'assets', 'song-12345678.m4a'), bytes); writeFileSync(join(dir, 'index.html'), '<html>deck</html>');
   writeFileSync(join(dir, 'song.mp3'), bytes);
+  writeFileSync(join(dir, 'assets', 'worker-12345678.mjs'), 'export {};'); writeFileSync(join(dir, 'emu.wasm'), bytes);
   const server = createServer((req, res) => serveStatic(dir, req, res));
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
   t.after(async () => { await new Promise<void>((resolve, reject) => server.close(e => e ? reject(e) : resolve())); rmSync(dir, { recursive: true }); });
@@ -27,6 +28,10 @@ test('static full files, MIME, immutable cache and fallback', async t => {
   assert.equal(r.status, 200); assert.equal(r.headers['accept-ranges'], 'bytes'); assert.equal(r.headers['content-length'], '256');
   assert.equal(r.headers['content-type'], 'audio/mp4'); assert.equal(r.headers['cache-control'], 'public, max-age=31536000, immutable'); assert.deepEqual(r.body, bytes);
   assert.equal((await get(undefined, 'GET', '/song.mp3')).headers['content-type'], 'audio/mpeg');
+  // module workers (pdf.js) only run when served as JavaScript; nosniff makes every type count
+  assert.equal((await get(undefined, 'GET', '/assets/worker-12345678.mjs')).headers['content-type'], 'text/javascript');
+  assert.equal((await get(undefined, 'GET', '/emu.wasm')).headers['content-type'], 'application/wasm');
+  assert.equal(r.headers['x-content-type-options'], 'nosniff');
   for (const path of ['/unknown', '/assets/', '/../../outside', '/%2e%2e/%2e%2e/outside', '/%zz']) {
     const r = await get(undefined, 'GET', path); assert.equal(r.status, 200); assert.equal(r.body.toString(), '<html>deck</html>'); assert.equal(r.headers['cache-control'], 'no-cache');
   }
