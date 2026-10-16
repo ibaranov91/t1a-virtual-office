@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { drawText, textWidth } from './font';
 import { MAP, type Store } from './net';
+import type { Assets } from './assets';
 import { PdfError, renderPdf } from './pdfSlides';
 import { PRESENT_AWAY_MS, PRESENT_MAX_BYTES, PRESENT_MAX_SLIDES, slideUrl, type DeckInfo } from '../../shared/protocol';
 
@@ -99,7 +100,7 @@ export function PresentPanel({ store, id }: { store: Store; id: string }) {
 const SCORES = ['GRAPHICS', 'SOUND', 'GAMEPLAY', 'SLIDES'];
 
 /** The slides as a page out of a 90s games magazine. The presenter turns pages with ← →. */
-export function SlideOverlay({ store }: { store: Store }) {
+export function SlideOverlay({ store, assets }: { store: Store; assets?: Assets | null }) {
   const live = store.presentation!, deck = live.deck, mine = live.presenter === store.me;
   const n = live.slide + 1, total = deck.count;
   const [awaySince, setAwaySince] = useState<number | null>(null);
@@ -128,7 +129,10 @@ export function SlideOverlay({ store }: { store: Store }) {
           <span><b className="live-dot">● LIVE</b> {deck.title} · {presenter}</span>
           <button type="button" className="ghost" onClick={() => store.hideSlides(true)} aria-label="Close">×</button>
         </div>
-        <div className="watch-slide"><img key={n} src={slideUrl(deck, live.slide)} alt={`Slide ${n} of ${total}`} draggable={false} /></div>
+        <div className="watch-slide">
+          <img key={n} src={slideUrl(deck, live.slide)} alt={`Slide ${n} of ${total}`} draggable={false} />
+          <PresenterPip store={store} assets={assets} slide={live.slide} />
+        </div>
         <div className="watch-foot">
           {live.away && <span className="mag-away">{presenter} lost connection · ends in {left}s</span>}
           <span className="mag-page">{n} / {total}</span>
@@ -224,4 +228,20 @@ export function WatchPrompt({ store }: { store: Store }) {
       <button className="ghost" onClick={() => setAsk(false)}>Not now</button>
     </div>
   );
+}
+
+/** The presenter in the slides' corner: swaying a little, and a hop whenever they turn the page. */
+function PresenterPip({ store, assets, slide }: { store: Store; assets?: Assets | null; slide: number }) {
+  const ref = useRef<HTMLCanvasElement>(null);
+  const live = store.presentation, u = live && store.users.get(live.presenter);
+  useEffect(() => {
+    const canvas = ref.current;
+    if (!canvas || !assets || !u) return;
+    const f = assets.atlas.character, ctx = canvas.getContext('2d')!;
+    canvas.width = f.frameW; canvas.height = f.frameH;
+    ctx.clearRect(0, 0, f.frameW, f.frameH);
+    ctx.drawImage(assets.sheet(u.look), 0, 0, f.frameW, f.frameH, 0, 0, f.frameW, f.frameH); // facing us, standing
+  }, [assets, u?.look]);
+  if (!u || !assets) return null;
+  return <canvas ref={ref} key={slide} className="watch-pip" aria-hidden />;
 }

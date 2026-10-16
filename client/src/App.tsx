@@ -199,7 +199,7 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
         {engine && <ZoomCluster engine={engine} />}
         {!assets && <div className="loading">Unlocking the door…</div>}
         {!store.connected && assets && <div className="loading small">Reconnecting…</div>}
-        {store.presentation && store.inPresentationRoom() && !store.slidesHidden && <SlideOverlay store={store} />}
+        {store.presentation && store.inPresentationRoom() && !store.slidesHidden && <SlideOverlay store={store} assets={assets} />}
         {showRooms && <RoomList store={store} onPerson={openPerson} onClose={() => setShowRooms(false)}
           onPick={id => { engineRef.current?.walkToUser(id); if (compact()) setShowRooms(false); }}
           onRoom={id => { engineRef.current?.walkToRoom(id); if (compact()) setShowRooms(false); }} />}
