@@ -1297,7 +1297,6 @@ function ActionWheel({ store, engine, pick, assets, onPerson, onClose }: { store
       if (me?.callId && me.callId === u.callId) items.push({ icon: '🔊', label: 'Volume', onClick: act(() => { if (at) onPerson({ id: u.id, x, y }); }) });
       if (!isMe && !away) { const why = store.roomReason(u); if (!why) items.push({ icon: '🔒', label: 'Private room', title: `Take ${u.name.split(' ')[0]} to a private room`, onClick: act(() => store.createRoom([u.id])) }); }
       if (store.admin && me && !me.instance && !u.instance && !away) items.push({ icon: '🌀', label: 'Teleport', title: `Step through a portal to ${u.name.split(' ')[0]}`, onClick: act(() => store.teleport(u.id)) });
-      if (store.admin && !u.bot) items.push({ icon: '✏️', label: 'Rename', title: `Give ${u.name.split(' ')[0]} another name`, onClick: act(() => { const v = window.prompt(`New name for ${u.name}`, u.name); if (v?.trim()) store.rename(u.id, v); }) });
       const held = me?.holding ? ITEMS.get(me.holding) : undefined;
       if (held) items.push({ icon: held.icon, label: 'Give', disabled: !!u.holding || away || !!dungeon,
         title: dungeon ?? (u.holding ? `${u.name.split(' ')[0]}'s hands are full` : `Give ${u.name.split(' ')[0]} your ${held.label.toLowerCase()}`),
