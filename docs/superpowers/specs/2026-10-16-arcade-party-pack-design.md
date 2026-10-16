@@ -1,6 +1,6 @@
 # Arcade party pack: Break Set, seven versus games, a game table — design
 
-Owner: Andrii Butko · 2026-10-16 · status: v2, after a Codex spec review · builds on
+Owner: Andrii Butko · 2026-10-16 · status: v3, after two Codex spec reviews · builds on
 `2026-10-15-arcade-deck-park-design.md` (cabinets, sessions, server-sequenced inputs, rollback `Runner`, balcony,
 records). Only what changes is written here.
 
@@ -35,7 +35,11 @@ export type GameId = 'hub' | 'vote' | 'park' | 'quiver' | 'screenrun' | 'volley'
 export interface RosterEntry { slot: number; userId: string; team: 0 | 1 | null }
 export interface BaseState { frame: number; fx: Fx[]; outcome: Outcome | null }   // every game state extends this
 export interface Fx { frame: number; kind: string; slot: number }
-export interface Outcome { order: number[][]; stats: Record<number, Stats>; signal?: unknown } // slots, best group first
+export interface Outcome { order: number[][]; stats: Record<number, Stats>; signal?: Signal } // slots, best group first
+export type Signal =
+  | { kind: 'hub'; start: 'party' | 'coop'; level: number; teamMode: boolean }
+  | { kind: 'vote'; card: number }                   // index into the ballot passed in opts
+  | { kind: 'park'; cleared: boolean };
 export type StatKey = 'kills' | 'deaths' | 'falls' | 'stomped' | 'stomps' | 'airFrames' | 'distance' | 'holdFrames'
   | 'coins' | 'steals' | 'points' | 'height' | 'tiles' | 'survivedFrames' | 'shoves' | 'spikes' | 'personal';
 export type Stats = Partial<Record<StatKey, number>>;
@@ -56,7 +60,9 @@ export interface GameDef<S extends BaseState, O = unknown> {
   is removed and, in a running versus game, counts as eliminated now (last among those still in); reset (kind 3) →
   clears the slot's buttons and edge state only (no respawn, scores untouched); input → sets buttons.
 - **Terminal state**: once `outcome` is set, a step applies events and does `frame += 1`, nothing else; `outcome` never
-  changes again. The server reads `outcome` from its confirmed sim exactly once per epoch.
+  changes again. The server reads `outcome` (and its `signal`) from its confirmed sim exactly once per epoch, sends a
+  `game_check` for that frame first, and only then starts the next epoch; a Runner verifies that check before it
+  replaces its state with the next epoch.
 - **Determinism**: integer sub-pixels, `Math.trunc` for every division, no floats, trig, `Math.random`, `Date`;
   mulberry32 PRNG state inside `S`; arrays in fixed order. Fractions are integer ratios written in the spec below.
 - **Hard caps**: every game sets `outcome` by its time cap at the latest.
@@ -75,7 +81,9 @@ An epoch is either a **simulation** (hub, vote, a round) or a **screen** (title,
 ```ts
 export type SessionView =
   | { kind: 'sim'; game: GameId; seed: number; opts: unknown; roster: RosterEntry[]; startAt: number; snapshot: BaseState; events: GameEvent[] }
-  | { kind: 'screen'; screen: 'title' | 'scores' | 'bonus' | 'awards'; until: number; data: ScreenData };
+  | { kind: 'screen'; screen: 'title' | 'scores' | 'favourite' | 'bonus' | 'awards'; until: number; data: ScreenData };
+// favourite data: { candidates: userId[]; voters: userId[]; votes: Record<userId, number> } — votes accepted from
+// `voters` while serverNow < until, one each (last one counts); the counts are public and resent on every vote
 export interface PublicSession {
   cabinet: string; epoch: number; serverNow: number; players: GameMember[]; spectators: string[];
   crew: { key: string; name: string }; view: SessionView; set: PublicBreakSet | null;
@@ -99,7 +107,8 @@ The lobby level becomes the hub of a cabinet (same room, EXIT door, ◀ ▶ leve
   standing on the same pad for 60 frames → `outcome.signal = { start: 'party' | 'coop', level, teamMode }`. PARTY needs
   2–4 players; with 1 present it is drawn greyed with "2+ players" and never fills.
 - **Crew sign** (bumpable block over the middle): each bump increments `state.crewBumps`; the server rerolls the crew
-  name once per increment it sees in its confirmed sim (it remembers the last count it handled).
+  name once per increment it sees in its confirmed sim (it remembers the last count it handled). Starting is the hub's
+  only `outcome` (`signal.kind = 'hub'`); bumps and exits are counters/flags the server reads after every step.
 - **Mode block** (drawn only with exactly 4 present): bump toggles `state.teamMode` (FFA ↔ 2v2).
 - **EXIT door**: as today; the server lets a player go when their slot is `entered`.
 - The hub draws the crew name, the mode, and the selected co-op level with its record.
@@ -123,12 +132,16 @@ export interface PublicRoundResult { game: GameId; order: string[][]; points: Re
 ```
 
 ### 4.1 Flow
-1. **Vote** (`vote` game, exactly 480 frames): three cards — two distinct games picked at random among the eligible
-   ones (section 4.3) that are not among the set's last two played, plus **Surprise** (a random eligible game that is
-   not one of the two shown and not among the last two). Each player moves a cursor ← → and confirms with jump; they can
-   change until the end; the vote always runs the full 8 s. At frame 480: the card with the most confirmed votes; ties
-   and no votes → the PRNG picks among the tied cards (all three with no votes). Spectators predict the round winner
-   in the same 8 s (`game_predict`, one per spectator, last one counts).
+1. **Vote** (`vote` game, exactly 480 frames). **Ballot** (built by the server, passed in `opts`): take the games
+   eligible for the current player count and mode (section 4.3); drop the set's last two played; if fewer than two are
+   left, drop only the previous one; if still fewer than two, drop nothing. Show up to two of them picked at random,
+   plus **Surprise** if at least one other eligible game exists (same exclusion level) — Surprise resolves to one of
+   those. So a ballot has 1–3 cards; with one card the vote still runs and the result is certain.
+   Each player moves a cursor ← → and confirms with jump; they can change until the end; the vote always runs the full
+   480 frames (the `vote` game ignores inputs at frame ≥ 480). At frame 480 `signal = { kind: 'vote', card }`: the card
+   with the most confirmed votes; ties and no votes → the PRNG picks among the tied cards (all cards with no votes).
+   Spectators predict the round winner (`game_predict`, one per spectator, last one counts) until `closesAt =
+   startAt + 8000 ms` (sent in the vote's `opts`), checked by server time on receipt.
 2. **Title** screen (3 s): name, one-line goal, control icons, "Round 2/3", "FINAL ×2" on round 3.
 3. **Round**: the game's epoch with `{ seed, roster, opts: { mode } }` until its outcome.
 4. **Scores** screen (6 s): places, points, underdog, correct predictions, totals.
@@ -145,10 +158,12 @@ c 1, d 0.
 - **Underdog**: +1 to a player who was alone in the last group of the previous round and is now in the top half:
   place index < `Math.trunc(n / 2)` (n = 4 → places 1–2; n = 3 → place 1; n = 2 → place 1).
 - **Park card**: +1 to everyone if the level was cleared (not doubled).
-- **Leavers**: a player who leaves is out of the current round as eliminated-now and out of later rounds; they keep
-  their points in the history but have no standing and get nothing on the boards. A reconnect within the existing door
-  grace is not a leave. If fewer than 2 players remain, the set ends at once with no board commit. In 2v2, if the
-  roster stops being 4, the remaining rounds are FFA.
+- **Leavers**: a player who leaves is out of the current round as eliminated-now (team rules then apply as written:
+  a team with nobody left loses at once) and out of later rounds; they keep their points in the history but have no
+  standing and get nothing on the boards. A reconnect within the existing door grace is not a leave. If fewer than 2
+  players remain, the set ends at once with no board commit. In 2v2, if the roster stops being 4, the set becomes FFA
+  from the next vote. A leave during the vote or title screen: if the chosen game is no longer eligible for the
+  remaining count/mode, the round's vote is run again.
 - **Joiners** during a set watch and play from the next hub.
 - **Standings**: by points; ties by round-3 place; still tied → shared.
 
@@ -224,7 +239,9 @@ anyone without an award.
             table: Record<TableGameId, Record<userId, number>> }; // table wins
     hall: { week: string; userId: string; name: string; points: number }[] }   // last 10
   ```
-  Ranks: ties share a rank. Aborted sets write nothing (no champions, no oracle).
+  plus `committed: string[]` (set and match ids already written this week, so a commit can never count twice; all board
+  contributions of a set are written in one step). Ranks: ties share a rank. Aborted sets write nothing. Rollover
+  archives every player sharing #1 (one hall entry each) and skips weeks without entries.
 - **Boards** (the records board becomes "Arcade boards", popover with tabs): **This week** (sum of best 10 set totals),
   **Champions** ("King of Quiver" per game), **Oracle**, **Table**, **Deck Park** (records with crew), **Hall of Fame**.
   `arcade_boards { boards }` replaces `arcade_records`, sent on connect and after each commit.
@@ -256,14 +273,18 @@ the seed. "Heat" = an inner round; a match is several heats.
   4 sub/frame every 10 s up to 48. Out: left of `camX`, or falling below the screen.
 - **Action**: dash — 96 sub/frame for 8 frames (swept), cooldown 120 frames; a player you touch while dashing gets
   +80 sub/frame horizontal push for 8 frames.
-- Heat: last one in (team: last team) gets 1 point; simultaneous outs → no point; heat cap 60 s → the leader.
-  Match: first to **3**, cap 150 s → points, then total distance. Stats: distance, falls, shoves.
+- Heat: last one in (team: last team with someone in) gets 1 point; simultaneous outs → no point; heat cap 60 s →
+  the player with the greatest x (team: that player's team) gets the point, ties → no point. A new heat restarts the
+  course from a new seed. Match: first to **3**, cap 150 s → order by points, then total distance (team: summed).
+  Stats: distance, falls, shoves.
 
 ### 7.3 Office Volley (Slime-Volleyball-style)
 - 1v1 or 2v2 only. Court: floor, net at x 160 (height 48 px), walls.
 - Ball: radius-free 8×8 box, gravity 4 sub/frame², max speed 128 sub/frame. Hitting a player: `vy = −112`, `vx =
   (ballCentre − playerCentre) × 6` (sub/frame, clamped ±112). **Action in the air** while touching = spike:
   `vy = +96`, `vx = ±128` toward the other side. Max 3 touches per side; the 4th touch is a point for the other side.
+- A **touch** is the first frame a player overlaps the ball after a frame without overlap; the same player can't touch
+  again for 6 frames. The touch counter of a side resets when the ball crosses the net and on every serve.
 - Point: ball touches the floor on a side. Serve from the side that lost the point.
 - First to **7**; at 90 s the leader wins; tied at 90 s → golden point up to 120 s; still tied → draw.
   Stats: points (last toucher of a scoring ball), spikes.
@@ -282,7 +303,8 @@ the seed. "Heat" = an inner round; a match is several heats.
 - **Action**: tackle dash in the facing direction, 80 sub/frame for 10 frames, cooldown 45. Touching the holder while
   dashing steals it; the old holder is stunned 30 frames; the new holder can't be robbed for 30 frames. Several
   tacklers in one frame → lowest slot.
-- Stapler falling into a pit or its holder leaving → it drops/returns to the middle after 60 frames.
+- Falling below the screen: the player respawns 60 frames later at a free spot among three top spawn points (seeded
+  order), buttons kept. A holder who falls or leaves loses the stapler; it returns to the middle after 60 frames.
 - Win: **20 s** of holding (1200 frames) — team: summed; cap 90 s → order by hold time. Stats: holdFrames, steals.
 
 ### 7.6 Trails (Tron-style light bikes)
@@ -292,15 +314,19 @@ the seed. "Heat" = an inner round; a match is several heats.
 - **Jump**: the next move skips one cell (no trail there) and lands two cells ahead; cooldown 180 frames.
 - After every tick: a bike whose new cell is a border, any trail (including cells entered this tick by others), or the
   same cell as another bike, or that swapped cells with another bike → out. All outs in one tick share a group.
-- Heat ends when ≤ 1 bike (team) is left; +1 point to each survivor per opponent who went out in that heat; heat cap
-  30 s. Match: first to **6**, cap 150 s. Stats: survivedFrames, deaths.
+- Points (FFA): whenever bikes go out in a tick, every bike still in gets +1 per bike that went out (bikes going out
+  in the same tick don't score off each other). Team: a team gets +2 when every bike of the other team is out. Heat
+  ends when ≤ 1 bike (team) is left or at 30 s (no extra points); a new heat clears the grid. Match: first to **6**,
+  cap 150 s → order by points, ties shared. Stats: survivedFrames, deaths.
 
 ### 7.7 Sky Lanes (Doodle Jump, separate lanes)
 - Every lane is **80 px wide** (logical, any player count); lanes are drawn side by side and centred. Identical seeded
   platform columns in every lane; each lane scrolls on its own.
 - Player: auto-bounce `vy = −104` sub/frame on landing on a platform from above, gravity 4 sub/frame², ← → steer
-  (accel 4, max 40), wraps within the lane. Platforms: normal (24 px), moving (±24 px, 8 sub/frame), breaking (one
-  bounce, never two in a row), spring (`vy = −160`). Vertical gap between platforms 24–64 px (always reachable).
+  (accel 4, max 40), wraps within the lane. Platforms: normal (24 px), moving (back and forth inside x 0–56, 8
+  sub/frame), breaking (one bounce, never two in a row, never the only platform in a 64 px band), spring (`vy = −160`).
+  Vertical gap between platforms 24–64 px (a bounce reaches ~84 px). The player starts standing on a full-width floor.
+  A test checks generated columns for these bounds.
 - Camera per lane: rises with the player above the top third; from 5 s it also auto-rises at 4 sub/frame, +4 every
   15 s up to 16. Out: falling below your lane's view (your best height stays).
 - Round: 90 s or everyone out. Order: by best height (team: sum). Stats: height, airFrames.
@@ -325,15 +351,22 @@ players (and 2v2 where allowed): every match reaches `outcome` before its cap wi
   in join order); more people → watchers. Joining the table leaves any cabinet session and vice versa; walk, meeting,
   layout step-aside and the door flow leave the table, like cabinets. Table messages go through the owner socket.
 - **Host** = the earliest sitter; leaves → the next one.
-- **Match**: the host picks Chess / Checkers (2 sitters) or Dominoes / Last Card (2–4) and presses Start when the count
-  fits; the roster is frozen at start; later sitters watch until the next match. Rematch: the host starts again.
+- **Match**: the host picks Chess / Checkers (the host plus one sitter the host invites, who accepts with Join within
+  30 s) or Dominoes / Last Card (the host invites 1–3 sitters; each accepts with Join). Start when the accepted count
+  fits; the roster is frozen at start; everyone else watches. Rematch: the host proposes, every player of the last
+  match accepts again.
 - **Moves**: `table_move { matchId, revision, move }`; the server applies a move only if `revision` equals its current
-  revision and it's that player's turn (or a free action like Catch!), then `revision += 1`. Every recipient gets
+  revision and it's that player's turn (or a free action like Catch!). Every accepted mutation — moves, timeouts,
+  leaves, draw offers/answers — does `revision += 1`. Every recipient gets
   `table { view }` with only their own hidden information (hands), the public state, `revision`, `turnDeadline` and
   `serverNow`.
 - **Clock**: 2 min per turn. Expiry is checked before every move. 2 players → the one who timed out loses. 3–4 players →
-  an automatic action (Last Card: draw 1 and pass; Dominoes: draw if possible, else pass); two consecutive timeouts →
-  that player forfeits. Invalid moves, draw offers and reconnects never reset the clock.
+  an automatic action (Last Card: draw 1 and pass; Dominoes: play the first legal tile in hand order, else draw, else
+  pass — so a timeout pass is always a genuine "cannot play"); two consecutive timeouts → that player forfeits.
+  Invalid moves, draw offers and reconnects never reset the clock.
+- **Reconnect/handover**: on connect and on owner change the server sends the table view (redacted for that user) to the
+  new owner socket and `table { view: null }` to the old one. A disconnected player keeps their place through the
+  existing door grace; their clock keeps running.
 - **Leaving mid-match**: 2 players → the other wins. 3–4 → the leaver is out; their hand stays out of play (private,
   never reshuffled); if one active player is left, they win.
 - Results: wins go to the weekly **Table** board; draws give nothing.
@@ -348,8 +381,9 @@ players (and 2v2 where allowed): every match reaches `outcome` before its cap wi
   Capturing is mandatory, and a capture must be continued while possible; any capturing sequence may be chosen (not
   necessarily the longest). A move is the full list of landing squares; captured pieces are removed after the move and
   can't be jumped twice. A man that reaches the last row during a capture becomes a king and continues as one.
-  Win: the opponent has no pieces or no legal move. Draw: the same position with the same side to move for the third
-  time, or 15 moves each with only kings and no capture, or agreement.
+  Win: the opponent has no pieces or no legal move. Draw (house simplification of FMJD-64): the same position with the
+  same side to move for the third time; or 15 moves by each side in which only kings moved, no man moved and nothing
+  was captured; or agreement. FMJD's material-specific endgame counters are not implemented.
 - **Dominoes** (double-six, 28 tiles): 7 each; boneyard 14 (2 players), 7 (3), none (4). The holder of the highest double
   starts with it (no double dealt → the highest tile). On your turn play a tile matching either open end; if you can't,
   draw one at a time until you can (and must) play, or the boneyard is empty → pass. Doubles are drawn crosswise, no
@@ -408,8 +442,9 @@ fixture); nothing else in saved layouts changes.
 
 - **Orchestration harness** (extends today's delayed-transport `Arcade` + `Runner` test): hub → vote → title → round →
   scores ×3 → favourite → bonus → awards → hub with 2, 3 and 4 players and 2v2, including an owner change, a player
-  leaving mid-round, a reconnect during each screen, a spectator joining mid-set; every runner's state hashes equal to
-  the server's at common frames; boards committed exactly once.
+  leaving mid-round, a reconnect during each screen and during active and eliminated play, a spectator joining
+  mid-set; every runner's state hashes equal to the server's at common frames and at each epoch's terminal check;
+  boards committed exactly once; a vote whose ballot shrinks (step 1 has only three cards).
 - **Scoring/awards/bonus/weeks**: pure-function tests with the examples above; week keys across a DST change.
 - **Table**: each rules module (legal moves, captures, draws, end conditions; Last Card specials and catch); server
   table sessions: hidden hands never reach other recipients, revision rejects duplicates, timeouts handled exactly once,
