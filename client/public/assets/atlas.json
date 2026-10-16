@@ -4219,7 +4219,9 @@
   "styles": [
    "short",
    "long",
-   "ponytail"
+   "ponytail",
+   "bald",
+   "receding"
   ],
   "tops": [
    "T-shirt",
@@ -4249,9 +4251,9 @@
    "frameH": 24,
    "items": [
     "round_glasses",
-    "rectangular_glasses",
-    "cap",
-    "bowler"
+    "beard",
+    "mustache",
+    "sunglasses"
    ],
    "keys": {
     "primary": "#ff00ff",

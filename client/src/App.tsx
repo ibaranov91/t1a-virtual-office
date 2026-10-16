@@ -413,7 +413,7 @@ function AppearanceMenu({ look, name, assets, firstTime, store, onSave, onClose 
 }) {
   const [draft, setDraft] = useState(look);
   const [nameDraft, setNameDraft] = useState(name);
-  const [tab, setTab] = useState<'body' | 'clothes'>('body');
+  const [tab, setTab] = useState<'body' | 'clothes' | 'accessories'>('body');
   const previewRef = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
     const canvas = previewRef.current;
@@ -433,12 +433,13 @@ function AppearanceMenu({ look, name, assets, firstTime, store, onSave, onClose 
         style={{ backgroundColor: color }} title={color} aria-label={`${label} ${color}`} aria-pressed={draft[key] === color} onClick={() => set(key, color)} />)}
     </div></fieldset>
   );
-  const select = (label: string, value: number, options: string[], key: 'style' | 'top' | 'bottom' | 'glasses' | 'hat') => (
+  const select = (label: string, value: number, options: string[], key: 'style' | 'top' | 'bottom' | 'glasses' | 'hat' | 'beard' | 'mustache') => (
     <label className="look-select">{label}<select value={value} onChange={e => set(key, Number(e.target.value))}>
       {options.map((option, i) => <option value={i} key={option}>{option}</option>)}
     </select></label>
   );
-  const styles = (assets?.atlas.character.styles ?? ['short', 'long', 'ponytail']).map(s => s[0].toUpperCase() + s.slice(1));
+  const styleLabels: Record<string, string> = { short: 'Short', long: 'Long', ponytail: 'Short ponytail', bald: 'Bald', receding: 'Receding hairline' };
+  const styles = (assets?.atlas.character.styles ?? ['short', 'long', 'ponytail', 'bald', 'receding']).map(s => styleLabels[s] ?? s[0].toUpperCase() + s.slice(1));
   const tops = assets?.atlas.character.tops ?? ['T-shirt', 'Button-up shirt', 'Sweater'];
   const bottoms = assets?.atlas.character.bottoms ?? ['Trousers', 'Skirt', 'Shorts'];
   return (
@@ -446,21 +447,28 @@ function AppearanceMenu({ look, name, assets, firstTime, store, onSave, onClose 
       <section className="appearance-panel" role="dialog" aria-modal="true" aria-labelledby="appearance-title">
         <header className="appearance-head"><div><h2 id="appearance-title">Your character</h2><p>{firstTime ? 'Choose your look before stepping into the office.' : 'Make the office feel a little more like you.'}</p></div>
           {!firstTime && <button className="ghost" onClick={onClose} aria-label="Close appearance settings">×</button>}</header>
-        <div className="appearance-preview"><div className="avatar-frame"><canvas ref={previewRef} /></div><span>{styles[draft.style]} hair</span>
+        <div className="appearance-preview"><div className="avatar-frame"><canvas ref={previewRef} /></div>
           <label className="look-select">Name<input value={nameDraft} maxLength={24} placeholder="First Las" onChange={e => setNameDraft(e.target.value)} /></label></div>
         <nav className="appearance-tabs" aria-label="Appearance categories">
           <button className={tab === 'body' ? 'active' : ''} onClick={() => setTab('body')}>Body</button>
           <button className={tab === 'clothes' ? 'active' : ''} onClick={() => setTab('clothes')}>Clothes</button>
+          <button className={tab === 'accessories' ? 'active' : ''} onClick={() => setTab('accessories')}>Accessories</button>
         </nav>
         <div className="appearance-options">
           {tab === 'body' ? <>
             {select('Hairstyle', draft.style, styles, 'style')}
             {colors('Hair color', 'hair')}{colors('Skin tone', 'skin')}{colors('Eye color', 'eyes')}
-          </> : <>
+          </> : tab === 'clothes' ? <>
             {select('Top', draft.top, tops, 'top')}{colors('Top color', 'shirt')}
             {select('Bottom', draft.bottom, bottoms, 'bottom')}{colors('Bottom color', 'pants')}
             {colors('Shoe color', 'shoes')}
             <p className="small">Hats are in your pockets 🎒 (take one from the Lobby hat stand)</p>
+          </> : <>
+            {select('Glasses', draft.glasses, ['None', 'Round', 'Black sunglasses'], 'glasses')}
+            {select('Beard', draft.beard, ['None', 'Beard'], 'beard')}
+            {select('Mustache', draft.mustache, ['None', 'Mustache'], 'mustache')}
+            {draft.glasses === 1 && colors('Glasses color', 'glassesColor')}
+            <p className="small">Beard and mustache use your hair color.</p>
           </>}
         </div>
         <footer className="appearance-actions">
