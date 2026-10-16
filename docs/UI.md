@@ -68,7 +68,7 @@ controls and hang-up hover. Do not color a settings title orange.
 - Default `button` is primary. Use `button.ghost` for quiet secondary actions and `.danger` for destructive actions.
 - Use `IconButton` + `Icon` from `Icon.tsx` for every icon control. Require an `aria-label`; `title` equals the label.
 - Use `VoiceToggle` for mic/headphones everywhere, so state and behavior stay consistent.
-- No emoji or text glyphs (×, ⋯, ▶, 🎙, 🎧) as controls. Emoji are content only: activity lines, reactions and items.
+- No emoji or text glyphs (×, ⋯, ▶, 🎙, 🎧) as controls, except the action wheel and reaction wheel: both use emoji so they look alike. All other icon controls keep `Icon` / `IconButton`. Emoji are also content: activity lines, reactions and items.
 
 ## Surfaces
 

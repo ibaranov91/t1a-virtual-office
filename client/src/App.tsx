@@ -1237,27 +1237,27 @@ function ActionWheel({ store, engine, pick, assets, onPerson, onClose }: { store
     } else if (emoji) {
       items = REACTIONS.map(e => ({ icon: e, label: '', onClick: act(() => store.react(u.id, e)) }));
       const held = isMe ? heldItem(me?.holding) : undefined;
-      if (isMe && me?.eating) items.push({ icon: <Icon name={me.eating.open ? "bell" : "message"} off={me.eating.open} />, label: me.eating.open ? 'Quiet' : 'Chat', title: me.eating.open ? 'Go quiet: leave the table\'s talk; knocks go to Later' : 'Chat: join the talk of everyone chatting at this table (you start muted)', onClick: act(() => store.lunchOpen(!me.eating!.open)) });
-      if (!isMe) items.push({ icon: <Icon name="arrow-left" />, label: 'Back', onClick: () => setEmoji(false) });
+      if (isMe && me?.eating) items.push({ icon: me.eating.open ? '🔕' : '💬', label: me.eating.open ? 'Quiet' : 'Chat', title: me.eating.open ? 'Go quiet: leave the table\'s talk; knocks go to Later' : 'Chat: join the talk of everyone chatting at this table (you start muted)', onClick: act(() => store.lunchOpen(!me.eating!.open)) });
+      if (!isMe) items.push({ icon: '↩', label: 'Back', onClick: () => setEmoji(false) });
       else if (held && me?.holding && DRINKS[me.holding]) { if (!me.sipping) items.push({ icon: held.icon, label: 'Drink', title: `Drink your ${held.label.toLowerCase()}`, onClick: act(() => store.drink()) }); }
       else if (held?.empty) items.push({ icon: <span style={{ opacity: 0.45 }}>{held.icon}</span>, label: 'Drop', title: `Drop your ${held.label.toLowerCase()} on the floor (or click a table to put it down)`, onClick: act(() => store.drop()) });
       else if (held) items.push({ icon: held.icon, label: 'Finish', title: `Finish your ${held.label.toLowerCase()}`, onClick: act(() => store.drop()) });
-      if (isMe && me?.following) items.push({ icon: <Icon name="stop" />, label: 'Stop following', onClick: act(() => store.follow(null)) });
+      if (isMe && me?.following) items.push({ icon: '🛑', label: 'Stop following', onClick: act(() => store.follow(null)) });
     } else {
       const away = goingOut(u);
       const dungeon = store.dungeonReason(u);
       const following = me?.following === u.id, noKnock = store.knockReason(u);
       items = [
-        { icon: <Icon name="knock" />, label: 'Knock', onClick: act(() => store.knock(u.id)), disabled: !!noKnock,
+        { icon: '✊', label: 'Knock', onClick: act(() => store.knock(u.id)), disabled: !!noKnock,
           title: noKnock ?? 'Knock for a voice call' },
-        { icon: <Icon name="follow" />, label: following ? 'Unfollow' : 'Follow', active: following, onClick: act(() => store.follow(following ? null : u.id)), disabled: away || !!dungeon, title: dungeon ?? undefined },
-        { icon: <Icon name="smile" />, label: 'React', onClick: () => setEmoji(true) },
-        { icon: <Icon name="message" />, label: 'Message', onClick: act(() => store.openChat(u.id)) },
+        { icon: '👣', label: following ? 'Unfollow' : 'Follow', active: following, onClick: act(() => store.follow(following ? null : u.id)), disabled: away || !!dungeon, title: dungeon ?? undefined },
+        { icon: '😊', label: 'React', onClick: () => setEmoji(true) },
+        { icon: '💬', label: 'Message', onClick: act(() => store.openChat(u.id)) },
       ];
       if (isMe && (store.dancing || (store.roomOf(u)?.id === DANCE_ROOM && !u.instance))) items.push({ icon: '💃', label: store.dancing ? 'Stop dancing' : 'Dance', onClick: act(() => store.dance()) });
-      if (me?.callId && me.callId === u.callId) items.push({ icon: <Icon name="volume" />, label: 'Volume', onClick: act(() => { if (at) onPerson({ id: u.id, x, y }); }) });
-      if (!isMe && !away) { const why = store.roomReason(u); if (!why) items.push({ icon: <Icon name="lock" />, label: 'Private room', title: `Take ${u.name.split(' ')[0]} to a private room`, onClick: act(() => store.createRoom([u.id])) }); }
-      if (store.admin && me && !me.instance && !u.instance && !away) items.push({ icon: <Icon name="portal" />, label: 'Teleport', title: `Step through a portal to ${u.name.split(' ')[0]}`, onClick: act(() => store.teleport(u.id)) });
+      if (me?.callId && me.callId === u.callId) items.push({ icon: '🔊', label: 'Volume', onClick: act(() => { if (at) onPerson({ id: u.id, x, y }); }) });
+      if (!isMe && !away) { const why = store.roomReason(u); if (!why) items.push({ icon: '🔒', label: 'Private room', title: `Take ${u.name.split(' ')[0]} to a private room`, onClick: act(() => store.createRoom([u.id])) }); }
+      if (store.admin && me && !me.instance && !u.instance && !away) items.push({ icon: '🌀', label: 'Teleport', title: `Step through a portal to ${u.name.split(' ')[0]}`, onClick: act(() => store.teleport(u.id)) });
       if (!isMe && me && effectOf(me.effects, 'vampire')) { const turned = !!effectOf(u.effects, 'vampire');
         items.push({ icon: '🧛', label: 'Bite', disabled: turned || away || !!dungeon, title: dungeon ?? (turned ? `${u.name.split(' ')[0]} is already a vampire` : `Bite ${u.name.split(' ')[0]}: a vampire for 2 minutes`), onClick: act(() => store.bite(u.id)) }); }
       const held = me?.holding && !isEmpty(me.holding) ? ITEMS.get(me.holding) : undefined; // an empty cup isn't a present
@@ -1270,8 +1270,8 @@ function ActionWheel({ store, engine, pick, assets, onPerson, onClose }: { store
     const meal = o?.type === 'chair' && me?.holding ? ITEMS.get(me.holding) : undefined;
     if (o && meal && picnicSeat(MAP, o)) { // a chair at a picnic table, food in hand
       title = `${meal.icon} Eat lunch here`;
-      items = [{ icon: <Icon name="bell" off />, label: 'Eat quietly', title: 'Eat here; knocks go to Later', onClick: act(() => store.lunch({ x: o.x, y: o.y }, false)) },
-        { icon: <Icon name="message" />, label: 'Eat & chat', title: 'Eat here and join the table\'s talk (you start muted)', onClick: act(() => store.lunch({ x: o.x, y: o.y }, true)) }];
+      items = [{ icon: '🔕', label: 'Eat quietly', title: 'Eat here; knocks go to Later', onClick: act(() => store.lunch({ x: o.x, y: o.y }, false)) },
+        { icon: '💬', label: 'Eat & chat', title: 'Eat here and join the table\'s talk (you start muted)', onClick: act(() => store.lunch({ x: o.x, y: o.y }, true)) }];
     } else if (!o || !routes(o.use, 'wheel')) return null; // the other kinds act on the click (e.onPick above)
     else if (o.use.kind === 'toilet') {
       const s = store.toilets[o.id], full = toiletFull(s), inside = !!s?.in.includes(store.me), queued = s?.queue.indexOf(store.me) ?? -1;
@@ -1282,7 +1282,7 @@ function ActionWheel({ store, engine, pick, assets, onPerson, onClose }: { store
           title: !has ? 'Rack a line · you need drugs (ask the bouncer)' : !company ? 'Rack a line · not on your own, wait for company' : s!.shelf >= TOILET_SHELF_MAX ? 'Rack a line · the shelf is full' : `Rack a line on the shelf (${s!.shelf} there)`,
           onClick: act(() => store.rackLine(o.id)) },
           { icon: '👃', label: 'Sniff', disabled: !s!.shelf, title: s!.shelf ? `Sniff a line · ${s!.shelf} on the shelf` : 'Sniff · nothing on the shelf', onClick: act(() => store.sniffLine(o.id)) },
-          { icon: <Icon name="logout" />, label: 'Leave', onClick: act(() => store.moveTo({ x: o.x, y: o.y - 2 })) }];
+          { icon: '🚪', label: 'Leave', onClick: act(() => store.moveTo({ x: o.x, y: o.y - 2 })) }];
       } else {
         const crowded = (s?.in.length ?? 0) >= TOILET_CAPACITY || !!s?.queue.length;
         items = [{ icon: '🚽', label: crowded ? 'Line up' : 'Use', disabled: full || queued >= 0, title: full ? 'Full — it drains in a few minutes' : queued >= 0 ? "You're in line" : crowded ? `Full house — ${s!.queue.length} in line` : `Go in for ${TOILET_USE_MS / 1000} s`, onClick: act(() => store.use(o.id)) }];
@@ -1300,7 +1300,7 @@ function ActionWheel({ store, engine, pick, assets, onPerson, onClose }: { store
     } else if (o.use.kind === 'toggle') {
       const on = store.objects[o.id]?.on ?? o.on ?? true;
       title = o.use.label[0].toUpperCase() + o.use.label.slice(1);
-      items = [{ icon: <Icon name="light" off={on} />, label: on ? 'Turn off' : 'Turn on', onClick: act(() => store.use(o.id)) }];
+      items = [{ icon: on ? '🌑' : '💡', label: on ? 'Turn off' : 'Turn on', onClick: act(() => store.use(o.id)) }];
     } else if (o.use.kind === 'take') {
       title = o.type === 'coffee_machine' ? 'Coffee machine' : o.type === 'fridge' ? 'Fridge' : o.type === 'food_cart' ? 'Food cart' : o.type === 'beach_bar' ? 'Beach bar' : o.type;
       items = o.use.items.map(i => ({ icon: i.icon, label: i.label, title: REFRESHMENT_HINTS[i.id] ?? i.label, onClick: act(() => store.use(o.id, i.id)) }));
