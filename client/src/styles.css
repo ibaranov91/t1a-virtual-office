@@ -355,13 +355,11 @@ canvas { display: block; image-rendering: pixelated; touch-action: none; }
   display: grid; place-items: center; align-content: center; gap: 0;
   background: var(--panel); color: var(--text); border: 2px solid var(--wood); box-shadow: 0 4px 14px rgba(0,0,0,.45);
   animation: wheel-in .2s steps(3) both; }
-.wheel-item .ic { display: grid; place-items: center; font-size: var(--fs-xl); line-height: 1; }
-.wheel-item .ui-icon { width: var(--icon-xl); height: var(--icon-xl); }
+.wheel-item .ic { display: grid; place-items: center; font-size: var(--fs-2xl); line-height: 1; }
 .wheel-item small { position: absolute; top: calc(100% + 6px); left: 50%; transform: translateX(-50%);
   width: max-content; max-width: 96px; padding: 1px 6px; border: 1px solid var(--line); border-radius: var(--radius-sm);
   background: var(--panel); color: var(--text); font-size: var(--fs-xs); font-weight: var(--fw-bold); line-height: 1.4;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center; }
-.wheel-item.bare .ic { font-size: var(--fs-2xl); }
 .wheel-item:hover:not(:disabled), .wheel-item:focus-visible:not(:disabled) { border-color: var(--accent); background: var(--panel2); }
 .wheel-item.active { border-color: var(--accent2); }
 .wheel-item:disabled { opacity: .45; cursor: not-allowed; }
