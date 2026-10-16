@@ -1,8 +1,10 @@
 import { record, type RulesState } from './types';
 // a8=0, h1=63. Positive pieces are white; magnitude 2 is a flying king.
 export interface DraughtsMove { from: number; path: number[] }
-export interface DraughtsState extends RulesState { board: number[]; positions: string[]; quietKings: number }
-export interface DraughtsView extends RulesState { board: number[]; legal: DraughtsMove[]; quietKings: number }
+/** A move as played, for the move list and the last-move highlight. */
+export interface DraughtsPlayed extends DraughtsMove { capture: boolean }
+export interface DraughtsState extends RulesState { board: number[]; positions: string[]; quietKings: number; moves: DraughtsPlayed[] }
+export interface DraughtsView extends RulesState { board: number[]; legal: DraughtsMove[]; quietKings: number; moves: DraughtsPlayed[] }
 const dirs = [[-1, -1], [1, -1], [-1, 1], [1, 1]];
 const square = (x: number, y: number) => x >= 0 && x < 8 && y >= 0 && y < 8 ? y * 8 + x : -1;
 const key = (s: Pick<DraughtsState, 'board' | 'turn'>) => `${s.turn}:${s.board.join(',')}`;
@@ -48,7 +50,7 @@ function choices(s: DraughtsState): Capture[] {
 export const legalMoves = (s: DraughtsState): DraughtsMove[] => s.result ? [] : choices(s).map(({ from, path }) => ({ from, path }));
 export function init(_seed = 0): DraughtsState {
   const board = Array.from({ length: 64 }, (_, i) => ((i % 8 + (i / 8 | 0)) % 2 === 1 ? i < 24 ? -1 : i >= 40 ? 1 : 0 : 0));
-  const s: DraughtsState = { board, turn: 0, ply: 0, positions: [], quietKings: 0, result: null }; s.positions.push(key(s)); return s;
+  const s: DraughtsState = { board, turn: 0, ply: 0, positions: [], quietKings: 0, moves: [], result: null }; s.positions.push(key(s)); return s;
 }
 export function apply(s: DraughtsState, player: number, raw: unknown): DraughtsState | null {
   if (s.result || player !== s.turn || !record(raw) || !Number.isInteger(raw.from) || !Array.isArray(raw.path) || raw.path.length > 24 || !raw.path.every(Number.isInteger)) return null;
@@ -56,6 +58,7 @@ export function apply(s: DraughtsState, player: number, raw: unknown): DraughtsS
   const n = structuredClone(s), before = n.board[m.from]; n.board[m.from] = 0;
   for (const q of m.taken) n.board[q] = 0;
   n.board[m.path.at(-1)!] = m.piece; n.turn = 1 - n.turn; n.ply++;
+  n.moves.push({ from: m.from, path: [...m.path], capture: m.taken.length > 0 });
   n.quietKings = Math.abs(before) === 2 && !m.taken.length ? n.quietKings + 1 : 0;
   n.positions.push(key(n));
   if (!choices(n).length) n.result = { winner: player, reason: 'No legal move' };
@@ -63,5 +66,5 @@ export function apply(s: DraughtsState, player: number, raw: unknown): DraughtsS
   else if (n.quietKings >= 30) n.result = { winner: null, reason: '15 king moves each' };
   return n;
 }
-export const publicView = (s: DraughtsState): DraughtsView => ({ board: [...s.board], turn: s.turn, ply: s.ply, result: s.result && { ...s.result }, quietKings: s.quietKings, legal: legalMoves(s) });
+export const publicView = (s: DraughtsState): DraughtsView => ({ board: [...s.board], turn: s.turn, ply: s.ply, result: s.result && { ...s.result }, quietKings: s.quietKings, moves: structuredClone(s.moves), legal: legalMoves(s) });
 export const privateView = (s: DraughtsState, _player: number) => publicView(s);

@@ -48,6 +48,6 @@ full list is in `git log --first-parent main`.
   the code and tested it in two browsers and on phones.
 - **Pull requests:** from the afternoon of day 1, changes went through pull requests (over 120 merged in about 28
   hours; a few small fixes were pushed to `main` directly). `npm test` (600+ tests), `npm run typecheck` and
-  `npm run build -w client` run before each merge, and CI runs them too (`.github/workflows/ci.yml`).
+  `npm run build -w client` run locally before each merge (`.github/workflows/ci.yml` can run them on GitHub by hand).
 - **Prod is always the head of `main`.** `scripts/deploy.sh` refuses anything else, and it holds a lock on the box,
   so parallel agents can't overwrite each other's deploys.

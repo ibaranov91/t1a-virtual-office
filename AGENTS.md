@@ -131,7 +131,9 @@ npm run typecheck    # run before every commit or deploy
   and roll back with `shared/arcade/runner.ts`, and screens between rounds are epochs without inputs. Later arrivals watch
   from the balcony (cheers, predictions, crowd favourite). The **game table** (`server/src/table.ts`, rules in
   `shared/table/`) is turn-based and server-authoritative: chess (`chess.js`), Russian draughts, dominoes, Last Card;
-  each player only ever receives their own hand. `npm test` covers the sims, the delayed-transport orchestration
+  each player only ever receives their own hand. Its screen (`client/src/table/`: `Board.tsx` is the chess.com-style
+  board that turns toward black, `art.tsx` the vector pieces, tiles and cards, `model.ts` the tested helpers) follows
+  `docs/superpowers/specs/2026-10-16-game-table-ui-design.md`. `npm test` covers the sims, the delayed-transport orchestration
   harness and the table rules; `scripts/park-replay.mjs` replays Deck Park solutions. Spec:
   `docs/superpowers/specs/2026-10-16-arcade-party-pack-design.md`.
 - **Retro cabinets** (`server/src/retro.ts`, `shared/retro/`, `client/src/retro/`, `use.kind: 'retro'`): two Game Boy
@@ -323,7 +325,7 @@ Several people and agents merge and deploy at the same time. Prod must always ru
 ## Conventions
 - UI follows docs/UI.md; `client/src/styles.test.ts` enforces the type scale.
 - TypeScript strict, both sides, with `noUnusedLocals` and `noUnusedParameters` (prefix a parameter you must keep with
-  `_`). CI (`.github/workflows/ci.yml`) runs `npm run typecheck`, `npm test` and `npm run build -w client` on every PR.
+  `_`). CI (`.github/workflows/ci.yml`) runs the same three checks, but only by hand: run them locally before a merge.
 - `npm test` runs every `*.test.ts` under `server/src`, `client/src` and `shared`, so a new test can sit next to its code.
 - Match the surrounding style: compact, comments only where the *why* isn't obvious.
 - Protocol changes go in `shared/protocol.ts` first. The server validates everything a client sends.

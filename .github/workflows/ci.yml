@@ -1,9 +1,8 @@
-# The same three checks AGENTS.md asks for before every merge, on every pull request and on main.
+# The same three checks AGENTS.md asks for before every merge. Run by hand (Actions → CI → Run workflow): they already
+# run locally before each merge, and the repo's Actions minutes are limited.
 name: CI
 on:
-  pull_request:
-  push:
-    branches: [main]
+  workflow_dispatch:
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
