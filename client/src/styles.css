@@ -341,6 +341,7 @@ canvas { display: block; image-rendering: pixelated; touch-action: none; }
 .call-chip .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: none; }
 .call-chip .dot.live { background: var(--accent2); box-shadow: 0 0 0 3px rgba(124,200,124,.25); }
 .call-chip small { font-size: var(--fs-sm); }
+.call-chip small.cant-reach { display: block; color: var(--muted); }
 .call-chip .muted-btn { background: var(--danger); color: #fff; }
 .call-chip .ghost { color: var(--text); }
 .room-voice.off { border-color: var(--wood); }

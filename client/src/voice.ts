@@ -5,6 +5,7 @@ import { voicePolicy, HINT_SPEECH_MS, HINT_COOLDOWN_MS } from './voicePolicy';
 import { playMuteBlip, playDeafenBlip, playKnock } from './sounds';
 import { prefs, savePrefs, subscribePrefs } from './prefs';
 import type { ClientUser, Store } from './net';
+import { unreachablePeers } from './voiceReach';
 
 interface Peer {
   pc: RTCPeerConnection; audio: HTMLAudioElement; transceiver?: RTCRtpTransceiver;
@@ -436,6 +437,10 @@ export class Voice {
   }
   connectedCount() { return this.eligiblePeers().filter(u => this.peers.get(u.id)?.pc.connectionState === 'connected').length; }
   peerCount() { return this.eligiblePeers().length; }
+  /** Ids of peers we can't reach: not connected, allowing a fresh join its grace period. */
+  unreachable() {
+    return unreachablePeers(this.eligiblePeers().map(u => { const p = this.peers.get(u.id); return { id: u.id, state: p?.pc.connectionState, since: p?.since ?? 0 }; }), Date.now());
+  }
 
   private clearPrompt() {
     this.idlePromptAt = null;
