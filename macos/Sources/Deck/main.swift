@@ -23,7 +23,7 @@ final class DeskWindow: NSWindow {
   override var canBecomeMain: Bool { true }
 }
 
-final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPopoverDelegate, WKScriptMessageHandler, WKUIDelegate, WKNavigationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, NSWindowDelegate, NSPopoverDelegate, WKScriptMessageHandler, WKUIDelegate, WKNavigationDelegate {
   let defaults = UserDefaults.standard
   var status: NSStatusItem!
   var web: WKWebView!
@@ -321,6 +321,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
       m.addItem(item("Retry now", #selector(retryLoad)))
     } else {
       m.addItem(withTitle: state.connected ? (state.inCall ? "In a call" + voiceNote : "Connected") : "Reconnecting…", action: nil, keyEquivalent: "")
+      if state.voiceMenu { // the page's mic and headphones buttons: the page flips them and reports back, so a checkmark is never a guess
+        let mic = item(state.micErr ? "Retry microphone" : state.micOff ? "Unmute microphone" : "Mute microphone", #selector(micClicked), on: state.micOff)
+        if state.soundOff { mic.title = "Mute microphone" } // no sound means no mic (validateMenuItem greys it): Enable sound brings both back
+        m.addItem(mic)
+        m.addItem(item(state.soundOff ? "Enable sound" : "Disable sound (and microphone)", #selector(speakerClicked), on: state.soundOff))
+      }
     }
     if let u = updater.available {
       m.addItem(updater.busy ? NSMenuItem(title: "Updating…", action: nil, keyEquivalent: "") : item("Update to \(u.version) (restarts the app)", #selector(updateClicked)))
@@ -360,6 +366,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
     if arranging { if popover.isShown { popover.performClose(nil) }; desk.makeKeyAndOrderFront(nil); NSApp.activate() }
   }
   @objc func togglePop() { popOnKnock.toggle() }
+  @objc func micClicked() { js("__deckNative.clickMic()") }
+  func validateMenuItem(_ item: NSMenuItem) -> Bool { item.action != #selector(micClicked) || !state.soundOff }
+  @objc func speakerClicked() { js("__deckNative.clickSpeaker()") }
   @objc func pickInstance(_ sender: NSMenuItem) { if let u = sender.representedObject as? String { wellness.clear(); url = u; load() } }
   @objc func customInstance() {
     let a = NSAlert(); a.messageText = "Deck URL"; a.addButton(withTitle: "Open"); a.addButton(withTitle: "Cancel")
@@ -448,6 +457,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSPo
     state = DeckState(connected: m["connected"] as? Bool ?? false, inCall: m["inCall"] as? Bool ?? false,
                       busy: m["busy"] as? Bool ?? false,
                       mic: m["mic"] as? String ?? "off", speaker: m["speaker"] as? String ?? "off",
+                      voiceMenu: m["voiceMenu"] as? Bool ?? false, micOff: m["micOff"] as? Bool ?? true,
+                      micErr: m["micErr"] as? Bool ?? false, soundOff: m["soundOff"] as? Bool ?? false,
                       knocks: (m["knocks"] as? [[String: Any]] ?? []).compactMap { k in
                         (k["id"] as? String).map { ($0, k["text"] as? String ?? "Someone is knocking") } },
                       meetings: (m["meetings"] as? [[String: Any]] ?? []).compactMap { e in
