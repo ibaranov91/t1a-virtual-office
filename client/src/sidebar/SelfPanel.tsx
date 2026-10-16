@@ -123,7 +123,7 @@ export function VoiceIcons({ store, voice, dock, rail, hand = true }: { store: S
       onClick={() => store.setHand(!me?.hand)}>{dock && <small>Hand</small>}</IconButton>}
     <IconButton icon="settings" label="Voice settings" className="vbtn chip" data-state="ready" disabled={elsewhere}
       aria-haspopup="dialog" aria-expanded={pop === 'settings'} aria-controls={pop === 'settings' ? id : undefined}
-      onClick={e => open('settings', e.currentTarget)}>{dock && <small>Settings</small>}</IconButton>
+      onClick={e => open('settings', e.currentTarget)}>{dock && <small>Sound</small>}</IconButton>
     {pop && <div ref={popup} id={id} className="settings-pop voice-pop" role="dialog" aria-label={pop === 'input' ? 'Input options' : pop === 'output' ? 'Output options' : pop === 'claim' ? away : 'Voice settings'}>
       <div className="rooms-head"><strong>{pop === 'input' ? 'Microphone' : pop === 'output' ? 'Audio output' : pop === 'claim' ? 'Voice in another tab' : 'Voice settings'}</strong>
         <IconButton icon="close" label="Close voice options" className="ghost" onClick={() => { setPop(null); trigger.current?.focus(); }} /></div>

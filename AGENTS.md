@@ -13,6 +13,7 @@ Hackathon project: favor small, working, demo-able steps.
 3. **`npm run where -- <thing>`**: a use.kind, object type, room, object id (`o224`) or tile (`11,14`): where it is on
    the grid and every line of code that mentions it; for a use.kind, a ✓/✗ list of the places it must be wired.
 4. How a click on each `use.kind` is routed lives in one table, `USE_KINDS` in `shared/map.ts`.
+5. **[docs/UI.md](docs/UI.md)**: UI rules every change must follow: type scale, colors, controls, surfaces.
 
 `npm run gen` regenerates `shared/tilemap.json`, `docs/MAP.md` and the art; commit all three after changing a generator.
 
@@ -279,6 +280,7 @@ Several people and agents merge and deploy at the same time. Prod must always ru
    To try a branch before merging, deploy it to your own instance (`andr`, `var`, `iva`).
 
 ## Conventions
+- UI follows docs/UI.md; `client/src/styles.test.ts` enforces the type scale.
 - TypeScript strict, both sides. Match the surrounding style: compact, comments only where the *why* isn't obvious.
 - Protocol changes go in `shared/protocol.ts` first. The server validates everything a client sends.
 - Keep REQUIREMENTS.md's "not now" list in mind: design for it (data, not code), don't build it.
