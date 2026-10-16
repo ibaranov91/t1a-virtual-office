@@ -449,6 +449,8 @@ export class Store {
   claimVoice() { this.send({ t: 'voice_claim' }); }
   /** The vault door: a panel with the link, which works from a tap anywhere (a tap on the floor can't open a tab on a phone). */
   clockOpen = false;
+  wellnessOpen: 'water' | 'stretch' | 'pomodoro' | null = null;
+  openWellness(kind: 'water' | 'stretch' | 'pomodoro' | null) { this.wellnessOpen = kind; this.emit(); }
   openClock() { this.clockOpen = true; this.emit(); }
   closeClock() { this.clockOpen = false; this.emit(); }
   linkOpen: { label: string; url: string } | null = null;

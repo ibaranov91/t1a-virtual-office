@@ -582,6 +582,14 @@ obj('beach_ball', 75, 38);
 for (const { id: _i, x: _x, y: _y, ...t } of objects.slice(firstVacation)) catalog[t.type] ??= t;
 
 
+// Personal breaks, appended so saved object ids stay stable.
+const firstWellness = objects.length;
+obj('wellness_cooler', 37, 3, 1, 1, { use: { kind: 'wellness', activity: 'water', label: 'Water cooler' } });
+obj('stretch_mat', 20, 30, 2, 1, { walkable: true, use: { kind: 'wellness', activity: 'stretch', label: 'Stretching mat' } });
+obj('pomodoro_timer', 3, 4, 1, 1, { onTop: true, use: { kind: 'wellness', activity: 'pomodoro', label: 'Pomodoro timer' } });
+for (const { id: _i, x: _x, y: _y, ...t } of objects.slice(firstWellness)) catalog[t.type] ??= t;
+
+
 const map = { version: 1, width: W, height: H, tileSize: 16, office: { x: 0, y: 0, w: W, h: OFFICE_H }, dungeon, vacation, tiles, layers: { floor, walls, walkable: [] }, rooms, objects: [], rugs: [], spawn: { x: 7, y: 17 }, exit: EXIT, catalog };
 applyLayout(map, { objects, rugs });
 for (const r of rooms) for (const s of r.stand) if (!r.spots.includes(s)) throw new Error(`standing spot ${r.id} ${s.x},${s.y} is under furniture`);

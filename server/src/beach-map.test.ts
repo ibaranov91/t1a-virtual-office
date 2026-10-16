@@ -17,7 +17,7 @@ test('vacation wing extends the office and appends two terrain rooms', () => {
   }
 });
 
-test('the building keeps its bottom edge; the hedge has one gate and the wing furniture comes last', () => {
+test('the building keeps its bottom edge; the hedge has one gate and wing furniture follows older office fixtures', () => {
   const terrain = /^(sand|water|sea|rock|cliff|mtn_|trail|snow|pier)/;
   for (let y = 0; y < 34; y++) for (let x = 0; x < map.width; x++)
     for (const layer of ['floor', 'walls'] as const) assert.ok(!terrain.test(map.tiles[map.layers[layer][y][x]] ?? ''), `${layer} ${x},${y}`);
@@ -29,8 +29,10 @@ test('the building keeps its bottom edge; the hedge has one gate and the wing fu
   }
   assert.deepEqual(gate, [50, 51]);
   for (const x of gate) { assert.ok(isWalkable(map, x, 32)); assert.ok(isWalkable(map, x, 33)); }
-  const first = map.objects.findIndex(o => inWing(map, o.x, o.y));
-  assert.ok(first > 0 && map.objects.slice(first).every(o => inWing(map, o.x, o.y)));
+  // Later features append their own fixtures too, preserving all pre-existing object ids.
+  const original = map.objects.filter(o => o.use?.kind !== 'wellness');
+  const first = original.findIndex(o => inWing(map, o.x, o.y));
+  assert.ok(first > 0 && original.slice(first).every(o => inWing(map, o.x, o.y)));
 });
 
 test('every fixed vacation destination is walkable and reachable from spawn', () => {

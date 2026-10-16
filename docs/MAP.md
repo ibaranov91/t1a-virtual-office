@@ -4,7 +4,7 @@
 
 Grid 85×65 tiles of 16px. Office: 0,0 85×44 (camera, overview and edit mode stay inside it). Dungeon: 17,46 31×19, not connected to the office.
 Spawn 7,17, exit 12,13, garden hole 63,25, hatch 20,32.
-Coordinates are tile x,y (x right, y down). Object ids are positional (o1…o311): append new objects at the end of gen-map.mjs so saved layouts keep their ids.
+Coordinates are tile x,y (x right, y down). Object ids are positional (o1…o314): append new objects at the end of gen-map.mjs so saved layouts keep their ids.
 
 Look things up from the shell: `npm run where -- <roomId|objectType|useKind|objectId|x,y>`.
 
@@ -73,8 +73,8 @@ Each room is filled with its letter (table below) and labelled with its id. `#` 
   0 #####################################################################################
   1 ##################*****###########*########################****######################
   2 ##################*****#*##################################****######################
-  3 #X.........XX#X...........#.XXXX*XX.*.X#X...........*#X........X#XXXXX....###########
-  4 #.XX.XX.XX...#...h.h.h....#..s.........#.XX.XX.XX.XX.#,**.**.*..#......XX.###########
+  3 #X.........XX#X...........#.XXXX*XX.**X#X...........*#X........X#XXXXX....###########
+  4 #.X*.XX.XX...#...h.h.h....#..s.........#.XX.XX.XX.XX.#,**.**.*..#......XX.###########
   5 #..h.h..h....#...XXXXXXh..#......s.....#.h..h..h..h..#X...**...X#X.....h.X###########
   6 #............+..hXXXXXX...+..hXh..hXh..#.............#..........#.........###########
   7 #......s.....+....h.h.h...+..........s.#......s......#**.s......#XXXXX...X###########
@@ -100,7 +100,7 @@ Each room is filled with its letter (table below) and labelled with its id. `#` 
  27 #......s......X#.............XXX..XXX...........................#XX.XX.XXX#...hhh...#
  28 #.XXXX....XXXX.#....s.........h....h....................s.......#.h..h..hh#.........#
  29 #.......s......#.................s........ss....................+.........+...hXh.s.#
- 30 #.XXXX....XXXX.#.........................XXXX...................+h..h..h.X+...hhh...#
+ 30 #.XXXX....XXXX.#....**...................XXXX...................+h..h..h.X+...hhh...#
  31 #......s.......+.....XX.X.....XX**hhh.X..XXXX...X.....X.....XX.X#XX.XX.XXX#.........#
  32 #*.............+....H...........................................#Xh..h..hh#*.......X#
  33 ################%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%++%%%%%%%%%%%%#####################
@@ -228,6 +228,9 @@ Every object with a `use` (wall decor counts toward the room below it). Routing 
 | o289 | `retro_lobster` | `retro` | use reach | 63,13 | 1×2 | arcade | Shock Lobster |
 | o306 | `beach_bar` | `take` | wheel use reach | 65,35 | 3×1 | beach | cocktail, coconut, icecream |
 | o307 | `vacation_sign` | `vacations` | — | 52,34 | 1×1 | beach |  |
+| o312 | `wellness_cooler` | `wellness` | — | 37,3 | 1×1 | coffee | Water cooler |
+| o313 | `stretch_mat` | `wellness` | — | 20,30 | 2×1 | garden | Stretching mat |
+| o314 | `pomodoro_timer` | `wellness` | — | 3,4 | 1×1 | focus | Pomodoro timer |
 
 Kinds with no object on the map yet: none.
 
@@ -235,9 +238,9 @@ Kinds with no object on the map yet: none.
 
 | room | objects (type ×count) |
 | --- | --- |
-| `focus` | window ×2, desk ×5, chair ×5, bookshelf, lamp ×2, plant, wall_shelf, wall_ivy, poster |
+| `focus` | window ×2, desk ×5, chair ×5, bookshelf, lamp ×2, plant, wall_shelf, wall_ivy, poster, pomodoro_timer |
 | `meeting` | painting, table_long, chair ×8, plant ×2, lamp, screen, poster ×2, wall_ivy, room_start |
-| `coffee` | window ×2, counter ×6, coffee_machine, fridge, plant ×2, table_round ×2, stool ×4, sofa, lamp, calendar, wall_shelf, wall_ivy, poster |
+| `coffee` | window ×2, counter ×6, coffee_machine, fridge, plant ×2, table_round ×2, stool ×4, sofa, lamp, calendar, wall_shelf, wall_ivy, poster, wellness_cooler |
 | `lobby` | noticeboard, painting_small, plant ×3, sofa, table_round, reception, safe, bookshelf, hat_rack, exit_door, lamp, bell, palm, water_cooler, coat_stand, side_table, poster, mirror |
 | `cowork` | clock_nyc, clock_berlin, clock_moscow, table_big ×8, chair ×16, plant ×2, lamp, calendar, meetings_board |
 | `studio` | window ×2, painting, desk ×8, chair ×8, plant ×2, lamp, wall_shelf, poster, wall_ivy |
@@ -245,7 +248,7 @@ Kinds with no object on the map yet: none.
 | `music` | jukebox, window, lofi_tv, plant ×2, keyboard, drum_kit, bass_amp, floor_lamp, palm, poster, wall_ivy |
 | `arcade` | arcade ×3, records, plant, painting_small, sofa ×2, lamp ×2, game_table, retro_tobu, retro_lobster |
 | `orangery` | plant_shelf ×6, plant ×2, lamp, fern, planter ×2, cactus |
-| `garden` | tree ×7, flowerbed ×4, pond, bench ×2 |
+| `garden` | tree ×7, flowerbed ×4, pond, bench ×2, stretch_mat |
 | `admin` | window, server_rack ×10, desk, chair, plant, palm, floor_lamp, wall_shelf, mirror, poster |
 | `berghain` | neon_sign, dj_booth, bouncer, lamp, toilet ×3, dance_floor |
 | `terrace` | tree ×2, flowerbed, bench, table_picnic ×2, chair ×6, food_cart |
@@ -264,7 +267,7 @@ A 3×3 feature fits where both sides are ≥ 3. `layoutProblem` (shared/map.ts) 
 | --- | --- |
 | `focus` | 1,6 6×2 · 4,8 5×2 · 9,5 3×3 |
 | `meeting` | 15,7 3×3 · 21,8 3×3 (rug) · 15,3 2×3 · 24,4 2×2 · 23,6 2×2 (rug) |
-| `coffee` | 32,7 5×3 (rug) · 37,4 2×3 · 27,4 2×2 · 30,4 2×2 · 34,4 2×2 · 28,7 2×2 (rug) · +1 smaller |
+| `coffee` | 32,7 5×3 (rug) · 27,4 2×2 · 30,4 2×2 · 34,4 2×2 · 37,5 2×2 · 28,7 2×2 (rug) · +1 smaller |
 | `lobby` | 9,16 5×5 (rug) · 2,14 8×2 · 4,18 2×5 (rug) · 7,18 2×5 (rug) |
 | `cowork` | 17,16 8×3 · 26,16 12×2 (rug) · 17,21 10×2 · 29,21 8×2 · 36,14 3×2 · 25,18 3×2 (rug) · +3 smaller |
 | `studio` | 40,6 6×2 · 47,6 6×2 (rug) · 45,8 3×2 |
@@ -272,7 +275,7 @@ A 3×3 feature fits where both sides are ≥ 3. `layoutProblem` (shared/map.ts) 
 | `music` | 61,6 3×5 (rug) · 58,7 2×3 (rug) · 56,9 2×2 (rug) |
 | `arcade` | 55,18 3×3 · 60,18 3×3 (rug) · 58,14 2×2 · 58,20 2×2 |
 | `orangery` | 8,31 6×2 · 3,31 4×2 · 8,26 2×3 · 6,28 2×3 |
-| `garden` | 45,29 18×2 · 16,29 12×2 · 39,27 8×2 · 57,26 5×3 · 24,25 3×4 · 52,25 3×4 · +11 smaller |
+| `garden` | 45,29 18×2 · 25,26 3×7 · 39,27 8×2 · 57,26 5×3 · 52,25 3×4 · 16,27 4×3 · +10 smaller |
 | `admin` | 66,4 5×3 · 65,8 5×3 · 71,6 2×4 |
 | `berghain` | 72,14 2×6 · 65,20 2×3 · 70,18 2×2 |
 | `terrace` | 37,26 2×5 · 28,28 2×4 · 34,29 3×2 · 32,27 2×2 · 30,29 2×2 |

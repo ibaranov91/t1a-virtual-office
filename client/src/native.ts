@@ -1,6 +1,7 @@
 // Bridge to the macOS menu bar app (macos/), which hosts this page in a WKWebView.
 // In a normal browser `webkit.messageHandlers.deck` doesn't exist and this is a no-op.
 import type { Store } from './net';
+import type { WellnessRequest } from './wellness';
 import type { Voice } from './voice';
 import { prefs } from './prefs';
 
@@ -12,6 +13,9 @@ let covered = false;
 export const isCovered = () => covered;
 
 export const inNativeApp = () => !!handler();
+export const syncWellnessNative = (owner: string, requests: WellnessRequest[]) => handler()?.postMessage({ type: 'wellness', owner, requests });
+export const requestWellnessPermission = () => handler()?.postMessage({ type: 'wellnessPermission' });
+export const openNotificationSettings = () => handler()?.postMessage({ type: 'wellnessSettings' });
 
 /** Mirror what the menu bar shows (knocks, call, mute/deafen, busy, unread messages) whenever it changes. The knock card's
  *  Later calls `window.__deckNative.reply`; accepting happens in the page so voice starts from a click.
@@ -22,6 +26,8 @@ export function syncNative(store: Store, voice: Voice | null) {
     reply: (knockId: string, reply: 'accept' | 'later') => store.replyKnock(knockId, reply),
     openChat: (withId: string) => store.openChat(withId),
     setCovered: (c: boolean) => { covered = !!c; },
+    openWellness: (kind: string) => { if (kind === 'water' || kind === 'stretch' || kind === 'pomodoro') store.openWellness(kind); },
+    wellnessPermission: (status: string) => window.dispatchEvent(new CustomEvent('deck:wellness-permission', { detail: status })),
     wake: () => store.reconnectNow(), // the app saw the network come back or the Mac wake up
   } });
   // The app compares this with its own build and updates itself. Asked on every (re)connect: a deploy

@@ -2080,6 +2080,30 @@ for (const [game, accent] of [['tobu', '#cf82ae'], ['lobster', '#bd524a']]) {
   }
 }
 
+// ---------- personal breaks (fixed pixels, independent of the shared random seed) ----------
+{
+  const t = new Img(16, 28);
+  t.rect(5, 1, 7, 9, '#6da9c6'); t.rect(6, 2, 2, 7, '#aedee6'); t.rect(6, 10, 5, 2, '#477c9b');
+  t.rect(3, 12, 11, 14, '#d6cfbd'); t.hline(3, 12, 11, '#f4ebd6'); t.rect(5, 15, 7, 6, '#51444a');
+  t.rect(6, 15, 2, 2, '#82bad1'); t.rect(10, 15, 2, 2, '#b4534a'); t.rect(8, 18, 3, 3, '#f3e4cc');
+  t.hline(5, 23, 7, '#b4a795'); t.rect(4, 26, 2, 1, '#51444a'); t.rect(11, 26, 2, 1, '#51444a');
+  frames.wellness_cooler = t.outline();
+}
+{
+  const t = new Img(32, 16);
+  t.rect(1, 4, 29, 10, '#497e78'); t.rect(2, 4, 27, 8, '#72a99b'); t.hline(3, 5, 24, '#a4c7ad');
+  t.vline(26, 6, 5, '#497e78'); t.rect(29, 3, 2, 10, '#497e78'); t.vline(29, 4, 8, '#a4c7ad');
+  frames.stretch_mat = t.outline();
+}
+{
+  const t = new Img(16, 22);
+  t.rect(6, 4, 5, 2, '#799552'); t.rect(8, 2, 2, 3, '#9aba65');
+  t.ellipse(8, 10, 6, 5, '#b4534a'); t.ellipse(7, 9, 4, 3, '#d97a62');
+  t.rect(4, 10, 8, 3, '#f3e4cc'); t.hline(5, 11, 2, '#51444a'); t.hline(9, 11, 2, '#51444a');
+  t.rect(5, 15, 7, 2, '#823e3d');
+  frames.pomodoro_timer = t.outline();
+}
+
 // ---------- pack world atlas (shelf packer) ----------
 const names = Object.keys(frames).sort((a, b) => frames[b].h - frames[a].h || frames[b].w - frames[a].w);
 const AW = 256; let x = 0, y = 0, rowH = 0; const rects = {};

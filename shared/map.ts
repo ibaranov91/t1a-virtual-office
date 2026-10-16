@@ -24,7 +24,7 @@ export interface Room {
 /** Something you can hold for a while, taken from an object (a coffee from the machine). */
 export interface UseItem { id: string; label: string; icon: string }
 /** What clicking an object offers: take something from it, flip it on/off, or look at your calendar on it. */
-export type ObjectUse = { kind: 'take'; items: UseItem[] } | { kind: 'toggle'; label: string } | { kind: 'calendar'; label: string }
+export type ObjectUse = { kind: 'wellness'; activity: 'water' | 'stretch' | 'pomodoro'; label: string } | { kind: 'take'; items: UseItem[] } | { kind: 'toggle'; label: string } | { kind: 'calendar'; label: string }
   | { kind: 'instrument'; instrument: InstrumentKind; label: string }
   | { kind: 'jukebox'; label: string; genres?: string[] } // genres: play only these (the club's DJ booth); without it, everything but the club-only genres
   | { kind: 'youtube'; label: string; room: string }
@@ -50,6 +50,7 @@ export type UseKind = ObjectUse['kind'];
  *    USE_MS, act); otherwise `use` ignores it (it has its own intent, or it's a client-only panel). reach: people walk up
  *    to it, so layoutProblem refuses a layout that leaves no free tile beside it. */
 export const USE_KINDS = {
+  wellness: {},
   take: { wheel: true, use: true, reach: true },
   toggle: { wheel: true, use: true, reach: true },
   toilet: { wheel: true, use: true }, // reached through its door instead: layoutProblem checks stallDoor
@@ -408,10 +409,10 @@ export function layoutProblem(m: TileMap, checkDungeonReach = true): string | nu
 
 /** What to call an object type in the UI: "big table", not table_big. */
 export const objectName = (type: string) => ({ palm: 'palm', pine: 'pine', lounger: 'lounger', umbrella: 'umbrella', hammock: 'hammock', beach_bar: 'beach bar', vacation_sign: 'sign', summit_flag: 'flag', sandcastle: 'sandcastle', shells: 'shells', beach_ball: 'beach ball', retro_tobu: 'Tobu Tobu Girl', retro_lobster: 'Shock Lobster', table_long: 'long table', table_big: 'big table', table_round: 'round table', plant_shelf: 'plant shelf',
-  painting_small: 'small painting', coffee_machine: 'coffee machine', meetings_board: 'meetings board', noticeboard: 'notice board', table_picnic: 'picnic table', food_cart: 'food cart', exit_door: 'exit door', server_rack: 'server rack', dj_booth: 'DJ booth', neon_sign: 'neon sign', bookshelf_tall: 'tall bookshelf' } as Record<string, string>)[type] ?? type.replace(/_/g, ' ');
+  wellness_cooler: 'water cooler', stretch_mat: 'stretching mat', pomodoro_timer: 'Pomodoro timer', painting_small: 'small painting', coffee_machine: 'coffee machine', meetings_board: 'meetings board', noticeboard: 'notice board', table_picnic: 'picnic table', food_cart: 'food cart', exit_door: 'exit door', server_rack: 'server rack', dj_booth: 'DJ booth', neon_sign: 'neon sign', bookshelf_tall: 'tall bookshelf' } as Record<string, string>)[type] ?? type.replace(/_/g, ' ');
 
 /** Types that are one of a kind (the way out, the coffee machine…): they can be moved but not removed. */
-export const KEEP_TYPES = new Set(['vacation_sign', 'lofi_tv', 'exit_door', 'coffee_machine', 'fridge', 'jukebox', 'arcade', 'game_table', 'retro_tobu', 'retro_lobster', 'records', 'meetings_board', 'noticeboard', 'clock_nyc', 'clock_berlin', 'clock_moscow', 'safe', 'keyboard', 'drum_kit', 'bass_amp', 'screen', 'room_start', 'toilet', 'bouncer', 'hat_rack', 'bell', 'food_cart', 'dj_booth']);;
+export const KEEP_TYPES = new Set(['wellness_cooler', 'stretch_mat', 'pomodoro_timer', 'vacation_sign', 'lofi_tv', 'exit_door', 'coffee_machine', 'fridge', 'jukebox', 'arcade', 'game_table', 'retro_tobu', 'retro_lobster', 'records', 'meetings_board', 'noticeboard', 'clock_nyc', 'clock_berlin', 'clock_moscow', 'safe', 'keyboard', 'drum_kit', 'bass_amp', 'screen', 'room_start', 'toilet', 'bouncer', 'hat_rack', 'bell', 'food_cart', 'dj_booth']);;
 /** Types that stay exactly where they are. */
 export const FIXED_TYPES = new Set(['exit_door']);
 export const RUG_MIN = 2, RUG_MAX = 24;

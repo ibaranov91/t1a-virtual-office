@@ -14,6 +14,48 @@
   --control-h: 36px; --radius-sm: 6px; --radius-md: 8px; --radius-lg: 12px;
   color-scheme: dark;
 }
+
+/* Personal breaks: the same warm chrome as the office's existing object panels. */
+.wellness-layer { position: fixed; inset: 52px 0 0; z-index: 110; pointer-events: none; }
+.wellness-layer > * { pointer-events: auto; }
+.wellness-panel { position: absolute; top: 8px; right: 8px; z-index: 9; width: min(364px, calc(100% - 16px)); max-height: calc(100% - 16px); overflow: auto;
+  padding: 16px; border: 2px solid var(--wood); border-radius: 10px; background: var(--panel); box-shadow: 0 8px 28px rgba(0,0,0,.4); }
+.wellness-panel:focus { outline: none; }
+.wellness-panel header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.wellness-panel h2 { margin: 0; font-size: var(--fs-xl); color: var(--text); }
+.wellness-panel header button { font-size: var(--fs-2xl); }
+.wellness-panel nav, .wellness-phases { display: flex; gap: 4px; margin: 12px 0; }
+.wellness-panel nav button { flex: 1; }
+.wellness-panel .on { background: var(--panel2); color: var(--text); box-shadow: inset 0 -2px var(--accent); }
+.wellness-panel p { margin: 10px 0; }
+.wellness-toggle { display: flex; align-items: center; gap: 8px; padding: 10px 0; font-weight: var(--fw-medium); }
+.wellness-toggle input { width: 18px; height: 18px; accent-color: var(--accent); }
+.wellness-interval { display: flex; align-items: center; gap: 8px; }
+.wellness-interval input { width: 76px; }
+.wellness-note, .wellness-panel footer, .wellness-alert small { color: var(--muted); font-size: var(--fs-sm); }
+.wellness-panel footer { margin-top: 18px; padding-top: 8px; border-top: 1px solid var(--line); }
+.wellness-panel footer button { text-align: left; padding-left: 0; }
+.wellness-panel footer p { margin: 6px 0; }
+.wellness-pomodoro { text-align: center; }
+.wellness-phases button { flex: 1; font-size: var(--fs-sm); padding: 6px 3px; }
+.wellness-countdown { display: block; margin-top: 16px; color: var(--text); font-size: var(--fs-2xl); font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.15; }
+.wellness-actions { display: flex; flex-wrap: wrap; justify-content: flex-start; gap: 6px; margin-top: 12px; }
+.wellness-pomodoro > .wellness-actions { justify-content: center; }
+.wellness-durations { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 22px; }
+.wellness-durations label { display: grid; gap: 5px; text-align: left; font-size: var(--fs-sm); color: var(--muted); }
+.wellness-durations input { width: 100%; color: var(--text); font-size: var(--fs-md); }
+.wellness-alert { padding-top: 14px; margin-top: 16px; border-top: 1px solid var(--wood); }
+.wellness-alert h3 { margin: 0; color: var(--accent); font-size: var(--fs-lg); }
+.wellness-alert p { margin: 8px 0; }
+.wellness-alert.floating { position: absolute; left: 8px; bottom: 54px; z-index: 8; width: min(340px, calc(100% - 16px)); max-height: calc(100% - 70px); overflow: auto;
+  padding: 16px; margin: 0; background: var(--panel); border: 2px solid var(--wood); border-radius: 10px; box-shadow: 0 8px 28px rgba(0,0,0,.4); }
+.wellness-timer-chip { position: absolute; left: 8px; bottom: 12px; z-index: 7; border: 1px solid var(--wood); font-variant-numeric: tabular-nums; }
+.wellness-panel button:focus-visible, .wellness-alert button:focus-visible, .wellness-timer-chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (max-width: 560px), (max-height: 500px) {
+  .wellness-panel { top: auto; bottom: 8px; padding: 12px; }
+  .wellness-panel button, .wellness-alert button { min-height: 36px; }
+  .wellness-countdown { font-size: var(--fs-2xl); }
+}
 * { box-sizing: border-box; }
 html, body, #root { margin: 0; height: 100%; }
 body { background: var(--bg); color: var(--text); font: var(--fs-md)/var(--lh) ui-rounded, "SF Pro Rounded", system-ui, sans-serif; overflow: hidden; }
