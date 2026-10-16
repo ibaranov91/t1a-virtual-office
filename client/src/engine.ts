@@ -9,7 +9,7 @@ import { drawEffects, effectLook, effectSway } from './effects';
 import { CreatureLayer } from './creatures';
 import { lockedDoors, roomDoors, type RoomDoor } from './doors';
 import type { Assets, Frame } from './assets';
-import { drawText, textWidth } from './font';
+import { drawText, plateLines, textWidth } from './font';
 import { TRACK } from '../../shared/music';
 import { TOILET_CAPACITY, toiletFull, cupTableAt, CUP_ITEMS, underground, MEETING_ROOM_ID, PLANT_REVEAL, PLANT_STAGES, plantDead, plantName, type Cup, type LayoutEdit } from '../../shared/protocol';
 import { isCovered } from './native';
@@ -126,7 +126,7 @@ export class Engine {
   private instrumentNotes: { id: string; at: number }[] = [];
   private sounders: MapObject[];
   private statusSeen = new Map<string, { text: string; at: number }>();
-  private placedPlates: { x: number; y: number; w: number }[] = [];
+  private placedPlates: { x: number; y: number; w: number; h: number }[] = [];
   private snapped = false;
   private slots: Tile[] = [];
   private layoutSeen = -1;
@@ -1244,24 +1244,24 @@ export class Engine {
     const key = `${u.name}|${isMe}`;
     let plate = this.nameplates.get(key);
     if (!plate) {
-      const label = u.name.split(/\s+/)[0].slice(0, 10);
-      const w = textWidth(label) + 4;
-      plate = document.createElement('canvas'); plate.width = w; plate.height = 8;
+      const lines = plateLines(u.name);
+      const w = Math.max(...lines.map(textWidth)) + 4, h = lines.length * 7 + 1;
+      plate = document.createElement('canvas'); plate.width = w; plate.height = h;
       const pc = plate.getContext('2d')!;
       pc.fillStyle = isMe ? 'rgba(90,50,20,0.85)' : 'rgba(30,18,22,0.72)';
-      pc.fillRect(1, 0, w - 2, 8); pc.fillRect(0, 1, w, 6);
-      drawText(pc, label, 2, 1, isMe ? '#ffe08a' : '#fff4e0');
+      pc.fillRect(1, 0, w - 2, h); pc.fillRect(0, 1, w, h - 2);
+      lines.forEach((l, i) => drawText(pc, l, Math.floor((w - textWidth(l)) / 2), 1 + i * 7, isMe ? '#ffe08a' : '#fff4e0'));
       this.nameplates.set(key, plate);
     }
     // neighbours side by side: stagger plates so names stay readable
     const px = x + 8 - Math.floor(plate.width / 2);
     let py = baseY + 1;
     for (let tries = 0; tries < 4; tries++) {
-      const hit = this.placedPlates.some(r => px < r.x + r.w + 1 && px + plate!.width + 1 > r.x && Math.abs(py - r.y) < 8);
+      const hit = this.placedPlates.some(r => px < r.x + r.w + 1 && px + plate!.width + 1 > r.x && py < r.y + r.h && py + plate!.height > r.y);
       if (!hit) break;
-      py += 8;
+      py += plate.height;
     }
-    this.placedPlates.push({ x: px, y: py, w: plate.width });
+    this.placedPlates.push({ x: px, y: py, w: plate.width, h: plate.height });
     ctx.drawImage(plate, px, py);
 
     // a status that just changed: a small note fades up for a few seconds (the hover card keeps the text)
