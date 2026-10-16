@@ -6,7 +6,7 @@ import { needsGesture, resume } from '../audio';
 import { prefs, savePrefs, type Category } from '../prefs';
 import { MEET_LINK_RE, meetAs } from '../../../shared/protocol';
 import { ExternalLink } from '../links';
-import { PRESENCE_COLOR } from './model';
+import { PRESENCE_COLOR, splitStatus, joinStatus } from './model';
 import { Avatar } from './Avatar';
 import { overlayOpen } from './hooks';
 import { Icon, IconButton } from '../Icon';
@@ -28,57 +28,102 @@ export function earshotLine(store: Store) {
 }
 
 
+const STATUS_EMOJI = ['💬', '🗓️', '🚌', '🤒', '🌴', '🏠', '🍔', '🎧', '☕', '💻', '📚', '🎯', '🔥', '✅', '🚀', '🎉', '😴', '🤔', '👀', '💡', '🛠️', '🧪', '📞', '✈️', '🏃', '🍕', '🍜', '🥗', '🎮', '🎵', '🌧️', '☀️', '🐶', '🐱', '🌱', '💪', '🙏', '❤️', '😎', '🤝'];
+const STATUS_PRESETS = [
+  ['🗓️', 'In a meeting'], ['🚌', 'Commuting'], ['🤒', 'Out sick'], ['🌴', 'On vacation'],
+  ['🏠', 'Working remotely'], ['🍔', 'Out for lunch'], ['🎧', 'Heads down'], ['☕', 'Coffee break'],
+];
 const PRESENCES = [['online', 'Online'], ['away', 'Away'], ['in_call', 'In a call']] as const;
 
 /** You, as one pill: presence dot (opens a presence menu), name, room (earshot tooltip) and status (opens the status popover). */
 export function IdentityPill({ store, roomName, assets, inVoice }: { store: Store; roomName?: string; assets?: Assets | null; inVoice?: boolean }) {
   const me = store.users.get(store.me);
   const [open, setOpen] = useState<'status' | 'presence' | null>(null);
-  const [draft, setDraft] = useState<string | null>(null);
-  const ref = useRef<HTMLDivElement>(null);
-  const draftRef = useRef(draft); draftRef.current = draft;
-  const close = (save: boolean) => {
+  const [draftEmoji, setDraftEmoji] = useState<string | null>(null), [draftText, setDraftText] = useState('');
+  const [picker, setPicker] = useState(false), [emojiIndex, setEmojiIndex] = useState(0);
+  const ref = useRef<HTMLDivElement>(null), input = useRef<HTMLInputElement>(null), grid = useRef<HTMLDivElement>(null);
+  const trigger = useRef<HTMLButtonElement | null>(null);
+  const draftRef = useRef<string | null>(null);
+  draftRef.current = open === 'status' ? joinStatus(draftEmoji, draftText) : null;
+  const close = (save: boolean, restore = true) => {
     if (save && draftRef.current !== null) store.setStatus(draftRef.current);
-    setDraft(null); setOpen(null);
+    setPicker(false); setOpen(null);
+    if (restore) trigger.current?.focus();
   };
+  const pick = (emoji: string | null) => {
+    setDraftEmoji(emoji);
+    setDraftText(text => text.slice(0, 80 - (emoji ? emoji.length + 1 : 0)));
+    setPicker(false); input.current?.focus();
+  };
+  const escape = () => { if (picker) { setPicker(false); input.current?.focus(); } else close(false); };
+  useEffect(() => {
+    if (picker) grid.current?.querySelector<HTMLButtonElement>('[tabindex="0"]')?.focus();
+  }, [picker]);
   useEffect(() => {
     if (!open) return;
-    const outside = (e: PointerEvent) => { if (e.target instanceof Node && !ref.current?.contains(e.target)) close(true); };
-    const key = (e: KeyboardEvent) => { if (!overlayOpen(store) && e.key === 'Escape') { e.stopImmediatePropagation(); close(false); } };
+    const outside = (e: PointerEvent) => { if (e.target instanceof Node && !ref.current?.contains(e.target)) close(true, false); };
+    const key = (e: KeyboardEvent) => { if (!overlayOpen(store) && e.key === 'Escape') { e.stopImmediatePropagation(); escape(); } };
     window.addEventListener('pointerdown', outside); window.addEventListener('keydown', key);
     return () => { window.removeEventListener('pointerdown', outside); window.removeEventListener('keydown', key); };
-  }, [open]);
+  }, [open, picker]);
   if (!me) return null;
-  const text = me.status ?? '';
+  const text = me.status ?? '', status = splitStatus(text);
   const shown = text.length > 24 ? `${text.slice(0, 23)}…` : text;
   const presence = me.presence === 'offline' ? 'online' : me.presence;
   return <div className="id-wrap" ref={ref}>
     <div className="chip id-pill">
       <button className="id-dot" aria-label={`Presence: ${PRESENCES.find(p => p[0] === presence)?.[1]}`} aria-haspopup="menu" aria-expanded={open === 'presence'}
-        title="Change presence" onClick={() => (open === 'presence' ? close(true) : (close(true), setOpen('presence')))}>
+        title="Change presence" onClick={e => { if (open === 'presence') close(true); else { close(true, false); trigger.current = e.currentTarget; setOpen('presence'); } }}>
         {assets !== undefined ? <Avatar assets={assets} user={me} size={40} /> : <i className="dot" style={{ background: PRESENCE_COLOR[me.presence] }} />}
       </button>
       <button className="id-main" aria-haspopup="dialog" aria-expanded={open === 'status'} aria-label={`Status: ${text || 'none'} · click to change`}
-        onClick={() => (open === 'status' ? close(true) : setOpen('status'))}>
-        <b title={me.name}>{me.name}</b>
+        onClick={e => { if (open === 'status') close(true); else { trigger.current = e.currentTarget; setDraftEmoji(status.emoji); setDraftText(status.text); setPicker(false); setOpen('status'); } }}>
+        <b title={me.name}>{me.name}{assets !== undefined && status.emoji && <span className="sb-status-emoji">{status.emoji}</span>}</b>
         <span className="id-room" title={earshotLine(store)}>· {roomName ? `in ${roomName}` : 'in the hallway'}</span>
         {inVoice ? <span className="id-status in-voice" title={text ? `In voice · ${text}` : 'In voice'}><Icon name="volume" />In voice</span>
-          : <span className={`id-status${text ? '' : ' muted'}`} title={text ? `${text} · click to change` : 'Set a status (waters your plant)'}>{assets === undefined ? '· ' : ''}{(assets === undefined ? shown : text) || 'Set a status'}</span>}
+          : <span className={`id-status${text ? '' : ' muted'}`} title={text ? `${text} · click to change` : 'Set a status (waters your plant)'}>{assets === undefined ? '· ' : ''}{(assets === undefined ? shown : status.text) || 'Set a status'}</span>}
       </button>
     </div>
     {open === 'presence' && <div className="presence-pop" role="menu" aria-label="Presence">
       {PRESENCES.map(([id, label]) => <button key={id} role="menuitemradio" aria-checked={presence === id} className={presence === id ? 'on' : 'ghost'}
-        onClick={() => { store.setPresence(id); setOpen(null); }}>
+        onClick={() => { store.setPresence(id); close(false); }}>
         <i className="dot" style={{ background: PRESENCE_COLOR[id] }} />{label}</button>)}
     </div>}
-    {open === 'status' && <div className="status-pop" role="dialog" aria-label="Status">
+    {open === 'status' && <div className="status-pop" role="dialog" aria-label="Set a status"
+      onKeyDown={e => { if (!overlayOpen(store) && e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); escape(); } }}>
+      <div className="rooms-head"><strong>Set a status</strong><IconButton icon="close" label="Close status editor" className="ghost" onClick={() => close(false)} /></div>
       <form onSubmit={e => { e.preventDefault(); close(true); }}>
-        <input autoFocus value={draft ?? text} maxLength={80} placeholder="What are you on? (waters your plant)" onChange={e => setDraft(e.target.value)}
-          onKeyDown={e => { if (!overlayOpen(store) && e.key === 'Escape') { e.stopPropagation(); close(false); } }} />
+        <div className="status-input-row">
+          <IconButton icon="smile" label="Pick an emoji" className={`status-emoji-button${draftEmoji ? ' has-emoji' : ''}`}
+            aria-expanded={picker} onClick={() => { setEmojiIndex(Math.max(0, STATUS_EMOJI.indexOf(draftEmoji ?? ''))); setPicker(p => !p); }}>
+            {draftEmoji && <span>{draftEmoji}</span>}
+          </IconButton>
+          <input ref={input} autoFocus value={draftText} maxLength={80 - (draftEmoji ? draftEmoji.length + 1 : 0)}
+            aria-label="Status text" placeholder="What's your status?" onChange={e => setDraftText(e.target.value)} />
+        </div>
+        {picker && <div className="status-picker">
+          <div className="status-emoji-grid" ref={grid} role="group" aria-label="Status emoji">
+            {STATUS_EMOJI.map((emoji, i) => <button type="button" className="ghost" key={emoji} aria-label={emoji} aria-pressed={draftEmoji === emoji}
+              tabIndex={emojiIndex === i ? 0 : -1} onFocus={() => setEmojiIndex(i)} onClick={() => pick(emoji)}
+              onKeyDown={e => {
+                const offset = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -8, ArrowDown: 8 }[e.key];
+                if (offset === undefined) return;
+                e.preventDefault(); e.stopPropagation();
+                const next = (i + offset + STATUS_EMOJI.length) % STATUS_EMOJI.length;
+                setEmojiIndex(next); grid.current?.querySelectorAll('button')[next]?.focus();
+              }}>{emoji}</button>)}
+          </div>
+          <button type="button" className="ghost" onClick={() => pick(null)}>No emoji</button>
+        </div>}
+        {!draftText && <div className="status-suggestions"><small>Suggestions</small>
+          {STATUS_PRESETS.map(([emoji, label]) => <button type="button" className="ghost" key={label}
+            onClick={() => { setDraftEmoji(emoji); setDraftText(label); setPicker(false); input.current?.focus(); }}><span>{emoji}</span>{label}</button>)}
+        </div>}
+        <div className="status-row">
+          <button type="button" className="ghost" disabled={!text && !draftEmoji && !draftText} onClick={() => { store.setStatus(''); close(false); }}>Clear</button>
+          <button type="submit">Save</button>
+        </div>
       </form>
-      <div className="status-row">
-        <button className="ghost" disabled={!text && !draft} onClick={() => { store.setStatus(''); close(false); }}>Clear</button>
-      </div>
     </div>}
   </div>;
 }

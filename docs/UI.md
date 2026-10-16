@@ -93,6 +93,8 @@ at 10; full-screen activities retain their own layers.
 - Minimum touch target: 36px; 44px in the dock. Keep controls usable with the larger type before changing spacing.
 
 ## Copy
+Status emoji is content: the leading emoji of the status string, picked in the status editor and shown after the name in lists.
+
 English UI, sentence case, verb-first buttons. Keep labels short. Put short reasons under disabled actions as
 visible text: touch has no tooltips.
 

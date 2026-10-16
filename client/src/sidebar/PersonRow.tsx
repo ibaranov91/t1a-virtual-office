@@ -3,7 +3,7 @@ import type { Assets } from '../assets';
 import type { Store, ClientUser } from '../net';
 import { prefs } from '../prefs';
 import { Avatar } from './Avatar';
-import { activityLine, instrument, place } from './model';
+import { splitStatus, activityLine, instrument, place } from './model';
 import type { PersonAnchor } from './PersonCard';
 export const rowAnchor = (el: HTMLElement) => {
   const row = el.getBoundingClientRect(), sidebar = el.closest('.sidebar')?.getBoundingClientRect();
@@ -18,12 +18,13 @@ export function PersonRow({ store, user: u, assets, speaking, people, onPerson, 
   const showLine = !!line && (!offline || !!u.vacation); // an offline vacationer still says when they're back
   const open = (el: HTMLElement) => onPerson({ id: u.id, ...rowAnchor(el) });
   const playing = instrument(store, u), volume = Math.round((prefs.volumes[u.id] ?? 1) * 100);
+  const statusEmoji = splitStatus(u.status ?? '').emoji;
   const unread = store.unread.get(u.id);
   return <div className={`sb-person${offline ? ' off' : ''}${showLine ? ' two-lines' : ''}`}>
     <button className={`sb-person-main${u.id === store.me ? ' me' : ''}`} onClick={e => open(e.currentTarget)}
       onContextMenu={e => { e.preventDefault(); open(e.currentTarget); }} aria-haspopup="dialog">
       {!offline && <Avatar assets={assets} user={u} size={32} ring={speaking.has(u.id)} />}
-      <span className="sb-person-text"><span>{u.name}{!offline && u.id === store.me ? ' (you)' : ''}</span>
+      <span className="sb-person-text"><span>{u.name}{statusEmoji && <span className="sb-status-emoji">{statusEmoji}</span>}{!offline && u.id === store.me ? ' (you)' : ''}</span>
         {showLine && <small>{line}</small>}</span>
     </button>
     {!offline && <span className="sb-marks">

@@ -5,7 +5,7 @@ import { roomAt, type TileMap } from '../../shared/map';
 import { INSTRUMENTS } from '../../shared/instruments';
 import { OFFICE_SCOPE } from '../../shared/protocol';
 import type { ClientUser } from './net';
-import { activityLine, channelTree, GROUPS, peopleGroups, place, roomGroup, roomThings, type View } from './sidebar/model';
+import { activityLine, channelTree, GROUPS, peopleGroups, place, roomGroup, roomThings, splitStatus, joinStatus, type View } from './sidebar/model';
 const map = mapJson as unknown as TileMap;
 const room = (id: string) => map.rooms.find(r => r.id === id)!;
 function user(id: string, name = id, roomId = 'coffee', extra: Partial<ClientUser> = {}): ClientUser {
@@ -109,4 +109,33 @@ test('counts exclude instances/offline, and subtitle reflects music/presentation
   const focus = () => channelTree(v, map).flatMap(g => g.rooms).find(r => r.room.id === 'focus')!;
   assert.equal(focus().subtitle, '📽 live');
   v.presentation = { ...v.presentation, scope: 'event' }; assert.equal(focus().subtitle, ''); // a meeting room's show stays inside it
+});
+
+test('splitStatus keeps a leading emoji sequence together and trims the text', () => {
+  const cases: [string, string | null, string][] = [
+    ['  Lunch  ', null, 'Lunch'], ['🍔 Lunch', '🍔', 'Lunch'], ['🧑‍💻 coding', '🧑‍💻', 'coding'],
+    ['👍🏽 ok', '👍🏽', 'ok'], ['🗓️ In a meeting', '🗓️', 'In a meeting'], ['🎧', '🎧', ''],
+    ['Lunch 🍔 soon', null, 'Lunch 🍔 soon'], ['', null, ''],
+  ];
+  for (const [status, emoji, text] of cases) assert.deepEqual(splitStatus(status), { emoji, text });
+});
+test('joinStatus round-trips, trims and caps the single status string at 80', () => {
+  for (const status of ['🍔 Lunch', '🧑‍💻 coding', '👍🏽 ok', '🗓️ In a meeting', '🎧', 'Lunch 🍔 soon', '']) {
+    const { emoji, text } = splitStatus(status);
+    assert.equal(joinStatus(emoji, text), status);
+  }
+  assert.equal(joinStatus(null, '  Lunch  '), 'Lunch');
+  assert.equal(joinStatus('🍔', 'x'.repeat(100)), `🍔 ${'x'.repeat(77)}`);
+  assert.equal(joinStatus(null, 'x'.repeat(100)).length, 80);
+});
+test('activityLine shows status text without repeating its leading emoji', () => {
+  const u = user('a', 'Amy', 'coffee', { presence: 'away', status: '🍔 Lunch' });
+  const v = view(u);
+  assert.equal(activityLine(v, u), 'away · Lunch');
+  u.presence = 'online';
+  assert.equal(activityLine(v, u), 'Lunch');
+  u.status = '🎧';
+  assert.equal(activityLine(v, u), '');
+  u.presence = 'away';
+  assert.equal(activityLine(v, u), 'away');
 });

@@ -71,9 +71,23 @@ button.netbird small { font-weight: var(--fw-medium); font-size: var(--fs-sm); o
   background: var(--panel); border: 2px solid var(--wood); border-radius: 8px; box-shadow: 0 6px 20px rgba(0,0,0,.45); }
 .presence-pop button { display: flex; align-items: center; gap: 8px; text-align: left; }
 .presence-pop button.on { background: var(--panel2); color: var(--text); box-shadow: none; }
-.status-pop { position: absolute; top: calc(100% + 6px); left: 0; z-index: 20; width: min(320px, calc(100vw - 16px)); display: grid; gap: 8px; padding: 10px;
+.status-pop { position: absolute; top: calc(100% + 6px); left: 0; z-index: 20; width: min(340px, calc(100vw - 16px)); display: grid; gap: 8px; padding: 10px;
   background: var(--panel); border: 2px solid var(--wood); border-radius: 8px; box-shadow: 0 6px 20px rgba(0,0,0,.45); }
-.status-pop input { width: 100%; }
+.status-pop { max-height: calc(100dvh - 80px); overflow-y: auto; border-radius: var(--radius-md); }
+.status-pop form { display: grid; gap: 8px; min-width: 0; }
+.status-pop .rooms-head { margin: 0; }
+.status-input-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.status-pop input { width: 100%; min-width: 0; flex: 1; font-size: var(--fs-md); }
+.status-emoji-button { width: var(--control-h); height: var(--control-h); min-width: var(--control-h); padding: 0; background: var(--panel2); color: var(--muted); border-radius: var(--radius-md); box-shadow: none; font-size: var(--fs-md); }
+.status-emoji-button.has-emoji .ui-icon { display: none; }
+.status-picker { display: grid; gap: 4px; }
+.status-emoji-grid { display: grid; grid-template-columns: repeat(8, minmax(0, var(--control-h))); justify-content: center; }
+.status-emoji-grid button { width: 100%; height: var(--control-h); padding: 0; border-radius: var(--radius-md); font-size: var(--fs-md); }
+.status-emoji-grid button[aria-pressed="true"] { background: var(--panel2); }
+.status-suggestions { display: grid; gap: 2px; }
+.status-suggestions > small { font-size: var(--fs-sm); color: var(--muted); }
+.status-suggestions > button { display: flex; align-items: center; gap: 8px; width: 100%; min-height: var(--control-h); text-align: left; font-size: var(--fs-md); color: var(--text); }
+.sb-status-emoji { margin-left: 5px; font-size: var(--fs-md); }
 .status-row { display: flex; gap: 8px; justify-content: space-between; }
 .voice-icons { position: relative; display: flex; gap: 4px; }
 /* states live in data-state, never in classes: a generic class like .muted or .err would pull in unrelated global styles (margins) */

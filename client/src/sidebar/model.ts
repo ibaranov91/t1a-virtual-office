@@ -6,6 +6,13 @@ import mapJson from '../../../shared/tilemap.json';
 import { TRACK } from '../../../shared/music';
 import { vacationReturnLabel } from '../Vacation';
 
+export function splitStatus(status: string): { emoji: string | null; text: string } {
+  const match = /^(\p{Extended_Pictographic}(?:️|⃣|\p{Emoji_Modifier}|‍\p{Extended_Pictographic}️?)*)\s*/u.exec(status);
+  return { emoji: match?.[1] ?? null, text: status.slice(match?.[0].length ?? 0).trim() };
+}
+export function joinStatus(emoji: string | null, text: string) {
+  return (emoji ? `${emoji} ${text}`.trim() : text.trim()).slice(0, 80);
+}
 export const PRESENCE_COLOR: Record<string, string> = { online: '#7cc87c', away: '#e0b050', in_call: '#d86a5a', offline: '#666' };
 export const GROUPS = [
   { id: 'voice', label: 'Voice', hint: 'walk in to talk' },
@@ -51,7 +58,8 @@ export function activityLine(view: View, u: ClientUser) {
     : playing ? `${playing.icon} playing ${playing.name}`
     : u.listening === 'lofi' ? '🎧 listening to Lofi Girl'
     : u.presence === 'away' ? 'away' : '';
-  return line ? `${line}${u.status ? ` · ${u.status}` : ''}` : u.status || '';
+  const status = splitStatus(u.status ?? '').text;
+  return line ? `${line}${status ? ` · ${status}` : ''}` : status;
 }
 export type ChannelRoom = { room: Room; people: ClientUser[]; count: number; subtitle: string };
 export type ChannelGroup = { id: string; label: string; hint: string; count: number; rooms: ChannelRoom[]; people: ClientUser[] };
