@@ -304,6 +304,11 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
         {showAppearance && me && <AppearanceMenu key={`appearance:${me.id}`} look={me.look} name={me.name} assets={assets} firstTime={!me.lookSet} store={store}
           onSave={(look, name) => { store.setLook(look, name); setShowAppearance(false); }} onClose={() => setShowAppearance(false)} />}
         <div className="chips">
+          {!isCompact && <>{/* the floor's "now" (top slot): music and voice status, within reach while the avatar walks */}
+            <NowPlayingChip store={store} />
+            {me?.callId && !me.instance && !store.roomCallOf(me) && store.voiceOwner && <CallChip store={store} voice={voice} />}
+            <RoomVoiceChip store={store} voice={voice} />
+          </>}
           <MeetingChip store={store} voice={voice} />
           <LiveChip store={store} onGo={room => engineRef.current?.walkToRoom(room)} />
           <TalkConflictChip store={store} />
@@ -436,11 +441,6 @@ function TopBar({ store, assets, voice, roomName, onToggleMeet, onProfile, pocke
         <BrandLogo store={store} assets={assets} />
         {isCompact && me && <IdentityPill store={store} onProfile={onProfile} roomName={roomName} />}
       </div>
-      {!isCompact && <div className="top-middle">{/* the floor's "now": music and voice, within reach while the avatar walks */}
-        <NowPlayingChip store={store} />
-        {me?.callId && !me.instance && !store.roomCallOf(me) && store.voiceOwner && <CallChip store={store} voice={voice} header />}
-        <RoomVoiceChip store={store} voice={voice} header />
-      </div>}
       <div className="top-right">
         {isCompact && <VoiceIcons store={store} voice={voice} />}
         <UnreadButton store={store} />
@@ -681,7 +681,7 @@ function NowPlayingChip({ store, compact = false }: { store: Store; compact?: bo
   const loading = store.soundscape?.jukeboxLoading(o.id) ?? false;
   const title = `♪ ${track.title} — ${track.artist}`, time = loading ? 'Loading…' : `${musicTime(musicPosition(store, state))}${compact ? '' : ` / ${musicTime(track.duration)}`}`;
   const label = `${title} · ${time}`;
-  return <div className={compact ? "now-row jukebox-chip" : "now-playing chip jukebox-chip"} onClick={() => store.openJukebox(o.id)}>
+  return <div className={compact ? "now-row jukebox-chip" : "now-playing desk-chip call-chip jukebox-chip"} onClick={() => store.openJukebox(o.id)}>
     <button className="ghost jukebox-chip-title" title={label} onClick={e => { e.stopPropagation(); store.openJukebox(o.id); }}>
       {compact ? <><span className="now-lead">♪</span><span className="now-title">{track.title}</span><span className="now-time">· {time}</span></> : label}</button>
     <div className="jukebox-controls" onClick={e => e.stopPropagation()}>

@@ -207,7 +207,7 @@ canvas { display: block; image-rendering: pixelated; touch-action: none; }
 .rooms li.off { opacity: .55; cursor: default; }
 
 .toasts { position: absolute; left: 50%; top: 10px; transform: translateX(-50%); display: grid; gap: 8px; width: min(420px, calc(100% - 16px)); pointer-events: none; z-index: 7; }
-.toast { font-size: var(--fs-md); pointer-events: auto; display: flex; align-items: center; gap: 8px; background: var(--panel); border: 2px solid var(--wood);
+.toast { font-size: var(--fs-md); pointer-events: auto; display: flex; align-items: center; gap: 8px; background: rgba(42,31,36,.95); /* same surface as .desk-chip */ border: 2px solid var(--wood);
   border-radius: 8px; padding: 8px 10px; box-shadow: 0 6px 20px rgba(0,0,0,.45); animation: pop .22s steps(2) both; }
 .toast .txt { flex: 1; min-width: 0; } /* so a long chat line ellipsizes instead of widening the toast off-screen */
 .stage:has(.chips > *) .toasts { top: 58px; } /* top slot: under a desk or meeting chip */
@@ -453,11 +453,7 @@ button:focus-visible, summary:focus-visible, input[type="range"]:focus-visible {
 
 .top-middle { grid-column: 2; grid-row: 1; justify-self: center; display: flex; align-items: center; gap: 8px; min-width: 0; max-width: 100%; }
 .now-playing { min-width: 0; overflow: hidden; }
-.header-voice { gap: 6px; padding: 0 4px 0 10px; min-width: 0; border: 2px solid var(--wood); height: 34px; } /* .room-voice.live/.ptt recolor the border */
-.header-voice .now-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.header-voice .vbtn { width: 30px; height: 28px; }
-.header-voice .icon-button { min-width: 28px; min-height: 28px; width: 28px; height: 28px; padding: 0; }
-.header-voice > button:not(.vbtn):not(.icon-button), .header-voice a { height: 26px; min-height: 0; padding: 0 8px; font-size: var(--fs-sm); }
+.now-playing.desk-chip { padding: 3px 6px 3px 8px; gap: 6px; }
 .now-playing button { height: 30px; min-height: 0; padding: 0 8px; background: transparent; color: var(--text); box-shadow: none; font-size: var(--fs-md); }
 .now-playing .jukebox-controls { gap: 2px; }
 .jukebox-chip { gap: 4px; padding-left: 6px; cursor: pointer; }
