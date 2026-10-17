@@ -7,7 +7,7 @@ import { FOOD_ITEMS, picnicSeat } from '../../shared/lunch';
 import { DungeonView } from './dungeon';
 import { DANCE_ROOM, danceBeat, dancePhase } from '../../shared/effects';
 import { DRINKS, emptyDrink, isEmpty } from '../../shared/drinks';
-import { drawEffects, effectLook, effectSway } from './effects';
+import { drawEffects, effectLook, effectSway, HAT_H } from './effects';
 import { CreatureLayer, creaturePose } from './creatures';
 import { lockedDoors, roomDoors, type RoomDoor } from './doors';
 import { voiceSignPositions } from './roomSigns';
@@ -702,6 +702,11 @@ export class Engine {
     ctx.fillStyle = 'rgba(255,79,168,0.25)'; ctx.fillRect(lx - 3, ly - 3, tw + 6, 13); // neon halo
     drawText(ctx, label, lx, ly, '#ff7ac4');
     ctx.restore();
+  }
+  /** How many pixels a hat stands above the head: the umbrella opens above it, never through it. */
+  private hatLift(u: ClientUser) {
+    const hat = u.effects?.find(e => e.kind === 'hat');
+    return hat ? HAT_H[String(hat.data?.style)] ?? 10 : u.look.hat ? 3 : 0;
   }
   /** A hood (rain jacket) or an umbrella over a person outdoors in the rain. `top` is the sprite's top edge. */
   private drawRainGear(ctx: CanvasRenderingContext2D, u: ClientUser, x: number, top: number, dir: string, seated: boolean, layer: 'hood' | 'umbrella') {
@@ -1413,7 +1418,6 @@ export class Engine {
 
   private drawSprite(u: ClientUser, p: Pose, ms: number) {
     const ctx = this.ctx, c = this.assets.atlas.character;
-    const sheet = this.assets.sheet(u.effects?.length ? effectLook(u.look, u.effects) : u.look);
     const x = Math.round(p.x * TS), baseY = Math.round(p.y * TS) + TS;
     const seat = p.walking ? null : seatAt(MAP, p.tile.x, p.tile.y);
     const lie = seat && MAP.objects.find(o => o.lie && o.y === seat.y && o.x + Math.floor((o.w - 1) / 2) === seat.x);
@@ -1425,6 +1429,10 @@ export class Engine {
       ctx.fillStyle = 'rgba(40,20,25,0.28)';
       ctx.beginPath(); ctx.ellipse(x + 8, baseY - 1.5, 5.5, 2, 0, 0, Math.PI * 2); ctx.fill();
     }
+    const rainy = this.store.sky === 'rain' && !lie && !water && !this.areaDown && isOutdoor(MAP, p.tile.x, p.tile.y);
+    const hooded = rainy && !u.umbrella && !seat; // a hood replaces whatever is on the head (the everyday cap and any hat)
+    const base = u.effects?.length ? effectLook(u.look, u.effects) : u.look;
+    const sheet = this.assets.sheet(hooded && base.hat ? { ...base, hat: 0 } : base);
     let frame = 0, bob = 0, dx = 0;
     const presenting = this.store.presentation?.presenter === u.id && !this.store.presentation.away;
     const dozing = this.dozing(u, p);
@@ -1460,7 +1468,7 @@ export class Engine {
       ctx.rotate(-Math.PI / 2); ctx.translate(-x - 8, -baseY + 1);
     }
     // effects: a sway for the whole figure, then layers behind and in front of the body (see effects.ts)
-    const fx = u.effects?.length ? u.effects : null, seed = hash(u.id);
+    const fx = (hooded ? u.effects?.filter(e => e.kind !== 'hat') : u.effects)?.length ? (hooded ? u.effects.filter(e => e.kind !== 'hat') : u.effects) : null, seed = hash(u.id);
     const sway = fx && !lie ? effectSway(fx, ms, seed, p) : null;
     if (sway && (sway.dx || sway.rot || sway.dy)) { ctx.save(); ctx.translate(x + 8 + sway.dx, baseY + sway.dy); ctx.rotate(sway.rot); ctx.translate(-x - 8, -baseY); }
     const top = baseY - c.frameH + bob + walkBob - 1 + (seat ? 2 : 0);
@@ -1476,10 +1484,9 @@ export class Engine {
     if (backpack && p.dir === 'down') { ctx.fillStyle = '#8b613d'; ctx.fillRect(x + dx + 4, top + 10, 1, 5); ctx.fillRect(x + dx + 11, top + 10, 1, 5); }
     if (carrying && !hand.behind) drawBag();
     ctx.globalAlpha = 1;
-    const rainy = this.store.sky === 'rain' && !lie && !water && !this.areaDown && isOutdoor(MAP, p.tile.x, p.tile.y);
-    if (rainy) this.drawRainGear(ctx, u, x + dx, top, p.dir, !!seat, 'hood'); // hood up (under any hat) ...
+    if (hooded) this.drawRainGear(ctx, u, x + dx, top, p.dir, !!seat, 'hood'); // hood up (under any hat) ...
     if (fxCtx) drawEffects('front', fxCtx, fx);
-    if (rainy) this.drawRainGear(ctx, u, x + dx, top, p.dir, !!seat, 'umbrella'); // ... or the umbrella, over the hat
+    if (rainy) this.drawRainGear(ctx, u, x + dx, top - this.hatLift(u), p.dir, !!seat, 'umbrella'); // ... or the umbrella, over the hat
     if (sway && (sway.dx || sway.rot || sway.dy)) ctx.restore();
     const icon = u.holding && !carrying ? ITEM_ICON.get(u.holding) : undefined;
     if (icon) {

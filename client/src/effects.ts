@@ -235,7 +235,7 @@ function falling(c: FxCtx, frame: (i: number) => string, n: number, period: numb
   }
   ctx.globalAlpha = 1;
 }
-const HAT_H: Record<string, number> = { top: 11, party: 12, wizard: 14, cowboy: 8, crown: 8, judge: 13, laurel: 7, winged: 10, crested: 10 };
+export const HAT_H: Record<string, number> = { top: 11, party: 12, wizard: 14, cowboy: 8, crown: 8, judge: 13, laurel: 7, winged: 10, crested: 10 };
 
 function unicorns(c: FxCtx, behind: boolean) {
   for (let i = 0; i < 3; i++) {
