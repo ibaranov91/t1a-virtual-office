@@ -144,6 +144,8 @@ if (process.env.BOTS && process.env.BOTS !== '0') startBots(world, Number(proces
 else for (const u of [...world.users.values()]) if (u.bot) world.users.delete(u.id); // bots saved before they were turned off
 // The cat, the dog, the October bat and the cleaner run everywhere, prod included, unless PETS=0.
 startCreatures(world.creatures, process.env.PETS !== '0', process.env.BAT === '1');
+world.devTools = process.env.BAT === '1'; // npm run dev sets BAT=1: dev-only hooks (sewing time scale, a new gacha capsule)
+world.startDailySpawns();
 
 // ---------- macOS app (macos/dist, built by `macos/build.sh --dist` during deploy) ----------
 // One-command install: curl -fsSL <base>/api/mac/install.sh | bash. curl doesn't quarantine what it

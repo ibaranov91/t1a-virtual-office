@@ -68,6 +68,16 @@ export function playPop() {
   } catch { /* audio unavailable: stay silent */ }
 }
 
+/** A party popper: a sharp bang and a fizz of falling confetti. `level` 0..1 is how close it was. */
+export function playPopper(level = 1) {
+  try {
+    const c = audio(), at = c.currentTime + 0.01, out = categoryOutput('effects');
+    tone(c, out, at, { hz: 180, to: 60, glide: .05, level: .16 * level, attack: .002, decay: .1 });
+    tone(c, out, at, { hz: 1800, to: 900, glide: .06, level: .06 * level, attack: .001, decay: .05 });
+    for (let i = 0; i < 6; i++) tone(c, out, at + .06 + i * .045, { hz: 2400 + i * 260, to: 1600, glide: .05, level: .03 * level, attack: .002, decay: .06 });
+  } catch { /* audio unavailable: stay silent */ }
+}
+
 /** A cat's purr (a low, wobbling rumble) or a dog's yip (two quick rising chirps). */
 export function playPet(dog: boolean) {
   try {

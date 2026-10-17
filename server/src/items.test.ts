@@ -27,7 +27,7 @@ const last = <T extends ServerMsg['t']>(m: ServerMsg[], type: T) => m.filter((x)
 const send = (w: World, p: { u: User; socket: string }, msg: ClientMsg) => w.handle(p.u, msg, p.socket);
 
 test('registry: drinks derive from it, hats are free, and every drink/food has a definition', () => {
-  assert.deepEqual(Object.keys(DRINKS).sort(), ['beer', 'cocktail', 'coconut', 'coffee', 'icecream', 'tea', 'wine']);
+  assert.deepEqual(Object.keys(DRINKS).sort(), ['beer', 'cocktail', 'coconut', 'coffee', 'energy_drink', 'icecream', 'slurpee', 'tea', 'wine']);
   assert.equal(DRINKS.coffee.autoSipMs, 60_000);
   assert.equal(itemDef('hat:wizard')?.pocket, 'free');
   assert.equal(itemDef('hat:never-heard-of')?.kind, 'hat', 'any hat:<style> is a hat');

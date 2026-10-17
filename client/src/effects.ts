@@ -178,6 +178,87 @@ export const EFFECT_DRAW: Record<string, FxDraw> = {
       c.ctx.globalAlpha = 1;
     },
   },
+  // ---------- item content (v2) ----------
+  freeze: { // a brain freeze: a fast shiver and a ❄ over the head
+    sway: (ms, seed) => ({ dx: Math.round(Math.sin((ms + seed * 17) / 28)), rot: 0 }),
+    front(c) {
+      const x = c.x + 8, y = c.top - 6 + Math.round(Math.sin(c.ms / 160)), k = c.ctx;
+      k.fillStyle = '#c6f3ff'; k.fillRect(x - 3, y, 7, 1); k.fillRect(x, y - 3, 1, 7);
+      k.fillRect(x - 2, y - 2, 1, 1); k.fillRect(x + 2, y - 2, 1, 1); k.fillRect(x - 2, y + 2, 1, 1); k.fillRect(x + 2, y + 2, 1, 1);
+      k.fillStyle = '#fff'; k.fillRect(x, y, 1, 1);
+    },
+  },
+  crash: { // the energy drink wore off: a droopy sway and a little grey cloud
+    sway: (ms, seed, p) => ({ dx: 0, rot: p.walking ? 0 : Math.sin((ms + seed * 40) / 700) * 0.06, dy: 1 }),
+    front(c) {
+      c.ctx.fillStyle = 'rgba(150,150,170,0.8)';
+      const k = (c.ms % 1800) / 1800, x = c.x + 11 + Math.round(k * 3), y = c.top - 2 - Math.round(k * 5);
+      c.ctx.globalAlpha = 1 - k; c.ctx.fillRect(x, y, 3, 2); c.ctx.fillRect(x + 1, y - 1, 2, 1); c.ctx.globalAlpha = 1;
+    },
+  },
+  confetti: { // paper bits showered down around them
+    front(c) {
+      const COLORS = ['#e8607a', '#f2d060', '#5ab0e8', '#7ad08a', '#c878e8', '#ffffff'], life = Math.max(0, Math.min(1, ((c.e.until ?? c.ms) - Date.now()) / 4000));
+      for (let i = 0; i < 18; i++) {
+        const k = ((c.ms / 1700 + i * 0.37) % 1), burst = 1 - life;
+        c.ctx.globalAlpha = Math.min(1, life * 3, (1 - k) * 2);
+        c.ctx.fillStyle = COLORS[i % COLORS.length];
+        const dx = Math.sin(i * 2.7 + k * 5) * (6 + burst * 8);
+        c.ctx.fillRect(c.x + 8 + Math.round(dx), c.top - 6 + Math.round(k * 28), 2, 1 + (i % 2));
+      }
+      c.ctx.globalAlpha = 1;
+    },
+  },
+  bubble: { // bubble gum: a pink bubble swells over the head and pops
+    front(c) {
+      const t = Math.max(0, 9000 - Math.max(0, (c.e.until ?? 0) - Date.now())), k = (t % 3000) / 3000, x = c.x + 8, y = c.top - 5;
+      if (k < 0.8) { // swelling
+        const r = 1 + k / 0.8 * 5;
+        c.ctx.fillStyle = '#f08ab8'; c.ctx.beginPath(); c.ctx.arc(x, y - r, r, 0, Math.PI * 2); c.ctx.fill();
+        c.ctx.fillStyle = '#ffd0e4'; c.ctx.fillRect(Math.round(x - r / 2), Math.round(y - r * 1.4), 1, 1);
+      } else if (k < 0.88) { // pop: a ring and bits of gum
+        c.ctx.fillStyle = '#f08ab8';
+        for (const [dx, dy] of [[-5, -6], [5, -6], [-6, -2], [6, -2], [0, -11], [-3, -10], [3, -10]]) c.ctx.fillRect(x + dx, y + dy, 1, 1);
+      }
+    },
+  },
+  snow: { // a snow aura: a cold glow and flakes drifting down around them
+    back(c) {
+      const { ctx } = c, g = ctx.createRadialGradient(c.x + 8, c.baseY - 9, 2, c.x + 8, c.baseY - 9, 15);
+      g.addColorStop(0, 'rgba(210,240,255,0.30)'); g.addColorStop(1, 'rgba(210,240,255,0)');
+      ctx.fillStyle = g; ctx.fillRect(c.x - 8, c.baseY - 26, 32, 30);
+    },
+    front(c) {
+      c.ctx.fillStyle = '#ffffff';
+      for (let i = 0; i < 7; i++) {
+        const k = ((c.ms + c.seed * 71 + i * 430) % 3000) / 3000;
+        c.ctx.globalAlpha = Math.min(1, (1 - k) * 2.2, k * 8);
+        c.ctx.fillRect(c.x + 8 + Math.round(Math.sin(i * 2.1 + k * 7) * 9), c.top - 3 + Math.round(k * 28), 1, 1);
+      }
+      c.ctx.globalAlpha = 1;
+    },
+  },
+  sewing: { // sitting hunched over a hoop: a needle going in and out, a thread trailing
+    sway: (ms, seed) => ({ dx: 0, rot: 0.04, dy: 1 + (Math.floor((ms + seed * 90) / 350) % 2) }),
+    front(c) {
+      const down = c.p.dir !== 'up', x = c.x + (c.p.dir === 'left' ? 0 : c.p.dir === 'right' ? 8 : 4), y = c.baseY - 9, k = c.ctx;
+      if (!down) return;
+      k.fillStyle = '#e8d8b0'; k.fillRect(x, y, 8, 5); k.fillStyle = '#b4473a'; k.fillRect(x + 1, y + 1, 6, 3);
+      k.fillStyle = '#7a5a40'; k.fillRect(x, y, 8, 1); k.fillRect(x, y + 4, 8, 1);
+      const stitch = Math.floor(c.ms / 350) % 2;
+      k.fillStyle = '#f2d060'; k.fillRect(x + 2 + stitch * 3, y + 1, 1, 2); // the needle
+      k.fillStyle = '#f2f2f2'; k.fillRect(x + 1, y + 2, 2 + stitch * 3, 1);   // the thread
+      const t = (c.ms % 2400) / 2400; k.globalAlpha = 1 - t; k.fillRect(c.x + 12 + Math.round(Math.sin(t * 6) * 2), c.top - 2 - Math.round(t * 6), 1, 2); k.globalAlpha = 1;
+    },
+  },
+  driving: { // standing with a remote controller held out in front
+    front(c) {
+      const k = c.ctx, side = c.p.dir === 'left' ? -1 : 1, x = c.x + (c.p.dir === 'down' || c.p.dir === 'up' ? 11 : side < 0 ? 0 : 12), y = c.baseY - 11;
+      k.fillStyle = '#3a3a48'; k.fillRect(x, y, 4, 3); k.fillStyle = '#5a5a70'; k.fillRect(x, y, 4, 1);
+      k.fillStyle = Math.floor(c.ms / 300) % 2 ? '#e8607a' : '#7ad08a'; k.fillRect(x + 3, y - 3, 1, 3); k.fillRect(x + 3, y - 4, 1, 1); // antenna with a blinking light
+      k.fillStyle = '#f2d060'; k.fillRect(x + 1, y + 1, 1, 1);
+    },
+  },
   unicorns: { // three little rainbow unicorns trotting in a ring around them
     back(c) { unicorns(c, true); },
     front(c) { unicorns(c, false); },
@@ -235,7 +316,7 @@ function falling(c: FxCtx, frame: (i: number) => string, n: number, period: numb
   }
   ctx.globalAlpha = 1;
 }
-const HAT_H: Record<string, number> = { top: 11, party: 12, wizard: 14, cowboy: 8, crown: 8, judge: 13, laurel: 7, winged: 10, crested: 10 };
+const HAT_H: Record<string, number> = { top: 11, party: 12, wizard: 14, cowboy: 8, crown: 8, judge: 13, laurel: 7, winged: 10, crested: 10, shark: 11, catears: 8, foxears: 9, frog: 8, onigiri: 9, apple: 9, coffeecup: 10, mushroom: 10, capsule: 11, tinycrown: 6, handsewn: 8 };
 
 function unicorns(c: FxCtx, behind: boolean) {
   for (let i = 0; i < 3; i++) {

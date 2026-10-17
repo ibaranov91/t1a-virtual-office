@@ -42,6 +42,7 @@ export type ObjectUse = { kind: 'wellness'; activity: 'water' | 'stretch' | 'pom
   | { kind: 'dealer'; label: string; items: string[] } // hands out items into your inventory (the bouncer, the hat stand)
   | { kind: 'bell'; label: string } // the Lobby reception bell: ring it from beside the desk
   | { kind: 'tickets'; label: string } // the Lobby bug terminal: file bugs, read replies (admins: the queue)
+  | { kind: 'gacha'; label: string } // the gacha machine: one capsule per person per office day (World.gachaPull)
   | { kind: 'vacations' }
   | { kind: 'toilet'; label: string }; // a stall: occupied for a while, fills up with use (see Toilets on the server)
 export type UseKind = ObjectUse['kind'];
@@ -66,6 +67,7 @@ export const USE_KINDS = {
   presentation: { use: true, reach: true }, // walk to the board first; the panel opens on arrival
   room_start: { use: true, reach: true }, // the Meeting room's wall sign: walk over, then the server offers a private room
   tickets: { use: true, reach: true }, // the bug terminal: walk over, then the server opens its screen
+  gacha: { use: true, reach: true }, // walk up to the machine; the server hands out the day's capsule on arrival
 } as const satisfies Record<UseKind, { wheel?: true; use?: true; reach?: true }>;
 type KindsWith<F extends string> = { [K in UseKind]: (typeof USE_KINDS)[K] extends Record<F, true> ? K : never }[UseKind];
 /** True when this use's kind has that flag in USE_KINDS; narrows the use to those kinds. */

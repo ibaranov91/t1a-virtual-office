@@ -1,5 +1,6 @@
 import { rulesForMode, type RoomMode, type RoomModes } from '../../shared/roomModes';
 import { onMap } from '../../shared/beach';
+import { effectOf } from '../../shared/effects';
 import { TABLE_GAMES, type TableView, type TableGameId } from '../../shared/table/types';
 import { playTable } from './sounds';
 import { RetroClient } from './retro/client';
@@ -20,7 +21,7 @@ import { gameDef } from '../../shared/arcade/registry';
 import { emptyWeek } from '../../shared/arcade/weeks';
 import { ParkLoop } from './park/loop';
 import type { CabinetSummary, ParkRecords, ArcadeBoards } from '../../shared/protocol';
-import { playPark, playHand, playKnock, playPop, playAchievement, playDungeon, playPet } from './sounds';
+import { playPark, playHand, playKnock, playPop, playAchievement, playDungeon, playPet, playPopper } from './sounds';
 import type { Soundscape } from './soundscape';
 import { bestOffset, clockSample, CLOCK_SAMPLES, type ClockSample } from './clockSync';
 import { slurBy } from './slur';
@@ -74,7 +75,7 @@ export interface DungeonFx { kind: 'fall' | 'land' | 'climb'; user: ClientUser; 
 export interface Pose { x: number; y: number; dir: Dir; walking: boolean; tile: Tile }
 
 type Listener = () => void;
-const SCENE_ONLY = new Set<ServerMsg['t']>(['move', 'speaking', 'emote', 'react', 'creatures', 'creature', 'cups']);
+const SCENE_ONLY = new Set<ServerMsg['t']>(['move', 'speaking', 'emote', 'react', 'creatures', 'creature', 'cups', 'car', 'popper']);
 
 export class Store {
   users = new Map<string, ClientUser>();
@@ -154,6 +155,10 @@ export class Store {
   portalFx: PortalFx[] = [];
   items: string[] = []; // my pockets
   prisonUntil: number | null = null; // my prison hat can't come off before this
+  hatDue = 0;                        // achievement-hat picks waiting for me (shared/rewards.ts)
+  hatPickerOpen = false;             // the picker panel (opens when a pick falls due; Pockets can reopen it)
+  postcardOpen = false;              // the postcard writer (a blank postcard in my hands)
+  carFx = new Map<string, { from: Tile; at: number }>(); // a remote car's last tile and when it rolled (client-only, for the glide)
   // ---------- items & storage ----------
   storage: { ownerId: string; items: string[]; log?: { by: string; name: string; item: string; at: number }[]; spotted?: boolean } | null = null; // the desk storage I have open
   storageWarn: string | null = null; // owner whose storage I asked to open: confirm the warning first
@@ -355,6 +360,20 @@ export class Store {
   closeStorage() { if (this.storage) this.send({ t: 'storage_close' }); this.storage = null; this.storageWarn = null; this.emit(); }
   storageMove(ownerId: string, item: string, dir: 'in' | 'out') { this.send({ t: 'storage_move', ownerId, item, dir }); }
   gmGive(targetId: string, item: string) { this.send({ t: 'gm_give', targetId, item }); }
+  // ---------- item content (v2) ----------
+  useHeld() { this.send({ t: 'use_held' }); }
+  openPostcard(open = true) { this.postcardOpen = open; this.emit(); }
+  writePostcard(text: string) { this.send({ t: 'postcard_write', text }); this.postcardOpen = false; this.emit(); }
+  openHatPicker(open = true) { this.hatPickerOpen = open; this.emit(); }
+  hatPick(item: string) { this.send({ t: 'hat_pick', item }); }
+  /** Driving a remote car: my `driving` effect says so; the floor and the arrow keys steer the car instead of me. */
+  get driving() { return !!effectOf(this.users.get(this.me)?.effects, 'driving'); }
+  carGo(to: Tile) { this.send({ t: 'car_go', to }); }
+  carDir(dir: Dir) { this.send({ t: 'car_dir', dir }); }
+  carEnd(pickup = false) { this.send({ t: 'car_end', pickup }); }
+  sewStop() { this.send({ t: 'sew_stop' }); }
+  devTime(scale: number) { this.send({ t: 'dev_time', scale }); }
+  devGacha() { this.send({ t: 'dev_gacha' }); }
   prisonRelease(targetId: string) { this.send({ t: 'prison_release', targetId }); }
   bite(targetId: string) { this.send({ t: 'bite', targetId }); }
   openChat(withId: string) {
@@ -837,6 +856,17 @@ export class Store {
         if (!first) for (const c of msg.cups) if (c.floor && !had.has(c.id)) this.soundscape?.dropCup(c.tile, !!DRINKS[c.item]?.glass);
         break;
       }
+      case 'car': { // glide from the old tile to the new one
+        const i = this.cups.findIndex(c => c.id === msg.id), c = this.cups[i];
+        if (c) { this.carFx.set(c.id, { from: c.tile, at: performance.now() }); this.cups[i] = { ...c, tile: msg.tile, dir: msg.dir }; }
+        break;
+      }
+      case 'popper': { // heard across the room, fading with distance
+        const me = this.users.get(this.me), mine = me && onMap(me) ? this.pose(me, this.now()).tile : null;
+        const far = mine ? Math.hypot(mine.x - msg.tile.x, mine.y - msg.tile.y) : 0;
+        if (far <= 14) playPopper(msg.userId === this.me ? 1 : Math.max(0.2, 1 - far / 14));
+        break;
+      }
       case 'instrument': this.setInstruments({ ...this.instruments, [msg.id]: msg.player }); break;
       case 'seat': this.seat = msg.id; break;
       case 'note': this.soundscape?.receiveNote(msg.id, msg.by, msg.note, msg.on, msg.vel, msg.preset, msg.at); return;
@@ -887,6 +917,7 @@ export class Store {
         if (!this.calendarAccess && msg.calendar && this.google) this.toast({ kind: 'info', text: 'Google Calendar connected', expires: 4000 });
         const calendarNow = !!msg.calendar && !this.calendarAccess;
         this.meetLink = msg.meetLink; this.email = msg.email ?? null; this.google = msg.google; this.calendarAccess = !!msg.calendar; this.admin = !!msg.admin; this.sysadmin = !!msg.sysadmin; this.items = msg.items ?? []; this.prisonUntil = msg.prisonUntil ?? null;
+        { const due = msg.hatDue ?? 0; if (due > this.hatDue) this.hatPickerOpen = true; this.hatDue = due; if (!due) this.hatPickerOpen = false; }
         if (msg.google !== null) this.googleAuthUrl = null;
         if (this.calendarAccess) this.calendarAuthUrl = null;
         if (calendarNow && this.calendarOpen) this.loadCalendar(); // just granted from the open panel

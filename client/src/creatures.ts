@@ -7,6 +7,7 @@ import { CUP_ITEMS, cupTableAt, type Creature, type Cup } from '../../shared/pro
 import { DRINKS } from '../../shared/drinks';
 import { canCarry, itemDef } from '../../shared/items';
 import { phrase } from '../../shared/phrases';
+import { SPAWN_BY } from '../../shared/spawns';
 import type { Frame } from './assets';
 import { itemTop } from './tableTops';
 import { MAP, type Store } from './net';
@@ -148,6 +149,8 @@ export class CreatureLayer {
 
   /** The sprite for a cup: on a table its own cup or glass, on the floor a cup on its side or a broken glass. */
   private cupFrame(cup: Cup) {
+    const sprite = !CUP_ITEMS.includes(cup.item) ? itemDef(cup.item)?.sprite : undefined;
+    if (sprite && this.f(sprite)) return sprite; // a thrown or dropped item with its own art (toys, glow sticks)
     if (cup.floor) return DRINKS[cup.item]?.glass ? 'floor_glass' : `floor_cup_${cup.item === 'tea' ? 'tea' : 'coffee'}`;
     return this.f(`cup_${cup.item}`) ? `cup_${cup.item}` : 'cup_coffee';
   }
@@ -170,6 +173,8 @@ export class CreatureLayer {
   cupLabel(cup: Cup) {
     if (!CUP_ITEMS.includes(cup.item) && canCarry(cup.item)) { // a thrown or dropped item
       const def = itemDef(cup.item), who = cup.by && this.store.users.get(cup.by)?.name;
+      if (cup.item === 'remote_car' && cup.by !== SPAWN_BY) return `🏎️ ${who ? `${who}'s` : 'A'} remote car · click to take the controller`;
+      if (cup.by === SPAWN_BY) return `${def?.icon ?? '📦'} ${def?.label ?? cup.item} · found lying around · click to pick up`;
       return `${def?.icon ?? '📦'} ${def?.label ?? cup.item}${who ? ` · from ${who}` : ''} · click to pick up`;
     }
     const glass = !!DRINKS[cup.item]?.glass, icon = cup.item === 'tea' ? '🍵' : cup.item === 'beer' ? '🍺' : cup.item === 'wine' ? '🍷' : cup.item === 'cocktail' ? '🍸' : '☕';
@@ -193,6 +198,13 @@ export class CreatureLayer {
       const { x, y } = this.cupSpot(cup);
       if (isPlate(cup.item)) { // the food while lunch lasts, then the crumbs
         out.push({ base, draw: () => this.blit(this.store.now() < cup.at + LUNCH_MS ? `plate_${plateFood(cup.item)}` : 'plate_empty', x, y) });
+        continue;
+      }
+      if (cup.item === 'remote_car') { // glides between tiles (the server moves it a tile per 130 ms), faces its way
+        const fx = this.store.carFx.get(cup.id), k = fx ? Math.min(1, (performance.now() - fx.at) / 130) : 1;
+        const px = (fx ? fx.from.x + (cup.tile.x - fx.from.x) * k : cup.tile.x) * TS + TS / 2, py = (fx ? fx.from.y + (cup.tile.y - fx.from.y) * k : cup.tile.y) * TS + TS;
+        const vertical = cup.dir === 'up' || cup.dir === 'down', name = vertical && this.f('toy_car_v') ? 'toy_car_v' : 'toy_car';
+        out.push({ base: py - 0.25, draw: () => { this.shadow(px, py, 5); this.drawFrame(name, px, py - 1, cup.dir === 'left'); } });
         continue;
       }
       if (!CUP_ITEMS.includes(cup.item) && canCarry(cup.item)) { // a thrown or dropped item: its sprite if it has one, else its emoji on the floor

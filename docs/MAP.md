@@ -233,7 +233,7 @@ Every object with a `use` (wall decor counts toward the room below it). Routing 
 | o314 | `stretch_mat` | `wellness` | — | 20,30 | 2×1 | garden | Stretching mat |
 | o315 | `pomodoro_timer` | `wellness` | — | 3,4 | 1×1 | focus | Pomodoro timer |
 
-Kinds with no object on the map yet: none.
+Kinds with no object on the map yet: `gacha`.
 
 ## What else is in each room
 

@@ -5,7 +5,7 @@
 import { ITEM_DEFS } from './items';
 
 export interface DrinkRule {
-  effect: 'speed' | 'refreshment'; // when the sip ends: the coffee buff, or World.refreshment (drunk levels, coconut, ice cream)
+  effect: 'speed' | 'refreshment' | 'use'; // when the sip ends: the coffee buff, World.refreshment (drunk levels, coconut, ice cream), or the item's own onUse (slurpee, energy drink)
   sipMs: number;              // how long drinking takes (the sip animation)
   autoSipMs?: number;         // drink by yourself after holding this long; absent: only on `drink`
   alcohol?: true;             // a round of `drunk` (World.refreshment)
