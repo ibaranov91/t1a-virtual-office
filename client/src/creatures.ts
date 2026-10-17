@@ -5,6 +5,7 @@ import { sampleMove, WALK_MS_PER_TILE, type Dir, type Rect } from '../../shared/
 import { isPlate, LUNCH_MS, plateFood } from '../../shared/lunch';
 import { CUP_ITEMS, cupTableAt, type Creature, type Cup } from '../../shared/protocol';
 import { DRINKS } from '../../shared/drinks';
+import { canCarry, itemDef } from '../../shared/items';
 import { phrase } from '../../shared/phrases';
 import type { Frame } from './assets';
 import { itemTop } from './tableTops';
@@ -163,10 +164,14 @@ export class CreatureLayer {
   /** The cup drawn under this world point (with a pixel or two of slack), to click it away. Plates aren't: someone
    *  may still be eating. */
   cupAt(wx: number, wy: number) {
-    return this.store.cups.find(c => { const p = this.cupSpot(c); return CUP_ITEMS.includes(c.item) && wx >= p.x - 2 && wx < p.x + p.w + 2 && wy >= p.y - 3 && wy < p.y + p.h + 2; }) ?? null;
+    return this.store.cups.find(c => { const p = this.cupSpot(c); return (CUP_ITEMS.includes(c.item) || canCarry(c.item)) && wx >= p.x - 2 && wx < p.x + p.w + 2 && wy >= p.y - 3 && wy < p.y + p.h + 2; }) ?? null;
   }
   /** What hovering a cup says. */
   cupLabel(cup: Cup) {
+    if (!CUP_ITEMS.includes(cup.item) && canCarry(cup.item)) { // a thrown or dropped item
+      const def = itemDef(cup.item), who = cup.by && this.store.users.get(cup.by)?.name;
+      return `${def?.icon ?? '📦'} ${def?.label ?? cup.item}${who ? ` · from ${who}` : ''} · click to pick up`;
+    }
     const glass = !!DRINKS[cup.item]?.glass, icon = cup.item === 'tea' ? '🍵' : cup.item === 'beer' ? '🍺' : cup.item === 'wine' ? '🍷' : cup.item === 'cocktail' ? '🍸' : '☕';
     if (!cup.floor) return `${icon} Someone left this here · click to clear it away`;
     const who = cup.by && this.store.users.get(cup.by)?.name;
@@ -188,6 +193,17 @@ export class CreatureLayer {
       const { x, y } = this.cupSpot(cup);
       if (isPlate(cup.item)) { // the food while lunch lasts, then the crumbs
         out.push({ base, draw: () => this.blit(this.store.now() < cup.at + LUNCH_MS ? `plate_${plateFood(cup.item)}` : 'plate_empty', x, y) });
+        continue;
+      }
+      if (!CUP_ITEMS.includes(cup.item) && canCarry(cup.item)) { // a thrown or dropped item: its sprite if it has one, else its emoji on the floor
+        const def = itemDef(cup.item), frame = def?.sprite && this.f(def.sprite) ? def.sprite : null;
+        out.push({ base, draw: () => {
+          if (frame) return this.blit(frame, x, y);
+          const ctx = this.ctx();
+          ctx.fillStyle = 'rgba(0,0,0,.25)'; ctx.fillRect(x + 1, y + 4, 8, 2);
+          ctx.fillStyle = '#000'; ctx.font = '8px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+          ctx.fillText(def?.icon ?? '📦', x + 5, y + 2); ctx.textAlign = 'start'; ctx.textBaseline = 'alphabetic';
+        } });
         continue;
       }
       const name = this.cupFrame(cup);

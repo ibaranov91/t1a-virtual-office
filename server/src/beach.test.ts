@@ -154,7 +154,7 @@ test('version 2 migrates wing furniture once; version 5 preserves removed and mo
   old.layout = { objects: old.layout?.objects ?? w.layout().objects.filter(o => !inWing(w.map, o.x, o.y)), rugs: w.map.rugs };
   const migrated = new World(structuredClone(map)); migrated.load(old);
   assert.equal(migrated.map.objects.filter(o => o.type === 'lounger').length, 4);
-  const next = migrated.dump(); assert.equal(next.version, 5);
+  const next = migrated.dump(); assert.equal(next.version, 6);
   next.layout!.objects = next.layout!.objects.filter(o => o.type !== 'hammock');
   const restored = new World(structuredClone(map)); restored.load(next);
   assert.equal(restored.map.objects.filter(o => o.type === 'lounger').length, 4);
@@ -216,7 +216,7 @@ test('version 3 resets six old loungers once; version 5 preserves the saved wing
   const reset = new World(structuredClone(map)); reset.load(saved);
   assert.equal(reset.map.objects.filter(o => o.type === 'lounger').length, 4);
   assert.deepEqual(reset.users.get(u.id)!.tile, map.spawn);
-  assert.equal(reset.dump().version, 5);
+  assert.equal(reset.dump().version, 6);
   saved.version = 5; saved.users.find(p => p.id === u.id)!.tile = map.spawn;
   const preserved = new World(structuredClone(map)); preserved.load(saved);
   assert.equal(preserved.map.objects.filter(o => o.type === 'lounger').length, 6);
@@ -231,7 +231,7 @@ test('version 4 resets mountain props once and version 5 preserves subsequent ed
   const reset = new World(structuredClone(map)); reset.load(saved);
   assert.deepEqual(reset.map.objects.filter(o => o.type === 'pine').map(o => [o.x, o.y]), [[2, 37], [1, 39], [23, 36]]);
   assert.equal(reset.map.objects.find(o => o.type === 'summit_flag')!.x, 12);
-  const next = reset.dump(); assert.equal(next.version, 5);
+  const next = reset.dump(); assert.equal(next.version, 6);
   next.layout!.objects = next.layout!.objects.filter(o => o.type !== 'pine');
   const restored = new World(structuredClone(map)); restored.load(next);
   assert.equal(restored.map.objects.some(o => o.type === 'pine'), false);

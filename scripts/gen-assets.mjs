@@ -2189,6 +2189,18 @@ for (const on of [false, true]) {
   frames.out_of_office_sign = t.outline();
 }
 
+// ---------- prison hat (put on thieves by the server: shared/items.ts PRISON_MS) ----------
+// A hat or a held item is one entry like this one: hats are `hat_<style>` frames (bottom row on the head's row 4); a held item
+// can name a `sprite` frame in shared/items.ts, otherwise its emoji is drawn.
+{
+  const t = new Img(16, 9);
+  const row = (y, x0, w) => { for (let x = x0; x < x0 + w; x++) t.px(x, y, (y + (x >> 1)) % 2 === 0 ? '#2a2a32' : '#ececf2'); };
+  row(1, 6, 4); row(2, 4, 8); row(3, 3, 10); row(4, 3, 10); row(5, 2, 12);
+  for (let y = 1; y <= 5; y++) { const x0 = y === 1 ? 6 : y === 2 ? 4 : y === 5 ? 2 : 3, w = y === 1 ? 4 : y === 2 ? 8 : y === 5 ? 12 : 10; t.px(x0, y, '#2a2a32'); t.px(x0 + w - 1, y, '#2a2a32'); }
+  t.rect(1, 6, 14, 2, '#2a2a32'); t.hline(2, 6, 12, '#ececf2'); // the rim: a white band on a dark brim
+  frames.hat_prison = t.outline();
+}
+
 // ---------- pack world atlas (shelf packer) ----------
 const names = Object.keys(frames).sort((a, b) => frames[b].h - frames[a].h || frames[b].w - frames[a].w);
 const AW = 256; let x = 0, y = 0, rowH = 0; const rects = {};

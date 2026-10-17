@@ -71,5 +71,5 @@ test('sections sort unlocks newest first, then progress, no progress, secrets, s
   assert.equal(unlocked.id, 'unlocked');
   assert.deepEqual(unlocked.items.map(a => a.id), ['raver', 'tended']);
   assert.equal(locked.id, 'locked');
-  assert.deepEqual(locked.items.map(a => a.id), ['bloom', 'botanist', 'bookworm', 'editor', 'whisperer', 'bellringer', 'bughunter', 'escape', 'batcatcher', 'tidy', 'happy_hour', 'closing_time', 'designated', 'event']);
+  assert.deepEqual(locked.items.map(a => a.id), ['bloom', 'botanist', 'bookworm', 'editor', 'whisperer', 'bellringer', 'bughunter', 'escape', 'batcatcher', 'tidy', 'happy_hour', 'closing_time', 'designated', 'snoop', 'event']);
 });

@@ -662,6 +662,8 @@ button:focus-visible, summary:focus-visible, input[type="range"]:focus-visible {
 .palette button.on { outline: 2px solid var(--accent); background: #4a3428; }
 .palette button span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .palette canvas { width: 32px; height: 32px; image-rendering: pixelated; }
+.storage-log { margin: 0; padding-left: 16px; display: grid; gap: 2px; font-size: var(--fs-md); }
+.palette button:disabled { opacity: .5; }
 .edit-panel .reset { align-self: start; font-size: var(--fs-md); }
 
 /* Musical typing is a display of the physical keyboard, never a touch piano. */

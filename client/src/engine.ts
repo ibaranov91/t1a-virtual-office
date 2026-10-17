@@ -18,6 +18,7 @@ import { drawText, plateLines, textWidth } from './font';
 import { TRACK } from '../../shared/music';
 import { TOILET_CAPACITY, toiletFull, cupTableAt, CUP_ITEMS, underground, MEETING_ROOM_ID, PLANT_REVEAL, PLANT_STAGES, plantDead, plantName, type Cup, type LayoutEdit } from '../../shared/protocol';
 import { isCovered } from './native';
+import { itemDef } from '../../shared/items';
 import { ITEMS, MAP, PORTAL_MS, type ClientUser, type Pose, type PortalFx, type Store, type DungeonFx } from './net';
 
 const TS = MAP.tileSize;
@@ -812,15 +813,20 @@ export class Engine {
     const inside = this.myInstance();
     this.hoverCup = this.hoverUser || inside || this.areaDown ? null : this.critters.cupAt(w.x, w.y);
     this.hoverObject = this.hoverUser || this.hoverCup ? null : this.pickable(w.x, w.y, inside);
-    this.hoverPlant = this.hoverUser || this.hoverObject || inside ? null
-      : this.plants.find(p => w.x >= p.x - 5 && w.x < p.x + 5 && w.y >= p.y - 18 && w.y < p.y) ?? null;
+    this.hoverPlant = this.hoverUser || this.hoverObject || inside ? null : this.plantAt(w.x, w.y);
     const tx = Math.floor(w.x / TS), ty = Math.floor(w.y / TS);
     this.hoverTile = this.clickTarget({ x: tx, y: ty });
     this.hoverCritter = this.hoverUser || this.hoverObject || inside || this.areaDown ? null : this.critters.at(w.x, w.y, this.store.now());
     this.cupTile = this.hoverUser || this.hoverObject || this.hoverCup ? null : this.cupTarget({ x: tx, y: ty });
     this.lunchTile = this.hoverUser || this.hoverObject || inside || !this.lunchChair({ x: tx, y: ty }) ? null : { x: tx, y: ty };
-    this.canvas.style.cursor = this.tapZooms ? 'zoom-in' : this.hoverUser || this.hoverObject || this.hoverCup || this.cupTile || this.lunchTile || this.hoverCritter?.id ? 'pointer' : this.hoverTile ? 'crosshair' : 'default';
+    this.canvas.style.cursor = this.tapZooms ? 'zoom-in' : this.hoverUser || this.hoverObject || this.hoverCup || this.cupTile || this.lunchTile || this.hoverCritter?.id || (this.hoverPlant && this.nearDesk(this.hoverPlant.u)) ? 'pointer' : this.hoverTile ? 'crosshair' : 'default';
   };
+  private plantAt(wx: number, wy: number) { return this.plants.find(p => wx >= p.x - 5 && wx < p.x + 5 && wy >= p.y - 18 && wy < p.y) ?? null; }
+  /** Close enough to a person's desk (the server uses the same 4 tiles) for its plant to open their storage. */
+  private nearDesk(owner: ClientUser) {
+    const me = this.store.users.get(this.store.me), d = owner.homeDesk;
+    return !!me && !!d && onMap(me) && Math.max(Math.abs(me.tile.x - d.x), Math.abs(me.tile.y - d.y)) <= 4;
+  }
   private onEditMove(w: { x: number; y: number }) {
     const tx = Math.floor(w.x / TS), ty = Math.floor(w.y / TS), d = this.editDrag;
     if (d) {
@@ -860,6 +866,8 @@ export class Engine {
     const hit = this.userAt(w.x, w.y);
     if (hit) return this.onPick?.({ kind: 'user', id: hit });
     const inside = this.myInstance();
+    const plant = inside || this.areaDown ? null : this.plantAt(w.x, w.y);
+    if (plant && this.nearDesk(plant.u)) { this.onPick?.(null); this.manualCam = false; return this.store.openStorage(plant.u.id); } // the desk plant is the storage
     const critter = inside || this.areaDown ? null : this.critters.at(w.x, w.y, this.store.now());
     if (critter?.id) { this.onPick?.(null); this.manualCam = false; return this.store.pet(critter.id); }
     const cupHit = inside || this.areaDown ? null : this.critters.cupAt(w.x, w.y);
@@ -1217,7 +1225,7 @@ export class Engine {
     else if (this.hoverCritter) this.drawLabel(this.hoverCritter.text, this.hoverCritter.x, this.hoverCritter.y, camX, camY);
     else if (this.hoverPlant) {
       const { u, x, y } = this.hoverPlant, mine = u.id === this.store.me, p = u.plant!;
-      const state = plantDead(p, t) ? (mine ? 'withered · set a status to replant' : 'withered') : PLANT_STAGES[p.stage] + (mine ? ' · set a status each day' : '');
+      const state = plantDead(p, t) ? (mine ? 'withered · set a status to replant' : 'withered') : PLANT_STAGES[p.stage] + (mine ? ' · set a status each day' : '') + (this.nearDesk(u) ? ' · click: desk storage' : '');
       this.drawLabel(`${mine ? 'Your' : `${u.name.split(' ')[0]}'s`} ${plantDead(p, t) ? 'plant' : plantName(p)} · ${state}`, x, y - 18, camX, camY);
     }
     else if (this.hoverTile) {
@@ -1390,7 +1398,8 @@ export class Engine {
       const ix = x + dx + ih.dx + (8 - ih.dx) * 0.4 * sip, iy = baseY + ih.dy + bob + (p.walking ? swing : 0) - 5 * sip + (sip === 1 ? Math.round(Math.sin(sipT * Math.PI * 4)) : 0);
       ctx.fillStyle = '#000'; ctx.font = '7px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; // emoji take the fill alpha
       if (isEmpty(u.holding)) ctx.globalAlpha = 0.45; // an empty cup: dimmed
-      ctx.fillText(icon, ix, iy);
+      const spr = itemDef(u.holding!)?.sprite, sf = spr ? this.f(spr) : undefined; // a registry sprite, else the emoji
+      if (spr && sf) this.blit(ctx, spr, Math.round(ix - sf.w / 2), Math.round(iy - sf.h / 2)); else ctx.fillText(icon, ix, iy);
       ctx.globalAlpha = 1;
       if (sip) { ctx.font = 'bold 5px system-ui, sans-serif'; ctx.lineWidth = 2; ctx.strokeStyle = '#2a1e1a'; ctx.strokeText('sip', x - 2, top + 7); ctx.fillStyle = '#fff'; ctx.fillText('sip', x - 2, top + 7); }
       ctx.textAlign = 'start'; ctx.textBaseline = 'alphabetic';

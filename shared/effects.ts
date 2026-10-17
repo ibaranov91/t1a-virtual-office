@@ -12,8 +12,9 @@ export const HAT_STYLES = ['top', 'party', 'wizard', 'cowboy', 'crown'] as const
 export const SPECIAL_HATS = ['judge', 'laurel', 'winged', 'crested'] as const;
 export const ADMIN_HAT = 'admin'; // the server puts this one in an office admin's pockets
 export const BAT_HAT = 'bat';     // from catching the October bat
-export const ALL_HATS = [...HAT_STYLES, ...SPECIAL_HATS, ADMIN_HAT, BAT_HAT] as const;
-export const HAT_NAMES: Record<string, string> = { top: 'Top hat', party: 'Party hat', wizard: 'Wizard hat', cowboy: 'Cowboy hat', crown: 'Crown', judge: "Judge's hat", laurel: 'Laurel wreath', winged: 'Winged helmet', crested: 'Crested helmet', admin: 'Admin cap', bat: 'Bat hat' };
+export const PRISON_HAT_STYLE = 'prison'; // put on a thief by the server; can't come off for two days (shared/items.ts PRISON_MS)
+export const ALL_HATS = [...HAT_STYLES, ...SPECIAL_HATS, ADMIN_HAT, BAT_HAT, PRISON_HAT_STYLE] as const;
+export const HAT_NAMES: Record<string, string> = { top: 'Top hat', party: 'Party hat', wizard: 'Wizard hat', cowboy: 'Cowboy hat', crown: 'Crown', judge: "Judge's hat", laurel: 'Laurel wreath', winged: 'Winged helmet', crested: 'Crested helmet', admin: 'Admin cap', bat: 'Bat hat', prison: 'Prison hat' };
 /** Hats are inventory items: `hat:<style>`. You wear one of the hats in your pockets. */
 export const hatItem = (style: string) => `hat:${style}`;
 export const hatOf = (item: string) => (item.startsWith('hat:') ? item.slice(4) : null);
