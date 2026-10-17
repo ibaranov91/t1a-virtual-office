@@ -1,4 +1,7 @@
 import { DiagStore, DiagError, DIAG_MAX_BYTES, validateDiag } from './diag';
+import { BugStore, BUG_MAX_BYTES, recentErrors, validateBug, validateErrors } from './reports';
+import { serverVersion } from './buildinfo';
+import { logEvent } from './log';
 import { BannerStore, BannerError, BANNER_MAX_BYTES } from './banners';
 import { createServer, type IncomingMessage } from 'node:http';
 import { copyFileSync, createReadStream, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
@@ -47,6 +50,13 @@ const diagnostics = new DiagStore(fileURLToPath(new URL('diag/', DATA)));
 const sweepDiag = () => diagnostics.sweep().catch(e => console.warn('diagnostics sweep failed:', e));
 void sweepDiag();
 setInterval(sweepDiag, 3600_000).unref();
+// ---- v2 logging: client error reports (per-day files like diagnostics, 3 days) and Report bug submissions (14 days)
+const clientErrors = new DiagStore(fileURLToPath(new URL('client-errors/', DATA)));
+const bugs = new BugStore(fileURLToPath(new URL('bugs/', DATA)));
+const sweepReports = () => Promise.all([clientErrors.sweep(), bugs.sweep()]).catch(e => console.warn('report sweep failed:', e));
+void sweepReports();
+setInterval(sweepReports, 3600_000).unref();
+for (const ev of ['uncaughtException', 'unhandledRejection'] as const) process.on(ev, e => { logEvent('crash', { kind: ev, err: (e as Error)?.stack ?? e }); process.exit(1); });
 const STATE_FILE = new URL('state.json', DATA);
 
 const map: TileMap = JSON.parse(readFileSync(new URL('../../shared/tilemap.json', import.meta.url), 'utf8'));
@@ -266,7 +276,8 @@ const server = createServer((req, res) => {
 async function route(req: IncomingMessage, res: import('node:http').ServerResponse) {
   if (req.method === 'GET' && req.url === '/api/lofi') return json(res, 200, await lofiLive.get());
   if (req.method === 'GET' && req.url === '/api/health') return json(res, 200, { ok: true, users: world.users.size });
-  if (req.method === 'GET' && req.url === '/api/config') return json(res, 200, { netbird: NETBIRD, tokenLogin: TOKEN_LOGIN, tokenRequired: !OPEN_LOGIN && !EMAIL_LOGIN, emailLogin: EMAIL_LOGIN, iceServers: ICE_SERVERS });
+  if (req.method === 'GET' && req.url === '/api/config') return json(res, 200, { netbird: NETBIRD, tokenLogin: TOKEN_LOGIN, tokenRequired: !OPEN_LOGIN && !EMAIL_LOGIN, emailLogin: EMAIL_LOGIN, iceServers: ICE_SERVERS, version: serverVersion() });
+  if (req.method === 'GET' && req.url === '/api/version') return json(res, 200, serverVersion());
   if (req.method === 'GET' && req.url === '/api/slack/images') {
     const userId = sessions.get(String(req.headers['x-deck-session'] ?? ''));
     if (!userId || !world.users.has(userId)) return json(res, 401, { error: 'sign in first' });
@@ -376,6 +387,48 @@ async function route(req: IncomingMessage, res: import('node:http').ServerRespon
     });
     return;
   }
+  if (req.method === 'POST' && (req.url === '/api/client-errors' || req.url === '/api/bug')) {
+    const session = String(req.headers['x-deck-session'] ?? ''), userId = sessions.get(session), user = userId && world.users.get(userId);
+    if (!user) return json(res, 401, { error: 'sign in first' });
+    const isBug = req.url === '/api/bug', max = isBug ? BUG_MAX_BYTES : 64 * 1024;
+    try { if (!isBug) clientErrors.begin(session); } catch (e) { return json(res, (e as DiagError).code, { error: (e as Error).message }); }
+    const chunks: Buffer[] = []; let size = 0, tooBig = false;
+    req.on('data', (chunk: Buffer) => { size += chunk.length; if (size > max) { tooBig = true; chunks.length = 0; } else if (!tooBig) chunks.push(chunk); });
+    req.on('end', async () => {
+      if (tooBig) return json(res, 413, { error: 'Too large' });
+      try {
+        let body: unknown;
+        try { body = JSON.parse(Buffer.concat(chunks).toString()); } catch { throw new DiagError(400, 'Invalid JSON'); }
+        if (isBug) {
+          const id = await bugs.submit(user, validateBug(body));
+          logEvent('bug_report', { user: user.id, id });
+          return json(res, 200, { ok: true, id });
+        }
+        const batch = validateErrors(body);
+        await clientErrors.append(user.id, user.name, batch);
+        logEvent('client_error', { user: user.id, n: batch.records.length, first: batch.records[0]?.msg });
+        json(res, 200, { ok: true });
+      } catch (e) {
+        if (e instanceof DiagError) return json(res, e.code, { error: e.message });
+        console.warn('report write failed:', e);
+        json(res, 500, { error: 'Write failed' });
+      }
+    });
+    return;
+  }
+  if (req.method === 'GET' && req.url?.startsWith('/api/admin/reports')) { // office admins: latest client errors and bug reports
+    const userId = sessions.get(String(req.headers['x-deck-session'] ?? '')), user = userId && world.users.get(userId);
+    if (!user || !world.isAdmin(user)) return json(res, 403, { error: 'admins only' });
+    const shot = /^\/api\/admin\/reports\/([0-9a-f]{16})\/shot$/.exec(req.url);
+    if (shot) {
+      const img = await bugs.screenshot(shot[1]);
+      if (!img) return json(res, 404, { error: 'not found' });
+      res.writeHead(200, { 'content-type': img.type, 'cache-control': 'private, max-age=3600', 'x-content-type-options': 'nosniff' });
+      return void res.end(img.data);
+    }
+    if (req.url !== '/api/admin/reports') return json(res, 404, { error: 'not found' });
+    return json(res, 200, { errors: await recentErrors(fileURLToPath(new URL('client-errors/', DATA))), bugs: await bugs.list() });
+  }
   if (req.method === 'POST' && req.url === '/api/banner') {
     const userId = sessions.get(String(req.headers['x-deck-session'] ?? ''));
     const user = userId && world.users.get(userId);
@@ -465,6 +518,7 @@ wss.on('connection', (ws, req) => {
   const user = userId ? world.users.get(userId) : undefined;
   if (!user) { ws.close(4001, 'unauthorized'); return; }
   if (user.email && !user.nameSet && user.name !== nameFromEmail(user.email)) user.name = nameFromEmail(user.email); // sessions outlive sign-in: bring old "Ivan Baranov" names to the current rule
+  logEvent('connect', { user: user.id, name: user.name, tab: params.get('tab') ?? undefined });
   const { socket, close } = world.connect(user.id,
     msg => { if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(msg)); },
     json => { if (ws.readyState === ws.OPEN) ws.send(json); }, params.get('tab') ?? undefined);
@@ -472,9 +526,10 @@ wss.on('connection', (ws, req) => {
     try {
       const msg: unknown = JSON.parse(String(raw));
       if (msg && typeof msg === 'object' && 't' in msg && typeof msg.t === 'string') world.handle(user, msg as ClientMsg, socket);
-    } catch (e) { console.warn('bad message', e); }
+      else logEvent('rejected', { user: user.id, reason: 'not an intent' });
+    } catch (e) { logEvent('rejected', { user: user.id, reason: e instanceof SyntaxError ? 'bad json' : 'handler threw', err: (e as Error).message }); console.warn('bad message', e); }
   });
-  ws.on('close', close);
+  ws.on('close', (code, reason) => { logEvent('disconnect', { user: user.id, name: user.name, code, reason: String(reason) || undefined }); close(); });
 });
 
 server.listen(PORT, process.env.DECK_HOST ?? '0.0.0.0', () => console.log(

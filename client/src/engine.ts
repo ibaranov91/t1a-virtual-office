@@ -456,6 +456,7 @@ export class Engine {
 
   // ---------- layout ----------
   private resize() {
+    this.lastInput = performance.now(); // redraw promptly at the new size
     const parent = this.canvas.parentElement!;
     const w = parent.clientWidth, h = parent.clientHeight;
     const dpr = window.devicePixelRatio || 1;
@@ -908,20 +909,47 @@ export class Engine {
 
   // ---------- render ----------
   private touched = () => { this.lastInput = performance.now(); };
-  /** Cap the redraw rate: 60 fps while anything moves or the user is interacting (ProMotion would otherwise draw 120), 30 when the floor is still (2 when covered). */
+  /**
+   * Render on demand. Redraw gaps by what the floor is doing: ~60 fps while something moves or the user interacts, ~30 while
+   * something animates smoothly (effects, dancing, speech, floating reactions), ~8 when only ambient loops run (water, blinking
+   * racks, breathing: all of them step in 120+ ms), and 2 when the window is out of focus or covered. A hidden tab draws nothing.
+   */
   private skipFrame(ms: number) {
     const gap = ms - this.lastDraw;
-    if (isCovered()) { if (gap < 490) return true; } // the Mac app's view is behind other windows: ~2 fps
-    else if (gap < 15) return true;
-    else if (gap < 49) { // 60 while busy, otherwise 30
-      const now = this.store.now(), users = [...this.store.users.values()];
-      const busy = this.glide || this.editing || ms - this.lastInput < 1500 || this.store.version !== this.drawnVersion || this.store.portalFx.some(f => ms - f.at < PORTAL_MS)
-        || users.some(u => { if (!u.move) return false; const p = this.store.pose(u, now); return p.walking && this.visible(u) && this.onScreen(p.x * TS - TS, p.y * TS - TS, 3 * TS, 3 * TS); })
-        || (!this.areaDown && !this.store.users.get(this.store.me)?.instance && [...this.store.creatures.values()].some(c => { if (!c.walk) return false; const p = creaturePose(c, now); return p.walking && this.onScreen(p.x * TS - TS, p.y * TS - TS, 3 * TS, 3 * TS); }));
-      if (!busy && gap < 31) return true;
-    }
+    if (gap < 15) return true;
+    const need = this.cadence(ms);
+    if (gap < need - 1) return true;
     this.lastDraw = ms;
+    this.stats.push(ms); if (this.stats.length > 600) this.stats.shift();
     return false;
+  }
+  private cadence(ms: number) {
+    if (isCovered()) return 500;
+    if (this.glide || this.editing || ms - this.lastInput < 1500 || this.store.version !== this.drawnVersion) return 16;
+    if (ms - this.cadAt > 100) { this.cadAt = ms; this.cadSlow = this.slowCadence(ms); }
+    return this.cadSlow;
+  }
+  private cadAt = -1e9; private cadSlow = 16;
+  private slowCadence(ms: number) {
+    const now = this.store.now(), users = [...this.store.users.values()];
+    const near = (x: number, y: number) => this.onScreen(x * TS - TS, y * TS - TS, 3 * TS, 3 * TS);
+    if (this.store.portalFx.some(f => ms - f.at < PORTAL_MS)) return 16;
+    if (users.some(u => { if (!u.move) return false; const p = this.store.pose(u, now); return p.walking && this.visible(u) && near(p.x, p.y); })) return 16;
+    if (!this.areaDown && !this.store.users.get(this.store.me)?.instance && [...this.store.creatures.values()].some(c => { if (!c.walk) return false; const p = creaturePose(c, now); return p.walking && near(p.x, p.y); })) return 16;
+    if (this.areaDown || this.store.reactions.length || this.instrumentNotes.length || this.partyOnScreen() || this.store.dungeonFx.some(f => ms - f.at < 700)
+      || this.store.objectFx.some(f => performance.now() - f.at < 4000)
+      || users.some(u => this.visible(u) && (u.effects?.some(e => e.kind !== 'hat') || u.speaking))) return 31;
+    return document.hasFocus() ? 124 : 499;
+  }
+  /** A room with its jukebox playing (disco ball, notes, dancers) is in view. */
+  private partyOnScreen() {
+    return this.parties.some(id => { const r = MAP.rooms.find(r => r.id === id)?.rect; return !!r && this.onScreen(r.x * TS, r.y * TS, r.w * TS, r.h * TS); });
+  }
+  private stats: number[] = [];
+  /** Dev counter: how many frames were drawn in the last `windowMs` (default 10 s). */
+  frameStats(windowMs = 10_000) {
+    const t = performance.now(), n = this.stats.filter(x => t - x <= windowMs).length;
+    return { frames: n, windowMs, perSecond: +(n / (windowMs / 1000)).toFixed(2), cadenceMs: Math.round(this.cadSlow) };
   }
   private drawnVersion = -1;
   private lastFrameMs = 0;
@@ -932,7 +960,22 @@ export class Engine {
   }
   private frame = (ms: number) => {
     this.raf = requestAnimationFrame(this.frame);
-    if (document.hidden || this.skipFrame(ms)) return;
+    if (document.hidden) return;
+    if (this.captureResolve) this.lastDraw = -1e9; // a screenshot is waiting: draw now
+    if (this.skipFrame(ms)) return;
+    this.draw(ms);
+    if (this.captureResolve) { // toDataURL must run in the task that drew the frame, or the canvas can read back blank
+      const done = this.captureResolve; this.captureResolve = null;
+      try { done(this.canvas.toDataURL('image/jpeg', 0.7)); } catch { done(null); }
+    }
+  };
+  private captureResolve: ((url: string | null) => void) | null = null;
+  /** The floor as a JPEG data URL (for bug reports); null when the tab is hidden or the canvas can't be read. */
+  captureFrame(): Promise<string | null> {
+    if (document.hidden) return Promise.resolve(null);
+    return new Promise(resolve => { this.captureResolve = resolve; setTimeout(() => { if (this.captureResolve === resolve) { this.captureResolve = null; resolve(null); } }, 2000); });
+  }
+  private draw(ms: number) {
     const prevMs = this.lastFrameMs; this.lastFrameMs = ms;
     if (this.layoutSeen !== this.store.layoutVersion) this.refreshLayout();
     this.syncArea(); this.keyboardStep();
@@ -1188,7 +1231,7 @@ export class Engine {
       ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
     }
     this.store.dungeonFx = this.store.dungeonFx.filter(f => ms - f.at < 1600);
-  };
+  }
 
   /** A swirling violet portal standing on a tile; `s` is how far open it is (0 shut, 1 full). */
   private drawPortal(tile: Tile, s: number, ms: number) {

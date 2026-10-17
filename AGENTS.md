@@ -111,6 +111,20 @@ npm run typecheck    # run before every commit or deploy
 - **Voice diagnostics** observe only: voice/audio lifecycle, devices, page/errors and in-call stats go to
   `data/diag/<date>/<userId>.jsonl` on the instance, with 3-day retention. Inspect the pending buffer with
   `window.__voiceDiag.dump()` (all builds).
+- **Render on demand** (`skipFrame`/`cadence` in `client/src/engine.ts`): the floor redraws at ~60 fps while something moves, you
+  interact, zoom glides or `store.version` changes; ~30 while smooth animations run in view (effects other than hats, speech,
+  reactions, a playing jukebox room, dungeon, object fx); ~8 when only ambient loops run (water, racks, breathing step in 120+ ms);
+  2 when unfocused or covered; none when hidden. A new animation that needs more than 8 fps must be added to `slowCadence`.
+  Dev: `__deck.engine.frameStats()` (frames in the last 10 s). `engine.captureFrame()` gives a JPEG of the floor (bug reports).
+- **Build info and logging** (`server/src/buildinfo.ts`, `reports.ts`, `log.ts`; `client/src/buildInfo.ts`, `reports.ts`, `LogViewer.tsx`):
+  `/api/version` (also in `/api/config`) = package version + commit (`.deployed-rev` on the box, else git) + start time; the page's own
+  build is baked in by Vite (`__WEB_BUILD__`); the sidebar's bottom strip shows both when they differ. Client errors
+  (`window.onerror`, unhandled rejections) go in batches to `POST /api/client-errors` → `data/client-errors/<day>/<user>.jsonl` (3 days,
+  `DiagStore`); `POST /api/bug` stores note + last 200 intents/server messages (`recordEvent` ring in `reports.ts`) + versions +
+  JPEG/PNG ≤ 1 MB in `data/bugs/<day>/` (14 days, 1 per 10 s); both session-authenticated. Office admins read them in the GM panel
+  (Logs) via `GET /api/admin/reports` and `/api/admin/reports/<id>/shot`. `reportBug` / `BugReportForm` are the reusable pieces (the
+  GM panel's Bug button is temporary). The server prints one `ev=… key=value` line per connect, disconnect, rejected message, bug report,
+  client error and crash to the journal.
 - **Talking bubbles** come from real mic activity (`speaking` messages). Bots fake turn-taking.
 - **Private data never gets broadcast.** `email`, `meetLink` and `google` are stripped in `World.toPublic`. A Meet link
   goes only to the people in that knock or call.

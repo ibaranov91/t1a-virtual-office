@@ -1,4 +1,6 @@
 import { networkInterfaces } from 'node:os';
+import { execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { defineConfig, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import basicSsl from '@vitejs/plugin-basic-ssl';
@@ -35,7 +37,16 @@ const onlyMeshAndLocal = (ip: string): Plugin => {
 };
 const meshAddr = mesh ? meshIp() : '';
 
+// Web build id: the package version and the commit this bundle was built from (shown in the UI, attached to bug reports).
+const webBuild = (() => {
+  let sha = 'unknown';
+  try { sha = execFileSync('git', ['rev-parse', '--short', 'HEAD'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim(); } catch { /* built outside git */ }
+  const version = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version ?? '0.0.0';
+  return { version, sha, builtAt: new Date().toISOString() };
+})();
+
 export default defineConfig({
+  define: { __WEB_BUILD__: JSON.stringify(webBuild) },
   plugins: [react(), ...(mesh ? [basicSsl(), onlyMeshAndLocal(meshAddr)] : [])],
   build: {
     // React gets its own chunk, so the many deploys a day don't make browsers download it again.
