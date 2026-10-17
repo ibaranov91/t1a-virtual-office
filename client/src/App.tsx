@@ -295,6 +295,11 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
         {showAppearance && me && <AppearanceMenu key={`appearance:${me.id}`} look={me.look} name={me.name} assets={assets} firstTime={!me.lookSet} store={store}
           onSave={(look, name) => { store.setLook(look, name); setShowAppearance(false); }} onClose={() => setShowAppearance(false)} />}
         <div className="chips">
+          {!isCompact && <>{/* the floor's "now" (top slot): music and voice status, within reach while the avatar walks */}
+            <NowPlayingChip store={store} />
+            {me?.callId && !me.instance && !store.roomCallOf(me) && store.voiceOwner && <CallChip store={store} voice={voice} header />}
+            <RoomVoiceChip store={store} voice={voice} header />
+          </>}
           <MeetingChip store={store} voice={voice} />
           <LiveChip store={store} onGo={room => engineRef.current?.walkToRoom(room)} />
           <TalkConflictChip store={store} />
@@ -427,11 +432,6 @@ function TopBar({ store, assets, voice, roomName, onToggleMeet, onProfile, pocke
         <BrandLogo store={store} assets={assets} />
         {isCompact && me && <IdentityPill store={store} onProfile={onProfile} roomName={roomName} />}
       </div>
-      {!isCompact && <div className="top-middle">{/* the floor's "now": music and voice, within reach while the avatar walks */}
-        <NowPlayingChip store={store} />
-        {me?.callId && !me.instance && !store.roomCallOf(me) && store.voiceOwner && <CallChip store={store} voice={voice} header />}
-        <RoomVoiceChip store={store} voice={voice} header />
-      </div>}
       <div className="top-right">
         {isCompact && <VoiceIcons store={store} voice={voice} />}
         <UnreadButton store={store} />
