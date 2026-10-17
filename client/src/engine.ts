@@ -68,6 +68,7 @@ const ITEM_HAND: Record<string, { dx: number; dy: number }> = { down: { dx: 13, 
 const hash = (s: string) => { let h = 0; for (const c of s) h = (h * 31 + c.charCodeAt(0)) | 0; return Math.abs(h); };
 
 let waterMask: boolean[][] | undefined; // the floor never changes, so which tiles are water is worked out once
+const FAST_MS = 33; // the top redraw rate: ~30 fps
 export class Engine {
   private dungeonView = new DungeonView(MAP);
   private area: Rect = MAP.office;
@@ -910,13 +911,13 @@ export class Engine {
   // ---------- render ----------
   private touched = () => { this.lastInput = performance.now(); };
   /**
-   * Render on demand. Redraw gaps by what the floor is doing: ~60 fps while something moves or the user interacts, ~30 while
-   * something animates smoothly (effects, dancing, speech, floating reactions), ~8 when only ambient loops run (water, blinking
+   * Render on demand. Redraw gaps by what the floor is doing: ~30 fps (pixel art needs no more) while something moves, animates
+   * smoothly (effects, dancing, speech, floating reactions) or the user interacts, ~8 when only ambient loops run (water, blinking
    * racks, breathing: all of them step in 120+ ms), and 2 when the window is out of focus or covered. A hidden tab draws nothing.
    */
   private skipFrame(ms: number) {
     const gap = ms - this.lastDraw;
-    if (gap < 15) return true;
+    if (gap < 30) return true;
     const need = this.cadence(ms);
     if (gap < need - 1) return true;
     this.lastDraw = ms;
@@ -925,7 +926,7 @@ export class Engine {
   }
   private cadence(ms: number) {
     if (isCovered()) return 500;
-    if (this.glide || this.editing || ms - this.lastInput < 1500 || this.store.version !== this.drawnVersion) return 16;
+    if (this.glide || this.editing || ms - this.lastInput < 1500 || this.store.version !== this.drawnVersion) return FAST_MS;
     if (ms - this.cadAt > 100) { this.cadAt = ms; this.cadSlow = this.slowCadence(ms); }
     return this.cadSlow;
   }
@@ -933,12 +934,12 @@ export class Engine {
   private slowCadence(ms: number) {
     const now = this.store.now(), users = [...this.store.users.values()];
     const near = (x: number, y: number) => this.onScreen(x * TS - TS, y * TS - TS, 3 * TS, 3 * TS);
-    if (this.store.portalFx.some(f => ms - f.at < PORTAL_MS)) return 16;
-    if (users.some(u => { if (!u.move) return false; const p = this.store.pose(u, now); return p.walking && this.visible(u) && near(p.x, p.y); })) return 16;
-    if (!this.areaDown && !this.store.users.get(this.store.me)?.instance && [...this.store.creatures.values()].some(c => { if (!c.walk) return false; const p = creaturePose(c, now); return p.walking && near(p.x, p.y); })) return 16;
+    if (this.store.portalFx.some(f => ms - f.at < PORTAL_MS)) return FAST_MS;
+    if (users.some(u => { if (!u.move) return false; const p = this.store.pose(u, now); return p.walking && this.visible(u) && near(p.x, p.y); })) return FAST_MS;
+    if (!this.areaDown && !this.store.users.get(this.store.me)?.instance && [...this.store.creatures.values()].some(c => { if (!c.walk) return false; const p = creaturePose(c, now); return p.walking && near(p.x, p.y); })) return FAST_MS;
     if (this.areaDown || this.store.reactions.length || this.instrumentNotes.length || this.partyOnScreen() || this.store.dungeonFx.some(f => ms - f.at < 700)
       || this.store.objectFx.some(f => performance.now() - f.at < 4000)
-      || users.some(u => this.visible(u) && (u.effects?.some(e => e.kind !== 'hat') || u.speaking))) return 31;
+      || users.some(u => this.visible(u) && (u.effects?.some(e => e.kind !== 'hat') || u.speaking))) return FAST_MS;
     return document.hasFocus() ? 124 : 499;
   }
   /** A room with its jukebox playing (disco ball, notes, dancers) is in view. */
