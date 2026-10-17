@@ -111,9 +111,8 @@ npm run typecheck    # run before every commit or deploy
 - **Voice diagnostics** observe only: voice/audio lifecycle, devices, page/errors and in-call stats go to
   `data/diag/<date>/<userId>.jsonl` on the instance, with 3-day retention. Inspect the pending buffer with
   `window.__voiceDiag.dump()` (all builds).
-- **Render on demand** (`skipFrame`/`cadence` in `client/src/engine.ts`): the floor redraws at ~60 fps while something moves, you
-  interact, zoom glides or `store.version` changes; ~30 while smooth animations run in view (effects other than hats, speech,
-  reactions, a playing jukebox room, dungeon, object fx); ~8 when only ambient loops run (water, racks, breathing step in 120+ ms);
+- **Render on demand** (`skipFrame`/`cadence` in `client/src/engine.ts`): the floor redraws at ~30 fps (pixel art needs no more) while something moves or animates smoothly (walking, effects other than hats,
+  speech, reactions, a playing jukebox room, dungeon, object fx), you interact, zoom glides or `store.version` changes; ~8 when only ambient loops run (water, racks, breathing step in 120+ ms);
   2 when unfocused or covered; none when hidden. A new animation that needs more than 8 fps must be added to `slowCadence`.
   Dev: `__deck.engine.frameStats()` (frames in the last 10 s). `engine.captureFrame()` gives a JPEG of the floor (bug reports).
 - **Build info and logging** (`server/src/buildinfo.ts`, `reports.ts`, `log.ts`; `client/src/buildInfo.ts`, `reports.ts`, `LogViewer.tsx`):
