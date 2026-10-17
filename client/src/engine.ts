@@ -1495,17 +1495,18 @@ export class Engine {
     const x = Math.round(p.x * TS), baseY = Math.round(p.y * TS) + TS;
     // nameplate
     const isMe = u.id === this.store.me;
-    const key = `${u.name}|${isMe}|${!!u.vacation}`;
+    const mark = u.vacation ? '🌴' : u.dnd ? '🌙' : ''; // DND (v2): a moon, like the vacation palm
+    const key = `${u.name}|${isMe}|${mark}`;
     let plate = this.nameplates.get(key);
     if (!plate) {
       const lines = plateLines(u.name);
-      const prefix = u.vacation ? 9 : 0;
+      const prefix = mark ? 9 : 0;
       const w = Math.max(...lines.map(textWidth)) + 4 + prefix, h = Math.max(lines.length * 7 + 1, prefix);
       plate = document.createElement('canvas'); plate.width = w; plate.height = h;
       const pc = plate.getContext('2d')!;
       pc.fillStyle = isMe ? 'rgba(90,50,20,0.85)' : 'rgba(30,18,22,0.72)';
       pc.fillRect(1, 0, w - 2, h); pc.fillRect(0, 1, w, h - 2);
-      if (prefix) { pc.font = '8px system-ui, sans-serif'; pc.fillText('🌴', 1, 7); }
+      if (prefix) { pc.font = '8px system-ui, sans-serif'; pc.fillText(mark, 1, 7); }
       lines.forEach((l, i) => drawText(pc, l, prefix + Math.floor((w - prefix - textWidth(l)) / 2), 1 + i * 7, isMe ? '#ffe08a' : '#fff4e0'));
       this.nameplates.set(key, plate);
     }

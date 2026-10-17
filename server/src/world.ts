@@ -27,6 +27,7 @@ import { Retro } from './retro';
 import { Jukebox } from './jukebox';
 import { Library } from './library';
 import { Tickets } from './tickets';
+import { Journal } from './journal';
 import { migrateBookClub, migrateLibrary, readingSeats } from '../../shared/library';
 import { onMap } from '../../shared/beach';
 import type { Vacation } from '../../shared/vacation';
@@ -142,6 +143,7 @@ export class World {
   private jukeboxes = new Map<string, Jukebox>();
   library = new Library();
   tickets = new Tickets();
+  journal = new Journal();
   private readPlans = new Map<string, { articleId: string; seat: Tile; seq: number }>(); // on the way to a reading desk
   private objectOn = new Map<string, boolean>();          // toggle objects (lamps)
   private chats = new Map<string, ChatMsg[]>();           // per pair of people, oldest first
@@ -233,6 +235,7 @@ export class World {
   }
 
   constructor(public map: TileMap, retroFiles: Pick<ConstructorParameters<typeof Retro>[0], 'roms' | 'wasm'> = { roms: {}, wasm: new Uint8Array() }) {
+    this.journal.onAdd = (id, entry) => this.sendTo(id, { t: 'journal_add', entry });
     this.retro = new Retro({ ...retroFiles, now: () => Date.now(), send: (id, msg) => this.sendOwner(id, msg),
       broadcast: msg => this.broadcast(msg), user: id => this.users.get(id),
       cabinets: map.objects.flatMap(o => o.use?.kind === 'retro' ? [{ id: o.id, game: o.use.game }] : []) });
@@ -300,7 +303,7 @@ export class World {
     send({ t: 'layout', layout: this.layout() }); // before anyone's walk, which every client paths on this floor
     send(this.snapshot());
     send(this.me(u));
-    if (!u.bot) send({ t: 'later', items: this.laterList.get(userId) ?? [] });
+    if (!u.bot) { send({ t: 'later', items: this.laterList.get(userId) ?? [] }); send({ t: 'journal', entries: this.journal.list(userId), readAt: this.journal.readOf(userId) }); }
     if (underground(u) && u.dungeon) send({ t: 'dungeon', ...u.dungeon });
     if (u.reading) this.stopReading(u); // a fresh page has no overlay; the old read ends
     send({ t: 'meetings', rooms: this.meetingRooms() });
@@ -1623,6 +1626,7 @@ export class World {
     const existing = [to, from].map(u => u.callId ? this.calls.get(u.callId) : undefined).find(knockCall);
     if (existing) {
       for (const u of [from, to]) this.joinCall(u, existing);
+      this.trackCall(existing);
       return existing;
     }
     // new call: the knocker's own Meet room, else the other person's, so everyone lands in the same place;
@@ -1633,8 +1637,27 @@ export class World {
     this.calls.set(call.id, call);
     this.armCallSilence(call);
     for (const u of [from, to]) this.joinCall(u, call);
+    this.trackCall(call);
     this.freshRoom(call, from, to);
     return call;
+  }
+  // ---- journal: knock calls (who was in them, how long). Memory only.
+  private callTrack = new Map<string, { at: number; names: Set<string> }>(); // `${userId}/${callId}`
+  private trackCall(call: Call) {
+    const people = [...call.members].map(id => this.users.get(id)).filter((p): p is User => !!p);
+    for (const u of people) {
+      const key = `${u.id}/${call.id}`;
+      let t = this.callTrack.get(key);
+      if (!t) { t = { at: Date.now(), names: new Set() }; this.callTrack.set(key, t); this.journal.add(u.id, { kind: 'call', text: `Call started with ${people.filter(p => p !== u).map(p => p.name).join(', ')}` }); }
+      for (const p of people) if (p !== u) t.names.add(p.name);
+    }
+  }
+  private endTrack(u: User, callId: string) {
+    const key = `${u.id}/${callId}`, t = this.callTrack.get(key);
+    if (!t) return;
+    this.callTrack.delete(key);
+    const min = Math.max(1, Math.round((Date.now() - t.at) / 60_000));
+    this.journal.add(u.id, { kind: 'call', text: `Call with ${[...t.names].join(', ')} ended (${min} min)` });
   }
   /** With Google connected (the knocker's, else the other person's), the call gets its own new Meet room that
    *  anyone in the domain joins without asking. Arrives a moment after the call starts; until then (or if it
@@ -1810,6 +1833,7 @@ export class World {
     if (m.adhoc) this.roomVoice(u, true, true); // private rooms start with voice on; calendar meetings have their own call, so it's opt-in
     this.broadcast({ t: 'meetings', rooms: this.meetingRooms() });
     this.meetings.rejoin(u, key); // Go after leaving for good: in the meeting again
+    this.journal.add(u.id, { kind: m.adhoc ? 'room' : 'meeting', text: m.adhoc ? `Stepped into ${m.title}` : `Joined the meeting: ${m.title}` });
   }
   /** Valid invitees: existing humans other than the sender, deduped, at most 29. */
   private inviteList(u: User, ids: unknown): string[] {
@@ -1827,6 +1851,7 @@ export class World {
     this.enterMeeting(u, m.key);
     if (u.instance !== m.instance) { this.meetings.events.delete(m.key); return; } // no free spot: nothing started
     this.meetings.notify(m);
+    for (const id of m.adhoc!.invited) this.journal.add(id, { kind: 'room', otherId: u.id, text: `${u.name} invited you to ${m.title}` });
   }
   /** Add people to the private room the sender is in. */
   roomInvite(u: User, ids: unknown) {
@@ -1834,7 +1859,7 @@ export class World {
     if (!m?.adhoc || !this.canHost(u)) return;
     const add = this.inviteList(u, ids).filter(id => !m.adhoc!.invited.has(id)).slice(0, Math.max(0, 30 - m.adhoc.invited.size));
     if (!add.length) return;
-    for (const id of add) m.adhoc.invited.add(id);
+    for (const id of add) { m.adhoc.invited.add(id); this.journal.add(id, { kind: 'room', otherId: u.id, text: `${u.name} invited you to ${m.title}` }); }
     this.meetings.notify(m);
   }
   private instanceOf(u: User) { return u.instance && !underground(u) ? this.instances.get(u.instance) : undefined; }
@@ -2072,6 +2097,7 @@ export class World {
     if (call ? knockCall(call) : u.presenceBeforeCall) { // a dissolved knock call is already gone from this.calls
       this.setPresence(u, u.presenceBeforeCall ?? 'online'); u.presenceBeforeCall = undefined;
     }
+    this.endTrack(u, u.callId);
     u.callId = null;
     call?.members.delete(u.id);
     this.broadcast({ t: 'call', userId: u.id, callId: null });
@@ -2083,6 +2109,11 @@ export class World {
       clearTimeout(this.callSilenceTimers.get(call.id)); this.callSilenceTimers.delete(call.id);
       for (const id of [...call.members]) { const m = this.users.get(id); if (m) this.leaveCall(m, now); }
     }
+  }
+  private setDnd(u: User, on: boolean) {
+    if (!!u.dnd === on) return;
+    u.dnd = on || undefined;
+    this.broadcast({ t: 'dnd', userId: u.id, on });
   }
   private setAfk(u: User, afk: boolean) {
     if (!!u.afk === afk) return;
@@ -2294,8 +2325,8 @@ export class World {
   /** Why a knock on this person goes to Later right now (null: they can answer). */
   private laterWhy(to: User): string | null {
     const room = this.roomOf(to), stall = this.toilets.inside(to.id), lunch = this.eatingNow(to) && !to.eating!.open;
-    if (!(room?.rules.knock === 'later' || (to.presence === 'in_call' && !to.callId) || to.meeting || to.vacation || to.reading || stall || lunch)) return null;
-    return stall ? 'on the toilet' : to.meeting ? 'in a meeting' : to.vacation ? 'on vacation' : to.reading ? 'reading' : lunch ? 'at lunch' : room?.rules.occupantLabel ?? 'in a call';
+    if (!(to.dnd || room?.rules.knock === 'later' || (to.presence === 'in_call' && !to.callId) || to.meeting || to.vacation || to.reading || stall || lunch)) return null;
+    return to.dnd ? 'on do not disturb' : stall ? 'on the toilet' : to.meeting ? 'in a meeting' : to.vacation ? 'on vacation' : to.reading ? 'reading' : lunch ? 'at lunch' : room?.rules.occupantLabel ?? 'in a call';
   }
 
   // ---------- Later list ----------
@@ -2359,6 +2390,17 @@ export class World {
     k.state = reply;
     const to = this.users.get(k.toId);
     if (to && wasPending && to.emote === 'knock') this.setEmote(to, null);
+    // ---- journal (activity log)
+    if (!cancelled && (wasPending || kept) && reply !== 'blocked') {
+      const from = this.users.get(k.fromId);
+      if (from && to) {
+        const missed = reply !== 'accept';
+        this.journal.add(to.id, { kind: 'knock_in', otherId: from.id, action: missed ? 'knock_back' : undefined,
+          text: `${from.name} knocked${reply === 'accept' ? ' — you answered' : kept ? ` — waiting in Later (${this.laterWhy(to) ?? 'busy'})` : reason?.includes("didn't answer") ? ' — missed' : ' — you said later'}` });
+        this.journal.add(from.id, { kind: 'knock_out', otherId: to.id, action: missed ? 'knock_back' : undefined,
+          text: `You knocked on ${to.name}${reply === 'accept' ? ' — they answered' : kept ? ` — they're ${this.laterWhy(to) ?? 'busy'}` : reason?.includes("didn't answer") ? " — no answer" : ' — they said later'}` });
+      }
+    }
     const base = { t: 'knock_reply', knockId: k.id, fromId: k.fromId, toId: k.toId, reply, reason, cancelled, kept } as const;
     if (reply === 'accept' && to) {
       // join (or start) the call; whoever they knocked, everyone in it shares the same Meet link
@@ -2435,6 +2477,8 @@ export class World {
         });
         break;
       }
+      case 'dnd': if (!u.bot) this.setDnd(u, msg.on === true); break;
+      case 'journal_read': this.journal.markRead(u.id); for (const [id, send] of this.sockets.get(u.id) ?? []) if (id !== socket) send({ t: 'journal', entries: this.journal.list(u.id), readAt: this.journal.readOf(u.id) }); break;
       case 'status': this.setStatus(u, String(msg.status ?? '')); break;
       case 'effect': this.requestEffect(u, msg); break;
       case 'gm_items': this.gmItems(u, msg); break;
@@ -2652,7 +2696,7 @@ export class World {
       version: STATE_VERSION,
       roomModes: { ...this.roomModes },
       users: [...this.users.values()].map(u => {
-        return { id: u.id, name: u.name, nameSet: u.nameSet, email: u.email, meetLink: u.meetLink, google: u.google, vacation: u.vacation, homeDesk: u.homeDesk, look: u.look, banner: u.banner, lookSet: u.lookSet, tile: underground(u) ? this.dungeonExit(false) : u.tile, dir: u.dir, status: u.status, presence: u.presence, bot: u.bot, plant: u.plant, bloomed: u.bloomed, achievements: u.achievements, effects: u.effects.filter(e => e.until === undefined), items: u.items, storage: u.storage, prisonUntil: u.prisonUntil, held: u.holding && holdsForever(u.holding) ? u.holding : undefined, danced: u.danced,
+        return { id: u.id, name: u.name, nameSet: u.nameSet, email: u.email, meetLink: u.meetLink, google: u.google, vacation: u.vacation, homeDesk: u.homeDesk, look: u.look, banner: u.banner, lookSet: u.lookSet, tile: underground(u) ? this.dungeonExit(false) : u.tile, dir: u.dir, status: u.status, presence: u.presence, bot: u.bot, plant: u.plant, bloomed: u.bloomed, achievements: u.achievements, effects: u.effects.filter(e => e.until === undefined), items: u.items, storage: u.storage, prisonUntil: u.prisonUntil, held: u.holding && holdsForever(u.holding) ? u.holding : undefined, danced: u.danced, dnd: u.dnd || undefined,
           resume: (!u.bot && u.presence !== 'offline' && !goingOut(u) && !u.instance && !this.toilets.inside(u.id)) || undefined }; // meetings and stalls don't survive a restart
       }),
       objects: Object.fromEntries(this.objectOn),
@@ -2665,6 +2709,7 @@ export class World {
       containers: Object.fromEntries(this.shelves),
       library: this.library.dump(),
       tickets: this.tickets.dump(),
+      journal: this.journal.dump(),
     };
   }
   load(data: ReturnType<World['dump']>) {
@@ -2739,5 +2784,6 @@ export class World {
     for (const [id, c] of Object.entries(data.containers ?? {})) this.shelves.set(id, cleanContainer(c));
     this.library.load(data.library);
     this.tickets.load(data.tickets);
+    this.journal.load(data.journal);
   }
 }
