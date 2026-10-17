@@ -37,6 +37,7 @@ import { Meetings } from './meetings';
 import { BAT_COOLDOWN_MS, Creatures } from './creatures';
 import { PresentError, type Presenter } from './presentation';
 import { Toilets } from './toilets';
+import { isWeather, scheduledWeather, type Weather } from '../../shared/weather';
 import { authUrl, CALENDAR_SCOPE, createSpace, forgetAccess, googleEnabled, listEvents, revoke, type GoogleLink } from './google';
 
 type DungeonEvent = Extract<ServerMsg, { t: 'dungeon' }>['event'];
@@ -244,7 +245,7 @@ export class World {
     for (const o of map.objects) if (o.use?.kind === 'toggle') this.objectOn.set(o.id, o.on ?? true);
     this.syncJukeboxes();
     setInterval(() => this.beach.tick(), 1000).unref();
-    setInterval(() => { const now = Date.now(); this.voiceTick(now); this.jukeboxTick(now); this.instrumentTick(now); this.effectsTick(now); this.lunchTick(now); this.laterTick(now); this.toilets.tick(now); this.present?.tick(); }, 250).unref();
+    setInterval(() => { const now = Date.now(); this.voiceTick(now); this.jukeboxTick(now); this.instrumentTick(now); this.effectsTick(now); this.lunchTick(now); this.laterTick(now); this.toilets.tick(now); this.present?.tick(); this.weatherTick(now); }, 250).unref();
   }
 
   // ---------- transport ----------
@@ -276,11 +277,11 @@ export class World {
     return { t: 'state', roomModes: { ...this.roomModes }, serverTime: Date.now(), users: [...this.users.values()].map(this.toPublic), objects,
       toilets: this.toilets.snapshot(this.map.objects.filter(o => o.use?.kind === 'toilet').map(o => o.id)),
       instruments: Object.fromEntries(this.map.objects.filter(o => o.use?.kind === 'instrument').map(o => [o.id, this.seats.get(o.id)?.user ?? null])),
-      jukebox: Object.fromEntries([...this.jukeboxes].map(([id, j]) => [id, j.state])) };
+      jukebox: Object.fromEntries([...this.jukeboxes].map(([id, j]) => [id, j.state])), weather: this.weatherState() };
   }
   private toPublic = (u: User): PublicUser => {
     const { path: _p, email: _e, meetLink: _m, google: _g, offlineAt: _o, lastSpot: _l, resume: _rs, presenceBeforeCall: _b, prev: _v, returnTo: _r, walkSeq: _s, dungeon: _d, lastKeySpot: _k, dungeonTimers: _t, items: _i, storage: _st, prisonUntil: _pu, ...pub } = u;
-    return pub;
+    return u.items.includes('umbrella') ? { ...pub, umbrella: true } : pub;
   };
 
   /** `wire`, when given, receives broadcasts as one shared JSON string instead of `send` getting the object. */
@@ -1177,7 +1178,7 @@ export class World {
     if (ref.kind === 'hands') {
       return { items: u.holding ? [u.holding] : [], check: () => (u.holding ? 'Your hands are full' : null), take: () => this.setHolding(u, null), put: i => this.setHolding(u, i) };
     }
-    return { items: u.items, check: i => pocketProblem(u.items, i), take: i => { u.items = removeOne(u.items, i); this.sendTo(u.id, this.me(u)); }, put: i => { u.items = [...u.items, i]; this.sendTo(u.id, this.me(u)); } };
+    return { items: u.items, check: i => pocketProblem(u.items, i), take: i => { const had = u.items.includes('umbrella'); u.items = removeOne(u.items, i); this.sendTo(u.id, this.me(u)); this.umbrellaSync(u, had); }, put: i => { const had = u.items.includes('umbrella'); u.items = [...u.items, i]; this.sendTo(u.id, this.me(u)); this.umbrellaSync(u, had); } };
   }
   /** Move one item between places. Returns why it can't be done, or null when it was. `by`: who did it (a theft is `by` someone other than a desk's owner). */
   moveItem(item: string, from: ContainerRef, to: ContainerRef, by: User | null, now = Date.now()): string | null {
@@ -1282,6 +1283,39 @@ export class World {
     if (!done) return say(`${target.name.split(' ')[0]} can't take it now`);
     this.sendTo(u.id, this.gmItemsMsg(target));
     if (target.id !== u.id) this.sendTo(target.id, { t: 'notice', text: `🎁 ${u.name} gave you ${def.label.toLowerCase()}` });
+  }
+
+  // ---------- weather (atmosphere) ----------
+  // One sky for everyone: the schedule (shared/weather.ts, office time) unless an admin forced it. Only the override is saved.
+  private weatherForced: Weather | null = null;
+  private weatherNow: Weather = scheduledWeather();
+  private weatherCheckedAt = 0;
+  weatherState() { return { kind: this.weatherNow, forced: this.weatherForced !== null }; }
+  /** Pick up the schedule's next block (checked every 10 s: the sky only changes on a two-hour boundary). */
+  weatherTick(now = Date.now()) {
+    if (now - this.weatherCheckedAt < 10_000) return;
+    this.weatherCheckedAt = now;
+    this.setWeather(this.weatherForced ?? scheduledWeather(now));
+  }
+  private setWeather(kind: Weather) {
+    if (kind === this.weatherNow) return;
+    this.weatherNow = kind;
+    this.broadcast({ t: 'weather', weather: this.weatherState() });
+  }
+  private gmWeather(u: User, want: unknown) {
+    if (!this.isAdmin(u)) return;
+    if (want === 'auto') this.weatherForced = null;
+    else if (isWeather(want)) this.weatherForced = want;
+    else return;
+    this.weatherCheckedAt = 0;
+    const was = this.weatherNow;
+    this.setWeather(this.weatherForced ?? scheduledWeather());
+    if (was === this.weatherNow) this.broadcast({ t: 'weather', weather: this.weatherState() }); // same sky, but the "forced" badge changed
+  }
+  /** The umbrella is the one pocket item everyone can see (it opens in the rain), so its coming and going is broadcast. */
+  private umbrellaSync(u: User, had: boolean) {
+    const has = u.items.includes('umbrella');
+    if (has !== had) this.broadcast({ t: 'umbrella', userId: u.id, on: has });
   }
 
   // ---------- desk storage ----------
@@ -2650,6 +2684,7 @@ export class World {
       case 'storage_close': this.storageViewers.delete(u.id); break;
       case 'storage_move': this.storageMove(u, String(msg.ownerId), String(msg.item), msg.dir === 'in' ? 'in' : 'out'); break;
       case 'gm_give': this.gmGive(u, msg); break;
+      case 'gm_weather': this.gmWeather(u, msg.weather); break;
       case 'prison_release': { const t = this.users.get(String(msg.targetId)); if (t && this.isAdmin(u)) { this.releasePrison(t); this.sendTo(u.id, this.gmItemsMsg(t)); } break; }
       case 'drink': this.drink(u); break;
       case 'pet': this.petCreature(u, String(msg.creatureId)); break;
@@ -2695,6 +2730,7 @@ export class World {
     return {
       version: STATE_VERSION,
       roomModes: { ...this.roomModes },
+      weather: this.weatherForced ?? undefined, // only an admin's override is saved; the schedule needs no state
       users: [...this.users.values()].map(u => {
         return { id: u.id, name: u.name, nameSet: u.nameSet, email: u.email, meetLink: u.meetLink, google: u.google, vacation: u.vacation, homeDesk: u.homeDesk, look: u.look, banner: u.banner, lookSet: u.lookSet, tile: underground(u) ? this.dungeonExit(false) : u.tile, dir: u.dir, status: u.status, presence: u.presence, bot: u.bot, plant: u.plant, bloomed: u.bloomed, achievements: u.achievements, effects: u.effects.filter(e => e.until === undefined), items: u.items, storage: u.storage, prisonUntil: u.prisonUntil, held: u.holding && holdsForever(u.holding) ? u.holding : undefined, danced: u.danced, dnd: u.dnd || undefined,
           resume: (!u.bot && u.presence !== 'offline' && !goingOut(u) && !u.instance && !this.toilets.inside(u.id)) || undefined }; // meetings and stalls don't survive a restart
@@ -2743,7 +2779,7 @@ export class World {
         if (!covers(r)) return true;
         console.warn(`saved ${r.color} rug dropped: covers the hole or hatch`); return false;
       });
-      let migrated = migrateBookClub(migrateLibrary(migrateEastWing({ objects, rugs }, this.baseLayout), this.baseLayout, this.map), this.baseLayout, this.map);
+      let migrated = migrateBookClub(migrateLibrary(migrateEastWing({ objects: objects.map(o => o.type === 'window' && !o.use && this.baseLayout.objects.some(b => b.type === 'window' && b.use && b.x === o.x && b.y === o.y) ? { ...o, use: { kind: 'toggle' as const, label: 'window' }, on: false } : o), rugs }, this.baseLayout), this.baseLayout, this.map), this.baseLayout, this.map);
       if (version < 3) migrated = migrateBeach(migrated, this.baseLayout, this.map);
       if (version < 4) migrated = resetBeach(migrated, this.baseLayout, this.map);
       if (version < 5) migrated = resetBeach(migrated, this.baseLayout, this.map);
@@ -2773,6 +2809,7 @@ export class World {
     }
     for (const u of this.users.values()) if (u.vacation) { u.presence = 'offline'; u.resume = undefined; this.beach.boot(u); }
     for (const [id, on] of Object.entries(data.objects ?? {})) if (this.objectOn.has(id)) this.objectOn.set(id, !!on);
+    if (isWeather(data.weather)) { this.weatherForced = data.weather; this.weatherNow = data.weather; }
     this.arcade.load(data.arcade);
     this.retro.load(data.retro);
     for (const [id, saved] of Object.entries(data.jukebox ?? {})) {

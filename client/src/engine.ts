@@ -2,7 +2,7 @@ import { onMap, terrainAt } from '../../shared/beach';
 import { INSTRUMENTS } from '../../shared/instruments';
 // The floor: one <canvas>, one requestAnimationFrame loop.
 // Order: static tilemap → y-sorted furniture + sprites → nameplates & bubbles → ambient tint → UI hints.
-import { adminOnly, applyEdit, FIXED_TYPES, SEAT_TYPES, findPath, pathTo, sampleMove, pathDuration, WALK_MS_PER_TILE, isWalkable, layoutProblem, objectById, objectName, roomAt, rugFrame, seatAt, withLayout, type MapObject, type Rect, type Rug, type Tile } from '../../shared/map';
+import { adminOnly, applyEdit, FIXED_TYPES, inRect, SEAT_TYPES, findPath, pathTo, sampleMove, pathDuration, WALK_MS_PER_TILE, isWalkable, layoutProblem, objectById, objectName, roomAt, rugFrame, seatAt, withLayout, type MapObject, type Rect, type Rug, type Tile } from '../../shared/map';
 import { FOOD_ITEMS, picnicSeat } from '../../shared/lunch';
 import { DungeonView } from './dungeon';
 import { DANCE_ROOM, danceBeat, dancePhase } from '../../shared/effects';
@@ -19,6 +19,10 @@ import { TRACK } from '../../shared/music';
 import { TOILET_CAPACITY, toiletFull, cupTableAt, CUP_ITEMS, underground, MEETING_ROOM_ID, PLANT_REVEAL, PLANT_STAGES, plantDead, plantName, type Cup, type LayoutEdit } from '../../shared/protocol';
 import { isCovered } from './native';
 import { itemDef } from '../../shared/items';
+import { fogHides, isOutdoor } from '../../shared/weather';
+import { hourBucket, lightmapKey, lightWeight, LM, paintLightmap } from './lighting';
+import { personLight } from './personLight';
+import { WeatherFx } from './weatherFx';
 import { ITEMS, MAP, PORTAL_MS, type ClientUser, type Pose, type PortalFx, type Store, type DungeonFx } from './net';
 
 const TS = MAP.tileSize;
@@ -123,6 +127,16 @@ export class Engine {
   private ro: ResizeObserver;
   private furniture: { o: MapObject; x: number; y: number; base: number; off: boolean }[]; // y-sorted on each layout; x,y = sprite origin
   private lights: MapObject[];
+  // ---- atmosphere: lighting, weather, windows, roof ----
+  /** Dev: pretend it is this local hour (0-24) for the lighting. */
+  devHour: number | null = null;
+  private fx = new WeatherFx(MAP);
+  private lightmap = document.createElement('canvas');
+  private lightmapKey = '';
+  private litObjects: MapObject[] = []; // everything that gives light, for the cache key
+  private windows: MapObject[] = [];
+  private roofAlpha = -1; private roofAt = 0; // 1 = Berghain's roof is on; eased, -1 until the first frame
+  private rainClock = 0; private rainLastMs = 0; // the rain's own clock: it stands still while the rain is paused
   private steamers: MapObject[];
   private noteSeen = new Map<string, number>();
   private instrumentNotes: { id: string; at: number }[] = [];
@@ -323,6 +337,9 @@ export class Engine {
       return { o, x: o.x * TS + (o.w * TS - fr.w) / 2, y: (o.y + o.h) * TS - fr.h, base: (o.y + o.h) * TS - 0.5, off: !!this.f(`${o.type}_off`) };
     }).sort((a, b) => a.base - b.base);
     this.lights = MAP.objects.filter(o => o.light);
+    this.litObjects = MAP.objects.filter(o => lightWeight(o));
+    this.windows = MAP.objects.filter(o => o.type === 'window' && o.use?.kind === 'toggle');
+    this.lightmapKey = '';
     this.steamers = MAP.objects.filter(o => o.steam);
     this.sounders = MAP.objects.filter(o => o.sound);
     this.plantsVersion = -1; // shelves may have moved
@@ -395,7 +412,7 @@ export class Engine {
   }
   /** A piece of furniture's sprite and where it goes: centred on its footprint, standing on its bottom edge (decor hangs from the top). */
   private sprite(o: Item) {
-    const name = o.dir && this.f(`${o.type}_${o.dir}`) ? `${o.type}_${o.dir}` : o.type!; // chairs face their desk
+    const name = o.dir && this.f(`${o.type}_${o.dir}`) ? `${o.type}_${o.dir}` : o.type === 'window' && this.windowOpen(o as MapObject) && this.f('window_open') ? 'window_open' : o.type!; // chairs face their desk; windows open
     const fr = this.f(name);
     return fr && { name, fr, x: o.x * TS + (o.w * TS - fr.w) / 2, y: o.wall ? o.y * TS : (o.y + o.h) * TS - fr.h };
   }
@@ -643,7 +660,67 @@ export class Engine {
   private visible(u: ClientUser | undefined) {
     if (!u || !onMap(u) || u.instance !== this.myInstance()) return false;
     if (!this.areaDown && this.inStall(u.id) && !this.store.pose(u).walking) return false; // behind the stall door (their head peeks over it)
+    if (u.id !== this.store.me && this.atmosphereHides(u)) return false;
     return !this.areaDown || u.id === this.store.me || !!this.store.dungeon && this.dungeonView.canSee(this.store.pose(u).tile);
+  }
+
+  // ---------- atmosphere ----------
+  private clubRect = MAP.rooms.find(r => r.id === 'berghain')?.rect; // found by id: the room moves between releases
+  /** Standing in the club (or its doorways on the sides): the roof is off. */
+  private inClub(t: Tile) { const c = this.clubRect; return !!c && inRect({ x: c.x - 1, y: c.y, w: c.w + 2, h: c.h }, t.x, t.y); }
+  /** Under Berghain's roof while I'm outside, or swallowed by fog: not drawn. */
+  private atmosphereHides(u: ClientUser) {
+    if (this.areaDown) return false;
+    const club = this.clubRect;
+    if (club && this.roofAlpha > 0.5 && inRect(club, this.store.pose(u).tile.x, this.store.pose(u).tile.y)) return true;
+    if (this.store.sky === 'fog' && !this.tapZooms) {
+      const me = this.store.users.get(this.store.me);
+      if (me && me.instance === u.instance) return fogHides(MAP, 'fog', this.store.pose(me).tile, this.store.pose(u).tile);
+    }
+    return false;
+  }
+  private windowOpen(o: MapObject) { return o.use?.kind === 'toggle' && this.isOn(o); }
+  /** Rain is falling on something in view and the page is being used: it animates (and asks for ~30 fps). */
+  private rainLive(ms: number) {
+    if (this.store.sky !== 'rain' || this.areaDown || this.myInstance() || this.px < 1) return false;
+    if (!document.hasFocus() || ms - this.lastInput > 10 * 60_000) return false; // idle or in the background: the rain stands still
+    return this.fx.skyInView(this.vis) || this.windows.some(o => this.windowOpen(o) && this.onScreen(o.x * TS, o.y * TS, o.w * TS, o.h * TS));
+  }
+  private roofMoving = false;
+  private windowSig = '';
+  private drawRoof(ctx: CanvasRenderingContext2D) {
+    const c = this.clubRect; if (!c || this.roofAlpha <= 0.01 || !this.onScreen(c.x * TS, c.y * TS, c.w * TS, c.h * TS)) return;
+    const x = c.x * TS, y = c.y * TS, w = c.w * TS, h = c.h * TS;
+    ctx.save(); ctx.globalAlpha = Math.min(1, this.roofAlpha);
+    ctx.fillStyle = '#3b3340'; ctx.fillRect(x, y, w, h);
+    for (let row = 0; row * 6 < h; row++) { // shingles
+      ctx.fillStyle = row % 2 ? '#443a49' : '#352d3a'; ctx.fillRect(x, y + row * 6 + 4, w, 2);
+      ctx.fillStyle = '#2b2430'; for (let col = (row % 2) * 8; col < w; col += 16) ctx.fillRect(x + col, y + row * 6, 1, 4);
+    }
+    ctx.fillStyle = '#5c4b63'; ctx.fillRect(x, y, w, 2); ctx.fillRect(x, y + h - 2, w, 2); ctx.fillRect(x, y, 2, h); ctx.fillRect(x + w - 2, y, 2, h); // eaves
+    const label = 'BERGHAIN', tw = textWidth(label), lx = Math.round(x + w / 2 - tw / 2), ly = Math.round(y + h / 2 - 3);
+    ctx.fillStyle = 'rgba(255,79,168,0.25)'; ctx.fillRect(lx - 3, ly - 3, tw + 6, 13); // neon halo
+    drawText(ctx, label, lx, ly, '#ff7ac4');
+    ctx.restore();
+  }
+  /** A hood (rain jacket) or an umbrella over a person outdoors in the rain. `top` is the sprite's top edge. */
+  private drawRainGear(ctx: CanvasRenderingContext2D, u: ClientUser, x: number, top: number, dir: string, seated: boolean, layer: 'hood' | 'umbrella') {
+    // the head is 12 px wide, rows top+2 … top+12 of the 16×24 frame
+    if (layer === 'umbrella') {
+      if (!u.umbrella) return;
+      // open umbrella over the head, held at the side; stays up while they eat
+      const colors = ['#d9534f', '#3f7fbf', '#e0b13a', '#4f9d6b'], c = colors[hash(u.id) % colors.length];
+      ctx.fillStyle = c; ctx.fillRect(x + 6, top - 5, 4, 1); ctx.fillRect(x + 4, top - 4, 8, 1); ctx.fillRect(x + 2, top - 3, 12, 1); ctx.fillRect(x, top - 2, 16, 1); ctx.fillRect(x - 2, top - 1, 20, 1);
+      ctx.fillStyle = 'rgba(0,0,0,0.3)'; for (const px of [-2, 2, 6, 10, 14]) ctx.fillRect(x + px, top, 2, 1); // scalloped rim
+      ctx.fillStyle = 'rgba(255,255,255,0.45)'; ctx.fillRect(x + 6, top - 4, 2, 1); ctx.fillRect(x + 4, top - 3, 2, 1);
+      ctx.fillStyle = '#2e2118'; ctx.fillRect(x + 8, top - 6, 1, 1); ctx.fillRect(x + 16, top + 1, 1, seated ? 9 : 12); // the tip, and the shaft held at the side
+      return;
+    }
+    if (seated || u.umbrella) return;
+    const hood = '#4c6a7c', shade = '#37505f';
+    ctx.fillStyle = hood; ctx.fillRect(x + 2, top + 2, 12, 4); ctx.fillRect(x + 2, top + 6, 2, 6); ctx.fillRect(x + 12, top + 6, 2, 6);
+    ctx.fillStyle = shade; ctx.fillRect(x + 4, top + 5, 8, 1); ctx.fillRect(x + 2, top + 11, 2, 1); ctx.fillRect(x + 12, top + 11, 2, 1);
+    if (dir === 'up') { ctx.fillStyle = hood; ctx.fillRect(x + 2, top + 2, 12, 11); ctx.fillStyle = shade; ctx.fillRect(x + 2, top + 12, 12, 1); ctx.fillRect(x + 7, top + 6, 2, 6); }
   }
   private myInstance() { return this.falling() ? null : this.store.users.get(this.store.me)?.instance ?? null; }
   private userAt(wx: number, wy: number): string | null {
@@ -944,6 +1021,7 @@ export class Engine {
     if (this.store.portalFx.some(f => ms - f.at < PORTAL_MS)) return 16;
     if (users.some(u => { if (!u.move) return false; const p = this.store.pose(u, now); return p.walking && this.visible(u) && near(p.x, p.y); })) return 16;
     if (!this.areaDown && !this.store.users.get(this.store.me)?.instance && [...this.store.creatures.values()].some(c => { if (!c.walk) return false; const p = creaturePose(c, now); return p.walking && near(p.x, p.y); })) return 16;
+    if (this.roofMoving || this.rainLive(ms)) return this.roofMoving ? 16 : 31; // Berghain's roof fading; rain on something in view
     if (this.areaDown || this.store.reactions.length || this.instrumentNotes.length || this.partyOnScreen() || this.store.dungeonFx.some(f => ms - f.at < 700)
       || this.store.objectFx.some(f => performance.now() - f.at < 4000)
       || users.some(u => this.visible(u) && (u.effects?.some(e => e.kind !== 'hat') || u.speaking))) return 31;
@@ -986,8 +1064,10 @@ export class Engine {
   private draw(ms: number) {
     const prevMs = this.lastFrameMs; this.lastFrameMs = ms;
     if (this.layoutSeen !== this.store.layoutVersion) this.refreshLayout();
+    const wsig = this.windows.map(o => (this.windowOpen(o) ? 1 : 0)).join('');
+    if (wsig !== this.windowSig) { this.windowSig = wsig; this.staticLayer = this.buildStatic(); } // a window opened or closed
     this.syncArea(); this.keyboardStep();
-    const ctx = this.ctx, t = this.store.now(), now = new Date(), hour = now.getHours() + now.getMinutes() / 60;
+    const ctx = this.ctx, t = this.store.now(), now = new Date(), hour = this.devHour ?? now.getHours() + now.getMinutes() / 60; // the viewer's own clock: your evening looks like evening
     const me = this.store.users.get(this.store.me);
     if (this.areaDown && me && this.store.dungeon) {
       const others = [...this.store.users.values()].filter(u => u.id !== me.id && underground(u) && u.presence !== 'offline').map(u => this.store.pose(u, t).tile);
@@ -995,6 +1075,14 @@ export class Engine {
       if (this.hoverUser && !this.visible(this.store.users.get(this.hoverUser))) this.hoverUser = null;
       if (this.selected?.kind === 'user' && !this.visible(this.store.users.get(this.selected.id))) { this.selected = null; this.onPick?.(null); }
       if (this.hoverTile && !this.canWalk(this.hoverTile)) this.hoverTile = null;
+    }
+    {
+      const mePose = me && this.store.pose(me, t), want = !this.clubRect || this.areaDown || this.editing || me?.instance || !mePose || this.inClub(mePose.tile) ? 0 : 1;
+      const dt = Math.min(100, ms - this.roofAt); this.roofAt = ms;
+      this.roofAlpha = this.roofAlpha < 0 ? want : this.roofAlpha + Math.max(-dt / 300, Math.min(dt / 300, want - this.roofAlpha)); // eases over 300 ms
+      this.roofMoving = Math.abs(want - this.roofAlpha) > 0.001;
+      if (this.rainLive(ms)) this.rainClock += Math.min(100, ms - this.rainLastMs);
+      this.rainLastMs = ms;
     }
     // admins mid-portal: they stay at the origin until they've stepped in, are gone while the far portal opens, then stand at the destination
     const trips = new Map<string, { fx: PortalFx; age: number }>();
@@ -1038,7 +1126,7 @@ export class Engine {
       const ex = Math.min((a.x + a.w) * TS, Math.ceil(v.x1 / TS) * TS), ey = Math.min((a.y + a.h) * TS, Math.ceil(v.y1 / TS) * TS);
       if (ex > sx && ey > sy) ctx.drawImage(this.staticLayer, sx, sy, ex - sx, ey - sy, sx, sy, ex - sx, ey - sy);
     }
-    if (this.areaDown) this.drawDungeon(ms); else { this.drawWater(ctx, t); this.drawDanceFloor(ctx, poses); this.drawClockHands(ctx); }
+    if (this.areaDown) this.drawDungeon(ms); else { this.drawWater(ctx, t, this.store.sky === 'rain'); this.drawDanceFloor(ctx, poses); this.drawClockHands(ctx); }
 
     // hover tile + my destination marker
     if (this.hoverTile && !this.hoverUser && !this.tapZooms && !this.editing) {
@@ -1112,7 +1200,7 @@ export class Engine {
       while (di < ds.length && ds[di].base <= f.base) drawD(ds[di++]);
       const ff = this.f(f.o.type);
       if (!this.onScreen(f.x - 2, f.y - 2, ff.w + 4, ff.h + 4)) continue;
-      this.blit(ctx, f.o.use?.kind === 'retro' && this.store.retroCabinets.some(c => c.cabinet === f.o.id && c.player) ? `${f.o.type}_on` : f.o.type === 'game_table' && [...this.store.users.values()].some(u => u.table?.objectId === f.o.id && u.table.running) ? 'game_table_on' : f.o.type === 'arcade' && this.store.cabinets.some(c => c.cabinet === f.o.id) ? `arcade_on_${1 + Math.floor(ms / 320) % 2}` : f.o.use?.kind === 'tickets' && this.store.ticketsUnread() && Math.floor(ms / 600) % 2 ? 'terminal_on' : f.o.use?.kind === 'toilet' ? this.toiletFrame(f.o.id)
+      this.blit(ctx, f.o.type === 'beach_flag' && this.store.sky === 'rain' && this.f('beach_flag_black') ? 'beach_flag_black' : f.o.use?.kind === 'retro' && this.store.retroCabinets.some(c => c.cabinet === f.o.id && c.player) ? `${f.o.type}_on` : f.o.type === 'game_table' && [...this.store.users.values()].some(u => u.table?.objectId === f.o.id && u.table.running) ? 'game_table_on' : f.o.type === 'arcade' && this.store.cabinets.some(c => c.cabinet === f.o.id) ? `arcade_on_${1 + Math.floor(ms / 320) % 2}` : f.o.use?.kind === 'tickets' && this.store.ticketsUnread() && Math.floor(ms / 600) % 2 ? 'terminal_on' : f.o.use?.kind === 'toilet' ? this.toiletFrame(f.o.id)
         : f.o.type === 'bell' ? this.bellFrame(f.o.id) : f.o.type === 'hat_rack' ? this.hatRackFrame(f.o, ms) : f.o.type === 'reading_table' && this.flickers(f.o, ms) ? 'reading_table_1'
         : f.o.type === 'server_rack' && Math.floor(ms / 500 + f.o.x * 3 + f.o.y) % 2 ? 'server_rack_1' : f.off && !this.isOn(f.o) ? `${f.o.type}_off` : f.o.type, f.x, f.y);
       if (f.o.use?.kind === 'toilet') this.drawStall(ctx, f.o, f.x, f.y);
@@ -1156,6 +1244,7 @@ export class Engine {
     if (!me?.instance) this.drawTerminalBadge(ctx, ms);
     if (!this.areaDown && !me?.instance) this.drawSoonPoster(ctx, ms);
     this.drawLiveScreen(ctx, ms); // the store only holds the show of my own scope
+    if (!this.areaDown && !me?.instance) this.drawSky(ctx, poses, me, ms);
 
     // a meeting's own room: the rest of the office fades away
     if (me?.instance && !this.areaDown && !this.falling()) {
@@ -1174,8 +1263,8 @@ export class Engine {
     this.placedPlates = [];
     for (const u of sorted) { const p = poses.get(u.id)!; if (this.onScreen(p.x * TS - 2 * TS, p.y * TS - 3 * TS, 5 * TS, 5 * TS)) this.drawOverlay(u, p, ms); }
     this.drawReactions(poses, ms);
-    if (!this.areaDown && !me?.instance) this.drawClub(ctx, ms);
-    if (!this.areaDown) this.drawAmbient(ctx, camX, camY, ms, hour);
+    if (!this.areaDown && !me?.instance) { if (this.roofAlpha < 0.99) this.drawClub(ctx, ms); this.drawRoof(ctx); }
+    if (!this.areaDown) this.drawAmbient(ctx, ms, hour, users, poses);
     // labels switch the canvas to screen space, so everything drawn in world space (the tint above) comes first
     if (!this.areaDown && !me?.instance) { this.drawBellDings(poses, camX, camY); this.drawHatNudge(me, poses, camX, camY, ms); }
     if (this.editing) this.drawEdit(ctx, camX, camY, ms);
@@ -1205,7 +1294,7 @@ export class Engine {
       const retro = o.use?.kind === 'retro' ? this.store.retroCabinets.find(c => c.cabinet === o.id) : null;
       const retroTip = o.use?.kind === 'retro' ? retro?.broken ? 'Out of order' : `${o.use.label} · ${retro?.player ? `${this.store.name(retro.player)} is playing · ${retro.watchers} watching` : 'free'}` : '';
       const awayCount = o.use?.kind === 'vacations' ? [...this.store.users.values()].filter(u => u.vacation).length : 0;
-      const what = retroTip || instrumentTip || (o.use?.kind === 'tickets' ? this.store.terminalTip() : o.use?.kind === 'wellness' ? `${o.use.label} · your personal ${o.use.activity === 'pomodoro' ? 'focus timer' : 'reminders'}` : o.use?.kind === 'table' ? this.store.tableDescription(o.id) : o.use?.kind === 'arcade' ? this.store.gameDescription(o.id) : o.use?.kind === 'records' ? 'Arcade boards · weekly scores and records' : o.use?.kind === 'jukebox' ? !jukebox ? 'Jukebox · Reconnecting…' : jukebox.pausedAt !== null ? 'Jukebox · paused' : `Jukebox · ♪ ${track?.title ?? jukebox.track} — ${track?.artist ?? ''}` : o.use?.kind === 'toggle' ? `${o.use.label[0].toUpperCase()}${o.use.label.slice(1)} · ${this.isOn(o) ? 'on' : 'off'}`
+      const what = retroTip || instrumentTip || (o.use?.kind === 'tickets' ? this.store.terminalTip() : o.use?.kind === 'wellness' ? `${o.use.label} · your personal ${o.use.activity === 'pomodoro' ? 'focus timer' : 'reminders'}` : o.use?.kind === 'table' ? this.store.tableDescription(o.id) : o.use?.kind === 'arcade' ? this.store.gameDescription(o.id) : o.use?.kind === 'records' ? 'Arcade boards · weekly scores and records' : o.use?.kind === 'jukebox' ? !jukebox ? 'Jukebox · Reconnecting…' : jukebox.pausedAt !== null ? 'Jukebox · paused' : `Jukebox · ♪ ${track?.title ?? jukebox.track} — ${track?.artist ?? ''}` : o.use?.kind === 'toggle' ? `${o.use.label[0].toUpperCase()}${o.use.label.slice(1)} · ${o.type === 'window' ? (this.isOn(o) ? 'open' : 'closed') : this.isOn(o) ? 'on' : 'off'}`
         : o.use?.kind === 'vacations' ? `On vacation · ${awayCount ? `${awayCount} away now` : "everyone's at work"}`
         : o.use?.kind === 'calendar' ? 'Calendar · your week' : o.use?.kind === 'achievements' ? 'Employee Of the Month' : o.use?.kind === 'link' ? `Vault 13 · click to open the ${o.use.label}` : o.use?.kind === 'meetings' ? `Meetings · ${this.store.meetingRooms.length || 'none'} on now`
         : o.use?.kind === 'youtube' ? `${o.use.label} · click to watch`
@@ -1263,8 +1352,8 @@ export class Engine {
     ctx.restore();
   }
   /** Ambient water is drawn only in the viewport; it never contributes to skipFrame's busy flag. */
-  private drawWater(ctx: CanvasRenderingContext2D, now: number) {
-    const v = this.vis, a = this.area, phase = Math.floor(now / 400);
+  private drawWater(ctx: CanvasRenderingContext2D, now: number, rough = false) {
+    const v = this.vis, a = this.area, phase = Math.floor(now / (rough ? 220 : 400)); // rain stirs the sea: quicker waves, more foam
     const mask = waterMask ??= MAP.layers.floor.map(row => row.map(i => /^(water_(shallow|deep)_[0-2]|sea)$/.test(MAP.tiles[i] ?? '')));
     const water = (x: number, y: number) => !!mask[y]?.[x];
     ctx.save(); ctx.lineWidth = 0.5;
@@ -1280,7 +1369,7 @@ export class Engine {
           else { const sy = py + (dy < 0 ? offset : TS - offset); ctx.moveTo(px + 1, sy); ctx.lineTo(px + 8, sy + 0.5); ctx.lineTo(px + TS - 1, sy); }
         }
         ctx.stroke();
-        if ((seed + phase) % 13 === 0) {
+        if ((seed + phase) % (rough ? 5 : 13) === 0) {
           const sx = px + 2 + (seed + phase * 3) % 12, sy = py + 2 + ((seed >>> 5) + phase) % 12;
           ctx.fillStyle = 'rgba(230,255,250,0.4)'; ctx.fillRect(sx, sy, 2, 1); ctx.fillRect(sx, sy - 1, 1, 3);
         }
@@ -1387,7 +1476,10 @@ export class Engine {
     if (backpack && p.dir === 'down') { ctx.fillStyle = '#8b613d'; ctx.fillRect(x + dx + 4, top + 10, 1, 5); ctx.fillRect(x + dx + 11, top + 10, 1, 5); }
     if (carrying && !hand.behind) drawBag();
     ctx.globalAlpha = 1;
+    const rainy = this.store.sky === 'rain' && !lie && !water && !this.areaDown && isOutdoor(MAP, p.tile.x, p.tile.y);
+    if (rainy) this.drawRainGear(ctx, u, x + dx, top, p.dir, !!seat, 'hood'); // hood up (under any hat) ...
     if (fxCtx) drawEffects('front', fxCtx, fx);
+    if (rainy) this.drawRainGear(ctx, u, x + dx, top, p.dir, !!seat, 'umbrella'); // ... or the umbrella, over the hat
     if (sway && (sway.dx || sway.rot || sway.dy)) ctx.restore();
     const icon = u.holding && !carrying ? ITEM_ICON.get(u.holding) : undefined;
     if (icon) {
@@ -1719,26 +1811,39 @@ export class Engine {
       ctx.restore();
     }
   }
-  private drawAmbient(ctx: CanvasRenderingContext2D, camX: number, camY: number, ms: number, h: number) {
-    // [hour, r,g,b, alpha] keyframes for a multiply tint
-    const K: [number, number, number, number, number][] = [
-      [0, 40, 50, 110, 0.5], [5.5, 40, 50, 110, 0.5], [7, 255, 190, 170, 0.18], [9, 255, 255, 255, 0],
-      [16.5, 255, 255, 255, 0], [18.5, 255, 170, 90, 0.22], [20.5, 60, 60, 130, 0.42], [24, 40, 50, 110, 0.5],
-    ];
-    let i = 0; while (i < K.length - 2 && h >= K[i + 1][0]) i++;
-    const [h0, ...a] = K[i], [h1, ...b] = K[i + 1];
-    const f = Math.min(1, Math.max(0, (h - h0) / (h1 - h0)));
-    const mix = a.map((v, j) => v + (b[j] - v) * f);
-    const alpha = mix[3];
+  /** Weather on the floor: rain through open windows and over the open sky, fog around you. Drawn before the labels. */
+  private drawSky(ctx: CanvasRenderingContext2D, poses: Map<string, Pose>, me: ClientUser | undefined, ms: number) {
+    const sky = this.store.sky;
+    if (sky === 'clear') return;
+    const v = this.vis;
+    for (const o of this.windows) {
+      if (!this.windowOpen(o) || !this.onScreen(o.x * TS, o.y * TS, o.w * TS, o.h * TS)) continue;
+      const gx = o.x * TS + 8, gy = o.y * TS + 5; // the gap between the folded sashes
+      if (sky === 'rain') this.fx.drawWindowRain(ctx, gx, gy, 16, 18, this.rainClock);
+      else { ctx.fillStyle = 'rgba(196,206,214,0.55)'; ctx.fillRect(gx, gy, 16, 18); }
+    }
+    if (sky === 'rain' && this.px >= 1) this.fx.drawRain(ctx, v, this.rainClock);
+    const p = me && poses.get(me.id);
+    if (sky === 'fog' && p && !this.tapZooms && this.fx.skyInView(v)) this.fx.drawFog(ctx, v, p.x * TS + 8, p.y * TS + 8, ms);
+  }
+
+  /** The night: one cached lightmap (rebuilt only when the hour, the weather, a light switch or the layout changes), warm glows on the lamps, and moving lights. */
+  private lightInfo = { night: 0, raw: 0 };
+  private drawAmbient(ctx: CanvasRenderingContext2D, ms: number, h: number, users: ClientUser[], poses: Map<string, Pose>) {
+    const key = lightmapKey({ hourBucket: hourBucket(h), weather: this.store.sky, lights: this.litObjects.map(o => (this.isOn(o) ? 1 : 0)).join(''), layout: this.store.layoutVersion });
+    if (key !== this.lightmapKey) { this.lightmapKey = key; this.lightInfo = paintLightmap(this.lightmap, MAP, h, this.store.sky, o => this.isOn(o)); }
+    const { night, raw } = this.lightInfo, v = this.vis;
     ctx.save();
-    if (alpha >= 0.01) {
-      ctx.globalCompositeOperation = 'multiply';
-      ctx.fillStyle = `rgba(${mix[0] | 0},${mix[1] | 0},${mix[2] | 0},${alpha.toFixed(3)})`;
-      ctx.fillRect(camX, camY, this.viewW + 1, this.viewH + 1);
+    if (night > 0.01) {
+      const sx = Math.max(0, Math.floor(v.x0 / TS * LM)), sy = Math.max(0, Math.floor(v.y0 / TS * LM));
+      const ex = Math.min(this.lightmap.width, Math.ceil(v.x1 / TS * LM)), ey = Math.min(this.lightmap.height, Math.ceil(v.y1 / TS * LM));
+      ctx.globalAlpha = this.editing ? 0.3 : 1; // edit mode stays readable
+      ctx.imageSmoothingEnabled = true;
+      if (ex > sx && ey > sy) ctx.drawImage(this.lightmap, sx, sy, ex - sx, ey - sy, sx * TS / LM, sy * TS / LM, (ex - sx) * TS / LM, (ey - sy) * TS / LM);
     }
     // lamps that are on glow: softly by day, warmly in the evening
     ctx.globalCompositeOperation = 'lighter';
-    ctx.globalAlpha = Math.max(0.1, alpha * 0.55);
+    ctx.globalAlpha = Math.max(0.1, raw * 0.5 * 0.55);
     const day = ctx.globalAlpha;
     for (const o of this.lights) {
       if (!this.isOn(o)) continue;
@@ -1747,6 +1852,11 @@ export class Engine {
         ctx.drawImage(this.greenGlow, (o.x + o.w / 2) * TS - 28, (o.y + o.h) * TS - 14 - 28);
         ctx.globalAlpha = day;
       } else ctx.drawImage(this.glow, o.x * TS + 8 - 40, (o.y + o.h) * TS - 26 - 40);
+    }
+    if (night > 0.05) for (const u of users) { // moving lights: whoever carries one (see personLight.ts)
+      const r = personLight(u); if (r <= 0) continue;
+      const p = poses.get(u.id)!, cx = p.x * TS + 8, cy = p.y * TS + 4;
+      ctx.globalAlpha = Math.min(0.8, night); ctx.drawImage(this.glow, cx - r * TS, cy - r * TS, r * TS * 2, r * TS * 2);
     }
     ctx.restore();
     const dusk = evening(h);
