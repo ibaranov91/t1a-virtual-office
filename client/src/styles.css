@@ -1471,3 +1471,19 @@ button:focus-visible, summary:focus-visible, input[type="range"]:focus-visible {
   .crt-screen { font-size: var(--fs-sm); padding: 10px 12px; }
   .crt-row { grid-template-columns: 6ch 6ch minmax(0, 1fr) 1ch; } .crt-row > :nth-child(4) { display: none; }
 }
+
+/* ---- v2 build info + logging ---- */
+.sb-build { margin-top: 6px; font-size: var(--fs-xs); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; user-select: text; }
+.report-panel { width: min(520px, calc(100% - 16px)); max-height: calc(100% - 32px); overflow: auto; }
+.report-panel textarea { width: 100%; box-sizing: border-box; resize: vertical; font: inherit; font-size: var(--fs-md); color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 8px; }
+.report-error { color: var(--danger); }
+.log-tabs { display: flex; gap: 6px; }
+.log-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.log-list li { background: var(--panel2); border-radius: var(--radius-sm); }
+.log-row { display: grid; width: 100%; text-align: left; gap: 2px; font-size: var(--fs-md); font-weight: var(--fw-regular); }
+.log-row span { overflow-wrap: anywhere; }
+.log-detail { padding: 0 8px 8px; display: grid; gap: 6px; }
+.log-shot { max-width: 100%; border-radius: var(--radius-sm); border: 1px solid var(--line); }
+.log-events { margin: 0; max-height: 220px; overflow: auto; font-size: var(--fs-xs); color: var(--muted); white-space: pre-wrap; overflow-wrap: anywhere; }
+.gm-logs { display: flex; gap: 6px; }
+.gm-logs button { flex: 1; }

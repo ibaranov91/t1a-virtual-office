@@ -11,6 +11,7 @@ import { Avatar } from './Avatar';
 import { overlayOpen } from './hooks';
 import { Icon, IconButton } from '../Icon';
 import { VoiceToggle } from '../VoiceToggle';
+import { BuildLine } from './BuildLine';
 import { REACH_TITLE, reachLabel } from '../voiceReach';
 
 
@@ -294,5 +295,6 @@ export function SelfPanel({ store, voice, assets, onProfile }: { store: Store; v
   return <div className="sb-self sb-up">
     {section && <div className="sb-voice" role="status">{section}</div>}
     <div className="sb-identity"><IdentityPill onProfile={onProfile} store={store} assets={assets} inVoice={knockCall || roomVoice} /><VoiceIcons store={store} voice={voice} hand={false} /></div>
+    <BuildLine store={store} />
   </div>;
 }

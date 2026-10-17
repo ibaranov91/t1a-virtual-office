@@ -7,6 +7,7 @@ import { games as retroGames } from '../../shared/retro/games';
 import { emptyBoards as emptyRetroBoards } from '../../shared/retro/boards';
 import type { RetroCabinet, Ticket, TicketStatus } from '../../shared/protocol';
 import { inNativeApp } from './native';
+import { recordEvent } from './reports';
 import type { FrameBatch } from './retro/player';
 // WebSocket client + the client-side mirror of server state.
 import mapJson from '../../shared/tilemap.json';
@@ -194,7 +195,7 @@ export class Store {
     } catch { /* offline: keep retrying */ }
   }
   close() { this.closed = true; clearTimeout(this.retryTimer); this.stopClock(); this.retroClient.destroy(); this.retroCabinets = []; this.clearInstruments(); this.park?.runner.setLocalBits(0); this.cabinets = []; this.connected = false; this.voiceOwner = false; this.jukebox = {}; this.jukeboxReady = false; this.soundscape?.resetCrossings(); this.emit(); this.ws?.close(); }
-  send(msg: ClientMsg) { if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(msg)); }
+  send(msg: ClientMsg) { if (this.ws?.readyState === WebSocket.OPEN) { recordEvent('out', msg); this.ws.send(JSON.stringify(msg)); } }
   /** NTP-style clock sync (clockSync.ts): a burst of pings on connect, then one every 20 s to follow drift. Everything timed by
    *  the server (walks, notes, the jukebox) runs on now(), so listeners on slow links hear the jukebox where others do. */
   private syncClock() {
@@ -666,6 +667,7 @@ export class Store {
   name(id: string) { return this.users.get(id)?.name ?? 'someone'; }
 
   private onMessage(msg: ServerMsg) {
+    recordEvent('in', msg);
     switch (msg.t) {
       case 'pong': {
         const sent = this.clockSync.pings.get(msg.id); if (!sent) break;

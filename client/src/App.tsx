@@ -39,6 +39,8 @@ import { jukeboxPosition, TRACK, tracksFor } from '../../shared/music';
 import { ALL_HATS, DANCE_ROOM, EFFECTS, HAT_NAMES, REFRESHMENT_HINTS, effectOf, hatOf } from '../../shared/effects';
 import { FIXED_TYPES, KEEP_TYPES, objectName, RUG_COLORS, RUG_MAX, RUG_MIN, RUG_PATTERNS, SEAT_TYPES, routes, rugFrame, seatAt } from '../../shared/map';
 import { picnicSeat } from '../../shared/lunch';
+import { BugReportForm, LogViewer } from './LogViewer';
+import { installErrorReporting } from './reports';
 
 // The game table (and chess.js) loads the first time someone sits down at it.
 const TableOverlay = lazy(() => import('./table/TableOverlay').then(m => ({ default: m.TableOverlay })));
@@ -171,6 +173,7 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
   const [engine, setEngine] = useState<Engine | null>(null);
   const [editing, setEditing] = useState(false);
   const [gmOpen, setGmOpen] = useState(false);
+  const [logDialog, setLogDialog] = useState<'report' | 'logs' | null>(null);
   const [pocketsOpen, setPocketsOpen] = useState(false);
 
   useEffect(() => {
@@ -225,6 +228,7 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
     e.onZoom = () => tick(n => n + 1);
     e.onEditChange = () => { setEditing(e.editing); tick(n => n + 1); };
     engineRef.current = e; setEngine(e);
+    installErrorReporting(() => store.sessionId);
     if (import.meta.env.DEV) Object.assign(window, { __deck: { store, engine: e, share: { fake: (id?: string) => fakeShare(store, id) } } });
     return () => { e.destroy(); setEngine(null); };
   }, [assets, store]);
@@ -270,7 +274,9 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
         {isCompact && <Sidebar ref={sidebarRef} store={store} voice={voice} engine={engine} assets={assets} sheetOpen={showRooms}
           onCloseSheet={() => setShowRooms(false)} onPerson={openPerson} onRoom={at => { setPersonMenu(null); setRoomMenu(at); }} onProfile={openProfile} surfaceOpen={!!(personMenu || roomMenu || profileOpener)} />}
         {editing && store.admin && !down && engine && <EditPanel store={store} engine={engine} assets={assets} onDone={() => setEditing(false)} />}
-        {gmOpen && store.admin && !editing && <GmPanel store={store} picked={pick?.kind === 'user' ? pick.id : null} assets={assets} onClose={() => setGmOpen(false)} />}
+        {gmOpen && store.admin && !editing && <GmPanel store={store} picked={pick?.kind === 'user' ? pick.id : null} assets={assets} onClose={() => setGmOpen(false)} onReport={() => setLogDialog('report')} onLogs={() => setLogDialog('logs')} />}
+        {logDialog === 'report' && <BugReportForm store={store} capture={() => engineRef.current?.captureFrame() ?? Promise.resolve(null)} onClose={() => setLogDialog(null)} />}
+        {logDialog === 'logs' && store.admin && <LogViewer store={store} onClose={() => setLogDialog(null)} />}
         {pocketsOpen && me && <PocketsPanel store={store} me={me} assets={assets} onClose={() => setPocketsOpen(false)} />}
         {store.calendarOpen && <CalendarPanel store={store} />}
         {store.laterOpen && <LaterPanel store={store} />}
@@ -840,7 +846,7 @@ function PocketsPanel({ store, me, assets, onClose }: { store: Store; me: Client
 }
 
 /** Office admins as game masters: buffs, debuffs and hats on themselves or the person they clicked. */
-function GmPanel({ store, picked, assets, onClose }: { store: Store; picked: string | null; assets: Assets | null; onClose: () => void }) {
+function GmPanel({ store, picked, assets, onClose, onReport, onLogs }: { store: Store; picked: string | null; assets: Assets | null; onClose: () => void; onReport: () => void; onLogs: () => void }) {
   const [target, setTarget] = useState(picked ?? store.me);
   const [renaming, setRenaming] = useState('');
   useEffect(() => { if (picked) setTarget(picked); }, [picked]);
@@ -860,6 +866,7 @@ function GmPanel({ store, picked, assets, onClose }: { store: Store; picked: str
         {people.map(p => <option value={p.id} key={p.id}>{p.id === store.me ? `${p.name} (you)` : p.name}</option>)}
       </select></label>
       <p className="hint">Click someone on the floor to aim at them.</p>
+      <div className="gm-logs"><button className="ghost" onClick={onLogs}><Icon name="book" /> Logs</button><button className="ghost" onClick={onReport} title="Temporary entry point: Report bug moves to the suggestions board"><Icon name="message" /> Bug</button></div>
       {u.id !== store.me && <button className="ghost reset" onClick={() => store.teleport(u.id)}><Icon name="portal" /> Teleport to {u.name.split(' ')[0]}</button>}
       {!u.bot && <form className="rug-size" onSubmit={e => { e.preventDefault(); const v = renaming.trim(); if (v && v !== u.name) { store.rename(u.id, v); setRenaming(''); } }}>
         <input value={renaming} maxLength={24} onChange={e => setRenaming(e.target.value)} placeholder={`Rename ${u.name}`} aria-label={`New name for ${u.name}`} />
