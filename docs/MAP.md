@@ -4,7 +4,7 @@
 
 Grid 85×65 tiles of 16px. Office: 0,0 85×44 (camera, overview and edit mode stay inside it). Dungeon: 17,46 31×19, not connected to the office.
 Spawn 7,17, exit 12,13, garden hole 63,25, hatch 20,32.
-Coordinates are tile x,y (x right, y down). Object ids are positional (o1…o316): append new objects at the end of gen-map.mjs so saved layouts keep their ids.
+Coordinates are tile x,y (x right, y down). Object ids are positional (o1…o338): append new objects at the end of gen-map.mjs so saved layouts keep their ids.
 
 Look things up from the shell: `npm run where -- <roomId|objectType|useKind|objectId|x,y>`.
 
@@ -19,26 +19,26 @@ Each room is filled with its letter (table below) and labelled with its id. `#` 
   0 #####################################################################################
   1 #####################################################################################
   2 #####################################################################################
-  3 #AAAAAAAAAAAA#BBBBBBBBBBBB#CCCCCCCCCCCC#FFFFFFFFFFFFF#HHHHHHHHHH#LLLLLLLLL###########
-  4 #AAAAAAAAAAAA#BBBBBBBBBBBB#CCCCCCCCCCCC#FFFFFFFFFFFFF#HHHHHHHHHH#LLLLLLLLL###########
-  5 #AAAAAAAAAAAA#BBBBBBBBBBBB#CCCCCCCCCCCC#FFFFFFFFFFFFF#HHHHHHHHHH#LLLLLLLLL###########
-  6 #AAAfocusAAAA+BBmeetingBBB+CCCcoffeeCCC#FFFstudioFFFF#HHmusicHHH#LLadminLL###########
-  7 #AAAAAAAAAAAA+BBBBBBBBBBBB+CCCCCCCCCCCC#FFFFFFFFFFFFF#HHHHHHHHHH#LLLLLLLLL###########
-  8 #AAAAAAAAAAAA#BBBBBBBBBBBB#CCCCCCCCCCCC#FFFFFFFFFFFFF#HHHHHHHHHH#LLLLLLLLL###########
-  9 #AAAAAAAAAAAA#BBBBBBBBBBBB#CCCCCCCCCCCC#FFFFFFFFFFFFF#HHHHHHHHHH#LLLLLLLLL###########
- 10 #AAAAAAAAAAAA#BBBBBBBBBBBB#CCCCCCCCCCCC#FFFFFFFFFFFFF#HHHHHHHHHH#LLLLLLLLL###########
- 11 ######++###########++###########++############++##########++############++###########
- 12 ######++###########++###########++############++##########++############++###########
- 13 #DDDDDDDDDDDxDD#EEEEEEEEEEEEEEEEEEEEEEE#GGGGGGGGGGGGG#IIIIIIIIII#MMMMMMMMM###########
- 14 #DDDDDDDDDDDDDD#EEEEEEEEEEEEEEEEEEEEEEE#GGGGGGGGGGGGG#IIIIIIIIII#MMMMMMMMM###########
- 15 #DDDDDDDDDDDDDD#EEEEEEEEEEEEEEEEEEEEEEE#GGGGGGGGGGGGG#IIIIIIIIII#MMMMMMMMM###########
- 16 #DDDDDDDDDDDDDD#EEEEEEEEEEEEEEEEEEEEEEE#GGGGGGGGGGGGG#IIIIIIIIII#MMMMMMMMM###########
- 17 #DDDDDD@DlobbyD+EEEEEEEEcoworkEEEEEEEEE+GGGGdesksGGGG+IIarcadeII+berghainM###########
- 18 #DDDDDDDDDDDDDD+EEEEEEEEEEEEEEEEEEEEEEE+GGGGGGGGGGGGG+IIIIIIIIII+MMMMMMMMM###########
- 19 #DDDDDDDDDDDDDD#EEEEEEEEEEEEEEEEEEEEEEE#GGGGGGGGGGGGG#IIIIIIIIII#MMMMMMMMM###########
- 20 #DDDDDDDDDDDDDD#EEEEEEEEEEEEEEEEEEEEEEE#GGGGGGGGGGGGG#IIIIIIIIII#MMMMMMMMM###########
- 21 #DDDDDDDDDDDDDD#EEEEEEEEEEEEEEEEEEEEEEE#GGGGGGGGGGGGG#IIIIIIIIII#MMMMMMMMM###########
- 22 #DDDDDDDDDDDDDD#EEEEEEEEEEEEEEEEEEEEEEE#GGGGGGGGGGGGG#IIIIIIIIII#MMMMMMMMM###########
+  3 #AAAAAAAAAAAA#BBBBBBBBBBBB#CCCCCCCCCCCC#FFFFFFFFFFFFF#HHHHHHHHHH#LLLLLLLLL#MMMMMMMMM#
+  4 #AAAAAAAAAAAA#BBBBBBBBBBBB#CCCCCCCCCCCC#FFFFFFFFFFFFF#HHHHHHHHHH#LLLLLLLLL+MMMMMMMMM#
+  5 #AAAAAAAAAAAA#BBBBBBBBBBBB#CCCCCCCCCCCC#FFFFFFFFFFFFF#HHHHHHHHHH#LLLLLLLLL+MMMMMMMMM#
+  6 #AAAfocusAAAA+BBmeetingBBB+CCCcoffeeCCC#FFFstudioFFFF#HHmusicHHH#LLadminLL#berghainM#
+  7 #AAAAAAAAAAAA+BBBBBBBBBBBB+CCCCCCCCCCCC#FFFFFFFFFFFFF#HHHHHHHHHH#LLLLLLLLL#MMMMMMMMM#
+  8 #AAAAAAAAAAAA#BBBBBBBBBBBB#CCCCCCCCCCCC#FFFFFFFFFFFFF#HHHHHHHHHH#LLLLLLLLL#MMMMMMMMM#
+  9 #AAAAAAAAAAAA#BBBBBBBBBBBB#CCCCCCCCCCCC#FFFFFFFFFFFFF#HHHHHHHHHH#LLLLLLLLL#MMMMMMMMM#
+ 10 #AAAAAAAAAAAA#BBBBBBBBBBBB#CCCCCCCCCCCC#FFFFFFFFFFFFF#HHHHHHHHHH#LLLLLLLLL#MMMMMMMMM#
+ 11 ######++###########++###########++############++##########++######################++#
+ 12 ######++###########++###########++############++##########++######################++#
+ 13 #DDDDDDDDDDDxDD#EEEEEEEEEEEEEEEEEEEEEEE#GGGGGGGGGGGGG#IIIIIIIIII#SSSSSSSSSSSSSSSSSSS#
+ 14 #DDDDDDDDDDDDDD#EEEEEEEEEEEEEEEEEEEEEEE#GGGGGGGGGGGGG#IIIIIIIIII#SSSSSSSSSSSSSSSSSSS#
+ 15 #DDDDDDDDDDDDDD#EEEEEEEEEEEEEEEEEEEEEEE#GGGGGGGGGGGGG#IIIIIIIIII#SSSSSSSshopSSSSSSSS#
+ 16 #DDDDDDDDDDDDDD#EEEEEEEEEEEEEEEEEEEEEEE#GGGGGGGGGGGGG#IIIIIIIIII#SSSSSSSSSSSSSSSSSSS#
+ 17 #DDDDDD@DlobbyD+EEEEEEEEcoworkEEEEEEEEE+GGGGdesksGGGG+IIarcadeII+SSSSSSSSSSSSSSSSSSS#
+ 18 #DDDDDDDDDDDDDD+EEEEEEEEEEEEEEEEEEEEEEE+GGGGGGGGGGGGG+IIIIIIIIII+SSSSSSSSSSSSSSSSSSS#
+ 19 #DDDDDDDDDDDDDD#EEEEEEEEEEEEEEEEEEEEEEE#GGGGGGGGGGGGG#IIIIIIIIII####++###############
+ 20 #DDDDDDDDDDDDDD#EEEEEEEEEEEEEEEEEEEEEEE#GGGGGGGGGGGGG#IIIIIIIIII#TTTTTTTTT###########
+ 21 #DDDDDDDDDDDDDD#EEEEEEEEEEEEEEEEEEEEEEE#GGGGGGGGGGGGG#IIIIIIIIII#terminalT###########
+ 22 #DDDDDDDDDDDDDD#EEEEEEEEEEEEEEEEEEEEEEE#GGGGGGGGGGGGG#IIIIIIIIII#TTTTTTTTT###########
  23 #########++################++###############++############++#########################
  24 #########++################++###############++############++#########################
  25 #JJJJJJJJJJJJJJ#KKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKK0#OOOOOOOOO#PPPPPPPPP#
@@ -71,38 +71,38 @@ Each room is filled with its letter (table below) and labelled with its id. `#` 
     0         1         2         3         4         5         6         7         8    
     0123456789012345678901234567890123456789012345678901234567890123456789012345678901234
   0 #####################################################################################
-  1 ##################*****###########*########################****######################
-  2 ##################*****####################################****######################
-  3 #X.........XX#X...........#.XXXX*XX.**X#X...........*#X........X#XXXXX....###########
-  4 #.X*.XX.XX...#...h.h.h....#..s.........#.XX.XX.XX.XX.#,**.**.*..#......XX.###########
-  5 #..h.h..h....#...XXXXXXh..#......s.....#.h..h..h..h..#X...**...X#X.....h.X###########
-  6 #............+..hXXXXXX...+..hXh..hXh..#.............#..........#.........###########
-  7 #......s.....+....h.h.h...+..........s.#......s......#**.s......#XXXXX...X###########
-  8 #.XX.....XX..#..........s.#...ss.......#.XXXX...XXXX.#**....s...#.........###########
-  9 #..h.....h...#.....s......#..hhh.......#.h.h....h.h..#..........#.....s...###########
- 10 #*..........*#*......*...X#*..........X#............X#....s.....#.........###########
- 11 ######++###########++###########++############++##########++############++###########
- 12 ##**##++**########*++#*#*#*#*###++############++##########++##**########++###########
- 13 #X..........x.X#....................s.X#.XX.XX..XX.XX#*.*....***#*.***....###########
- 14 #..**.....X*X.X#..XX...XX...XX...XX....#.h..h...h..h.#*.*....***#.........###########
- 15 #X.........s...#.hXXh.hXXh.hXXh.hXXh...#.............#..........#.****....###########
- 16 #....hhh......X#.......................#*............#.s.....s..#*****....###########
- 17 #...s..@s......+.........s.............+..s..hhh.....+....**....+.****.s..###########
- 18 #**...X........+...............s.......+..........s..+..........+.........###########
- 19 #..s...........#..XX...XX...XX...XX....#.............#....s.....#.s.......###########
- 20 #X....s........#.hXXh.hXXh.hXXh.hXXh...#.XX.XX..XX.XX#.........X#.........###########
- 21 #...........XX.#.......................#.h..h...h..h.#.hhh..hhh,#...******###########
- 22 #X*............#X.....................*#X............#*........*#...******###########
+  1 ##################*****###########*########################****#####*################
+  2 ##################*****####################################****#####*################
+  3 #X.........XX#X...........#.XXXX*XX***X#X...........*#X........X#XXXXX....#..***...*#
+  4 #.XX.XX.XX...#...h.h.h....#..s.........#.XX.XX.XX.XX.#,**.**.*..#......XX.+...s.....#
+  5 #..h.h..h....#...XXXXXXh..#......s.....#.h..h..h..h..#X...**...X#X.....h.X+....****.#
+  6 #............+..hXXXXXX...+..hXh..hXh..#.............#..........#.........#..s.****.#
+  7 #......s.....+....h.h.h...+..........s.#......s......#**.s......#XXXXX...X#....****.#
+  8 #.XX.....XX..#..........s.#...ss..XXX..#.XXXX...XXXX.#**....s...#.........#.......s.#
+  9 #..h.....h...#.....s......#..hhh.......#.h.h....h.h..#..........#.....s...#.******.*#
+ 10 #*..........*#*......*...X#*..........X#............X#....s.....#.........#.******..#
+ 11 ######++#####*#####++###########++############++##########++######################++#
+ 12 ##****++****#*####*++#*#*#*#*###++############++##########++##**##################++#
+ 13 #X..........x.X#....................s.X#.XX.XX..XX.XX#*.*....***#...................#
+ 14 #.........X*X.X#..XX...XX...XX...XX....#.h..h...h..h.#*.*....***#...***.***.***.....#
+ 15 #X.........s...#.hXXh.hXXh.hXXh.hXXh...#.............#..........#*.....s...s....X...#
+ 16 #....hhh......X#.......................#*............#.s.....s..#*..***.***.******..#
+ 17 #...s..@s......+.........s.............+..s..hhh.....+....**....+.................s.#
+ 18 #**...X........+...............s.......+..........s..+..........+....s.............X#
+ 19 #..s...........#..XX...XX...XX...XX....#.............#....s.....####++###############
+ 20 #X....s........#.hXXh.hXXh.hXXh.hXXh...#.XX.XX..XX.XX#.........X#X...s....###########
+ 21 #...........XX.#.......................#.h..h...h..h.#.hhh..hhh,#.XX.XX.XX###########
+ 22 #X*............#X..............**.....*#X............#*........*#.h..h..h.###########
  23 #########++################++###############++############++#########################
  24 #########++################++###############++############++#########################
  25 #X,,,XX....XX,X#...............................................0#.XXs**sXX#.XX...XX,#
  26 #XXXXX....XXXX,#.X...hhh.....h.h.Xh.h...XX.....hhh.X...XX.....X.#h..h..h..#........*#
  27 #......s......X#.............XXX..XXX...........................#XX.XX.XXX#...hhh...#
  28 #.XXXX....XXXX.#....s.........h....h....................s.......#.h..h..hh#.........#
- 29 #.......s......#.................s........ss....................+.........+...hXh.s.#
- 30 #.XXXX....XXXX.#....**...................XXXX...................+h..h..h.X+...hhh...#
- 31 #......s.......+.....XX.X.....XX**hhh.X..XXXX...X.....X.....XX.X#XX.XX.XXX#.........#
- 32 #*.............+....H...........................................#Xh..h..hh#*.......X#
+ 29 #.......s......#.................s........ss....................+.........+..hhXhhs.#
+ 30 #.XXXX....XXXX.#....**...................XXXX...................+h..h..h.X+.........#
+ 31 #......s.......+.....XX.X.....XX**hhh.X..XXXX...X.....X.....XX.X#XX.XX.XXX#....X....#
+ 32 #*.............+....H...........................................#Xh..h..hh#*...w...X#
  33 ################%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%++%%%%%%%%%%%%#####################
  34 ^^^^^^^^^^^^Xs^^^^^^^^^^^...........................*...............................^
  35 ^^^^^^^^^^^^^:^^^^^^^^^^^....X.hhh.X.....................X.......***............X...^
@@ -161,12 +161,14 @@ A maze under the garden, not connected to the office: you fall in through the ho
 | J | `orangery` | Orangery | orangery | 1,25 14×8 | 12 | allow |  |  |  | 3 | plants · knock to talk |
 | K | `garden` | Garden | garden | 16,25 48×8 | 30 | allow |  |  |  | 11 | outside · knock to talk |
 | L | `admin` | Admin | admin | 65,3 9×8 | 4 | allow |  | admins | yes | 2 | admins only · knock to talk |
-| M | `berghain` | Berghain | club | 65,13 9×10 | 20 | allow |  |  |  | 3 | club · knock to talk |
+| M | `berghain` | Berghain | club | 75,3 9×8 | 20 | allow |  |  |  | 3 | club · knock to talk |
 | N | `terrace` | Terrace | garden | 28,26 11×6 | 8 | allow |  |  |  | 9 | lunch outside · knock to talk |
 | O | `library` | Library | library | 65,25 9×8 | 14 | later |  |  |  | 16 | in the library · knocks wait for later |
 | P | `bookclub` | Book Club | library | 75,25 9×8 | 8 | allow | open |  |  | 9 | book club · open voice · walk in to talk |
 | Q | `mountains` | Mountains | vacation | 1,34 24×9 | 30 | allow |  |  |  | 4 | mountains · knock to talk |
 | R | `beach` | Beach | vacation | 25,34 59×9 | 30 | allow |  |  |  | 10 | beach · knock to talk |
+| S | `shop` | 7/11 | shop | 65,13 19×6 | 14 | allow |  |  |  | 4 | convenience store · knock to talk |
+| T | `terminal` | Terminal | terminal | 65,20 9×3 | 6 | allow |  |  |  | 4 | terminal · knock to talk |
 
 Rooms are data (`rooms` in scripts/gen-map.mjs): knock rules, voice, access and meeting links are read from here, not code.
 A room listed later wins the tiles it shares with an earlier one (the Terrace sits inside the Garden).
@@ -179,6 +181,7 @@ Every object with a `use` (wall decor counts toward the room below it). Routing 
 | id | type | kind | routing | x,y | w×h | room | label / details |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | o6 | `noticeboard` | `achievements` | — | 2,12 | 2×1 | lobby | achievements (on a wall) |
+| o7 | `photo_wall` | `photos` | — | 10,12 | 2×1 | lobby | photo wall (on a wall) |
 | o19 | `lamp` | `toggle` | wheel use reach | 1,10 | 1×1 | focus | lamp |
 | o21 | `lamp` | `toggle` | wheel use reach | 12,10 | 1×1 | focus | lamp |
 | o39 | `coffee_machine` | `take` | wheel use reach | 32,3 | 1×1 | coffee | coffee, tea |
@@ -210,28 +213,39 @@ Every object with a `use` (wall decor counts toward the room below it). Routing 
 | o181 | `drum_kit` | `instrument` | reach | 58,4 | 2×2 | music | drums · drums |
 | o182 | `bass_amp` | `instrument` | reach | 61,4 | 1×1 | music | bass · bass |
 | o183 | `screen` | `presentation` | use reach | 18,1 | 5×2 | meeting | screen (on a wall) |
-| o199 | `dj_booth` | `jukebox` | — | 67,13 | 3×1 | berghain | DJ booth |
-| o200 | `bouncer` | `dealer` | wheel use | 65,16 | 1×1 | berghain | bouncer · drugs |
-| o201 | `lamp` | `toggle` | wheel use reach | 65,13 | 1×1 | berghain | lamp |
-| o202 | `toilet` | `toilet` | wheel use | 68,21 | 2×2 | berghain | toilet |
-| o203 | `toilet` | `toilet` | wheel use | 70,21 | 2×2 | berghain | toilet |
-| o204 | `toilet` | `toilet` | wheel use | 72,21 | 2×2 | berghain | toilet |
+| o199 | `dj_booth` | `jukebox` | — | 77,3 | 3×1 | berghain | DJ booth |
+| o200 | `bouncer` | `dealer` | wheel use | 83,9 | 1×1 | berghain | bouncer · drugs |
+| o201 | `lamp` | `toggle` | wheel use reach | 83,3 | 1×1 | berghain | lamp |
+| o202 | `toilet` | `toilet` | wheel use | 76,9 | 2×2 | berghain | toilet |
+| o203 | `toilet` | `toilet` | wheel use | 78,9 | 2×2 | berghain | toilet |
+| o204 | `toilet` | `toilet` | wheel use | 80,9 | 2×2 | berghain | toilet |
 | o206 | `bookshelf_tall` | `library` | reach | 69,25 | 2×1 | library | library |
-| o208 | `dance_floor` | `dance` | — | 66,15 | 4×3 | berghain | dance floor |
+| o208 | `dance_floor` | `dance` | — | 79,5 | 4×3 | berghain | dance floor |
 | o221 | `food_cart` | `take` | wheel use reach | 32,31 | 2×1 | terrace | sandwich, ramen, salad, pizza |
 | o222 | `game_table` | `table` | use reach | 58,17 | 2×1 | arcade | Game table |
 | o223 | `bell` | `bell` | use | 11,14 | 1×1 | lobby | bell |
+| o271 | `mirror` | `mirror` | — | 68,1 | 1×2 | admin | mirror (on a wall) |
+| o274 | `mirror` | `mirror` | — | 13,11 | 1×2 | lobby | mirror (on a wall) |
 | o284 | `lamp` | `toggle` | wheel use reach | 83,26 | 1×1 | bookclub | lamp |
 | o285 | `lamp` | `toggle` | wheel use reach | 75,32 | 1×1 | bookclub | lamp |
 | o287 | `room_start` | `room_start` | use reach | 21,10 | 1×1 | meeting | start private room |
 | o288 | `retro_tobu` | `retro` | use reach | 62,13 | 1×2 | arcade | Tobu Tobu Girl |
 | o289 | `retro_lobster` | `retro` | use reach | 63,13 | 1×2 | arcade | Shock Lobster |
-| o290 | `terminal` | `tickets` | use reach | 3,14 | 2×1 | lobby | bug terminal |
+| o290 | `suggestions_board` | `tickets` | use reach | 4,12 | 2×1 | lobby | suggestions board (on a wall) |
 | o307 | `beach_bar` | `take` | wheel use reach | 65,35 | 3×1 | beach | cocktail, beer, wine, coconut, icecream |
 | o308 | `vacation_sign` | `vacations` | — | 52,34 | 1×1 | beach |  |
 | o313 | `wellness_cooler` | `wellness` | — | 37,3 | 1×1 | coffee | Water cooler |
 | o314 | `stretch_mat` | `wellness` | — | 20,30 | 2×1 | garden | Stretching mat |
-| o315 | `pomodoro_timer` | `wellness` | — | 3,4 | 1×1 | focus | Pomodoro timer |
+| o318 | `gacha_machine` | `gacha` | use reach | 65,15 | 1×2 | shop | gacha machine |
+| o319 | `shop_shelf` | `shop` | use reach | 68,14 | 3×1 | shop | shelves |
+| o320 | `shop_shelf` | `shop` | use reach | 72,14 | 3×1 | shop | shelves |
+| o321 | `shop_shelf` | `shop` | use reach | 76,14 | 3×1 | shop | shelves |
+| o322 | `shop_shelf` | `shop` | use reach | 68,16 | 3×1 | shop | shelves |
+| o323 | `shop_shelf` | `shop` | use reach | 72,16 | 3×1 | shop | shelves |
+| o324 | `shop_shelf` | `shop` | use reach | 76,16 | 3×1 | shop | shelves |
+| o325 | `shop_counter` | `cashier` | use reach | 79,16 | 3×1 | shop | Keiko |
+| o335 | `kettle` | `kettle` | use reach | 35,3 | 1×1 | coffee | kettle |
+| o338 | `trophy_case` | `achievements` | — | 31,22 | 2×1 | cowork | trophy case |
 
 Kinds with no object on the map yet: none.
 
@@ -239,11 +253,11 @@ Kinds with no object on the map yet: none.
 
 | room | objects (type ×count) |
 | --- | --- |
-| `focus` | window ×2, desk ×5, chair ×5, bookshelf, lamp ×2, plant, wall_shelf, wall_ivy, poster, pomodoro_timer |
+| `focus` | window ×2, desk ×5, chair ×5, bookshelf, lamp ×2, plant, wall_shelf, wall_ivy, poster |
 | `meeting` | painting, table_long, chair ×8, plant ×2, lamp, screen, poster ×2, wall_ivy, room_start |
-| `coffee` | window ×2, counter ×6, coffee_machine, fridge, plant ×2, table_round ×2, stool ×4, sofa, lamp, calendar, wall_shelf, wall_ivy, poster, wellness_cooler |
-| `lobby` | noticeboard, painting_small, plant ×3, sofa, table_round, reception, safe, bookshelf, hat_rack, exit_door, lamp, bell, palm, water_cooler, coat_stand, side_table, poster, mirror, terminal |
-| `cowork` | clock_nyc, clock_berlin, clock_moscow, table_big ×8, chair ×16, plant ×2, lamp, calendar, meetings_board |
+| `coffee` | window ×2, counter ×6, coffee_machine, fridge, plant ×2, table_round ×2, stool ×4, sofa, lamp, calendar, wall_shelf, wall_ivy, poster, wellness_cooler, kettle, bar_table |
+| `lobby` | noticeboard, photo_wall, plant ×3, sofa, table_round, reception, safe, bookshelf, hat_rack, exit_door, lamp, bell, palm, water_cooler, coat_stand, side_table, poster, mirror, suggestions_board |
+| `cowork` | clock_nyc, clock_berlin, clock_moscow, table_big ×8, chair ×16, plant ×2, lamp, calendar, meetings_board, trophy_case |
 | `studio` | window ×2, painting, desk ×8, chair ×8, plant ×2, lamp, wall_shelf, poster, wall_ivy |
 | `desks` | painting_small, desk ×8, chair ×8, sofa, plant, lamp |
 | `music` | jukebox, window, lofi_tv, plant ×2, keyboard, drum_kit, bass_amp, floor_lamp, palm, poster, wall_ivy |
@@ -254,9 +268,11 @@ Kinds with no object on the map yet: none.
 | `berghain` | neon_sign, dj_booth, bouncer, lamp, toilet ×3, dance_floor |
 | `terrace` | tree ×2, flowerbed, bench, table_picnic ×2, chair ×6, food_cart |
 | `library` | bookshelf_tall ×3, reading_desk ×2, chair ×14, reading_table ×6, fern, side_table |
-| `bookclub` | bookshelf_tall ×2, sofa, table_round, chair ×5, lamp ×2, plant |
+| `bookclub` | bookshelf_tall ×2, sofa, table_round, chair ×4, leader_chair, lamp ×2, plant, leader_desk |
 | `mountains` | pine ×3, summit_flag |
 | `beach` | palm ×4, lounger ×4, umbrella ×4, hammock, beach_bar, vacation_sign, sandcastle, shells, beach_ball, out_of_office_sign |
+| `shop` | shop_tv, shop_sign, gacha_machine, shop_shelf ×6, shop_counter, keiko, plant |
+| `terminal` | desk ×3, chair ×3, plant |
 
 ## Free space
 
@@ -268,22 +284,24 @@ A 3×3 feature fits where both sides are ≥ 3. `layoutProblem` (shared/map.ts) 
 | --- | --- |
 | `focus` | 1,6 6×2 · 4,8 5×2 · 9,5 3×3 |
 | `meeting` | 15,7 3×3 · 15,3 2×3 · 23,3 3×2 · 23,6 2×2 (rug) · 22,8 2×2 (rug) |
-| `coffee` | 32,7 5×3 (rug) · 27,4 2×2 · 30,4 2×2 · 34,4 2×2 · 37,5 2×2 · 28,7 2×2 (rug) · +1 smaller |
-| `lobby` | 9,16 5×5 (rug) · 4,18 2×5 (rug) · 7,18 2×5 (rug) · 6,14 4×2 |
-| `cowork` | 17,16 8×3 · 26,16 12×2 (rug) · 17,21 10×2 · 29,21 8×2 · 36,14 3×2 · 25,18 3×2 (rug) · +3 smaller |
+| `coffee` | 32,6 2×4 (rug) · 34,9 4×2 · 27,4 2×2 · 30,4 2×2 · 37,5 2×2 · 28,7 2×2 (rug) |
+| `lobby` | 9,16 5×5 (rug) · 2,14 8×2 · 4,18 2×5 (rug) · 7,18 2×5 (rug) |
+| `cowork` | 17,16 8×3 · 26,16 12×2 (rug) · 17,21 10×2 · 36,18 2×4 (rug) · 36,14 3×2 · 25,18 3×2 (rug) · +3 smaller |
 | `studio` | 40,6 6×2 · 47,6 6×2 (rug) · 45,8 3×2 |
 | `desks` | 42,15 11×2 · 41,18 4×2 · 46,19 2×4 · 48,17 2×3 (rug) · 42,21 2×2 · 49,21 2×2 |
 | `music` | 61,6 3×5 (rug) · 58,7 2×3 (rug) · 56,9 2×2 (rug) |
 | `arcade` | 55,18 3×3 · 60,18 3×3 (rug) · 58,14 2×2 · 58,20 2×2 |
 | `orangery` | 8,31 6×2 · 3,31 4×2 · 8,26 2×3 · 6,28 2×3 |
 | `garden` | 45,29 18×2 · 25,26 3×7 · 39,27 8×2 · 57,26 5×3 · 52,25 3×4 · 16,27 4×3 · +10 smaller |
-| `admin` | 66,4 5×3 · 65,8 5×3 · 71,6 2×4 |
-| `berghain` | 72,14 2×6 · 65,20 2×3 · 70,18 2×2 |
+| `admin` | 66,4 5×3 · 65,8 5×3 · 71,6 2×5 |
+| `berghain` | 75,6 2×2 |
 | `terrace` | 37,26 2×5 · 28,28 2×4 · 34,29 3×2 · 32,27 2×2 · 30,29 2×2 |
 | `library` | 67,28 2×2 (rug) · 70,28 2×2 (rug) |
-| `bookclub` | 76,26 2×6 · 78,31 5×2 (rug) · 78,25 3×2 · 81,27 2×2 |
+| `bookclub` | 75,26 3×3 · 80,30 3×3 (rug) · 78,25 3×2 · 76,30 3×2 · 81,27 2×2 |
 | `mountains` | 1,40 24×3 · 3,36 3×2 · 20,36 3×2 · 23,37 2×2 |
 | `beach` | 25,41 59×2 · 36,34 10×4 · 60,39 20×2 · 69,34 9×4 · 25,39 15×2 · 48,36 14×2 · +10 smaller |
+| `shop` | 80,13 2×2 · 82,14 2×2 · 66,17 2×2 |
+| `terminal` | none |
 
 ### Room for a new room
 

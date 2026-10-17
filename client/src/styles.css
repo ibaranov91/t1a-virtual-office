@@ -1504,3 +1504,19 @@ button:focus-visible, summary:focus-visible, input[type="range"]:focus-visible {
 @media (max-width: 560px), (max-height: 500px) { /* COMPACT */
   .modes { bottom: calc(76px + env(safe-area-inset-bottom)); }
 }
+
+/* v2 places: the 7/11 shelves panel and the pomodoro row in the sidebar's bottom strip */
+.sb-pomo { display: flex; align-items: center; gap: 10px; min-width: 0; margin-bottom: 10px; }
+.sb-pomo > .sb-voice-action { flex: 1; }
+.sb-pomo.running > .sb-voice-action { flex: none; }
+.sb-pomo-icon { flex: none; display: grid; place-items: center; width: 40px; height: 40px; border-radius: 8px; background: var(--panel2); font-size: var(--fs-xl); }
+.sb-pomo .sb-voice-text strong { font-variant-numeric: tabular-nums; color: var(--text); }
+.shop-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.shop-list li { display: flex; align-items: center; gap: 10px; min-height: var(--control-h); padding: 4px 8px; border-radius: var(--radius-md); background: var(--panel2); }
+.shop-icon { flex: none; width: 28px; text-align: center; font-size: var(--fs-xl); }
+.shop-name { flex: 1; min-width: 0; font-size: var(--fs-md); }
+.shop-name small { color: var(--muted); font-size: var(--fs-sm); }
+.shop-panel .hint { font-size: var(--fs-sm); color: var(--muted); }
+@media (max-width: 560px), (max-height: 500px) {
+  .shop-panel.meet-panel.guided { top: auto; bottom: 0; left: 0; transform: none; width: 100%; max-height: calc(100% - 8px); overflow-y: auto; border-radius: 14px 14px 0 0; border-width: 2px 0 0; padding-bottom: calc(12px + env(safe-area-inset-bottom)); }
+}

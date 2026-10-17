@@ -3,11 +3,15 @@ import { doorwayTiles, roomAt, type Room, type Tile, type TileMap } from '../../
 export interface RoomDoor {
   room: Room; tiles: Tile[]; x: number; y: number; w: number; h: number; horizontal: boolean;
   locked: boolean; // admins only: stays shut (red light) for everyone else
+  sliding?: boolean; // the 7/11's glass doors: they slide open when someone is within two tiles
 }
 export function roomDoors(m: TileMap): RoomDoor[] {
   const rooms = new Set(m.objects.filter(o => o.sound).map(o => roomAt(m, o.x, o.y)?.id));
   return doorsOf(m, m.rooms.filter(r => r.rules.voice === 'open' || rooms.has(r.id)));
 }
+/** The 7/11's street door (from the Arcade): glass panes that slide apart as you come near. */
+export const slidingDoors = (m: TileMap): RoomDoor[] =>
+  doorsOf(m, m.rooms.filter(r => r.id === 'shop')).filter(d => !d.horizontal && d.x === 64).map(d => ({ ...d, sliding: true }));
 /** Doors of rooms only admins may enter: drawn shut (red light) for everyone else. */
 export const lockedDoors = (m: TileMap) => doorsOf(m, m.rooms.filter(r => r.rules.access));
 function doorsOf(m: TileMap, rooms: Room[]): RoomDoor[] {

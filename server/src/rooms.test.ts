@@ -14,7 +14,7 @@ const toilets = map.objects.filter(o => o.use?.kind === 'toilet');
 function setup(t: TestContext) {
   t.mock.timers.enable({ apis: ['setTimeout', 'Date', 'setInterval'], now: 100000 });
   const w = new World(map);
-  const add = (name: string, tile: Tile = { x: 68, y: 18 }, email?: string) => {
+  const add = (name: string, tile: Tile = { x: 78, y: 8 }, email?: string) => {
     const u = w.addUser(name, false, tile, email); u.presence = 'online';
     const messages: ServerMsg[] = [];
     const conn = w.connect(u.id, m => messages.push(m));
@@ -50,7 +50,7 @@ test('A* keeps non-admins out of the Admin room but lets them walk out of it', (
 
 test('the server walks admins in and turns everyone else away at the door', t => {
   const { w, add, notices } = setup(t);
-  const kim = add('Kim'), ivan = add('Ivan', { x: 70, y: 18 }, 'ivan.baranov@t1a.com');
+  const kim = add('Kim'), ivan = add('Ivan', { x: 80, y: 8 }, 'ivan.baranov@t1a.com');
   const before = kim.u.tile;
   w.handle(kim.u, { t: 'move', to: inside }, kim.socket);
   assert.deepEqual(kim.u.tile, before); assert.equal(kim.u.move, null);
@@ -71,7 +71,7 @@ const walkIn = (w: World, a: { u: User; socket: string }, objectId: string, tick
 test('four fit in a stall; the rest line up outside and move in as places come free', t => {
   const { w, add, notices, tick } = setup(t);
   const stall = toilets[0], door = stallDoor(stall);
-  const people = ['A', 'B', 'C', 'D', 'E', 'F'].map((n, i) => add(n, { x: 66 + (i % 3), y: 15 + Math.floor(i / 3) }));
+  const people = ['A', 'B', 'C', 'D', 'E', 'F'].map((n, i) => add(n, { x: 76 + (i % 3), y: 5 + Math.floor(i / 3) }));
   for (const p of people) walkIn(w, p, stall.id, tick);
   const s = () => w.toilets.state(stall.id);
   assert.deepEqual(s().in, people.slice(0, TOILET_CAPACITY).map(p => p.u.id));
@@ -81,14 +81,14 @@ test('four fit in a stall; the rest line up outside and move in as places come f
   const line = stallLine(map, stall, 2);
   people.slice(TOILET_CAPACITY).forEach((p, i) => assert.deepEqual(p.u.tile, { x: line[i].x, y: line[i].y }, `${p.u.name} stands in line`));
   // one walks out: the first in line walks in, the next steps up
-  w.handle(people[1].u, { t: 'move', to: { x: 66, y: 15 } }, people[1].socket);
+  w.handle(people[1].u, { t: 'move', to: { x: 76, y: 5 } }, people[1].socket);
   assert.deepEqual(s().in, [people[0], people[2], people[3], people[4]].map(p => p.u.id));
   assert.deepEqual(s().queue, [people[5].u.id]);
   tick(3000);
   assert.deepEqual(people[4].u.tile, door);
   assert.deepEqual(people[5].u.tile, { x: line[0].x, y: line[0].y });
   // leaving the line is just walking off
-  w.handle(people[5].u, { t: 'move', to: { x: 66, y: 16 } }, people[5].socket);
+  w.handle(people[5].u, { t: 'move', to: { x: 76, y: 6 } }, people[5].socket);
   assert.deepEqual(s().queue, []);
   // visits end on their own
   tick(TOILET_USE_MS);
@@ -97,7 +97,7 @@ test('four fit in a stall; the rest line up outside and move in as places come f
 
 test('the shelf takes company inside and the item in your inventory, and clears when the stall empties', t => {
   const { w, add, notices, tick } = setup(t);
-  const stall = toilets[1], a = add('A', { x: 70, y: 16 }), b = add('B', { x: 71, y: 16 });
+  const stall = toilets[1], a = add('A', { x: 80, y: 6 }), b = add('B', { x: 81, y: 6 });
   walkIn(w, a, stall.id, tick);
   w.handle(a.u, { t: 'toilet_shelf', objectId: stall.id }, a.socket);
   assert.equal(w.toilets.state(stall.id).shelf, 0);
@@ -109,19 +109,19 @@ test('the shelf takes company inside and the item in your inventory, and clears 
   w.handle(a.u, { t: 'toilet_shelf', objectId: stall.id }, a.socket);
   w.handle(b.u, { t: 'toilet_shelf', objectId: stall.id }, b.socket);
   assert.equal(w.toilets.state(stall.id).shelf, 2);
-  w.handle(a.u, { t: 'move', to: { x: 70, y: 16 } }, a.socket);
+  w.handle(a.u, { t: 'move', to: { x: 80, y: 6 } }, a.socket);
   assert.equal(w.toilets.state(stall.id).shelf, 2, 'still someone inside');
-  w.handle(b.u, { t: 'move', to: { x: 71, y: 16 } }, b.socket);
+  w.handle(b.u, { t: 'move', to: { x: 81, y: 6 } }, b.socket);
   assert.equal(w.toilets.state(stall.id).shelf, 0);
 });
 
 test('a stall overflows after enough visits, sends its line home, and drains slowly', t => {
   const { w, add, notices, tick } = setup(t);
-  const stall = toilets[2], kim = add('Kim', { x: 72, y: 16 });
+  const stall = toilets[2], kim = add('Kim', { x: 82, y: 6 });
   for (let i = 1; i <= TOILET_FULL; i++) {
     walkIn(w, kim, stall.id, tick);
     assert.equal(w.toilets.state(stall.id).fill, i);
-    w.handle(kim.u, { t: 'move', to: { x: 72, y: 16 } }, kim.socket); tick(2000);
+    w.handle(kim.u, { t: 'move', to: { x: 82, y: 6 } }, kim.socket); tick(2000);
   }
   kim.messages.length = 0;
   walkIn(w, kim, stall.id, tick);
@@ -134,8 +134,8 @@ test('a stall overflows after enough visits, sends its line home, and drains slo
 
 test('everyone inside a stall shares its own voice; the line and the next stall don\'t hear it', t => {
   const { w, add, tick } = setup(t);
-  const [one, two] = toilets, a = add('A', { x: 66, y: 15 }), b = add('B', { x: 67, y: 15 }), c = add('C', { x: 70, y: 16 });
-  const people = ['D', 'E', 'F', 'G'].map((n, i) => add(n, { x: 66 + i, y: 17 }));
+  const [one, two] = toilets, a = add('A', { x: 76, y: 5 }), b = add('B', { x: 77, y: 5 }), c = add('C', { x: 80, y: 6 });
+  const people = ['D', 'E', 'F', 'G'].map((n, i) => add(n, { x: 76 + i, y: 7 }));
   walkIn(w, a, one.id, tick); tick(300);
   assert.equal(a.u.callId, stallVoiceId(one.id), 'alone inside: on the stall\'s voice already');
   walkIn(w, b, one.id, tick); walkIn(w, c, two.id, tick); tick(300);
@@ -149,7 +149,7 @@ test('everyone inside a stall shares its own voice; the line and the next stall 
   assert.equal(people[2].u.callId, null, 'waiting in line is outside the door');
   assert.equal(a.u.presence, 'online', 'a stall is a hall, not a knock call');
   // walking out leaves the voice; the rest stay on it
-  w.handle(a.u, { t: 'move', to: { x: 66, y: 15 } }, a.socket); tick(300);
+  w.handle(a.u, { t: 'move', to: { x: 76, y: 5 } }, a.socket); tick(300);
   assert.equal(a.u.callId, null);
   assert.equal(b.u.callId, stallVoiceId(one.id));
   tick(TOILET_USE_MS); tick(300);
@@ -158,7 +158,7 @@ test('everyone inside a stall shares its own voice; the line and the next stall 
 
 test('going into a stall keeps a knock call; hanging up there joins the stall voice and tells the others', t => {
   const { w, add, tick } = setup(t);
-  const a = add('A', { x: 66, y: 15 }), b = add('B', { x: 67, y: 15 }), c = add('C', { x: 66, y: 18 });
+  const a = add('A', { x: 76, y: 5 }), b = add('B', { x: 77, y: 5 }), c = add('C', { x: 76, y: 8 });
   w.connectCall(a.u, b.u); w.connectCall(a.u, c.u); tick(300);
   const knock = a.u.callId!;
   assert.ok(knock && b.u.callId === knock && c.u.callId === knock);
@@ -175,7 +175,7 @@ test('going into a stall keeps a knock call; hanging up there joins the stall vo
 
 test('knocks on someone in a stall go to Later', t => {
   const { w, add, tick } = setup(t);
-  const kim = add('Kim', { x: 68, y: 16 }), bo = add('Bo', { x: 66, y: 18 });
+  const kim = add('Kim', { x: 78, y: 6 }), bo = add('Bo', { x: 76, y: 8 });
   walkIn(w, kim, toilets[0].id, tick);
   assert.deepEqual(w.toilets.state(toilets[0].id).in, [kim.u.id]);
   w.handle(bo.u, { t: 'knock', targetId: kim.u.id }, bo.socket);
@@ -187,7 +187,7 @@ test('knocks on someone in a stall go to Later', t => {
 test('the bouncer sells drugs into the inventory (at most POCKET_MAX); racking spends one; sniffing takes a line and shows unicorns', t => {
   const { w, add, notices, tick } = setup(t);
   const bouncer = map.objects.find(o => o.type === 'bouncer')!;
-  const stall = toilets[1], a = add('A', { x: 66, y: 16 }), b = add('B', { x: 67, y: 16 });
+  const stall = toilets[1], a = add('A', { x: 76, y: 6 }), b = add('B', { x: 77, y: 6 });
   const me = (m: ServerMsg[]) => m.filter(x => x.t === 'me').at(-1) as Extract<ServerMsg, { t: 'me' }> | undefined;
   for (let i = 0; i < ITEMS_MAX + 1; i++) walkIn(w, a, bouncer.id, tick);
   assert.deepEqual(a.u.items, Array(ITEMS_MAX).fill('drugs'));

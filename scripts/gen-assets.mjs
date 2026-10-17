@@ -2149,14 +2149,6 @@ for (const [game, accent] of [['tobu', '#cf82ae'], ['lobster', '#bd524a']]) {
   t.vline(26, 6, 5, '#497e78'); t.rect(29, 3, 2, 10, '#497e78'); t.vline(29, 4, 8, '#a4c7ad');
   frames.stretch_mat = t.outline();
 }
-{
-  const t = new Img(16, 22);
-  t.rect(6, 4, 5, 2, '#799552'); t.rect(8, 2, 2, 3, '#9aba65');
-  t.ellipse(8, 10, 6, 5, '#b4534a'); t.ellipse(7, 9, 4, 3, '#d97a62');
-  t.rect(4, 10, 8, 3, '#f3e4cc'); t.hline(5, 11, 2, '#51444a'); t.hline(9, 11, 2, '#51444a');
-  t.rect(5, 15, 7, 2, '#823e3d');
-  frames.pomodoro_timer = t.outline();
-}
 
 // ---------- bug terminal: a beige CRT on a little desk (fixed pixels, no random calls) ----------
 for (const on of [false, true]) {
@@ -2199,6 +2191,156 @@ for (const on of [false, true]) {
   for (let y = 1; y <= 5; y++) { const x0 = y === 1 ? 6 : y === 2 ? 4 : y === 5 ? 2 : 3, w = y === 1 ? 4 : y === 2 ? 8 : y === 5 ? 12 : 10; t.px(x0, y, '#2a2a32'); t.px(x0 + w - 1, y, '#2a2a32'); }
   t.rect(1, 6, 14, 2, '#2a2a32'); t.hline(2, 6, 12, '#ececf2'); // the rim: a white band on a dark brim
   frames.hat_prison = t.outline();
+}
+
+// ---------- v2 places: the 7/11, the kitchen kettle and bar table, Book Club leader seat, trophy case, boards (fixed pixels, no random calls) ----------
+{
+  // the 7/11's sliding glass door in a vertical doorway: closed (0), half open (1), open (2); the panes slide up and down along the wall
+  for (const stage of [0, 1, 2]) {
+    const t = new Img(16, 40), slide = [0, 6, 13][stage];
+    t.rect(1, 7, 14, 32, OUT);
+    t.rect(3, 8, 10, 30, '#5a6270'); t.rect(4, 9, 8, 28, [0, 0, 0, 0]); // frame
+    const pane = (y0, y1) => { // the glass between y0 and y1
+      if (y1 - y0 < 2) return;
+      t.rect(4, y0, 8, y1 - y0, '#a8dcec'); t.vline(5, y0, y1 - y0, '#d8f2fa'); t.vline(10, y0, y1 - y0, '#86bfd2');
+      t.hline(4, y0, 8, '#e8f8ff'); t.hline(4, y1 - 1, 8, '#5a8aa0');
+    };
+    pane(9, 23 - slide); pane(23 + slide, 37);
+    t.rect(3, 8, 10, 2, '#7d8696'); t.hline(3, 8, 10, '#aab2c0'); // the rail above
+    if (stage < 2) { t.rect(7, 21 - slide, 2, 1, '#e8b030'); t.rect(7, 23 + slide, 2, 1, '#e8b030'); } // handles
+    frames[`door_v_slide_${stage}`] = t;
+  }
+}
+{
+  const t = new Img(32, 16); // a TV hung in the corner: the evening news
+  t.rect(1, 1, 30, 13, '#1c1c22'); t.hline(1, 1, 30, '#3a3a44');
+  t.rect(3, 3, 26, 9, '#3f78a8'); t.rect(3, 3, 26, 3, '#5b9ac8'); t.rect(5, 8, 12, 2, '#f4f0e6'); t.rect(19, 5, 8, 5, '#d8b070');
+  t.rect(3, 11, 26, 1, '#d84a3a'); for (let x = 5; x < 28; x += 4) t.px(x, 11, '#f4f0e6'); // ticker
+  t.px(28, 13, '#7cd87c');
+  frames.shop_tv = t.outline();
+}
+{
+  const t = new Img(64, 16); // the 7/11 neon: orange, green and red stripes over the lit name
+  t.rect(1, 1, 62, 14, '#1d1a24');
+  t.rect(3, 2, 58, 1, '#f08a2a'); t.rect(3, 3, 58, 1, '#2f9a58'); t.rect(3, 4, 58, 1, '#d8383a');
+  const G = { 7: ['#####', '....#', '...#.', '..#..', '.#...', '.#...', '.#...'], '/': ['....#', '...#.', '...#.', '..#..', '.#...', '.#...', '#....'],
+    1: ['..#..', '.##..', '..#..', '..#..', '..#..', '..#..', '.###.'] };
+  let gx = 19;
+  for (const [ch, c] of [['7', '#f08a2a'], ['/', '#f4f0e6'], ['1', '#2fc068'], ['1', '#e8484a']]) {
+    G[ch].forEach((row, j) => { for (let i = 0; i < 5; i++) if (row[i] === '#') { t.px(gx + i, 6 + j, c); t.px(gx + i + 1, 6 + j, c); } });
+    gx += 7;
+  }
+  frames.shop_sign = t.outline();
+}
+{
+  const t = new Img(16, 32); // gacha machine: a glass dome of capsules on a red body
+  t.rect(3, 13, 10, 17, '#d8383a'); t.vline(3, 13, 17, '#f0645e'); t.vline(12, 13, 17, '#a02828'); t.hline(3, 13, 10, '#f0645e');
+  t.ellipse(8, 8, 6, 6.5, '#b8e4f0'); t.ellipse(8, 8, 5, 5.5, '#cfeef8'); t.px(5, 5, '#ffffff'); t.px(6, 4, '#ffffff');
+  for (const [x, y, c] of [[5, 10, '#f0c040'], [8, 11, '#e8484a'], [10, 9, '#4aa0e8'], [6, 8, '#7cd87c'], [9, 7, '#e87ac8'], [7, 6, '#f0c040'], [11, 11, '#f4f0e6'], [4, 11, '#e87ac8']]) { t.rect(x, y, 2, 2, c); t.px(x, y, '#ffffff'); }
+  t.rect(5, 15, 6, 4, '#f4f0e6'); t.hline(6, 17, 4, '#a02828'); // coin plate and slot
+  t.ellipse(8, 22, 2.5, 2.5, '#f0c040'); t.px(8, 22, '#8a6a20'); t.hline(7, 22, 3, '#8a6a20');
+  t.rect(5, 26, 6, 4, '#2a1a1a'); t.hline(5, 26, 6, '#5a3a3a'); // the chute
+  t.rect(3, 30, 10, 1, '#7a1c1c');
+  frames.gacha_machine = t.outline();
+}
+{
+  const t = new Img(48, 24); // a gondola shelf, three rows of snacks
+  t.rect(1, 3, 46, 20, '#c9ced6'); t.hline(1, 3, 46, '#e6eaf0'); t.rect(1, 21, 46, 2, '#8a929c');
+  const cols = ['#e8484a', '#f0c040', '#4aa0e8', '#7cd87c', '#e87ac8', '#f08a2a', '#f4f0e6', '#9a7ae8'];
+  for (let r = 0; r < 3; r++) {
+    const y = 5 + r * 6;
+    t.rect(2, y + 4, 44, 1, '#8a929c');
+    for (let i = 0; i < 11; i++) { const c = cols[(i * 3 + r * 5) % cols.length], h = 3 + ((i + r) % 2); t.rect(3 + i * 4, y + 4 - h, 3, h, c); t.px(3 + i * 4, y + 4 - h, '#ffffffaa'.slice(0, 7)); }
+  }
+  frames.shop_shelf = t.outline();
+}
+{
+  const t = new Img(48, 22); // the counter: blue front, white top, a till and a pile of onigiri
+  t.rect(0, 6, 48, 4, '#f4f0e6'); t.hline(0, 6, 48, '#ffffff'); t.hline(0, 9, 48, '#c8c0b0');
+  t.rect(0, 10, 48, 11, '#3a6ea5'); t.hline(0, 10, 48, '#5b8cc0'); t.rect(0, 16, 48, 1, '#f08a2a'); t.rect(0, 17, 48, 1, '#2f9a58'); t.rect(0, 18, 48, 1, '#d8383a');
+  t.hline(0, 21, 48, '#274a70');
+  t.rect(34, 2, 9, 5, '#4a4a58'); t.rect(35, 3, 7, 2, '#8fc0dc'); t.rect(36, 6, 5, 1, '#2a2a32'); // the till
+  t.rect(6, 3, 5, 3, '#f4f0e6'); t.px(8, 4, '#2a2a32'); t.rect(12, 4, 5, 2, '#f4f0e6'); t.px(14, 5, '#2a2a32'); // onigiri
+  frames.shop_counter = t.outline();
+}
+{
+  const t = new Img(16, 24); // Keiko: the 7/11 uniform, a neat black bob and a name tag
+  t.rect(3, 10, 10, 11, '#f4f0e6'); t.rect(3, 13, 10, 1, '#f08a2a'); t.rect(3, 14, 10, 1, '#2f9a58'); t.rect(3, 15, 10, 1, '#d8383a'); // the stripes
+  t.rect(2, 11, 2, 6, '#f4f0e6'); t.rect(12, 11, 2, 6, '#f4f0e6'); t.rect(2, 16, 2, 2, '#e8b894'); t.rect(12, 16, 2, 2, '#e8b894');
+  t.rect(9, 11, 3, 2, '#ffffff'); t.px(10, 12, '#3a6ea5'); // name tag
+  t.rect(5, 2, 6, 7, '#e8b894'); t.rect(4, 1, 8, 4, '#1a1a22'); t.rect(4, 4, 1, 5, '#1a1a22'); t.rect(11, 4, 1, 5, '#1a1a22'); // bob
+  t.px(6, 5, '#1a1a22'); t.px(9, 5, '#1a1a22'); t.rect(7, 7, 2, 1, '#c8645a'); // eyes, a polite smile
+  t.rect(4, 21, 3, 2, '#2a2a32'); t.rect(9, 21, 3, 2, '#2a2a32'); t.rect(4, 20, 8, 1, '#3a3a46');
+  frames.keiko = t.outline();
+}
+{
+  const t = new Img(16, 32); // the kitchen kettle on a counter segment
+  counterSeg(t, 9);
+  const k = new Img(16, 32);
+  k.rect(4, 2, 8, 9, '#cfd4da'); k.vline(4, 2, 9, '#eef1f4'); k.vline(11, 2, 9, '#8f979f'); k.hline(4, 2, 8, '#eef1f4'); k.rect(6, 1, 4, 1, '#3a3f46');
+  k.rect(11, 4, 3, 1, '#cfd4da'); k.px(13, 3, '#cfd4da'); k.rect(2, 4, 2, 5, '#3a3f46'); k.rect(5, 9, 6, 2, '#3a3f46'); k.px(9, 5, '#d8383a'); k.px(9, 6, '#7cd87c');
+  k.outline(); t.blit(k, 0, 0);
+  frames.kettle = t;
+}
+{
+  const t = new Img(48, 20); // a tall bar table: a light top on thin steel legs (the cup rows are 5-11)
+  t.rect(1, 4, 46, 8, '#d8b27a'); t.hline(1, 4, 46, '#ecc994'); t.hline(1, 11, 46, '#a07c4a'); t.rect(1, 12, 46, 1, '#7a5c36');
+  for (const x of [4, 24, 42]) { t.rect(x, 13, 2, 7, '#8f979f'); t.vline(x, 13, 7, '#cfd4da'); }
+  t.rect(18, 8, 6, 3, '#f4f0e6'); // a napkin holder
+  frames.bar_table = t.outline();
+}
+{
+  const t = new Img(16, 16), seat = new Img(16, 16); // the Book Club leader's armchair: wine velvet, wooden arms
+  const chair = (img, back) => {
+    if (back) { img.rect(2, 1, 12, 5, '#7a2e3a'); img.hline(2, 1, 12, '#a04858'); }
+    img.rect(2, 6, 12, 7, '#a03e4c'); img.hline(3, 6, 10, '#c05a68'); img.rect(1, 6, 2, 7, '#7a5232'); img.rect(13, 6, 2, 7, '#7a5232');
+    img.hline(2, 12, 12, '#6a2430'); img.vline(2, 13, 2, '#5a3c22'); img.vline(13, 13, 2, '#5a3c22');
+  };
+  chair(t, true); frames.leader_chair = t.outline(); frames.leader_chair_down = frames.leader_chair;
+  chair(seat, false); frames.leader_chair_up = seat.outline();
+  const back = new Img(16, 16); // sitter faces up: the backrest is in front of them
+  back.rect(2, 9, 12, 5, '#7a2e3a'); back.hline(2, 9, 12, '#a04858'); back.rect(1, 9, 1, 6, '#7a5232'); back.rect(14, 9, 1, 6, '#7a5232');
+  frames.leader_chair_up_back = back.outline();
+}
+{
+  const t = new Img(16, 20); // a small reading desk with an open book
+  t.rect(1, 5, 14, 9, '#a8693a'); t.hline(1, 5, 14, '#c88a52'); t.hline(1, 13, 14, '#6e4228'); t.rect(2, 14, 2, 5, '#6e4228'); t.rect(12, 14, 2, 5, '#6e4228');
+  t.rect(3, 6, 5, 5, '#f4f0e6'); t.rect(8, 6, 5, 5, '#ece4d0'); t.vline(8, 6, 5, '#b0a080'); t.hline(4, 8, 3, '#b0a080'); t.hline(9, 8, 3, '#b0a080');
+  t.rect(3, 11, 10, 1, '#5a8a4a');
+  frames.leader_desk = t.outline();
+}
+{
+  const t = new Img(32, 30); // the trophy case: a glass cabinet with gold cups on three shelves
+  t.rect(1, 2, 30, 27, '#6a4a2c'); t.hline(1, 2, 30, '#8a6a42');
+  t.rect(3, 4, 26, 22, '#bfe0ec'); t.rect(3, 4, 26, 22, '#aed6e6'); t.vline(5, 5, 20, '#e6f6fb'); t.vline(14, 5, 20, '#d4eef6');
+  for (const y of [11, 18, 25]) t.rect(3, y, 26, 1, '#6a4a2c');
+  const cup = (x, y, s) => { t.rect(x, y, 3 + s, 1 + s, '#f0c040'); t.rect(x + 1, y + 1 + s, 1 + s, 2, '#d8a820'); t.rect(x - 1, y + 3 + s, 5 + s, 1, '#8a6a20'); t.px(x, y, '#fff2a0'); };
+  cup(6, 6, 1); cup(14, 7, 0); cup(21, 6, 1); cup(5, 13, 0); cup(12, 14, 0); cup(20, 12, 1); cup(8, 20, 1); cup(17, 21, 0); cup(23, 21, 0);
+  t.rect(3, 26, 26, 2, '#4a3220');
+  frames.trophy_case = t.outline();
+}
+{
+  const t = new Img(32, 16); // the suggestions board: cork with pinned notes
+  t.rect(1, 1, 30, 14, '#7a5232'); t.rect(2, 2, 28, 12, '#c8955a'); t.hline(2, 2, 28, '#dcae74');
+  for (const [x, y, w, h, c] of [[4, 4, 6, 5, '#f4f0e6'], [12, 3, 7, 6, '#f0d870'], [21, 5, 7, 5, '#f4f0e6'], [8, 9, 5, 4, '#9ad0e8'], [16, 10, 6, 3, '#f4a8b8']]) {
+    t.rect(x, y, w, h, c); t.hline(x + 1, y + 2, w - 2, '#9a9080'); if (h > 4) t.hline(x + 1, y + 4, w - 3, '#9a9080'); t.px(x + (w >> 1), y, '#d8383a');
+  }
+  frames.suggestions_board = t.outline();
+}
+{
+  const t = new Img(32, 16); // the Lobby photo wall: framed pictures on dark panelling
+  t.rect(0, 0, 32, 16, '#3a2a30'); t.hline(0, 0, 32, '#5a4048');
+  for (const [x, y, w, h, c1, c2] of [[2, 2, 8, 10, '#6fa8c8', '#7cb868'], [12, 3, 8, 7, '#e8b860', '#c0643c'], [22, 2, 8, 10, '#9a7ae8', '#6fa8c8']]) {
+    t.rect(x, y, w, h, '#c8a060'); t.rect(x + 1, y + 1, w - 2, h - 2, c1); t.rect(x + 1, y + h - 4, w - 2, 3, c2); t.px(x + 3, y + 3, '#f4f0e6');
+  }
+  t.rect(1, 13, 30, 2, '#5a4048');
+  frames.photo_wall = t;
+}
+{
+  const t = new Img(8, 6); // the hot cup noodles on the table
+  t.ellipse(4, 3, 4, 2.5, '#f4f0e8'); t.hline(1, 5, 6, '#c8c0b0');
+  t.rect(2, 1, 4, 4, '#e8484a'); t.hline(2, 1, 4, '#f4f0e6'); t.px(3, 0, '#c8d8e0'); t.px(5, 0, '#c8d8e0');
+  frames.plate_hot_noodles = t.outline();
 }
 
 // ---------- pack world atlas (shelf packer) ----------

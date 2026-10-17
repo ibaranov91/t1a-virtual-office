@@ -414,7 +414,7 @@ test('lamp toggles still broadcast and persist', t => {
 test('a saved layout is brought up to date with the vault door: added, moved into the wall, kept where the admin put it', t => {
   const { w } = setup(t), safe = map.objects.find(o => o.type === 'safe')!, url = (o: { use?: unknown }) => (o.use as { url: string }).url;
   const load = (objects: typeof map.objects) => { const r = new World(structuredClone(map)); r.load({ ...w.dump(), layout: structuredClone({ objects, rugs: map.rugs }) }); return r.map.objects; };
-  const without = map.objects.filter(o => o.type !== 'safe');
+  const without = map.objects.filter(o => o.type !== 'safe' && o.type !== 'suggestions_board'); // the board has the free wall slot beside the safe: the admin's moved door takes it
   // from before the safe: it appears at its generated spot
   let got = load(without).find(o => o.type === 'safe')!;
   assert.deepEqual([got.x, got.y, got.wall, got.use], [safe.x, safe.y, true, safe.use]);

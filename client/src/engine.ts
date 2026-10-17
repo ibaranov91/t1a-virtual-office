@@ -3,13 +3,13 @@ import { INSTRUMENTS } from '../../shared/instruments';
 // The floor: one <canvas>, one requestAnimationFrame loop.
 // Order: static tilemap → y-sorted furniture + sprites → nameplates & bubbles → ambient tint → UI hints.
 import { adminOnly, applyEdit, FIXED_TYPES, SEAT_TYPES, findPath, pathTo, sampleMove, pathDuration, WALK_MS_PER_TILE, isWalkable, layoutProblem, objectById, objectName, roomAt, rugFrame, seatAt, withLayout, type MapObject, type Rect, type Rug, type Tile } from '../../shared/map';
-import { FOOD_ITEMS, picnicSeat } from '../../shared/lunch';
+import { FOOD_ITEMS, KITCHEN_TABLES, kitchenSpot, picnicSeat } from '../../shared/lunch';
 import { DungeonView } from './dungeon';
 import { DANCE_ROOM, danceBeat, dancePhase } from '../../shared/effects';
 import { DRINKS, emptyDrink, isEmpty } from '../../shared/drinks';
 import { drawEffects, effectLook, effectSway } from './effects';
 import { CreatureLayer, creaturePose } from './creatures';
-import { lockedDoors, roomDoors, type RoomDoor } from './doors';
+import { lockedDoors, roomDoors, slidingDoors, type RoomDoor } from './doors';
 import { voiceSignPositions } from './roomSigns';
 import { drawBeachSign } from './beachSign';
 import { dance, discos, drawDisco, evening, type DanceStep, type Disco } from './disco';
@@ -314,7 +314,7 @@ export class Engine {
   /** The furniture changed (an admin moved something): redraw the floor and re-sort what's where. */
   private refreshLayout() {
     this.layoutSeen = this.store.layoutVersion;
-    this.doors = [...roomDoors(MAP), ...lockedDoors(MAP)];
+    this.doors = [...roomDoors(MAP), ...lockedDoors(MAP), ...slidingDoors(MAP)];
     this.discos = discos(MAP);
     this.jukeboxes = MAP.objects.filter(o => o.use?.kind === 'jukebox').map(o => ({ o, room: roomAt(MAP, o.x, o.y)?.id }));
     this.staticLayer = this.buildStatic();
@@ -684,6 +684,13 @@ export class Engine {
     if (!me?.holding || !FOOD_ITEMS.includes(me.holding) || me.instance || this.areaDown || !picnicSeat(MAP, t)) return null;
     return MAP.objects.find(o => o.type === 'chair' && o.x === t.x && o.y === t.y) ?? null;
   }
+  /** Holding food beside a kitchen table, or on the table itself: eat it standing there (no chair needed). */
+  private kitchenEat(t: Tile): Tile | null {
+    const me = this.store.users.get(this.store.me);
+    if (!me?.holding || !FOOD_ITEMS.includes(me.holding) || me.instance || this.areaDown) return null;
+    const onTable = MAP.objects.some(o => KITCHEN_TABLES.includes(o.type) && t.x >= o.x && t.x < o.x + o.w && t.y >= o.y && t.y < o.y + o.h && roomAt(MAP, o.x, o.y)?.type === 'coffee');
+    return onTable || kitchenSpot(MAP, t) ? t : null;
+  }
   /** What a click at this point can use: inside a meeting's room only the wall screen (it has a show per room). */
   private pickable(wx: number, wy: number, inside: string | null): MapObject | null {
     const o = this.objectAt(wx, wy);
@@ -818,7 +825,7 @@ export class Engine {
     this.hoverTile = this.clickTarget({ x: tx, y: ty });
     this.hoverCritter = this.hoverUser || this.hoverObject || inside || this.areaDown ? null : this.critters.at(w.x, w.y, this.store.now());
     this.cupTile = this.hoverUser || this.hoverObject || this.hoverCup ? null : this.cupTarget({ x: tx, y: ty });
-    this.lunchTile = this.hoverUser || this.hoverObject || inside || !this.lunchChair({ x: tx, y: ty }) ? null : { x: tx, y: ty };
+    this.lunchTile = this.hoverUser || this.hoverObject || inside ? null : this.lunchChair({ x: tx, y: ty }) ? { x: tx, y: ty } : this.kitchenEat({ x: tx, y: ty });
     this.canvas.style.cursor = this.tapZooms ? 'zoom-in' : this.hoverUser || this.hoverObject || this.hoverCup || this.cupTile || this.lunchTile || this.hoverCritter?.id || (this.hoverPlant && this.nearDesk(this.hoverPlant.u)) ? 'pointer' : this.hoverTile ? 'crosshair' : 'default';
   };
   private plantAt(wx: number, wy: number) { return this.plants.find(p => wx >= p.x - 5 && wx < p.x + 5 && wy >= p.y - 18 && wy < p.y) ?? null; }
@@ -882,6 +889,8 @@ export class Engine {
     if (cup) { this.manualCam = false; return this.store.putCup(cup); }
     const chair = this.lunchChair({ x: tx, y: ty });
     if (chair) { this.manualCam = false; return this.onPick?.({ kind: 'object', id: chair.id }); }
+    const eat = this.kitchenEat({ x: tx, y: ty });
+    if (eat) { this.manualCam = false; return this.store.lunch(eat, false); }
     const target = this.clickTarget({ x: tx, y: ty });
     if (target) this.walkTo(target);
     else if (!this.store.sysadmin && !this.areaDown && adminOnly(MAP, tx, ty)) this.denyDoor(tx, ty);
@@ -942,6 +951,7 @@ export class Engine {
     const now = this.store.now(), users = [...this.store.users.values()];
     const near = (x: number, y: number) => this.onScreen(x * TS - TS, y * TS - TS, 3 * TS, 3 * TS);
     if (this.store.portalFx.some(f => ms - f.at < PORTAL_MS)) return 16;
+    for (const d of this.slides.values()) if (d.p > 0 && d.p < 1) return 31; // a sliding door mid-glide
     if (users.some(u => { if (!u.move) return false; const p = this.store.pose(u, now); return p.walking && this.visible(u) && near(p.x, p.y); })) return 16;
     if (!this.areaDown && !this.store.users.get(this.store.me)?.instance && [...this.store.creatures.values()].some(c => { if (!c.walk) return false; const p = creaturePose(c, now); return p.walking && near(p.x, p.y); })) return 16;
     if (this.areaDown || this.store.reactions.length || this.instrumentNotes.length || this.partyOnScreen() || this.store.dungeonFx.some(f => ms - f.at < 700)
@@ -1095,10 +1105,10 @@ export class Engine {
         return void ctx.restore();
       }
       if (d.door) { // open while someone stands in or right next to the doorway; a locked one stays shut for non-admins
-        const door = d.door, open = [...poses.values()].some(p => door.tiles.some(t => Math.abs(t.x - p.tile.x) + Math.abs(t.y - p.tile.y) <= 1));
+        const door = d.door, reach = door.sliding ? 2 : 1, open = [...poses.values()].some(p => door.tiles.some(t => Math.abs(t.x - p.tile.x) + Math.abs(t.y - p.tile.y) <= reach));
         const locked = door.locked && !this.store.sysadmin, age = ms - (this.deniedAt.get(door.room.id) ?? -1e9);
         const shake = locked && age < 450 ? Math.round(Math.sin(age / 22) * 2) : 0;
-        const name = `door_${door.horizontal ? 'h' : 'v'}_${locked ? 'locked' : open ? 'open' : 'closed'}`, fr = this.f(name);
+        const name = door.sliding ? `door_v_slide_${this.slideStage(door, open, ms)}` : `door_${door.horizontal ? 'h' : 'v'}_${locked ? 'locked' : open ? 'open' : 'closed'}`, fr = this.f(name);
         if (!fr || !this.onScreen(door.x * TS + (door.w * TS - fr.w) / 2 - 2, (door.y + door.h) * TS - fr.h, fr.w + 6, fr.h)) return;
         return void this.blit(ctx, name, door.x * TS + (door.w * TS - fr.w) / 2 + shake, (door.y + door.h) * TS - fr.h);
       }
@@ -1205,9 +1215,9 @@ export class Engine {
       const retro = o.use?.kind === 'retro' ? this.store.retroCabinets.find(c => c.cabinet === o.id) : null;
       const retroTip = o.use?.kind === 'retro' ? retro?.broken ? 'Out of order' : `${o.use.label} · ${retro?.player ? `${this.store.name(retro.player)} is playing · ${retro.watchers} watching` : 'free'}` : '';
       const awayCount = o.use?.kind === 'vacations' ? [...this.store.users.values()].filter(u => u.vacation).length : 0;
-      const what = retroTip || instrumentTip || (o.use?.kind === 'tickets' ? this.store.terminalTip() : o.use?.kind === 'wellness' ? `${o.use.label} · your personal ${o.use.activity === 'pomodoro' ? 'focus timer' : 'reminders'}` : o.use?.kind === 'table' ? this.store.tableDescription(o.id) : o.use?.kind === 'arcade' ? this.store.gameDescription(o.id) : o.use?.kind === 'records' ? 'Arcade boards · weekly scores and records' : o.use?.kind === 'jukebox' ? !jukebox ? 'Jukebox · Reconnecting…' : jukebox.pausedAt !== null ? 'Jukebox · paused' : `Jukebox · ♪ ${track?.title ?? jukebox.track} — ${track?.artist ?? ''}` : o.use?.kind === 'toggle' ? `${o.use.label[0].toUpperCase()}${o.use.label.slice(1)} · ${this.isOn(o) ? 'on' : 'off'}`
+      const what = retroTip || instrumentTip || (o.use?.kind === 'shop' ? 'Shelves · everything free, 3 a day' : o.use?.kind === 'cashier' ? 'Keiko · the 7/11 cashier' : o.use?.kind === 'kettle' ? 'Kettle · fills cup noodles' : o.use?.kind === 'mirror' ? 'Mirror · edit your look' : o.use?.kind === 'photos' ? 'Photo wall · coming soon' : o.use?.kind === 'gacha' ? 'Gacha machine' : o.use?.kind === 'tickets' ? this.store.terminalTip() : o.use?.kind === 'wellness' ? `${o.use.label} · your personal reminders` : o.use?.kind === 'table' ? this.store.tableDescription(o.id) : o.use?.kind === 'arcade' ? this.store.gameDescription(o.id) : o.use?.kind === 'records' ? 'Arcade boards · weekly scores and records' : o.use?.kind === 'jukebox' ? !jukebox ? 'Jukebox · Reconnecting…' : jukebox.pausedAt !== null ? 'Jukebox · paused' : `Jukebox · ♪ ${track?.title ?? jukebox.track} — ${track?.artist ?? ''}` : o.use?.kind === 'toggle' ? `${o.use.label[0].toUpperCase()}${o.use.label.slice(1)} · ${this.isOn(o) ? 'on' : 'off'}`
         : o.use?.kind === 'vacations' ? `On vacation · ${awayCount ? `${awayCount} away now` : "everyone's at work"}`
-        : o.use?.kind === 'calendar' ? 'Calendar · your week' : o.use?.kind === 'achievements' ? 'Employee Of the Month' : o.use?.kind === 'link' ? `Vault 13 · click to open the ${o.use.label}` : o.use?.kind === 'meetings' ? `Meetings · ${this.store.meetingRooms.length || 'none'} on now`
+        : o.use?.kind === 'calendar' ? 'Calendar · your week' : o.use?.kind === 'achievements' ? (o.type === 'trophy_case' ? 'Trophy case · your achievements' : 'Employee Of the Month') : o.use?.kind === 'link' ? `Vault 13 · click to open the ${o.use.label}` : o.use?.kind === 'meetings' ? `Meetings · ${this.store.meetingRooms.length || 'none'} on now`
         : o.use?.kind === 'youtube' ? `${o.use.label} · click to watch`
         : o.use?.kind === 'room_start' ? 'Start a private room · click to walk over'
         : o.use?.kind === 'presentation' ? (this.store.presentation?.objectId === o.id ? `Screen · LIVE: ${this.store.presentation.deck?.title ?? `${this.store.name(this.store.presentation.presenter).split(' ')[0]}'s screen`}` : 'Screen · click to present slides') : o.use?.kind === 'clock' ? `Clock · ${o.use.city}, ${zoneTime(o.use.tz)} · click for all our cities` : o.sit ? `${o.type === 'bench' ? 'Bench' : 'Sofa'} · click to sit` : o.type === 'coffee_machine' ? 'Coffee machine' : o.type === 'fridge' ? 'Fridge' : o.use?.kind === 'toilet' ? this.toiletTip(o.id) : o.use?.kind === 'bell' ? 'Reception bell · click to ring' : o.type === 'reading_table' || o.type === 'reading_desk' ? 'Reading table · take a book from the shelf' : o.use?.kind === 'library' ? 'Library shelf · publish or borrow an article' : o.use?.kind === 'dealer' ? (o.type === 'bouncer' ? 'Bouncer · knows a guy' : 'Hat stand · pick a hat for your pockets') : objectName(o.type));
@@ -1416,9 +1426,12 @@ export class Engine {
     if (summit && Math.floor((ms + hash(u.id)) / 600) % 2 === 0) {
       ctx.save(); ctx.font = '9px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.fillText('👋', x + 8, baseY - 29 + bob); ctx.restore();
     }
+    if (u.pomodoro?.phase === 'focus') { // a personal pomodoro is running: a tomato over the head (public)
+      ctx.save(); ctx.font = '9px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.fillText('🍅', x + 8, baseY - 36 + bob); ctx.restore();
+    }
     // facing a desk: the chair's backrest is in front of the sitter
-    if (seat?.dir === 'up' && seat.type === 'chair' && this.f('chair_up_back')) {
-      this.blit(ctx, 'chair_up_back', seat.x * TS, seat.y * TS);
+    if (seat?.dir === 'up' && (seat.type === 'chair' || seat.type === 'leader_chair') && this.f(`${seat.type}_up_back`)) {
+      this.blit(ctx, `${seat.type}_up_back`, seat.x * TS, seat.y * TS);
     }
   }
 
@@ -1682,6 +1695,15 @@ export class Engine {
     if (s?.in.includes(this.store.me)) return `Toilet · you're in here${s.in.length > 1 ? ` with ${names(s.in.filter(id => id !== this.store.me))}` : ''}`;
     if (s?.in.length) return `Toilet · ${s.in.length}/${TOILET_CAPACITY} inside (${names(s.in)})${line}`;
     return `Toilet · ${s?.fill ? `used ${s.fill}× · ` : ''}click to use`;
+  }
+  /** The sliding glass door's opening, 0 (shut) to 2 (open): it glides over ~0.3 s instead of snapping. */
+  private slides = new Map<string, { p: number; at: number }>();
+  private slideStage(door: RoomDoor, open: boolean, ms: number) {
+    const key = `${door.x},${door.y}`, s = this.slides.get(key) ?? { p: 0, at: ms };
+    const dt = Math.min(100, Math.max(0, ms - s.at)) / 300;
+    s.p = open ? Math.min(1, s.p + dt) : Math.max(0, s.p - dt); s.at = ms;
+    this.slides.set(key, s);
+    return Math.round(s.p * 2);
   }
   private toiletFrame(id: string) {
     const s = this.store.toilets[id];

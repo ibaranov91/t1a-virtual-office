@@ -6,12 +6,12 @@ import { doorwayTiles, roomAt, type TileMap } from '../../shared/map';
 import { voiceSignPositions } from './roomSigns';
 const { frames } = JSON.parse(readFileSync(new URL('../public/assets/atlas.json', import.meta.url), 'utf8'));
 
-test('all 18 voice rooms have distinct visible signs clear of furniture, rugs and doorway strips', () => {
+test('all 20 rooms have distinct visible signs clear of furniture, rugs and doorway strips', () => {
   const map = structuredClone(mapJson) as unknown as TileMap;
   for (const room of map.rooms) room.rules.voice = 'open';
   const signs = voiceSignPositions(map, frames), ts = map.tileSize;
-  assert.equal(signs.length, 18);
-  assert.equal(new Set(signs.map(s => s.roomId)).size, 18);
+  assert.equal(signs.length, 20);
+  assert.equal(new Set(signs.map(s => s.roomId)).size, 20);
   for (const s of signs) {
     const owner = roomAt(map, Math.floor((s.x + s.w / 2) / ts), Math.floor((s.y + s.h / 2) / ts));
     assert.ok(!owner || owner.id === s.roomId, `${s.roomId} sign must not sit in ${owner?.name}`);

@@ -1,7 +1,7 @@
 // The office animals, the cleaner, the cups on tables, and the ghost of Mazurkevich. The engine merges these into its
 // y-sorted pass; this file only knows how to place and draw them.
 import { terrainAt } from '../../shared/beach';
-import { sampleMove, WALK_MS_PER_TILE, type Dir, type Rect } from '../../shared/map';
+import { roomAt, sampleMove, WALK_MS_PER_TILE, type Dir, type Rect } from '../../shared/map';
 import { isPlate, LUNCH_MS, plateFood } from '../../shared/lunch';
 import { CUP_ITEMS, cupTableAt, type Creature, type Cup } from '../../shared/protocol';
 import { DRINKS } from '../../shared/drinks';
@@ -41,7 +41,9 @@ export function ghostWindow(now: number, forced: { from: number; to: number } | 
 }
 const ROOMS = ['lobby', 'coffee'].map(id => MAP.rooms.find(r => r.id === id)!.rect);
 const BOUNCER = MAP.objects.find(o => o.type === 'bouncer'); // a map object, not a creature: his lines are client-only, like the ghost
+const KEIKO = MAP.objects.find(o => o.type === 'keiko'); // the 7/11 cashier: also a map object. Greeting, idle and linger lines are client-only; checkout and talk lines come from the server (npc_say)
 const SAY_MS = 5000;
+const sayFor = (text: string) => SAY_MS + text.length * 45; // her lines are long: leave time to read them
 /** Where he drifts: between spots in the Lobby and the Coffee room, straight through walls, a tile every second or so. */
 export function ghostAt(win: { from: number; to: number }, now: number) {
   const pts: { x: number; y: number }[] = [];
@@ -63,6 +65,7 @@ export function ghostAt(win: { from: number; to: number }, now: number) {
 export class CreatureLayer {
   private facing = new Map<string, boolean>(); // left? kept while walking up or down
   forcedGhost: { from: number; to: number } | null = null;
+  private keiko = { say: '', until: 0, next: 0, was: false, since: 0, heard: 0 }; // her current line, the idle clock, whether I was in the shop last frame, when I walked in, the last npc_say shown
   private bouncer = { say: '', until: 0, next: 0 }; // his idle line and its clock (each client rolls its own)
   constructor(private store: Store, private ctx: () => CanvasRenderingContext2D, private f: (name: string) => Frame | undefined,
     private blit: (name: string, x: number, y: number) => void) {}
@@ -186,6 +189,17 @@ export class CreatureLayer {
       b.next ||= t + 20_000 + Math.random() * 60_000;
       if (t >= b.next) { b.say = phrase('bouncer', 'idle'); b.until = t + SAY_MS; b.next = t + 60_000 + Math.random() * 120_000; }
       if (t < b.until) out.push({ base: (BOUNCER.y + BOUNCER.h) * TS + 0.5, draw: () => this.say(b.say, (BOUNCER.x + BOUNCER.w / 2) * TS, BOUNCER.y * TS - 6) });
+    }
+    if (KEIKO) {
+      const k = this.keiko, me = this.store.users.get(this.store.me), inShop = !!me && !me.instance && roomAt(MAP, this.store.pose(me, this.store.now()).tile.x, this.store.pose(me, this.store.now()).tile.y)?.id === 'shop';
+      const said = this.store.npcSays.get(KEIKO.id);
+      if (said && said.at !== k.heard) { k.heard = said.at; k.say = said.text; k.until = t + sayFor(said.text); }
+      if (inShop && !k.was) { k.say = phrase('keiko', 'greeting'); k.until = t + sayFor(k.say); k.since = t; k.next = t + 60_000 + Math.random() * 60_000; }
+      else if (inShop && t >= k.next) { // quiet for a while: an idle line, or a nudge to buy something when you only linger
+        k.say = phrase('keiko', t - k.since > 90_000 ? 'talk' : 'idle'); k.until = t + sayFor(k.say); k.next = t + 70_000 + Math.random() * 90_000;
+      }
+      k.was = inShop;
+      if (inShop && t < k.until) out.push({ base: (KEIKO.y + KEIKO.h) * TS + 0.5, draw: () => this.say(k.say, (KEIKO.x + KEIKO.w / 2) * TS, KEIKO.y * TS - 10) });
     }
     for (const cup of this.store.cups) {
       const table = cupTableAt(MAP.objects, cup.tile);

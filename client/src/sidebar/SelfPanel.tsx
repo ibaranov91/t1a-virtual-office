@@ -13,6 +13,7 @@ import { Icon, IconButton } from '../Icon';
 import { VoiceToggle } from '../VoiceToggle';
 import { BuildLine } from './BuildLine';
 import { REACH_TITLE, reachLabel } from '../voiceReach';
+import { pomodoroClock, pomodoroLeft } from '../../../shared/pomodoro';
 
 
 export function EnableSound() {
@@ -262,6 +263,19 @@ export function RoomVoiceChip({ store, voice, compact = false, header = false }:
 }
 
 
+/** Your personal pomodoro (25 min focus, 5 min break): start it here; while it runs everyone sees a 🍅 over you. */
+export function PomodoroRow({ store }: { store: Store }) {
+  const me = store.users.get(store.me), p = me?.pomodoro, [, tick] = useState(0);
+  useEffect(() => { if (!p) return; const i = setInterval(() => tick(n => n + 1), 1000); return () => clearInterval(i); }, [p?.until]);
+  if (!me || me.instance) return null;
+  if (!p) return <div className="sb-pomo"><button className="sb-voice-action" title="25 minutes of focus, then a 5 minute break. Everyone sees a tomato over you while it runs." onClick={() => store.startPomodoro()}>🍅 Start a pomodoro</button></div>;
+  return <div className="sb-pomo running" role="timer" aria-label={`Pomodoro ${p.phase === 'focus' ? 'focus' : 'break'}`}>
+    <span className="sb-pomo-icon" aria-hidden>{p.phase === 'focus' ? '🍅' : '☕'}</span>
+    <div className="sb-voice-text"><strong>{pomodoroClock(pomodoroLeft(p, store.now()))}</strong><small>{p.phase === 'focus' ? `Focus · ${p.rest} min break next` : 'Break'}</small></div>
+    <button className="sb-voice-action" onClick={() => store.stopPomodoro()}>Stop</button>
+  </div>;
+}
+
 export function SelfPanel({ store, voice, assets, onProfile }: { store: Store; voice: Voice | null; assets: Assets | null; onProfile: (opener: HTMLButtonElement) => void }) {
   const me = store.users.get(store.me), room = store.roomCallOf(me), unreachable = useUnreachable(store, voice);
   const roomVoice = !!roomVoiceOf(store, voice);
@@ -294,6 +308,7 @@ export function SelfPanel({ store, voice, assets, onProfile }: { store: Store; v
   else if (waitRoom) section = <div className="sb-voice-top"><span className="sb-voice-text" title={`Waiting for a spot in ${waitRoom.name} voice`}>Waiting for a spot in {waitRoom.name} voice</span></div>;
   return <div className="sb-self sb-up">
     {section && <div className="sb-voice" role="status">{section}</div>}
+    <PomodoroRow store={store} />
     <div className="sb-identity"><IdentityPill onProfile={onProfile} store={store} assets={assets} inVoice={knockCall || roomVoice} /><VoiceIcons store={store} voice={voice} hand={false} /></div>
     <BuildLine store={store} />
   </div>;

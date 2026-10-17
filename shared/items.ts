@@ -50,6 +50,9 @@ const DEFS: ItemDef[] = [
   plain('sandwich', 'Sandwich', '🥪'), plain('ramen', 'Ramen', '🍜'), plain('salad', 'Salad', '🥗'), plain('pizza', 'Pizza', '🍕'),
   { id: 'book', label: 'Book', icon: '📖', kind: 'held', pocket: 'no', actions: ['drop'] },
   { id: 'drugs', label: 'Drugs', icon: '💊', kind: 'throwable', pocket: 'counts', actions: ['stow', 'throw', 'drop'] },
+  // cup noodles (7/11): dry in your pockets or hands -> fill at the kitchen kettle -> hot noodles, eaten at a table (shared/lunch.ts)
+  { id: 'cup_noodles', label: 'Cup noodles', icon: '🥡', kind: 'throwable', pocket: 'counts', actions: ['stow', 'throw', 'drop'] },
+  plain('hot_noodles', 'Hot noodles', '🍜'),
   ...ALL_HATS.map((style): ItemDef => ({ id: hatItem(style), label: HAT_NAMES[style] ?? style, icon: '🎩', kind: 'hat', pocket: 'free', stack: 1, actions: [] })),
 ];
 

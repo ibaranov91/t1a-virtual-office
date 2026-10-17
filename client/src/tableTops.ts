@@ -3,7 +3,7 @@
 /** For each furniture type you can put a cup on (CUP_TABLES): the rows of its sprite, counted from the sprite's top,
  *  between the back and the front edge of the free tabletop. A desk's starts below the monitor's foot. */
 export const TABLE_TOPS: Record<string, [back: number, front: number]> = {
-  desk: [9, 14], table_long: [9, 31], table_big: [9, 30], table_round: [4, 13], table_picnic: [6, 14], counter: [2, 8],
+  desk: [9, 14], table_long: [9, 31], table_big: [9, 30], table_round: [4, 13], table_picnic: [6, 14], counter: [2, 8], bar_table: [5, 11],
 };
 /** Cup and plate sprites are 6 px tall, drawn 5 (cup) or 4 (plate) px in from the tile's left. */
 export const ITEM_H = 6;

@@ -59,7 +59,7 @@ export function ProfilePopout({ store, assets, engine, compact, opener, thirsty,
         {inVoice && <section className="sb-profile-card sb-profile-voice"><strong>In voice</strong><p>{room?.name ?? `Call with ${store.names(store.callPeers(me))}`}</p>
           <button className="ghost" disabled={!engine || overlayOpen(store)} onClick={() => act(() => engine?.recenter())}>Show me on the map</button></section>}
         <div className="sb-profile-card">
-          <button className="ghost sb-profile-row" onClick={() => act(() => store.openWellness('pomodoro'))}><Icon name="clock" /><span>Breaks and Pomodoro</span><Icon name="chevron-right" /></button>
+          <button className="ghost sb-profile-row" onClick={() => act(() => store.openWellness('water'))}><Icon name="clock" /><span>Water and stretch reminders</span><Icon name="chevron-right" /></button>
           <button className="ghost sb-profile-row" onClick={() => act(onAppearance)}><Icon name="shirt" /><span>Edit look</span><Icon name="chevron-right" /></button>
           <button className="ghost sb-profile-row" onClick={() => act(onPockets)}><Icon name="backpack" /><span>Pockets</span><small>{store.items.length}</small><Icon name="chevron-right" /></button>
           <button className="ghost sb-profile-row" onClick={() => act(onAchievements)}><Icon name="trophy" /><span>Achievements{thirsty && <small>your plant needs a status today</small>}</span>{thirsty && <i className="dot sb-profile-water" />}<Icon name="chevron-right" /></button>

@@ -5,7 +5,9 @@ import { writeFileSync } from 'node:fs';
 import { mountainFloor } from './mountain-terrain.mjs';
 import { applyLayout, besideObject, findPath, isWalkable, layoutProblem, roomAt } from '../shared/map.ts';
 
-const W = 85, BUILDING_H = 34, OFFICE_H = 44; // x 75-83: the Book Club, east of the Library (solid wall above it); x 65-73: the Admin room over Berghain, added beside the Music room and the Arcade
+const W = 85, BUILDING_H = 34, OFFICE_H = 44; // x 75-83: the Book Club, east of the Library; the east column above it (x 65-83): the Admin room and Berghain side by side, the 7/11 under both and the Terminal room under that
+// the east column (v2): Berghain beside the Admin room, a small 7/11 under both, the Terminal room below
+const BERGHAIN = { x: 75, y: 3, w: 9, h: 8 }, SHOP = { x: 65, y: 13, w: 19, h: 6 }, TERMINAL = { x: 65, y: 20, w: 9, h: 3 };
 const dungeonRect = { x: 17, y: OFFICE_H + 2, w: 31, h: 19 };
 const H = dungeonRect.y + dungeonRect.h;
 const SOUTH = 23; // the old outer wall: now the building's back wall, the Orangery and the Garden lie beyond it
@@ -79,7 +81,7 @@ const rooms = [
     floor: 'raised', rug: 'blue', homeDesks: true,
     rules: { knock: 'allow', access: 'admins', label: 'admins only · knock to talk' },
     meeting: { provider: 'meet', url: 'https://meet.google.com/new' } },
-  { id: 'berghain', name: 'Berghain', type: 'club', rect: { x: 65, y: 13, w: 9, h: 10 }, capacity: 20,
+  { id: 'berghain', name: 'Berghain', type: 'club', rect: BERGHAIN, capacity: 20,
     floor: 'club', rug: 'red',
     rules: { knock: 'allow', label: 'club · knock to talk' },
     meeting: { provider: 'meet', url: 'https://meet.google.com/new' } },
@@ -104,6 +106,15 @@ const rooms = [
   { id: 'beach', name: 'Beach', type: 'vacation', rect: { x: 25, y: 34, w: 59, h: 9 }, capacity: 30,
     floor: 'sand', rug: 'orange', rules: { knock: 'allow', label: 'beach · knock to talk' },
     meeting: { provider: 'meet', url: 'https://meet.google.com/new' } },
+  // v2 (appended): the convenience store under the Admin room and Berghain, and the room the terminal client lives in
+  { id: 'shop', name: '7/11', type: 'shop', rect: SHOP, capacity: 14,
+    floor: 'tile_check', rug: 'red',
+    rules: { knock: 'allow', label: 'convenience store · knock to talk' },
+    meeting: { provider: 'meet', url: 'https://meet.google.com/new' } },
+  { id: 'terminal', name: 'Terminal', type: 'terminal', rect: TERMINAL, capacity: 6,
+    floor: 'wood_dark', rug: 'green',
+    rules: { knock: 'allow', label: 'terminal · knock to talk' },
+    meeting: { provider: 'meet', url: 'https://meet.google.com/new' } },
 ];
 
 // ---- base floor everywhere inside the outer walls ----
@@ -126,7 +137,7 @@ for (let y = 0; y < BUILDING_H; y++) { setWall(0, y, CAP); setWall(W - 1, y, CAP
 // tall back wall (2 rows of face)
 for (let x = 1; x < W - 1; x++) { setWall(x, 1, 'wall_face_top'); setWall(x, 2, 'wall_face_bottom'); }
 // horizontal divider: cap row 11, short face row 12, with doors
-const hDoors = [6, 7, 19, 20, 32, 33, 46, 47, 58, 59, 72, 73];
+const hDoors = [6, 7, 19, 20, 32, 33, 46, 47, 58, 59, 82, 83]; // 82-83: Berghain's door onto the 7/11 (it used to be the Admin room's, at 72-73)
 for (let x = 1; x < W - 1; x++) {
   if (hDoors.includes(x)) continue;
   setWall(x, 11, CAP); setWall(x, 12, 'wall_face_short');
@@ -158,6 +169,14 @@ for (let y = SOUTH + 2; y < BUILDING_H; y++) if (!LIB_DOOR.includes(y)) setWall(
 const CLUB_X = 74, CLUB_DOOR = [29, 30];
 for (let y = 0; y <= SOUTH; y++) for (let x = CLUB_X; x < W; x++) setWall(x, y, CAP);
 for (let y = SOUTH + 2; y < BUILDING_H; y++) if (!CLUB_DOOR.includes(y)) setWall(CLUB_X, y, CAP);
+// the east column above (v2): carve Berghain (right of the Admin room), the 7/11 and the Terminal room out of that solid block
+const ADMIN_DOOR = [4, 5], SHOP_TERMINAL_DOOR = [68, 69]; // x=74 between Admin and Berghain; row 19 between the shop and the Terminal room
+for (const r of [BERGHAIN, SHOP, TERMINAL]) for (let y = r.y; y < r.y + r.h; y++) for (let x = r.x; x < r.x + r.w; x++) walls[y][x] = 0;
+for (let x = BERGHAIN.x; x < BERGHAIN.x + BERGHAIN.w; x++) { setWall(x, 1, 'wall_face_top'); setWall(x, 2, 'wall_face_bottom'); }
+for (let x = 74; x < W - 1; x++) { if (hDoors.includes(x)) { walls[11][x] = 0; walls[12][x] = 0; } else { setWall(x, 11, CAP); setWall(x, 12, 'wall_face_short'); } }
+for (let y = 3; y <= 10; y++) walls[y][74] = ADMIN_DOOR.includes(y) ? 0 : tid(CAP);
+for (let y = SHOP.y; y < SHOP.y + SHOP.h; y++) walls[y][74] = 0;
+for (let x = SHOP.x; x < SHOP.x + SHOP.w; x++) if (!SHOP_TERMINAL_DOOR.includes(x)) setWall(x, 19, 'wall_face_short');
 // door thresholds get plain wood
 for (const x of hDoors) for (const y of [11, 12]) floor[y][x] = tid('door_floor');
 for (const vx of [13, 26]) for (const y of [6, 7]) floor[y][vx] = tid('door_floor');
@@ -166,6 +185,8 @@ for (const x of sDoors) for (const y of [SOUTH, SOUTH + 1]) floor[y][x] = tid('d
 for (const y of [31, 32]) floor[y][15] = tid('door_floor');
 for (const y of LIB_DOOR) floor[y][LIB_X] = tid('door_floor');
 for (const y of CLUB_DOOR) floor[y][CLUB_X] = tid('door_floor');
+for (const y of ADMIN_DOOR) floor[y][74] = tid('door_floor');
+for (const x of SHOP_TERMINAL_DOOR) floor[19][x] = tid('door_floor');
 // garden paths: one along the middle, one from each door down to it, one to the Orangery
 {
   const path = (x, y) => { floor[y][x] = tid(`path_${hash(x, y) % 2}`); };
@@ -222,7 +243,7 @@ const FRIDGE = { kind: 'take', items: [{ id: 'snack', label: 'Snack', icon: '�
 for (const wx of [3, 9, 29, 36]) obj('window', wx, 1, 2, 2, { wall: true });
 obj('painting', 23, 1, 1, 2, { wall: true });
 obj('noticeboard', 2, 12, 2, 1, { wall: true, use: { kind: 'achievements', label: 'achievements' } });
-obj('painting_small', 10, 12, 1, 1, { wall: true });
+obj('photo_wall', 10, 12, 2, 1, { wall: true, use: { kind: 'photos', label: 'photo wall' } }); // the Lobby photo wall (it took the small painting's wall; the poster next to it moved to x 1)
 
 // Focus: desks with monitors, chairs, a lamp, bookshelf
 for (const [dx, dy] of [[2, 4], [5, 4], [8, 4], [2, 8], [9, 8]]) {
@@ -357,17 +378,17 @@ for (const y of [3, 7]) for (let x = 65; x <= 69; x++) obj('server_rack', x, y);
 obj('desk', 71, 4, 2, 1);
 obj('chair', 71, 5, 1, 1, { walkable: true });
 obj('plant', 73, 7);
-obj('neon_sign', 67, 12, 2, 1, { wall: true });
-obj('dj_booth', 67, 13, 3, 1, { sound: { gain: 0.8 }, use: { kind: 'jukebox', label: 'DJ booth', genres: ['Techno'] } }); // plays techno only
-obj('bouncer', 65, 16, 1, 1, { use: { kind: 'dealer', label: 'bouncer', items: ['drugs'] } }); // right by the door from the Arcade; knows a guy
-obj('lamp', 65, 13, 1, 1, LAMP);
-for (const x of [68, 70, 72]) obj('toilet', x, 21, 2, 2, { use: { kind: 'toilet', label: 'toilet' } });
+obj('neon_sign', 78, 2, 2, 1, { wall: true });
+obj('dj_booth', 77, 3, 3, 1, { sound: { gain: 0.8 }, use: { kind: 'jukebox', label: 'DJ booth', genres: ['Techno'] } }); // plays techno only
+obj('bouncer', 83, 9, 1, 1, { use: { kind: 'dealer', label: 'bouncer', items: ['drugs'] } }); // right by the door from the 7/11; knows a guy
+obj('lamp', 83, 3, 1, 1, LAMP);
+for (const x of [76, 78, 80]) obj('toilet', x, 9, 2, 2, { use: { kind: 'toilet', label: 'toilet' } });
 // the Library's tall shelves, in place of the trees of the patch it was built on (same ids); the middle one is the
 // shelf you publish to and borrow from
 for (const x of [66, 69, 72]) obj('bookshelf_tall', x, 25, 2, 1, x === 69 ? { use: { kind: 'library', label: 'library' } } : {});
 
 // Berghain's dance floor (appended: object ids stay put): step on and dance
-obj('dance_floor', 66, 15, 4, 3, { walkable: true, use: { kind: 'dance', label: 'dance floor' } });
+obj('dance_floor', 79, 5, 4, 3, { walkable: true, use: { kind: 'dance', label: 'dance floor' } });
 // two one-seat reading desks along the Library's east wall (the reading tables come last, so ids here stay put)
 for (const y of [27, 31]) {
   obj('reading_desk', 73, y);
@@ -399,7 +420,9 @@ stand('music', [[57, 7, 'up'], [60, 8, 'up'], [58, 10, 'up']]);
 stand('arcade', [[55, 16, 'up'], [61, 16, 'up'], [58, 19, 'up']]);
 stand('orangery', [[7, 27, 'down'], [8, 29, 'down'], [7, 31, 'down']]);
 stand('admin', [[70, 9, 'left']]);
-stand('berghain', [[69, 16, 'down'], [71, 17, 'left'], [66, 19, 'right']]);
+stand('berghain', [[77, 6, 'down'], [82, 8, 'left'], [78, 4, 'down']]);
+stand('shop', [[71, 15, 'down'], [75, 15, 'down'], [69, 18, 'up'], [82, 17, 'left']]);
+stand('terminal', [[69, 20, 'down']]);
 stand('library', [[68, 25, 'up'], [71, 25, 'up']]);
 stand('garden', [[42, 29, 'down'], [43, 29, 'down'], [33, 29, 'left'], [56, 28, 'down'], [20, 28, 'down']]);
 stand('mountains', [[2, 38, 'down'], [24, 39, 'down'], [22, 38, 'left'], [13, 34, 'down']]);
@@ -524,8 +547,8 @@ for (const [type, x, y, w = 1, h = 1] of [
   ['wall_shelf', 46, 2, 2], ['poster', 44, 2], ['wall_ivy', 51, 2],
   ['poster', 58, 2], ['wall_ivy', 63, 2],
   ['wall_shelf', 66, 2, 2], ['mirror', 68, 1, 1, 2], ['poster', 70, 2],
-  ['poster', 11, 12], ['mirror', 13, 11, 1, 2],
-]) obj(type, x, y, w, h, { wall: true });
+  ['poster', 1, 12], ['mirror', 13, 11, 1, 2],
+]) obj(type, x, y, w, h, type === 'mirror' ? { wall: true, use: { kind: 'mirror', label: 'mirror' } } : { wall: true }); // a mirror opens Edit look
 for (const { id: _i, x: _x, y: _y, ...t } of objects.slice(firstDecor)) catalog[t.type] ??= t;
 // edit-mode only: these are not placed anywhere, an admin adds them from the catalog (art in gen-assets.mjs, "the edit-mode catalog")
 for (const type of ['succulent', 'bonsai', 'snake_plant', 'monstera', 'orchid', 'tulips', 'sunflower', 'bamboo', 'ficus', 'lavender',
@@ -540,7 +563,9 @@ const firstClub = objects.length;
 for (const x of [76, 81]) obj('bookshelf_tall', x, 25, 2, 1);
 obj('sofa', 78, 27, 3, 1, { sit: true, dir: 'down' });
 obj('table_round', 79, 29, 1, 1);
-for (const [x, y] of [[78, 29], [80, 29], [79, 30], [78, 30], [80, 30]]) obj('chair', x, y, 1, 1, { walkable: true });
+// v2: the audience sits in a row facing the leader's chair and desk at the south end (the fifth chair is the leader's)
+for (const [x, y] of [[77, 29], [78, 29], [80, 29], [81, 29]]) obj('chair', x, y, 1, 1, { walkable: true, dir: 'down', turned: true });
+obj('leader_chair', 79, 32, 1, 1, { walkable: true, dir: 'up', turned: true }); // a later session wires shared reading to it
 obj('lamp', 83, 26, 1, 1, LAMP);
 obj('lamp', 75, 32, 1, 1, LAMP);
 obj('plant', 83, 32);
@@ -557,7 +582,7 @@ obj('retro_lobster', 63, 13, 1, 2, { use: { kind: 'retro', label: 'Shock Lobster
 for (const { id: _i, x: _x, y: _y, ...t } of objects.slice(firstRetro)) catalog[t.type] ??= t;
 
 // Lobby: the bug terminal (before the wing: its furniture stays last)
-obj('terminal', 3, 14, 2, 1, { use: { kind: 'tickets', label: 'bug terminal' } }); // Lobby: file a bug, read the replies (admins: the queue)
+obj('suggestions_board', 4, 12, 2, 1, { wall: true, use: { kind: 'tickets', label: 'suggestions board' } }); // Lobby wall: suggestions and bug reports, the replies (admins: the queue)
 
 // ---------- vacation: props appended after all existing objects ----------
 const firstVacation = objects.length;
@@ -590,12 +615,33 @@ for (const { id: _i, x: _x, y: _y, ...t } of objects.slice(firstVacation)) catal
 const firstWellness = objects.length;
 obj('wellness_cooler', 37, 3, 1, 1, { use: { kind: 'wellness', activity: 'water', label: 'Water cooler' } });
 obj('stretch_mat', 20, 30, 2, 1, { walkable: true, use: { kind: 'wellness', activity: 'stretch', label: 'Stretching mat' } });
-obj('pomodoro_timer', 3, 4, 1, 1, { onTop: true, use: { kind: 'wellness', activity: 'pomodoro', label: 'Pomodoro timer' } });
 for (const { id: _i, x: _x, y: _y, ...t } of objects.slice(firstWellness)) catalog[t.type] ??= t;
 
 // Appended to preserve saved furniture ids. The broad sign sits on dry sand, clear of the gate and pier.
 obj('out_of_office_sign', 48, 39, 7, 1);
 catalog.out_of_office_sign = { type: 'out_of_office_sign', w: 7, h: 1 };
+
+// ---------- v2 places: appended after all existing objects ----------
+const firstPlaces = objects.length;
+// the 7/11 (x 65-83, y 13-18): a TV in the corner and a neon sign on the back wall, gondola shelves, the counter with Keiko behind it, the gacha machine by the door
+obj('shop_tv', 65, 12, 2, 1, { wall: true });
+obj('shop_sign', 70, 12, 4, 1, { wall: true });
+obj('gacha_machine', 65, 15, 1, 2, { use: { kind: 'gacha', label: 'gacha machine' } });
+for (const [x, y] of [[68, 14], [72, 14], [76, 14], [68, 16], [72, 16], [76, 16]]) obj('shop_shelf', x, y, 3, 1, { use: { kind: 'shop', label: 'shelves' } });
+obj('shop_counter', 79, 16, 3, 1, { use: { kind: 'cashier', label: 'Keiko' } });
+obj('keiko', 80, 15, 1, 1); // the cashier: a map object like the bouncer (name tag, idle bubbles on the client, checkout lines from the server)
+obj('plant', 83, 18);
+// the Terminal room: three consoles (desk + chair) along the south wall
+for (const x of [66, 69, 72]) { obj('desk', x, 21, 2, 1); obj('chair', x, 22, 1, 1, { walkable: true }); }
+obj('plant', 65, 20);
+// the kitchen (Coffee): a kettle on the counter for cup noodles, one bigger bar table to eat at standing up
+obj('kettle', 35, 3, 1, 1, { steam: true, use: { kind: 'kettle', label: 'kettle' } });
+obj('bar_table', 34, 8, 3, 1);
+// Book Club: the leader's small desk, in front of the leader's chair
+obj('leader_desk', 79, 31, 1, 1);
+// Co-working: the glass trophy case is the physical achievement board
+obj('trophy_case', 31, 22, 2, 1, { use: { kind: 'achievements', label: 'trophy case' } });
+for (const { id: _i, x: _x, y: _y, ...t } of objects.slice(firstPlaces)) catalog[t.type] ??= t;
 
 const map = { version: 1, width: W, height: H, tileSize: 16, office: { x: 0, y: 0, w: W, h: OFFICE_H }, dungeon, vacation, tiles, layers: { floor, walls, walkable: [] }, rooms, objects: [], rugs: [], spawn: { x: 7, y: 17 }, exit: EXIT, catalog };
 applyLayout(map, { objects, rugs });

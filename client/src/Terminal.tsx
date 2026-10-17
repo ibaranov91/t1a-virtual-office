@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { Store } from './net';
 import { TICKET_TEXT_MAX, TICKET_TITLE_MAX, ticketNo, type Ticket } from '../../shared/protocol';
 
-/** The Lobby's bug terminal: a green phosphor screen. Everyone files and reads their own tickets; admins get the queue. */
+/** The Lobby's suggestions board (it was the bug terminal): a green phosphor screen. Everyone posts and reads their own suggestions and bug tickets; admins get the queue; "Report a bug" sends the session report. */
 type View = { at: 'menu' } | { at: 'new' } | { at: 'list'; queue: boolean } | { at: 'ticket'; id: number; back: 'mine' | 'queue' };
 
 const clock = (at: number) => new Date(at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
@@ -21,8 +21,9 @@ export function TerminalPanel({ store }: { store: Store }) {
   const queue = store.tickets.filter(t => t.status === 'open').sort((a, b) => a.at - b.at);
   const unreadMine = mine.filter(t => store.ticketUnread(t)).length;
   const menu: { label: string; note?: string; go: () => void }[] = [
-    { label: 'New ticket', go: () => setView({ at: 'new' }) },
-    { label: `My tickets (${mine.length})`, note: unreadMine ? `* ${unreadMine} new repl${unreadMine === 1 ? 'y' : 'ies'}` : undefined, go: () => setView({ at: 'list', queue: false }) },
+    { label: 'New suggestion', go: () => setView({ at: 'new' }) },
+    { label: 'Report a bug', go: () => { close(); store.openBugReport(true); } },
+    { label: `My suggestions (${mine.length})`, note: unreadMine ? `* ${unreadMine} new repl${unreadMine === 1 ? 'y' : 'ies'}` : undefined, go: () => setView({ at: 'list', queue: false }) },
     ...admin ? [{ label: `Open queue (${queue.length})`, note: queue.some(t => store.ticketUnread(t)) ? '* waiting' : undefined, go: () => setView({ at: 'list', queue: true }) }] : [],
   ];
   const rows = view.at === 'list' ? (view.queue ? queue : mine) : view.at === 'menu' ? mine.slice(0, 3) : [];
@@ -50,7 +51,7 @@ export function TerminalPanel({ store }: { store: Store }) {
     window.addEventListener('keydown', onKey); return () => window.removeEventListener('keydown', onKey);
   });
 
-  const where = view.at === 'menu' ? 'Main menu' : view.at === 'new' ? 'New ticket' : view.at === 'list' ? (view.queue ? 'Open queue' : 'My tickets') : ticketNo(view.id);
+  const where = view.at === 'menu' ? 'Main menu' : view.at === 'new' ? 'New suggestion' : view.at === 'list' ? (view.queue ? 'Open queue' : 'My suggestions') : ticketNo(view.id);
   let body: ReactNode, hint = '';
   if (view.at === 'menu') {
     body = <>
@@ -60,13 +61,13 @@ export function TerminalPanel({ store }: { store: Store }) {
       <button type="button" className="crt-item" onClick={close}><span>[Esc] Log off</span></button>
       {rows.length > 0 && <><div className="crt-rule" /><TicketRows store={store} rows={rows} onOpen={t => open(t, 'mine')} /></>}
     </>;
-    hint = '1-3 or ↑↓ Enter';
+    hint = `1-${menu.length} or ↑↓ Enter`;
   } else if (view.at === 'new') {
     body = <NewTicket store={store} onFiled={t => open(t, 'mine')} />;
     hint = '⌘/Ctrl+Enter sends · Esc back';
   } else if (view.at === 'list') {
     body = rows.length ? <TicketRows store={store} rows={rows} sel={sel} onSel={setSel} onOpen={t => open(t, view.queue ? 'queue' : 'mine')} showBy={view.queue} />
-      : <p className="crt-dim">{view.queue ? 'Queue empty. All quiet.' : 'No tickets yet. Choose [1] on the main menu to file one.'}</p>;
+      : <p className="crt-dim">{view.queue ? 'Queue empty. All quiet.' : 'Nothing yet. Choose [1] on the main menu to post one.'}</p>;
     hint = '↑↓ Enter · Esc back';
   } else {
     const t = store.tickets.find(t => t.id === view.id);
@@ -75,9 +76,9 @@ export function TerminalPanel({ store }: { store: Store }) {
   }
   return (
     <div className="modal-backdrop" onClick={e => { if (e.target === e.currentTarget) close(); }}>
-      <div className="crt" role="dialog" aria-modal="true" aria-label="Bug terminal">
+      <div className="crt" role="dialog" aria-modal="true" aria-label="Suggestions board">
         <div className="crt-screen">
-          <div className="crt-head"><span>T1A Deck Bugnet v1.0 · {where}</span><span>{(me?.name ?? '').split(' ')[0]} · {clock(Date.now())}</span></div>
+          <div className="crt-head"><span>T1A Deck Suggestions v1.0 · {where}</span><span>{(me?.name ?? '').split(' ')[0]} · {clock(Date.now())}</span></div>
           <div className="crt-rule" />
           <div className="crt-body" key={JSON.stringify(view)}>{body}</div>
           <div className="crt-rule" />
@@ -110,15 +111,15 @@ function NewTicket({ store, onFiled }: { store: Store; onFiled: (t: Ticket) => v
     sent.current = null; if (t) onFiled(t);
   });
   const send = () => {
-    if (!title.trim()) return setErr('Give the bug a title.');
+    if (!title.trim()) return setErr('Give it a title.');
     if (!text.trim()) return setErr('Describe what happened.');
     setErr(''); sent.current = { count: mineIds.length, at: Date.now() };
     store.fileTicket(title.trim(), text.trim());
   };
   const keys = (e: React.KeyboardEvent) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); send(); } };
   return <form className="crt-form" onSubmit={e => { e.preventDefault(); send(); }}>
-    <label>Title&gt; <input autoFocus maxLength={TICKET_TITLE_MAX} value={title} onChange={e => { setTitle(e.target.value); setErr(''); }} onKeyDown={keys} placeholder="Jukebox skips after a deploy" /></label>
-    <label>Describe the bug&gt; <textarea rows={6} maxLength={TICKET_TEXT_MAX} value={text} onChange={e => { setText(e.target.value); setErr(''); }} onKeyDown={keys} placeholder="What you did, what happened, what you expected." /></label>
+    <label>Title&gt; <input autoFocus maxLength={TICKET_TITLE_MAX} value={title} onChange={e => { setTitle(e.target.value); setErr(''); }} onKeyDown={keys} placeholder="More plants in the Studio" /></label>
+    <label>Say more&gt; <textarea rows={6} maxLength={TICKET_TEXT_MAX} value={text} onChange={e => { setText(e.target.value); setErr(''); }} onKeyDown={keys} placeholder="What would make the office better? (Found a bug? Use Report a bug.)" /></label>
     <p className="crt-dim">Attached: {navigator.userAgent.match(/(Firefox|Edg|Chrome|Safari)\/[\d.]+/)?.[0] ?? 'browser'} · {innerWidth}×{innerHeight} · build {store.build?.slice(0, 7) ?? '?'}</p>
     {err && <p className="crt-err">{err}</p>}
     <div><button type="submit" className="crt-btn">[Send]</button></div>

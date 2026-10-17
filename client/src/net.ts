@@ -20,7 +20,7 @@ import { gameDef } from '../../shared/arcade/registry';
 import { emptyWeek } from '../../shared/arcade/weeks';
 import { ParkLoop } from './park/loop';
 import type { CabinetSummary, ParkRecords, ArcadeBoards } from '../../shared/protocol';
-import { playPark, playHand, playKnock, playPop, playAchievement, playDungeon, playPet } from './sounds';
+import { playPark, playHand, playKnock, playPop, playAchievement, playDungeon, playPet, playPomodoro } from './sounds';
 import type { Soundscape } from './soundscape';
 import { bestOffset, clockSample, CLOCK_SAMPLES, type ClockSample } from './clockSync';
 import { slurBy } from './slur';
@@ -289,7 +289,7 @@ export class Store {
     return `Playing ${game}${s.round ? ` · round ${s.round}/3` : ` · level ${s.level}`}${peers.length ? ` with ${this.names(peers)}` : ''}`;
   }
 
-  moveTo(to: Tile) { if (this.terminalOpen) this.openTerminal(null); this.send({ t: 'move', to }); }
+  moveTo(to: Tile) { if (this.terminalOpen) this.openTerminal(null); if (this.shopOpen) this.openShop(false); this.send({ t: 'move', to }); }
   joinRoom(roomId: string) {
     const me = this.users.get(this.me), room = MAP.rooms.find(r => r.id === roomId);
     if (!me || me.instance || !room) return;
@@ -438,6 +438,16 @@ export class Store {
     const to = tiles.find(t => pathTo(MAP, pose.tile, t).length);
     if (to) this.moveTo({ x: to.x, y: to.y });
   }
+  // ---------- v2 places: the 7/11, Keiko, the pomodoro, the bug report form ----------
+  shopOpen = false;                       // the 7/11 shelves' panel
+  shopTaken: string[] = [];               // what I took today (office day), as the server counts it
+  npcSays = new Map<string, { text: string; at: number }>(); // map-object NPC lines (Keiko): objectId -> the latest, performance.now()
+  bugReportOpen = false;                  // the "Report a bug" form (from the suggestions board)
+  openShop(open = true) { this.shopOpen = open; this.emit(); }
+  openBugReport(open = true) { this.bugReportOpen = open; this.emit(); }
+  takeFromShop(item: string) { this.send({ t: 'shop_take', item }); }
+  startPomodoro(focus?: number, rest?: number) { this.send({ t: 'pomodoro', op: 'start', focus, rest }); }
+  stopPomodoro() { this.send({ t: 'pomodoro', op: 'stop' }); }
   // ---------- bug terminal ----------
   tickets: Ticket[] = [];               // mine, or every ticket for an admin
   terminalOpen: string | null = null;   // the terminal whose screen is up
@@ -453,7 +463,7 @@ export class Store {
   ticketsUnread() { return this.tickets.filter(t => this.ticketUnread(t)).length; }
   terminalTip() {
     const n = this.ticketsUnread();
-    return `Bug terminal · ${n ? `${n} new ${this.admin ? 'in the queue' : n === 1 ? 'reply' : 'replies'}` : 'report a bug'}`;
+    return `Suggestions board · ${n ? `${n} new ${this.admin ? 'in the queue' : n === 1 ? 'reply' : 'replies'}` : 'suggest something or report a bug'}`;
   }
   achievementsOpen = false;
   employeeOpen = false;
@@ -805,6 +815,18 @@ export class Store {
         break;
       }
       case 'follow': { const u = this.users.get(msg.userId); if (u) u.following = msg.targetId; break; }
+      case 'pomodoro': {
+        const u = this.users.get(msg.userId);
+        if (u) { if (msg.pomodoro) u.pomodoro = msg.pomodoro; else delete u.pomodoro; }
+        if (msg.userId === this.me && msg.chime) {
+          playPomodoro(msg.chime);
+          this.toast({ kind: 'info', slot: 'over', text: msg.chime === 'break' ? '🍅 Focus done: take a break' : '🍅 Break over', expires: 5000 });
+        }
+        break;
+      }
+      case 'shop_open': this.shopTaken = msg.taken; this.shopOpen = true; break;
+      case 'shop': this.shopTaken = msg.taken; break;
+      case 'npc_say': this.npcSays.set(msg.objectId, { text: msg.text, at: performance.now() }); break;
       case 'eating': { const u = this.users.get(msg.userId); if (u) { if (msg.eating) u.eating = msg.eating; else delete u.eating; } break; }
       case 'holding': {
         const u = this.users.get(msg.userId);
@@ -822,7 +844,7 @@ export class Store {
         }
         if (msg.objectId && it && msg.userId === this.me && DRINKS[it.id]) this.toast({ kind: 'info', text: `${it.icon} Click yourself to drink it${CUP_ITEMS.includes(it.id) ? ', or a table to put it down' : ''}${DRINKS[it.id].autoSipMs ? ' (or just hold it: you\'ll sip it in a minute)' : ''}`, expires: 6000 });
         if (msg.userId === this.me && it && isEmpty(it.id)) this.toast({ kind: 'info', text: `${it.icon} ${it.label} · click a table to put it down, or it slips to the floor`, expires: 6000 });
-        if (msg.objectId && it && msg.userId === this.me && FOOD_ITEMS.includes(it.id)) this.toast({ kind: 'info', text: `${it.icon} Click a chair at a picnic table to eat`, expires: 5000 });
+        if (msg.objectId && it && msg.userId === this.me && FOOD_ITEMS.includes(it.id)) this.toast({ kind: 'info', text: `${it.icon} Click a chair at a picnic table, or a spot by a kitchen table, to eat`, expires: 5000 });
         break;
       }
       case 'creatures': this.creatures = new Map(msg.creatures.map(c => [c.id, c])); break;
