@@ -1,3 +1,5 @@
+import { ActivityPanel, ModeBar, OverNotices, PresenceButtons } from './NotifyUI';
+import { slotOf, type Mode } from './notify';
 import { onMap } from '../../shared/beach';
 import { AchievementsPanel, AchievementBadge, AchievementRarity } from './Achievements.jsx';
 import { VacationPanel } from './Vacation';
@@ -274,6 +276,7 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
         {pocketsOpen && me && <PocketsPanel store={store} me={me} assets={assets} onClose={() => setPocketsOpen(false)} />}
         {store.calendarOpen && <CalendarPanel store={store} />}
         {store.laterOpen && <LaterPanel store={store} />}
+        {store.activityOpen && <ActivityPanel store={store} />}
         {store.vacationsOpen && <VacationPanel store={store} engine={engineRef.current} />}
         {store.meetingsOpen && <MeetingsPanel store={store} />}
         {store.libraryOpen && <LibraryPanel store={store} />}
@@ -294,11 +297,12 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
         <div className="chips">
           <MeetingChip store={store} voice={voice} />
           <LiveChip store={store} onGo={room => engineRef.current?.walkToRoom(room)} />
-          <DungeonChip store={store} />
           <TalkConflictChip store={store} />
           <DeskChip store={store} />
         </div>
         <Toasts store={store} voice={voice} />
+        <OverNotices store={store} engine={engine} />
+        <ModeBar store={store} extra={dungeonMode(store)} />
         {pick && engineRef.current && <ActionWheel key={`${pick.kind}:${pick.id}`} store={store} engine={engineRef.current} pick={pick} assets={assets} onPerson={openPerson} onClose={() => setPick(null)} />}
         <div className="self-stack">
           {store.chatWith && <ChatPanel key={store.chatWith} store={store} withId={store.chatWith} />}
@@ -432,6 +436,7 @@ function TopBar({ store, assets, voice, roomName, onToggleMeet, onProfile, pocke
         {isCompact && <VoiceIcons store={store} voice={voice} />}
         <UnreadButton store={store} />
         <LaterButton store={store} />
+        <PresenceButtons store={store} />
         {me && <>
           <IconButton icon="backpack" label="Pockets" className={`chip pockets-btn${pocketsOpen ? ' on' : ''}`} aria-expanded={pocketsOpen} onClick={onTogglePockets}>
             <span className="pockets-count">{store.items.length}</span>
@@ -748,14 +753,12 @@ function JukeboxPanel({ store, id }: { store: Store; id: string }) {
   </div>;
 }
 
-function DungeonChip({ store }: { store: Store }) {
+/** Underground: a mode (bottom slot) with its exit. */
+function dungeonMode(store: Store): Mode[] {
   const me = store.users.get(store.me);
-  if (!me || !underground(me)) return null;
+  if (!me || !underground(me)) return [];
   const key = store.dungeon?.hasKey;
-  return <div className="desk-chip call-chip meeting-chip dungeon-chip">
-    <span>{key ? '🗝️' : '🕳'} <b>{key ? 'You have the key' : 'Underground'}</b> <small>· {key ? 'find the door' : 'find the key, then the door'}</small></span>
-    <button className="end" onClick={() => store.dungeonLeave()}>Give up</button>
-  </div>;
+  return [{ id: 'dungeon', icon: key ? '🗝️' : '🕳', text: key ? 'You have the key' : 'Underground', hint: key ? 'find the door' : 'find the key, then the door', exit: { label: 'Give up', run: () => store.dungeonLeave() } }];
 }
 
 /** Today's status hasn't been set yet (or the plant is gone): the plant wants attention. */
@@ -1219,7 +1222,7 @@ function DeskChip({ store }: { store: Store }) {
 function Toasts({ store, voice }: { store: Store; voice: Voice | null }) {
   return (
     <div className="toasts">
-      {store.toasts.map(t => (
+      {store.toasts.filter(t => slotOf(t) === 'top').map(t => (
         <div key={t.id} className={`toast ${t.kind}`} role={t.kind === 'achievement' ? 'status' : undefined}>
           {t.kind === 'knock_in' && <span className="bang">!</span>}
           {t.kind === 'achievement' && t.achievementId ? <>

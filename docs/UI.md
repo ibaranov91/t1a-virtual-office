@@ -113,3 +113,22 @@ visible text: touch has no tooltips.
 - Check compact layout, long text and safe-area spacing.
 - Take a silent headless screenshot (`--mute-audio`).
 - Run `npm test` (includes the styles test).
+
+## Notifications (notification center)
+One client queue (`Store.toast`, `setMode`, `notice`; pure rules in `client/src/notify.ts`) with three named slots. Pick the slot by
+what the message is, never by where there is room:
+- **Top = what is happening to you now** (`slot` unset): incoming knocks, call and voice status, the meeting heads-up, links.
+  At most `TOP_MAX` (4) pop-ups; the lowest priority, oldest goes first, a pending knock never does. At most
+  `KNOCK_POPUPS_MAX` (2) knock pop-ups: a third one answers the oldest "Later" for you, and it waits in the activity log with
+  **Knock back**. Desktop and phone both put it at the top, under the desk/meeting chip.
+- **Bottom = a mode you are in, with its exit** (`store.setMode({id, icon, text, hint, exit, actions})`, `clearMode(id)`, or a
+  derived mode passed to `ModeBar`, like the dungeon's "Give up"). One line per mode, at most 2, the exit button is red and last.
+  Later features (End ride, presenting, sewing) plug in here; do not add new chips for a mode.
+- **Over-character = brief one-off notices** (`store.notice(text)` or `slot: 'over'`): "You got a hat", "X handed you a coffee".
+  Floats above your own sprite for ~4.5 s, at most 3. Keep it to one short line, no buttons.
+- **Whatever leaves a slot goes to the activity log** (top-bar pulse icon, `ActivityPanel`): the server's event journal
+  (`server/src/journal.ts`: knocks, calls, meetings, private rooms; capped at 200 per person, sent only to its owner) plus
+  this page's own notices. Server-journaled kinds (knocks) are not logged twice; pass `log: false` to keep a toast out of the log.
+  New server events call `journal.add(userId, { kind, text, otherId?, action? })`.
+- **Do not disturb** (moon in the top bar, public `dnd`, saved): the nameplate and the sidebar show a moon; knocks skip the
+  pop-up and sound and wait in Later. It is not deafen (sound off, knocks still pop up).

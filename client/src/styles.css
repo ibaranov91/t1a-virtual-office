@@ -206,10 +206,11 @@ canvas { display: block; image-rendering: pixelated; touch-action: none; }
 .rooms li .me { color: var(--accent); font-weight: var(--fw-bold); }
 .rooms li.off { opacity: .55; cursor: default; }
 
-.toasts { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); display: grid; gap: 8px; width: min(420px, calc(100% - 16px)); pointer-events: none; z-index: 7; }
+.toasts { position: absolute; left: 50%; top: 10px; transform: translateX(-50%); display: grid; gap: 8px; width: min(420px, calc(100% - 16px)); pointer-events: none; z-index: 7; }
 .toast { font-size: var(--fs-md); pointer-events: auto; display: flex; align-items: center; gap: 8px; background: var(--panel); border: 2px solid var(--wood);
   border-radius: 8px; padding: 8px 10px; box-shadow: 0 6px 20px rgba(0,0,0,.45); animation: pop .22s steps(2) both; }
 .toast .txt { flex: 1; min-width: 0; } /* so a long chat line ellipsizes instead of widening the toast off-screen */
+.stage:has(.chips > *) .toasts { top: 58px; } /* top slot: under a desk or meeting chip */
 .toast.knock_in { border-color: var(--accent); }
 .toast.link { border-color: var(--accent2); }
 .toast a { background: var(--accent2); color: #142010; font-weight: var(--fw-bold); padding: 5px 11px; border-radius: 6px; text-decoration: none; }
@@ -296,7 +297,7 @@ canvas { display: block; image-rendering: pixelated; touch-action: none; }
   .rooms li { padding: 8px 6px; font-size: var(--fs-md); }
   .rooms h3 { padding: 4px 0; }
   .chat-input input, .chat-input button { min-height: 44px; }
-  .toasts { top: 8px; bottom: auto; z-index: 8; } /* the bottom belongs to the dock and my voice panel */
+  .toasts { top: 8px; z-index: 8; } /* the bottom belongs to the dock and my voice panel */
   .stage:has(.chips > *) .toasts { top: 58px; } /* under a desk or meeting chip */
   .stage:has(.call-chip) .toasts { top: 92px; } /* the call chip wraps to two lines here */
   .meet-panel:not(.guided) { top: 50%; transform: translate(-50%, -50%); z-index: 10; }
@@ -1470,4 +1471,19 @@ button:focus-visible, summary:focus-visible, input[type="range"]:focus-visible {
   .crt { left: 0; right: 0; bottom: 0; top: auto; transform: none; width: 100%; max-height: 92%; border-radius: 18px 18px 0 0; padding: 10px 10px 26px; }
   .crt-screen { font-size: var(--fs-sm); padding: 10px 12px; }
   .crt-row { grid-template-columns: 6ch 6ch minmax(0, 1fr) 1ch; } .crt-row > :nth-child(4) { display: none; }
+}
+
+/* ---- Notification center (v2): bottom slot (modes), over-character slot, activity log, DND. Rules in docs/UI.md. */
+.modes { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); display: grid; gap: 6px; justify-items: center; width: min(520px, calc(100% - 16px)); pointer-events: none; z-index: 7; }
+.modes > * { pointer-events: auto; min-width: 0; }
+.over-notices { position: absolute; left: 0; top: 0; z-index: 9; display: grid; gap: 4px; justify-items: center; pointer-events: none; visibility: hidden; max-width: min(320px, calc(100% - 16px)); }
+.over-notice { font-size: var(--fs-md); font-weight: var(--fw-bold); color: var(--text); background: var(--panel); border: 2px solid var(--accent); border-radius: var(--radius-md); padding: 4px 10px; box-shadow: 0 4px 14px rgba(0,0,0,.45); text-align: center; animation: pop .22s steps(2) both; }
+.activity-list li { align-items: flex-start; }
+.activity-list li.new { border-left: 3px solid var(--accent); }
+.activity-list .hint { display: block; color: var(--muted); font-size: var(--fs-sm); }
+.activity-panel { max-height: min(560px, calc(100% - 32px)); overflow-y: auto; }
+.activity-btn .badge { position: static; font-size: var(--fs-xs); }
+.dnd-btn.on { background: #6a5acd; color: #fff; border-color: #6a5acd; }
+@media (max-width: 560px), (max-height: 500px) { /* COMPACT */
+  .modes { bottom: calc(76px + env(safe-area-inset-bottom)); }
 }

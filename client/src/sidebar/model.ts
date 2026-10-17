@@ -58,6 +58,7 @@ export function activityLine(view: View, u: ClientUser) {
     : u.eating ? `🍽 having lunch${u.eating.open ? ' · open to talk' : ''}`
     : playing ? `${playing.icon} playing ${playing.name}`
     : u.listening === 'lofi' ? '🎧 listening to Lofi Girl'
+    : u.dnd ? '🌙 do not disturb'
     : u.afk ? '💤 idle'
     : u.presence === 'away' ? 'away' : '';
   const status = splitStatus(u.status ?? '').text;

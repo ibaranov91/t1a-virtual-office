@@ -1,6 +1,7 @@
 import type { ButtonHTMLAttributes } from 'react';
 
 const paths = {
+  activity: 'M3 12h4l3-8 4 16 3-8h4',
   moon: 'M21 13A9 9 0 1 1 11 3a7 7 0 0 0 10 10Z',
   'phone-off': 'M10.7 13.3a16 16 0 0 0 3.4 2.6l1.6-1.6a1 1 0 0 1 1-.2c1.1.4 2.3.6 3.5.6a1 1 0 0 1 1 1V19a1 1 0 0 1-1 1A17 17 0 0 1 3 4a1 1 0 0 1 1-1h3.4a1 1 0 0 1 1 1c0 1.2.2 2.4.6 3.5a1 1 0 0 1-.2 1L7.2 10.1M2 2l20 20',
   'arrow-down': 'M12 3v18m-7-7 7 7 7-7',

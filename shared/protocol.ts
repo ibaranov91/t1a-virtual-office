@@ -197,6 +197,7 @@ export interface PublicUser {
   bloomed: string[];        // plant kinds they've grown to full bloom
   achievements: Record<string, number>; // achievement id → when it was earned (ms)
   effects: Effect[];        // buffs, debuffs, hats; the server adds, expires and broadcasts them
+  dnd?: boolean;            // Do not disturb (public, saved): knocks skip the pop-up and wait in Later; deafen is separate
   afk?: boolean;            // no input for AFK_MS: dozing on the floor until they're back; memory only
 }
 
@@ -257,6 +258,12 @@ export type RtcSignal =
 /** A knock that went to Later (kept per person, memory only): newest first, one per knocker. */
 export interface LaterItem { id: string; fromId: string; at: number; why: string }
 export const LATER_MAX = 20;
+
+// ---- Event journal (owner only): the activity log reads it. Edit only in this block.
+/** One thing that happened to you. `kind` is open-ended (knock_in, knock_out, call, meeting, room, notice, later: theft, gift, photo…). */
+export interface JournalEntry { id: string; at: number; kind: string; text: string; otherId?: string; action?: 'knock_back' }
+export const JOURNAL_MAX = 200; // per person
+// ---- end journal
 
 export interface Knock {
   id: string; fromId: string; toId: string;
@@ -380,6 +387,9 @@ export type ServerMsg =
   | { t: 'teleport'; userId: string; from: Tile; to: Tile } // an admin stepped through a portal: everyone plays it (the server has already moved them)
   | { t: 'notice'; text: string }
   | { t: 'later'; items: LaterItem[] }  // only to the person knocked on: their kept Later list, on connect and on every change
+  | { t: 'journal'; entries: JournalEntry[]; readAt: number } // only to its owner: the whole journal (oldest first) on connect
+  | { t: 'journal_add'; entry: JournalEntry }                 // only to its owner: one new entry
+  | { t: 'dnd'; userId: string; on: boolean }                 // someone's Do not disturb changed (public)
   | { t: 'later_nudge'; text: string; userId?: string } // their busy spell is over and knocks came in meanwhile (userId: the one knocker, for Knock back)
   | { t: 'room_open' } // you clicked the Meeting room's 'start private room' button: open the popup
   | { t: 'present_open'; objectId: string } // you walked up to the board: show the upload/present panel
@@ -432,6 +442,8 @@ export type ClientMsg =
   | { t: 'knock_reply'; knockId: string; reply: 'accept' | 'later' }
   | { t: 'later_dismiss'; id: string }
   | { t: 'later_clear' }
+  | { t: 'dnd'; on: boolean }   // my Do not disturb
+  | { t: 'journal_read' }       // I opened the activity log: everything so far is read
   | { t: 'knock_cancel'; knockId: string } // the knocker calls it back: closes the prompt for both
   | { t: 'meet_link'; link: string }
   | { t: 'google_connect'; calendar?: boolean } // asks for a google_auth URL; calendar: also ask for Calendar access

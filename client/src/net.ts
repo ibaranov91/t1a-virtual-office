@@ -22,6 +22,8 @@ import { playPark, playHand, playKnock, playPop, playAchievement, playDungeon, p
 import type { Soundscape } from './soundscape';
 import { bestOffset, clockSample, CLOCK_SAMPLES, type ClockSample } from './clockSync';
 import { slurBy } from './slur';
+import { knockOverflow, localEntry, logsOnExit, mergeLog, overflow, slotOf, unreadCount, LOCAL_LOG_MAX, OVER_MS, type Mode, type Slot } from './notify';
+import { JOURNAL_MAX, type JournalEntry } from '../../shared/protocol';
 
 export const MAP = mapJson as unknown as TileMap;
 const baseRoomRules = Object.fromEntries(MAP.rooms.map(r => [r.id, { ...r.rules }]));
@@ -43,6 +45,8 @@ export interface Toast {
   actions?: { label: string; run: () => void; ghost?: boolean }[]; // extra buttons (the one-time mute prompt)
   meetingKey?: string; // meeting: one-click Go into its room
   userId?: string; // the other person, for knock_again and chat
+  slot?: Slot;     // notification center slot (default top); see notify.ts
+  log?: boolean;   // override: does it go to the activity log when it leaves? (default by kind)
 }
 
 export interface SlackImage { id: string; name: string; mimetype: string; ts: string; user: string; at: number; url: string }
@@ -92,6 +96,13 @@ export class Store {
   calendarOpen = false;
   later: LaterItem[] = []; // knocks that went to Later while I was busy (server-kept, newest first)
   laterOpen = false;
+  // ---- notification center / activity log (v2 session C). Edit only in this block.
+  journal: JournalEntry[] = [];   // the server's event journal for me, oldest first
+  journalReadAt = 0;
+  localLog: JournalEntry[] = [];  // notices that left a slot on this page (not saved)
+  activityOpen = false;
+  modes: Mode[] = [];             // bottom slot: modes you are in, each with its exit
+  // ---- end notification center
   calendarEvents: CalEvent[] | null = null; // null = loading
   calendarError: string | null = null;
   agenda: AgendaItem[] = [];               // my calendar meetings now and soon
@@ -630,13 +641,38 @@ export class Store {
     return n.length <= 2 ? n.join(' and ') : `${n.slice(0, 2).join(', ')} and ${n.length - 2} other${n.length > 3 ? 's' : ''}`;
   }
 
+  /** Queue a pop-up. Its `slot` (default top) decides where it shows; see notify.ts for the caps and what is logged. */
   toast(t: Omit<Toast, 'id'>) {
     const toast = { ...t, id: ++this.toastSeq };
-    this.toasts = [...this.toasts, toast].slice(-4);
-    if (t.expires) setTimeout(() => this.dismiss(toast.id), t.expires);
+    if (slotOf(toast) === 'over' && !toast.expires) toast.expires = OVER_MS;
+    this.toasts = [...this.toasts, toast];
+    if (toast.expires) setTimeout(() => this.dismiss(toast.id), toast.expires);
+    for (const k of knockOverflow(this.toasts)) this.replyKnock(k.knockId!, 'later'); // the server journals it, with a Knock back action
+    for (const d of overflow(this.toasts)) this.retire(d);
     this.emit();
   }
-  dismiss(id: number) { this.toasts = this.toasts.filter(t => t.id !== id); this.emit(); }
+  dismiss(id: number) { const t = this.toasts.find(x => x.id === id); if (t) this.retire(t); this.emit(); }
+  /** Whatever leaves a slot goes to the activity log (unless the server already journals it). */
+  private retire(t: Toast) {
+    if (!this.toasts.includes(t)) return;
+    this.toasts = this.toasts.filter(x => x !== t);
+    if (logsOnExit(t)) this.localLog = [...this.localLog, localEntry(t.id, t.hint ? `${t.text} · ${t.hint}` : t.text, this.now())].slice(-LOCAL_LOG_MAX);
+  }
+  /** Bottom slot: a mode you are in (a ride, a dungeon…) with its exit button. Same `id` again updates it. */
+  setMode(m: Mode) { this.modes = [...this.modes.filter(x => x.id !== m.id), m]; this.emit(); }
+  clearMode(id: string) { if (this.modes.some(m => m.id === id)) { this.modes = this.modes.filter(m => m.id !== id); this.emit(); } }
+  /** One-off notice floating over my own character, then in the log. */
+  notice(text: string, ms = OVER_MS) { this.toast({ kind: 'info', slot: 'over', text, expires: ms }); }
+
+  get activity() { return mergeLog(this.journal, this.localLog); }
+  get activityUnread() { return unreadCount(this.activity, this.journalReadAt); }
+  openActivity(open = true) {
+    this.activityOpen = open;
+    if (open) this.readActivity();
+    this.emit();
+  }
+  private readActivity() { this.journalReadAt = Math.max(this.journalReadAt, this.now()); this.send({ t: 'journal_read' }); }
+  setDnd(on: boolean) { this.send({ t: 'dnd', on }); }
 
   // ---------- state ----------
   private applyMove(u: ClientUser, m: { from: Tile; to: Tile; startedAt: number; path?: Tile[]; face?: Dir; ms?: number }) {
@@ -763,7 +799,7 @@ export class Store {
         const it = msg.item ? ITEMS.get(msg.item) : undefined;
         if (msg.fromId && it) { // handed over: the item hops across like a reaction
           this.reactions.push({ fromId: msg.fromId, toId: msg.userId, emoji: it.icon, at: performance.now() });
-          if (msg.userId === this.me) { playPop(); this.toast({ kind: 'info', text: `${this.name(msg.fromId)} handed you ${it.label.toLowerCase()} ${it.icon}`, expires: 5000 }); }
+          if (msg.userId === this.me) { playPop(); this.toast({ kind: 'info', slot: 'over', text: `${this.name(msg.fromId)} handed you ${it.label.toLowerCase()} ${it.icon}`, expires: 5000 }); }
         }
         if (msg.objectId && it && msg.userId === this.me && DRINKS[it.id]) this.toast({ kind: 'info', text: `${it.icon} Click yourself to drink it${CUP_ITEMS.includes(it.id) ? ', or a table to put it down' : ''}${DRINKS[it.id].autoSipMs ? ' (or just hold it: you\'ll sip it in a minute)' : ''}`, expires: 6000 });
         if (msg.userId === this.me && it && isEmpty(it.id)) this.toast({ kind: 'info', text: `${it.icon} ${it.label} · click a table to put it down, or it slips to the floor`, expires: 6000 });
@@ -903,7 +939,7 @@ export class Store {
         u.plant = msg.plant; u.bloomed = msg.bloomed; u.achievements = msg.achievements;
         if (u.id !== this.me) break;
         const p = msg.plant;
-        if (p && was && (p.stage !== was.stage || p.kind !== was.kind || p.care !== was.care)) this.toast({ kind: 'info', expires: 5000,
+        if (p && was && (p.stage !== was.stage || p.kind !== was.kind || p.care !== was.care)) this.toast({ kind: 'info', slot: 'over', expires: 5000,
           text: p.stage === 0 ? '🌱 You planted a new seedling' : `🌱 Your ${plantName(p)} grew: ${PLANT_STAGES[p.stage]}`,
           hint: p.stage === 0 ? 'The old one withered after a week without a status' : 'It grows once a day you set a status' });
         for (const a of ACHIEVEMENTS) if (msg.achievements[a.id] && !earned[a.id]) {
@@ -934,6 +970,9 @@ export class Store {
         if (!was && msg.roomId) this.toast({ kind: 'info', text: `${MAP.rooms.find(r => r.id === msg.roomId)?.name ?? 'Room'} voice is full (${ROOM_VOICE_MAX}) — you'll join when someone leaves`, expires: 6000 });
         break;
       }
+      case 'journal': this.journal = msg.entries; this.journalReadAt = Math.max(this.journalReadAt, msg.readAt); break;
+      case 'journal_add': this.journal = [...this.journal, msg.entry].slice(-JOURNAL_MAX); if (this.activityOpen) this.readActivity(); break;
+      case 'dnd': { const u = this.users.get(msg.userId); if (u) u.dnd = msg.on; break; }
       case 'later': this.later = msg.items; if (!msg.items.length) this.laterOpen = false; break;
       case 'later_nudge': {
         playKnock();
@@ -941,7 +980,7 @@ export class Store {
         this.toast({ kind: 'info', text: `🔔 ${msg.text}`, expires: 30000, actions: id ? [{ label: 'Knock back', run: () => this.knock(id) }] : [{ label: 'Open', run: () => this.openLater() }] });
         break;
       }
-      case 'notice': this.toast({ kind: 'info', text: msg.text, expires: 6000 }); break;
+      case 'notice': this.toast({ kind: 'info', slot: 'over', text: msg.text, expires: 6000 }); break;
       case 'deafen': { const u = this.users.get(msg.userId); if (u) { u.deafened = msg.on; if (msg.on) u.speaking = false; } break; }
       case 'hand': {
         const u = this.users.get(msg.userId), me = this.users.get(this.me);
@@ -998,7 +1037,7 @@ export class Store {
         const otherId = mine ? msg.toId : msg.fromId, other = this.name(otherId);
         if (msg.reply === 'accept') {
           this.callLink = msg.link ?? this.callLink;
-          this.toast({ kind: 'info', text: `🎙 Voice call with ${other}`, expires: 4000 });
+          this.toast({ kind: 'info', log: false, text: `🎙 Voice call with ${other}`, expires: 4000 }); // the journal has the call
         }
         else if (mine && msg.reply === 'blocked') this.toast({ kind: 'info', text: msg.reason ?? `Can't knock on ${other} now`, expires: 5000 });
         else if (mine) this.toast({ kind: 'knock_again', userId: otherId, text: msg.reason ?? `${other} said later`, expires: 30000 });

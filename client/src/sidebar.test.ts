@@ -79,7 +79,7 @@ test('every activity branch, precedence and status joining', () => {
     [{ eating: { item: 'food', until: 0, open: false } }, '🍽 having lunch'],
     [{ eating: { item: 'food', until: 0, open: true } }, '🍽 having lunch · open to talk'],
     [{ listening: 'lofi', presence: 'away' }, '🎧 listening to Lofi Girl'],
-    [{ listening: 'lofi', afk: true }, '🎧 listening to Lofi Girl'], [{ afk: true, presence: 'away' }, '💤 idle'],
+    [{ listening: 'lofi', afk: true }, '🎧 listening to Lofi Girl'], [{ afk: true, presence: 'away' }, '💤 idle'], [{ dnd: true }, '🌙 do not disturb'],
     [{ presence: 'away' }, 'away'], [{ status: 'debugging' }, 'debugging'], [{}, ''], [{ callId: 'room:coffee' }, ''],
   ];
   for (const [extra, expected] of cases) {
