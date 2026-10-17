@@ -2195,21 +2195,22 @@ for (const on of [false, true]) {
 
 // ---------- v2 places: the 7/11, the kitchen kettle and bar table, Book Club leader seat, trophy case, boards (fixed pixels, no random calls) ----------
 {
-  // the 7/11's sliding glass door in a vertical doorway: closed (0), half open (1), open (2); the panes slide up and down along the wall
-  for (const stage of [0, 1, 2]) {
-    const t = new Img(16, 40), slide = [0, 6, 13][stage];
-    t.rect(1, 7, 14, 32, OUT);
-    t.rect(3, 8, 10, 30, '#5a6270'); t.rect(4, 9, 8, 28, [0, 0, 0, 0]); // frame
-    const pane = (y0, y1) => { // the glass between y0 and y1
-      if (y1 - y0 < 2) return;
-      t.rect(4, y0, 8, y1 - y0, '#a8dcec'); t.vline(5, y0, y1 - y0, '#d8f2fa'); t.vline(10, y0, y1 - y0, '#86bfd2');
-      t.hline(4, y0, 8, '#e8f8ff'); t.hline(4, y1 - 1, 8, '#5a8aa0');
-    };
-    pane(9, 23 - slide); pane(23 + slide, 37);
-    t.rect(3, 8, 10, 2, '#7d8696'); t.hline(3, 8, 10, '#aab2c0'); // the rail above
-    if (stage < 2) { t.rect(7, 21 - slide, 2, 1, '#e8b030'); t.rect(7, 23 + slide, 2, 1, '#e8b030'); } // handles
-    frames[`door_v_slide_${stage}`] = t;
-  }
+  // Vertical doors keep their full length when open: the leaf turns edge-on against the hinge side instead of shrinking.
+  // The 7/11's street door is the same door, in glass.
+  const door = (glass, open) => {
+    const c = frames.door_v_closed, t = new Img(c.w, c.h);
+    t.blit(c, 0, 0);
+    const body = glass ? '#a8dcec' : '#b77b43', hi = glass ? '#e8f8ff' : '#dfa76a';
+    if (!open) {
+      if (glass) { t.rect(4, 9, 8, 27, body); t.vline(5, 10, 25, hi); t.vline(10, 10, 25, '#86bfd2'); t.hline(4, 9, 8, hi); t.hline(4, 35, 8, '#5a8aa0'); t.rect(10, 22, 1, 4, '#edce76'); }
+      return t;
+    }
+    t.rect(4, 10, 8, 26, [0, 0, 0, 0]); // the doorway, empty
+    t.rect(3, 9, 4, 28, OUT); t.rect(4, 10, 2, 26, body); t.vline(4, 10, 26, hi); t.px(5, 24, '#edce76'); // the leaf, edge-on, as long as the shut door
+    return t;
+  };
+  frames.door_v_open = door(false, true);
+  frames.door_v_glass_closed = door(true, false); frames.door_v_glass_open = door(true, true);
 }
 {
   const t = new Img(32, 16); // a TV hung in the corner: the evening news

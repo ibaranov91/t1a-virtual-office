@@ -122,6 +122,7 @@ export class CreatureLayer {
     const ctx = this.ctx();
     ctx.save(); ctx.font = '5px system-ui, sans-serif'; ctx.textBaseline = 'middle';
     const matrix = ctx.getTransform(), left = -matrix.e / matrix.a, right = (ctx.canvas.width - matrix.e) / matrix.a;
+    if (cx < left - 24 || cx > right + 24) { ctx.restore(); return; } // off screen: never pinned to the edge
     const maxWidth = Math.min(100, right - left - 10), lines: string[] = [];
     for (const word of text.split(' ')) {
       const last = lines.length - 1, next = last < 0 ? word : `${lines[last]} ${word}`;

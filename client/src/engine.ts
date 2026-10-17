@@ -9,7 +9,7 @@ import { DANCE_ROOM, danceBeat, dancePhase } from '../../shared/effects';
 import { DRINKS, emptyDrink, isEmpty } from '../../shared/drinks';
 import { drawEffects, effectLook, effectSway } from './effects';
 import { CreatureLayer, creaturePose } from './creatures';
-import { lockedDoors, roomDoors, slidingDoors, type RoomDoor } from './doors';
+import { lockedDoors, roomDoors, glassDoors, type RoomDoor } from './doors';
 import { voiceSignPositions } from './roomSigns';
 import { drawBeachSign } from './beachSign';
 import { dance, discos, drawDisco, evening, type DanceStep, type Disco } from './disco';
@@ -314,7 +314,7 @@ export class Engine {
   /** The furniture changed (an admin moved something): redraw the floor and re-sort what's where. */
   private refreshLayout() {
     this.layoutSeen = this.store.layoutVersion;
-    this.doors = [...roomDoors(MAP), ...lockedDoors(MAP), ...slidingDoors(MAP)];
+    this.doors = [...roomDoors(MAP), ...lockedDoors(MAP), ...glassDoors(MAP)];
     this.discos = discos(MAP);
     this.jukeboxes = MAP.objects.filter(o => o.use?.kind === 'jukebox').map(o => ({ o, room: roomAt(MAP, o.x, o.y)?.id }));
     this.staticLayer = this.buildStatic();
@@ -951,7 +951,6 @@ export class Engine {
     const now = this.store.now(), users = [...this.store.users.values()];
     const near = (x: number, y: number) => this.onScreen(x * TS - TS, y * TS - TS, 3 * TS, 3 * TS);
     if (this.store.portalFx.some(f => ms - f.at < PORTAL_MS)) return 16;
-    for (const d of this.slides.values()) if (d.p > 0 && d.p < 1) return 31; // a sliding door mid-glide
     if (users.some(u => { if (!u.move) return false; const p = this.store.pose(u, now); return p.walking && this.visible(u) && near(p.x, p.y); })) return 16;
     if (!this.areaDown && !this.store.users.get(this.store.me)?.instance && [...this.store.creatures.values()].some(c => { if (!c.walk) return false; const p = creaturePose(c, now); return p.walking && near(p.x, p.y); })) return 16;
     if (this.areaDown || this.store.reactions.length || this.instrumentNotes.length || this.partyOnScreen() || this.store.dungeonFx.some(f => ms - f.at < 700)
@@ -1105,10 +1104,10 @@ export class Engine {
         return void ctx.restore();
       }
       if (d.door) { // open while someone stands in or right next to the doorway; a locked one stays shut for non-admins
-        const door = d.door, reach = door.sliding ? 2 : 1, open = [...poses.values()].some(p => door.tiles.some(t => Math.abs(t.x - p.tile.x) + Math.abs(t.y - p.tile.y) <= reach));
+        const door = d.door, reach = 1, open = [...poses.values()].some(p => door.tiles.some(t => Math.abs(t.x - p.tile.x) + Math.abs(t.y - p.tile.y) <= reach));
         const locked = door.locked && !this.store.sysadmin, age = ms - (this.deniedAt.get(door.room.id) ?? -1e9);
         const shake = locked && age < 450 ? Math.round(Math.sin(age / 22) * 2) : 0;
-        const name = door.sliding ? `door_v_slide_${this.slideStage(door, open, ms)}` : `door_${door.horizontal ? 'h' : 'v'}_${locked ? 'locked' : open ? 'open' : 'closed'}`, fr = this.f(name);
+        const name = door.glass ? `door_v_glass_${open ? 'open' : 'closed'}` : `door_${door.horizontal ? 'h' : 'v'}_${locked ? 'locked' : open ? 'open' : 'closed'}`, fr = this.f(name);
         if (!fr || !this.onScreen(door.x * TS + (door.w * TS - fr.w) / 2 - 2, (door.y + door.h) * TS - fr.h, fr.w + 6, fr.h)) return;
         return void this.blit(ctx, name, door.x * TS + (door.w * TS - fr.w) / 2 + shake, (door.y + door.h) * TS - fr.h);
       }
@@ -1164,7 +1163,6 @@ export class Engine {
 
     if (!me?.instance) { this.drawBoardBadges(ctx, ms); this.drawKiosks(ctx, ms); }
     if (!me?.instance) this.drawTerminalBadge(ctx, ms);
-    if (!this.areaDown && !me?.instance) this.drawSoonPoster(ctx, ms);
     this.drawLiveScreen(ctx, ms); // the store only holds the show of my own scope
 
     // a meeting's own room: the rest of the office fades away
@@ -1427,7 +1425,7 @@ export class Engine {
       ctx.save(); ctx.font = '9px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.fillText('👋', x + 8, baseY - 29 + bob); ctx.restore();
     }
     if (u.pomodoro?.phase === 'focus') { // a personal pomodoro is running: a tomato over the head (public)
-      ctx.save(); ctx.font = '9px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.fillText('🍅', x + 8, baseY - 36 + bob); ctx.restore();
+      ctx.save(); ctx.globalAlpha = 1; ctx.fillStyle = '#000'; ctx.font = '9px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.fillText('🍅', x + 8, baseY - 36 + bob); ctx.restore();
     }
     // facing a desk: the chair's backrest is in front of the sitter
     if (seat?.dir === 'up' && (seat.type === 'chair' || seat.type === 'leader_chair') && this.f(`${seat.type}_up_back`)) {
@@ -1696,15 +1694,6 @@ export class Engine {
     if (s?.in.length) return `Toilet · ${s.in.length}/${TOILET_CAPACITY} inside (${names(s.in)})${line}`;
     return `Toilet · ${s?.fill ? `used ${s.fill}× · ` : ''}click to use`;
   }
-  /** The sliding glass door's opening, 0 (shut) to 2 (open): it glides over ~0.3 s instead of snapping. */
-  private slides = new Map<string, { p: number; at: number }>();
-  private slideStage(door: RoomDoor, open: boolean, ms: number) {
-    const key = `${door.x},${door.y}`, s = this.slides.get(key) ?? { p: 0, at: ms };
-    const dt = Math.min(100, Math.max(0, ms - s.at)) / 300;
-    s.p = open ? Math.min(1, s.p + dt) : Math.max(0, s.p - dt); s.at = ms;
-    this.slides.set(key, s);
-    return Math.round(s.p * 2);
-  }
   private toiletFrame(id: string) {
     const s = this.store.toilets[id];
     return toiletFull(s) ? 'toilet_full' : s?.in.length ? 'toilet_busy' : 'toilet';
@@ -1823,38 +1812,6 @@ export class Engine {
       const x = o.x * TS + (o.w * TS - 16) / 2, y = (o.y + o.h) * TS - 28; // the sprite's own box (16×28, bottom-aligned)
       ctx.fillStyle = `rgba(170,255,210,${glow})`; ctx.fillRect(x + 3, y + 4, 10, 9);
     }
-  }
-
-  /** The solid block above the Book Club (x 74-84, rows 3-22) is a future room: a poster says so. */
-  private drawSoonPoster(ctx: CanvasRenderingContext2D, ms: number) {
-    const w = 104, h = 132, x = Math.round((74 + 85) / 2 * TS - w / 2), y = Math.round((3 + 23) / 2 * TS - h / 2);
-    if (!this.onScreen(x - 4, y - 4, w + 8, h + 8)) return;
-    ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.fillRect(x + 3, y + 4, w, h); // shadow
-    ctx.fillStyle = '#3a2329'; ctx.fillRect(x - 1, y - 1, w + 2, h + 2);
-    ctx.fillStyle = '#f4e6c8'; ctx.fillRect(x, y, w, h);
-    ctx.fillStyle = '#e6d2a8'; ctx.fillRect(x, y + h - 6, w, 6); ctx.fillRect(x + w - 6, y, 6, h); // worn edges
-    ctx.fillStyle = '#d94f4f'; ctx.fillRect(x + 4, y + 4, w - 8, 3); ctx.fillRect(x + 4, y + h - 10, w - 8, 3); // stripes
-    for (const [px, py] of [[x + 3, y - 2], [x + w - 7, y - 2]]) { ctx.fillStyle = 'rgba(255,240,170,0.75)'; ctx.fillRect(px, py, 4, 7); } // tape
-    // the season's mark: leaf, snowflake, blossom, sun, a new one every few seconds
-    const season = Math.floor(ms / 2500) % 4, cx = x + w / 2, cy = y + 32;
-    const art = [
-      ['..o..', '.ooo.', 'ooooo', '.ooo.', '..s..'], ['o.o.o', '.ooo.', 'ooooo', '.ooo.', 'o.o.o'],
-      ['.o.o.', 'ooooo', '.oco.', 'ooooo', '.o.o.'], ['o.o.o', '.ooo.', 'oocoo', '.ooo.', 'o.o.o'],
-    ][season];
-    const col = [['#d97a2b', '#7a4a2a'], ['#7fc6e8', '#7fc6e8'], ['#f29ac0', '#ffe14f'], ['#ffc83d', '#ff8a3d']][season];
-    const S = 5;
-    art.forEach((row, ry) => [...row].forEach((c, rx) => {
-      if (c === '.') return;
-      ctx.fillStyle = c === 'o' ? col[0] : col[1]; ctx.fillRect(cx - 12 + rx * S, cy - 12 + ry * S, S, S);
-    }));
-    const big = (text: string, ty: number, color: string) => {
-      ctx.save(); ctx.translate(Math.round(cx - textWidth(text)), ty); ctx.scale(2, 2); drawText(ctx, text, 0, 0, color); ctx.restore();
-    };
-    big('COMING', y + 56, '#3a2329'); big('SOON', y + 70, '#3a2329');
-    const small = '(SEASONAL)', blink = Math.floor(ms / 700) % 2 ? '#d94f4f' : '#8a3a3a';
-    drawText(ctx, small, Math.round(cx - textWidth(small) / 2), y + 92, blink);
-    const sub = 'STAY TUNED';
-    drawText(ctx, sub, Math.round(cx - textWidth(sub) / 2), y + 104, '#7a6a58');
   }
 
   /** Slides are up: the screen glows and flashes a LIVE tag, so people outside the room notice. */

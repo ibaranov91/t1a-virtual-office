@@ -106,20 +106,14 @@
    "w": 16,
    "h": 40
   },
-  "door_v_slide_0": {
+  "door_v_glass_closed": {
    "x": 201,
    "y": 98,
    "w": 16,
    "h": 40
   },
-  "door_v_slide_1": {
+  "door_v_glass_open": {
    "x": 218,
-   "y": 98,
-   "w": 16,
-   "h": 40
-  },
-  "door_v_slide_2": {
-   "x": 235,
    "y": 98,
    "w": 16,
    "h": 40
