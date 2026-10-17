@@ -6,6 +6,17 @@ glance. Product intent and design rules are in `REQUIREMENTS.md`; read it before
 the overview for newcomers and hackathon judges, and `docs/FEATURES.md` maps every feature to its code and tests.
 Hackathon project: favor small, working, demo-able steps.
 
+## Now: building v2 locally (from 2026-10-17)
+The hackathon version is frozen: `origin/main` and prod stay as they are until the hackathon is over. Everything new
+goes into **v2**, one big release we ship after the hackathon. Until then:
+- **Git is local only.** Branch off the local `main` (in a worktree), commit there, and merge finished branches into
+  the local `main` with `git merge --no-ff <branch>` after `npm test`, `npm run typecheck` and `npm run build -w client`
+  pass. Rebase your branch onto local `main` first if it moved (`git rebase main`), not onto `origin/main`.
+- **Never push** (`git push`, `--force-with-lease`, new remote branches), never open or merge pull requests
+  (`gh pr …`), and never `git pull` into `main`: local `main` is v2 and runs ahead of `origin/main`.
+- **Never deploy prod**, and don't touch the other instances unless their owner asks. Test v2 locally (`npm run dev`).
+- "Landing a PR and deploying prod" below describes how v1 shipped and how v2 will ship once released; it is on hold.
+
 ## Start here
 1. **[docs/MAP.md](docs/MAP.md)**: generated floor plans (rooms, furniture, doorways, dungeon), the rooms table, every
    clickable object with its tile, and free space per room. Read it instead of decoding `gen-map.mjs`.
@@ -344,6 +355,7 @@ scripts/deploy.sh          # prod: only from a clean checkout of the head of ori
   deploy installs coturn from `scripts/turnserver.conf`). See "Voice relay (TURN)" above.
 
 ## Landing a PR and deploying prod
+**On hold while v2 is built locally** (see "Now: building v2 locally" at the top): no pushes, PRs or prod deploys.
 Several people and agents merge and deploy at the same time. Prod must always run one known commit, the head of
 `main`, and a deploy must never undo a newer one.
 1. **Rebase onto fresh main** right before merging: `git fetch origin && git rebase origin/main`, then
@@ -376,6 +388,6 @@ Several people and agents merge and deploy at the same time. Prod must always ru
 - Match the surrounding style: compact, comments only where the *why* isn't obvious.
 - Protocol changes go in `shared/protocol.ts` first. The server validates everything a client sends.
 - Keep REQUIREMENTS.md's "not now" list in mind: design for it (data, not code), don't build it.
-- **Never work in `main` and never commit or push to it directly.** `main` is the shared branch. Before editing, pull
-  `main` and branch off it (or use a worktree), then land changes through a pull request.
+- **Never work in `main` and never commit to it directly.** `main` is the shared branch. Branch off it (in a worktree)
+  and, during v2, merge finished branches into the local `main`; nothing is pushed until v2 is released.
 - Commit only when asked, and write descriptive messages.
