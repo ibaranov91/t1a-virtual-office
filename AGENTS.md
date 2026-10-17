@@ -6,16 +6,22 @@ glance. Product intent and design rules are in `REQUIREMENTS.md`; read it before
 the overview for newcomers and hackathon judges, and `docs/FEATURES.md` maps every feature to its code and tests.
 Hackathon project: favor small, working, demo-able steps.
 
-## Now: building v2 locally (from 2026-10-17)
-The hackathon version is frozen: `origin/main` and prod stay as they are until the hackathon is over. Everything new
-goes into **v2**, one big release we ship after the hackathon. Until then:
-- **Git is local only.** Branch off the local `main` (in a worktree), commit there, and merge finished branches into
-  the local `main` with `git merge --no-ff <branch>` after `npm test`, `npm run typecheck` and `npm run build -w client`
-  pass. Rebase your branch onto local `main` first if it moved (`git rebase main`), not onto `origin/main`.
+## Now: building v2 on a local `v2` branch (from 2026-10-17)
+The hackathon version is frozen: `main`, `origin/main` and prod stay as they are until the hackathon is over.
+Everything new goes into **v2**, one big release we ship after the hackathon. The plan and the decisions behind it are in
+[docs/superpowers/specs/2026-10-17-v2-plan.md](docs/superpowers/specs/2026-10-17-v2-plan.md). Until the release:
+- **`v2` is the temporary main.** It is a local branch only, checked out in its own worktree at `../deck-v2`
+  (`git worktree add ../deck-v2 v2` if it is missing). Branch every change off `v2` in a worktree
+  (`git worktree add -b <branch> <path> v2`) and commit there.
+- **Landing a change:** rebase onto `v2` if it moved (`git rebase v2`), run `npm test`, `npm run typecheck` and
+  `npm run build -w client`, then merge it from the v2 worktree: `git -C ../deck-v2 merge --no-ff <branch>`.
 - **Never push** (`git push`, `--force-with-lease`, new remote branches), never open or merge pull requests
-  (`gh pr …`), and never `git pull` into `main`: local `main` is v2 and runs ahead of `origin/main`.
-- **Never deploy prod**, and don't touch the other instances unless their owner asks. Test v2 locally (`npm run dev`).
-- "Landing a PR and deploying prod" below describes how v1 shipped and how v2 will ship once released; it is on hold.
+  (`gh pr …`), and never push `v2` or merge it into `main`. Leave `main` alone: it must keep matching `origin/main`.
+- A hotfix for the hackathon version is the one exception: it goes to `main` through the normal PR flow below, only when
+  the user asks, and is then merged into `v2` (`git -C ../deck-v2 merge main`) so v2 doesn't lose it.
+- **Never deploy prod from `v2`**, and don't touch the other instances unless their owner asks. Test v2 locally
+  (`npm run dev`).
+- After the hackathon `v2` is pushed and lands in `main` as one PR, through "Landing a PR and deploying prod" below.
 
 ## Start here
 1. **[docs/MAP.md](docs/MAP.md)**: generated floor plans (rooms, furniture, doorways, dungeon), the rooms table, every
@@ -355,7 +361,7 @@ scripts/deploy.sh          # prod: only from a clean checkout of the head of ori
   deploy installs coturn from `scripts/turnserver.conf`). See "Voice relay (TURN)" above.
 
 ## Landing a PR and deploying prod
-**On hold while v2 is built locally** (see "Now: building v2 locally" at the top): no pushes, PRs or prod deploys.
+**On hold for new work while v2 is built** (see "Now: building v2" at the top): only hackathon hotfixes the user asks for.
 Several people and agents merge and deploy at the same time. Prod must always run one known commit, the head of
 `main`, and a deploy must never undo a newer one.
 1. **Rebase onto fresh main** right before merging: `git fetch origin && git rebase origin/main`, then
@@ -388,6 +394,6 @@ Several people and agents merge and deploy at the same time. Prod must always ru
 - Match the surrounding style: compact, comments only where the *why* isn't obvious.
 - Protocol changes go in `shared/protocol.ts` first. The server validates everything a client sends.
 - Keep REQUIREMENTS.md's "not now" list in mind: design for it (data, not code), don't build it.
-- **Never work in `main` and never commit to it directly.** `main` is the shared branch. Branch off it (in a worktree)
-  and, during v2, merge finished branches into the local `main`; nothing is pushed until v2 is released.
+- **Never work in `main` and never commit to it directly.** `main` is the shared branch. During v2, branch off `v2` (in a
+  worktree) and merge into `v2`; nothing is pushed until v2 is released.
 - Commit only when asked, and write descriptive messages.
