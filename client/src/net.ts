@@ -13,6 +13,7 @@ import mapJson from '../../shared/tilemap.json';
 import { applyLayout, besideObject, doorwayTiles, isWalkable, objectById, pathTo, roomAt, sampleMove, stallDoor, stallOfCall, tableOfCall, type Dir, type Room, type Tile, type TileMap } from '../../shared/map';
 import { FOOD_ITEMS, picnicSeat } from '../../shared/lunch';
 import { DRINKS, emptyOf, isEmpty } from '../../shared/drinks';
+import { ITEM_DEFS, itemDef } from '../../shared/items';
 import { ACHIEVEMENTS, goingOut, underground, DUNGEON_INSTANCE, MEETING_ROOM_ID, PLANT_STAGES, plantName, ROOM_VOICE_MAX, type JukeboxState, type JukeboxAction, type AgendaItem, type LayoutEdit, type CalEvent, type MeetingRoomInfo, type ChatMsg, type LiveDeck, presentScope, type ObjectState, type ToiletState, type ClientMsg, type LaterItem, type PublicUser, type Reaction, type RtcSignal, type ServerMsg, type Creature, type Cup, CUP_ITEMS, type LibraryState } from '../../shared/protocol';
 import { gameDef } from '../../shared/arcade/registry';
 import { emptyWeek } from '../../shared/arcade/weeks';
@@ -52,11 +53,11 @@ export interface Flying { fromId: string; toId: string; emoji: string; at: numbe
 
 /** Item id -> what it looks like, from whatever the map's objects hand out, plus the empty cup or glass a drink leaves. */
 const TAKEN = new Map(MAP.objects.flatMap(o => (o.use?.kind === 'take' ? o.use.items : [])).map(i => [i.id, i]));
-export const ITEMS = new Map([...TAKEN, ...[...TAKEN.values()].filter(i => DRINKS[i.id]?.cup)
+export const ITEMS = new Map<string, { id: string; icon: string; label: string }>([...Object.values(ITEM_DEFS).filter(d => d.kind !== 'hat').map(d => [d.id, d] as const), ...TAKEN, ...[...TAKEN.values()].filter(i => DRINKS[i.id]?.cup)
   .map(i => [emptyOf(i.id), { id: emptyOf(i.id), icon: i.icon, label: DRINKS[i.id].glass ? 'Empty glass' : 'Empty cup' }] as const)]);
 /** What a held item looks like; `empty` for an empty cup or glass (drawn dimmed). */
 export function heldItem(id: string | null | undefined): { icon: string; label: string; empty: boolean } | undefined {
-  const it = id ? ITEMS.get(id) : undefined;
+  const it = id ? ITEMS.get(id) ?? itemDef(id) : undefined;
   return it && { icon: it.icon, label: it.label, empty: isEmpty(id) };
 }
 
@@ -139,7 +140,11 @@ export class Store {
   admin = false;      // may rearrange the office (and is a GM: may put effects on anyone)
   sysadmin = false;   // may also walk into the Admin room
   portalFx: PortalFx[] = [];
-  items: string[] = []; // my inventory (what the bouncer sold me)
+  items: string[] = []; // my pockets
+  prisonUntil: number | null = null; // my prison hat can't come off before this
+  // ---------- items & storage ----------
+  storage: { ownerId: string; items: string[]; log?: { by: string; name: string; item: string; at: number }[]; spotted?: boolean } | null = null; // the desk storage I have open
+  storageWarn: string | null = null; // owner whose storage I asked to open: confirm the warning first
   layoutVersion = 0;  // bumps whenever the furniture changes; the engine redraws the floor
   added: string | null = null; // the thing I just added, to select it
   private listeners = new Set<Listener>();
@@ -328,6 +333,17 @@ export class Store {
   lunch(tile: Tile, open: boolean) { this.send({ t: 'lunch', tile, open }); }
   lunchOpen(open: boolean) { this.send({ t: 'lunch_open', open }); }
   give(targetId: string) { this.send({ t: 'give', targetId }); }
+  // ---------- items & storage ----------
+  takeOut(item: string) { this.send({ t: 'take_out', item }); }
+  stow() { this.send({ t: 'stow' }); }
+  /** Click a desk's plant. Someone else's: the server answers with a warning first; `confirmStorage` goes ahead. */
+  openStorage(ownerId: string, ack = false) { this.storageWarn = null; this.send({ t: 'storage_open', ownerId, ack }); this.emit(); }
+  confirmStorage() { const id = this.storageWarn; if (id) this.openStorage(id, true); }
+  cancelStorage() { this.storageWarn = null; this.emit(); }
+  closeStorage() { if (this.storage) this.send({ t: 'storage_close' }); this.storage = null; this.storageWarn = null; this.emit(); }
+  storageMove(ownerId: string, item: string, dir: 'in' | 'out') { this.send({ t: 'storage_move', ownerId, item, dir }); }
+  gmGive(targetId: string, item: string) { this.send({ t: 'gm_give', targetId, item }); }
+  prisonRelease(targetId: string) { this.send({ t: 'prison_release', targetId }); }
   bite(targetId: string) { this.send({ t: 'bite', targetId }); }
   openChat(withId: string) {
     this.chatWith = withId; this.unread.delete(withId);
@@ -357,6 +373,7 @@ export class Store {
   setLook(look: PublicUser['look'], name?: string) { this.send({ t: 'look', look, name }); }
   /** Put an effect on someone (yourself, or anyone if you're a GM), or take it off. */
   gmItems = new Map<string, string[]>(); // GM only: pockets of the people I looked at
+  gmPrison = new Map<string, number>();  // GM only: whose prison hat is on, until when
   requestGmItems(targetId: string) { this.send({ t: 'gm_items', targetId }); }
   teleport(targetId: string) { this.send({ t: 'teleport', targetId }); }
   rename(targetId: string, name: string) { this.send({ t: 'rename', targetId, name }); }
@@ -831,13 +848,21 @@ export class Store {
         if (this.google === null && msg.google) this.toast({ kind: 'info', text: `Google connected as ${msg.google}`, hint: 'Calls you start now get their own Meet room', expires: 6000 });
         if (!this.calendarAccess && msg.calendar && this.google) this.toast({ kind: 'info', text: 'Google Calendar connected', expires: 4000 });
         const calendarNow = !!msg.calendar && !this.calendarAccess;
-        this.meetLink = msg.meetLink; this.email = msg.email ?? null; this.google = msg.google; this.calendarAccess = !!msg.calendar; this.admin = !!msg.admin; this.sysadmin = !!msg.sysadmin; this.items = msg.items ?? [];
+        this.meetLink = msg.meetLink; this.email = msg.email ?? null; this.google = msg.google; this.calendarAccess = !!msg.calendar; this.admin = !!msg.admin; this.sysadmin = !!msg.sysadmin; this.items = msg.items ?? []; this.prisonUntil = msg.prisonUntil ?? null;
         if (msg.google !== null) this.googleAuthUrl = null;
         if (this.calendarAccess) this.calendarAuthUrl = null;
         if (calendarNow && this.calendarOpen) this.loadCalendar(); // just granted from the open panel
         break;
       }
-      case 'gm_items': this.gmItems.set(msg.targetId, msg.items); break;
+      case 'gm_items': this.gmItems.set(msg.targetId, msg.items); if (msg.prisonUntil) this.gmPrison.set(msg.targetId, msg.prisonUntil); else this.gmPrison.delete(msg.targetId); break;
+      case 'thrown': { // the arc is the reaction flight, with the item's icon
+        this.reactions.push({ fromId: msg.fromId, toId: msg.toId, emoji: itemDef(msg.item)?.icon ?? '🎁', at: performance.now() });
+        if (msg.toId === this.me && msg.fromId !== this.me) playPop();
+        return; // drawn by the engine
+      }
+      case 'storage_warn': this.storageWarn = msg.ownerId; break;
+      case 'storage': this.storageWarn = null; this.storage = { ownerId: msg.ownerId, items: msg.items, log: msg.log, spotted: msg.spotted }; break;
+      case 'storage_closed': if (this.storage?.ownerId === msg.ownerId) this.storage = null; break;
       case 'teleport': {
         const at = performance.now();
         this.portalFx = [...this.portalFx.filter(f => at - f.at < PORTAL_MS && f.userId !== msg.userId), { userId: msg.userId, from: msg.from, to: msg.to, at }];

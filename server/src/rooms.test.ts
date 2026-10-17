@@ -4,7 +4,8 @@ import { readFileSync } from 'node:fs';
 import { World, type User } from './world';
 import { adminOnly, findPath, layoutProblem, pathDuration, pathTo, roomAt, type TileMap, type Tile } from '../../shared/map';
 import { stallDoor, stallLine, stallVoiceId } from '../../shared/map';
-import { ITEMS_MAX, TOILET_CAPACITY, TOILET_DRAIN_MS, TOILET_FULL, TOILET_USE_MS, type ServerMsg } from '../../shared/protocol';
+import { POCKET_MAX as ITEMS_MAX } from '../../shared/items';
+import { TOILET_CAPACITY, TOILET_DRAIN_MS, TOILET_FULL, TOILET_USE_MS, type ServerMsg } from '../../shared/protocol';
 const map: TileMap = JSON.parse(readFileSync(new URL('../../shared/tilemap.json', import.meta.url), 'utf8'));
 const admin = map.rooms.find(r => r.id === 'admin')!, club = map.rooms.find(r => r.id === 'berghain')!;
 const inside = { x: admin.rect.x + 6, y: admin.rect.y + 6 }; // free floor by the door
@@ -183,7 +184,7 @@ test('knocks on someone in a stall go to Later', t => {
   assert.ok(reply?.t === 'knock_reply' && reply.reply === 'later' && reply.reason?.includes('toilet'));
 });
 
-test('the bouncer sells drugs into the inventory (at most ITEMS_MAX); racking spends one; sniffing takes a line and shows unicorns', t => {
+test('the bouncer sells drugs into the inventory (at most POCKET_MAX); racking spends one; sniffing takes a line and shows unicorns', t => {
   const { w, add, notices, tick } = setup(t);
   const bouncer = map.objects.find(o => o.type === 'bouncer')!;
   const stall = toilets[1], a = add('A', { x: 66, y: 16 }), b = add('B', { x: 67, y: 16 });

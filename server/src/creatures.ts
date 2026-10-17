@@ -110,7 +110,9 @@ export class Creatures {
     if (changed) this.announce(c);
   }
 
-  // ---------- cups ----------
+  // ---------- cups & props ----------
+  // One saved layer for everything placed in the world (a `Cup` is a prop: item, tile, owner `by`, optional `ttl`). Cups, plates
+  // and thrown items all live here; the cleaner tidies any of them once they've lingered.
   /** The table (or desk, or counter) under this tile, if a cup can go on it. */
   tableAt(t: Tile) { return cupTableAt(this.map.objects, t); }
   cupProblem(t: Tile, item = '', floor = false): string | null {
@@ -124,12 +126,12 @@ export class Creatures {
   beside(t: Tile, m = this.map) { return N4.map(d => ({ x: t.x + d.x, y: t.y + d.y })).filter(p => isWalkable(m, p.x, p.y)); }
   /** Put a cup down. floor: dropped where someone stands (any tile); nobody chooses to drop, so instead of refusing
    *  a full floor the oldest cup vanishes. by: who left it. */
-  addCup(t: Tile, item: string, now: number, opts: { floor?: true; by?: string } = {}): Cup | string {
+  addCup(t: Tile, item: string, now: number, opts: { floor?: true; by?: string; ttl?: number } = {}): Cup | string {
     const problem = this.cupProblem(t, item, !!opts.floor);
     if (problem) return problem;
     let cups = this.cups;
     if (opts.floor) while (cups.filter(c => !isPlate(c.item)).length >= MAX_CUPS) { const oldest = cups.filter(c => !isPlate(c.item)).sort((a, b) => a.at - b.at)[0]; cups = cups.filter(c => c !== oldest); }
-    const cup: Cup = { id: `cup${now.toString(36)}${(this.seq++).toString(36)}`, tile: { x: t.x, y: t.y }, item, at: now, ...(opts.floor ? { floor: true as const } : {}), ...(opts.by ? { by: opts.by } : {}) };
+    const cup: Cup = { id: `cup${now.toString(36)}${(this.seq++).toString(36)}`, tile: { x: t.x, y: t.y }, item, at: now, ...(opts.floor ? { floor: true as const } : {}), ...(opts.by ? { by: opts.by } : {}), ...(opts.ttl ? { ttl: opts.ttl } : {}) };
     this.cups = [...cups, cup]; this.announceCups();
     return cup;
   }
@@ -141,7 +143,7 @@ export class Creatures {
 
   // ---------- behaviour ----------
   tick(now: number, date = new Date(now)) {
-    for (const cup of this.cups) if (now - cup.at > CUP_TTL_MS) this.removeCup(cup.id);
+    for (const cup of this.cups) if (now - cup.at > (cup.ttl ?? CUP_TTL_MS)) this.removeCup(cup.id);
     const bat = this.list.get('bat');
     if (bat && !this.batSeason(date)) this.remove('bat');
     for (const c of this.list.values()) {

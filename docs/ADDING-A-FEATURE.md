@@ -110,6 +110,20 @@ For `lie` furniture, the only seat is `(o.x + floor((o.w - 1) / 2), o.y)`; the r
 `engine.ts` routes the whole object's click to that seat and rotates the idle sprite along it, head at the seat end;
 hammocks also swing. `seatAt` identifies the seat; use the current layout object's `lie` flag for the pose.
 
+## An item (held, hat, drink, throwable)
+
+| Step | File | Anchor |
+| --- | --- | --- |
+| 1. One `ItemDef`: id, label, emoji `icon`, `kind`, `pocket` (`counts` toward the 6-item limit / `free` for hats / `no`), `actions`, optional `sprite`, `stack`, `daily`, `drink`, `onUse` / `onHit` (data: `{ effect, ms, on }`) | shared/items.ts | `const DEFS: ItemDef[] =` |
+| 2. Art beyond the emoji: a frame named like the `sprite` (held layer and floor prop); a hat is `hat_<style>` (add the style to `ALL_HATS` in shared/effects.ts, a height in `HAT_H` in client/src/effects.ts if not 10) | scripts/gen-assets.mjs | a new `// ---------- <feature>` block at the end |
+| 3. Where people get it: a `take` object (`items: [{ id, label, icon }]` in gen-map.mjs), a dealer (`use.kind: 'dealer'`), `gm_give`, or a reward | scripts/gen-map.mjs / server/src/world.ts | `const COFFEE =`, `private gmGive(` |
+| 4. Moving it: always `World.moveItem(item, from, to, by)` with a `ContainerRef` (`pockets`, `hands`, `desk`, `shelf`, `void`); never edit `u.items` / `holding` directly (limits, duplicates, theft log, worn-hat removal live there) | server/src/world.ts | `moveItem(item: string` |
+| 5. Placed in the world (floor, table): a prop, i.e. a `Cup` with `by` and optional `ttl` in `creatures.cups`; saved as `cups` | server/src/creatures.ts | `addCup(` |
+
+The wheel derives from the registry: `heldActions` (your own held item) and `throw` / `give` (on someone else's wheel) in `ActionWheel`.
+Pocketable items (`pocket: 'counts'`) stay in the hand until stowed, dropped or thrown; drinks and meals still fade or sip as before.
+Desk storage and theft rules: AGENTS.md "Pockets (inventory)".
+
 ## Vacation
 
 `shared/beach.ts` owns `terrainAt` and `onMap`: use `onMap` for drawing and tile occupancy, but keep offline

@@ -24,8 +24,9 @@ import { Soundscape } from './soundscape';
 import { needsGesture, resume } from './audio';
 import { prefs, savePrefs } from './prefs';
 import { ITEMS, MAP, Store, heldItem, type ClientUser } from './net';
+import { ITEM_DEFS, POCKET_MAX, heldActions, holdsForever, itemDef, pocketCount } from '../../shared/items';
 import { slurBy } from './slur';
-import { DRINKS, isEmpty } from '../../shared/drinks';
+import { isEmpty } from '../../shared/drinks';
 import { inNativeApp, syncNative } from './native';
 import { ExternalLink } from './links';
 import { fakeShare } from './share';
@@ -271,7 +272,9 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
           onCloseSheet={() => setShowRooms(false)} onPerson={openPerson} onRoom={at => { setPersonMenu(null); setRoomMenu(at); }} onProfile={openProfile} surfaceOpen={!!(personMenu || roomMenu || profileOpener)} />}
         {editing && store.admin && !down && engine && <EditPanel store={store} engine={engine} assets={assets} onDone={() => setEditing(false)} />}
         {gmOpen && store.admin && !editing && <GmPanel store={store} picked={pick?.kind === 'user' ? pick.id : null} assets={assets} onClose={() => setGmOpen(false)} />}
-        {pocketsOpen && me && <PocketsPanel store={store} me={me} assets={assets} onClose={() => setPocketsOpen(false)} />}
+        {pocketsOpen && me && !store.storage && <PocketsPanel store={store} me={me} assets={assets} onClose={() => setPocketsOpen(false)} />}
+        {store.storage && me && <StoragePanel store={store} me={me} assets={assets} />}
+        {store.storageWarn && <StorageWarning store={store} />}
         {store.calendarOpen && <CalendarPanel store={store} />}
         {store.laterOpen && <LaterPanel store={store} />}
         {store.vacationsOpen && <VacationPanel store={store} engine={engineRef.current} />}
@@ -805,13 +808,14 @@ function EditPanel({ store, engine, assets, onDone }: { store: Store; engine: En
   );
 }
 
-/** What's in your pockets: hats to wear (one at a time) and whatever the bouncer sold you. */
+/** What's in your pockets: hats to wear (one at a time), and things to take out into your hands (then throw, give or use them). */
 function PocketsPanel({ store, me, assets, onClose }: { store: Store; me: ClientUser; assets: Assets | null; onClose: () => void }) {
   const wearing = String(effectOf(me.effects, 'hat')?.data?.style ?? '');
   const hats = store.items.flatMap(i => (hatOf(i) ? [hatOf(i)!] : []));
   const rest = new Map<string, number>();
   for (const i of store.items) if (!hatOf(i)) rest.set(i, (rest.get(i) ?? 0) + 1);
-  const names: Record<string, [string, string]> = { drugs: ['💊', 'Drugs'] };
+  const locked = !!store.prisonUntil && store.prisonUntil > store.now();
+  const held = me.holding ? itemDef(me.holding) : undefined;
   useEffect(() => {
     const key = (e: KeyboardEvent) => { if (!store.gameOpen && e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', key);
@@ -819,21 +823,91 @@ function PocketsPanel({ store, me, assets, onClose }: { store: Store; me: Client
   }, []);
   return (
     <div className="edit-panel gm-panel">
-      <div className="rooms-head"><span><Icon name="backpack" /> Pockets</span><button className="ghost" onClick={onClose} aria-label="Close"><Icon name="close" /></button></div>
-      {!store.items.length && <p className="hint">Nothing yet. Hats hang on the stand in the Lobby.</p>}
-      {hats.length > 0 && <>
-        <h3>Hats</h3>
+      <div className="rooms-head"><span><Icon name="backpack" /> Pockets <small>{pocketCount(store.items)}/{POCKET_MAX}</small></span><button className="ghost" onClick={onClose} aria-label="Close"><Icon name="close" /></button></div>
+      {!store.items.length && !held && <p className="hint">Nothing yet. Hats hang on the stand in the Lobby.</p>}
+      {held && <>
+        <h3>In your hands</h3>
         <div className="palette">
-          {hats.map(h => <button key={h} className={wearing === h ? 'on' : ''} onClick={() => store.setEffect(me.id, 'hat', wearing !== h, h)} title={wearing === h ? 'Take it off' : 'Wear it'}>
+          <button disabled={!holdsForever(held.id)} onClick={() => store.stow()} title={holdsForever(held.id) ? 'Put it back in your pockets' : 'Too big for your pockets'}>
+            <b className="gm-icon">{held.icon}</b><span>{held.label}{holdsForever(held.id) ? ' · put away' : ''}</span>
+          </button>
+        </div>
+      </>}
+      {hats.length > 0 && <>
+        <h3>Hats{locked && <small> ⛓️ the prison hat stays on until an admin removes it</small>}</h3>
+        <div className="palette">
+          {hats.map(h => <button key={h} className={wearing === h ? 'on' : ''} disabled={locked} onClick={() => store.setEffect(me.id, 'hat', wearing !== h, h)} title={wearing === h ? 'Take it off' : 'Wear it'}>
             <HatSprite assets={assets} style={h} /><span>{HAT_NAMES[h] ?? h}{wearing === h ? ' · on' : ''}</span>
           </button>)}
         </div>
       </>}
       {rest.size > 0 && <>
-        <h3>Other</h3>
+        <h3>Other <small>Take one out to throw or use it</small></h3>
         <div className="palette">
-          {[...rest].map(([i, n]) => <button key={i} disabled title={i === 'drugs' ? 'Rack it on a shelf in a Berghain stall' : i}><b className="gm-icon">{names[i]?.[0] ?? '📦'}</b><span>{names[i]?.[1] ?? i} × {n}</span></button>)}
+          {[...rest].map(([i, n]) => { const d = itemDef(i); return <button key={i} disabled={!!me.holding || !d || d.pocket !== 'counts'} onClick={() => store.takeOut(i)}
+            title={me.holding ? 'Your hands are full' : i === 'drugs' ? 'Take it out: throw it at someone, or rack it on a shelf in a Berghain stall' : 'Take it out'}>
+            <b className="gm-icon">{d?.icon ?? '📦'}</b><span>{d?.label ?? i} × {n}</span></button>; })}
         </div>
+      </>}
+    </div>
+  );
+}
+
+// ---------- desk storage ----------
+/** Someone else's desk: say what you're about to do before the server lets you look. */
+function StorageWarning({ store }: { store: Store }) {
+  const owner = store.users.get(store.storageWarn ?? '');
+  const name = owner?.name.split(' ')[0] ?? 'their';
+  return (
+    <div className="modal-backdrop" {...backdropClose(() => store.cancelStorage())}>
+      <div className="meet-panel guided" role="dialog" aria-label="Go through a desk">
+        <div className="rooms-head"><span>👀 {name}'s desk</span><button type="button" className="ghost" aria-label="Close" onClick={() => store.cancelStorage()}><Icon name="close" /></button></div>
+        <p>This is {name}'s private storage. If anyone else is in the room you may be spotted, and anything you take puts a prison hat on you for 2 days. {name} will see what you took.</p>
+        <div className="row"><button onClick={() => store.confirmStorage()}>Open anyway</button><button className="ghost" onClick={() => store.cancelStorage()}>Cancel</button></div>
+      </div>
+    </div>
+  );
+}
+
+/** A desk's storage: your own to deposit into and withdraw from, or someone else's to take from. The owner sees who took what. */
+function StoragePanel({ store, me, assets }: { store: Store; me: ClientUser; assets: Assets | null }) {
+  const st = store.storage!, owner = store.users.get(st.ownerId), mine = st.ownerId === me.id, close = () => store.closeStorage();
+  useEffect(() => {
+    const key = (e: KeyboardEvent) => { if (!store.gameOpen && e.key === 'Escape') close(); };
+    window.addEventListener('keydown', key);
+    return () => { window.removeEventListener('keydown', key); };
+  }, []);
+  const count = (items: string[]) => { const m = new Map<string, number>(); for (const i of items) m.set(i, (m.get(i) ?? 0) + 1); return [...m]; };
+  const tile = (i: string, n: number, onClick: () => void, title: string, disabled = false) => {
+    const hat = hatOf(i), d = itemDef(i);
+    return <button key={i} onClick={onClick} title={title} disabled={disabled}>
+      {hat ? <HatSprite assets={assets} style={hat} /> : <b className="gm-icon">{d?.icon ?? '📦'}</b>}
+      <span>{hat ? HAT_NAMES[hat] ?? hat : d?.label ?? i}{n > 1 ? ` × ${n}` : ''}</span>
+    </button>;
+  };
+  const ago = (at: number) => { const m = Math.max(0, Math.round((store.now() - at) / 60000)); return m < 1 ? 'just now' : m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} d ago`; };
+  const full = pocketCount(store.items) >= POCKET_MAX;
+  return (
+    <div className="edit-panel gm-panel storage-panel" role="dialog" aria-label="Desk storage">
+      <div className="rooms-head"><span>🪴 {mine ? 'Your desk storage' : `${owner?.name.split(' ')[0] ?? 'Their'}'s desk`}</span><button className="ghost" onClick={close} aria-label="Close"><Icon name="close" /></button></div>
+      {st.spotted && <p className="hint">👀 Someone saw you.</p>}
+      <h3>In the desk <small>{st.items.length ? `${st.items.length} things, no limit` : 'empty'}</small></h3>
+      <div className="palette">
+        {count(st.items).map(([i, n]) => tile(i, n, () => store.storageMove(st.ownerId, i, 'out'),
+          mine ? 'Take it out into your pockets' : 'Take it (they will see who did)', full && !hatOf(i)))}
+      </div>
+      {mine && <>
+        <h3>Your pockets <small>{pocketCount(store.items)}/{POCKET_MAX}</small></h3>
+        <div className="palette">
+          {count(store.items).map(([i, n]) => tile(i, n, () => store.storageMove(st.ownerId, i, 'in'), 'Put it in the desk'))}
+        </div>
+        {!store.items.length && <p className="hint">Nothing in your pockets.</p>}
+      </>}
+      {!mine && full && <p className="hint">Your pockets are full.</p>}
+      {mine && <>
+        <h3>Who took what</h3>
+        {!st.log?.length ? <p className="hint">Nobody has touched your things.</p>
+          : <ul className="storage-log">{[...st.log].reverse().map((l, k) => <li key={k}><b>{l.name}</b> took {itemDef(l.item)?.icon ?? '📦'} {itemDef(l.item)?.label ?? l.item} · {ago(l.at)}</li>)}</ul>}
       </>}
     </div>
   );
@@ -879,6 +953,11 @@ function GmPanel({ store, picked, assets, onClose }: { store: Store; picked: str
           const on = effectOf(u.effects, 'hat')?.data?.style === h;
           return <button key={h} className={on ? 'on' : ''} onClick={() => on ? store.setEffect(u.id, 'hat', false) : store.giftHat(u.id, h)}><HatSprite assets={assets} style={h} /><span>{HAT_NAMES[h]}</span></button>;
         })}
+      </div>
+      {store.gmPrison.get(u.id) ? <p className="hint">⛓️ Prison hat until {new Date(store.gmPrison.get(u.id)!).toLocaleString()} <button className="ghost" onClick={() => store.prisonRelease(u.id)}>Release</button></p> : null}
+      <h3>Give an item <small>Into {u.id === store.me ? 'your' : `${u.name.split(' ')[0]}'s`} pockets (the floor beside them if full); things that don't fit pockets go in their hands.</small></h3>
+      <div className="palette">
+        {Object.values(ITEM_DEFS).filter(d => d.kind !== 'hat').map(d => <button key={d.id} onClick={() => store.gmGive(u.id, d.id)} title={`Give ${d.label.toLowerCase()}`}><b className="gm-icon">{d.icon}</b><span>{d.label}</span></button>)}
       </div>
       <h3>Pockets</h3>
       <p className="hint">{!pockets ? '…' : pockets.length === 0 ? 'empty' : pockets.map(i => { const h = hatOf(i); return h ? `${HAT_NAMES[h] ?? h} (hat)` : ITEMS.get(i)?.label ?? i; }).join(', ')}</p>
@@ -1280,9 +1359,13 @@ function ActionWheel({ store, engine, pick, assets, onPerson, onClose }: { store
       const held = isMe ? heldItem(me?.holding) : undefined;
       if (isMe && me?.eating) items.push({ icon: me.eating.open ? '🔕' : '💬', label: me.eating.open ? 'Quiet' : 'Chat', title: me.eating.open ? 'Go quiet: leave the table\'s talk; knocks go to Later' : 'Chat: join the talk of everyone chatting at this table (you start muted)', onClick: act(() => store.lunchOpen(!me.eating!.open)) });
       if (!isMe) items.push({ icon: '↩', label: 'Back', onClick: () => setEmoji(false) });
-      else if (held && me?.holding && DRINKS[me.holding]) { if (!me.sipping) items.push({ icon: held.icon, label: 'Drink', title: `Drink your ${held.label.toLowerCase()}`, onClick: act(() => store.drink()) }); }
-      else if (held?.empty) items.push({ icon: <span style={{ opacity: 0.45 }}>{held.icon}</span>, label: 'Drop', title: `Drop your ${held.label.toLowerCase()} on the floor (or click a table to put it down)`, onClick: act(() => store.drop()) });
-      else if (held) items.push({ icon: held.icon, label: 'Finish', title: `Finish your ${held.label.toLowerCase()}`, onClick: act(() => store.drop()) });
+      else if (held && me?.holding) { // what the registry lets you do with what you hold (shared/items.ts)
+        const name = held.label.toLowerCase(), actions = heldActions(me.holding, held.empty);
+        if (actions.includes('drink') && !me.sipping) items.push({ icon: held.icon, label: 'Drink', title: `Drink your ${name}`, onClick: act(() => store.drink()) });
+        if (actions.includes('stow')) items.push({ icon: held.icon, label: 'Pockets', title: `Put your ${name} back in your pockets`, onClick: act(() => store.stow()) });
+        if (actions.includes('drop') && held.empty) items.push({ icon: <span style={{ opacity: 0.45 }}>{held.icon}</span>, label: 'Drop', title: `Drop your ${name} on the floor (or click a table to put it down)`, onClick: act(() => store.drop()) });
+        else if (actions.includes('drop')) items.push({ icon: held.icon, label: holdsForever(me.holding) ? 'Drop' : 'Finish', title: holdsForever(me.holding) ? `Drop your ${name} on the floor` : `Finish your ${name}`, onClick: act(() => store.drop()) });
+      }
       if (isMe && me?.following) items.push({ icon: '🛑', label: 'Stop following', onClick: act(() => store.follow(null)) });
     } else {
       const away = goingOut(u);
@@ -1302,8 +1385,9 @@ function ActionWheel({ store, engine, pick, assets, onPerson, onClose }: { store
       if (!isMe && me && effectOf(me.effects, 'vampire')) { const turned = !!effectOf(u.effects, 'vampire');
         items.push({ icon: '🧛', label: 'Bite', disabled: turned || away || !!dungeon, title: dungeon ?? (turned ? `${u.name.split(' ')[0]} is already a vampire` : `Bite ${u.name.split(' ')[0]}: a vampire for 2 minutes`), onClick: act(() => store.bite(u.id)) }); }
       const held = me?.holding && !isEmpty(me.holding) ? ITEMS.get(me.holding) : undefined; // an empty cup isn't a present
-      if (held) items.push({ icon: held.icon, label: 'Give', disabled: !!u.holding || away || !!dungeon,
-        title: dungeon ?? (u.holding ? `${u.name.split(' ')[0]}'s hands are full` : `Give ${u.name.split(' ')[0]} your ${held.label.toLowerCase()}`),
+      const def = me?.holding ? itemDef(me.holding) : undefined, throwIt = !!def && def.actions.includes('throw');
+      if (held && (!def || throwIt || def.actions.includes('give'))) items.push({ icon: held.icon, label: throwIt ? 'Throw' : 'Give', disabled: (!throwIt && !!u.holding) || away || !!dungeon,
+        title: dungeon ?? (throwIt ? `Throw your ${held.label.toLowerCase()} to ${u.name.split(' ')[0]}: it lands in their pockets` : u.holding ? `${u.name.split(' ')[0]}'s hands are full` : `Give ${u.name.split(' ')[0]} your ${held.label.toLowerCase()}`),
         onClick: act(() => store.give(u.id)) });
     }
   } else {

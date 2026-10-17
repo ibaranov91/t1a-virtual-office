@@ -7,10 +7,14 @@ import {
   type MapObject, type Dir, type Layout, type Room, type Spot, type TileMap, type Tile,
 } from '../../shared/map';
 import {
-  CALL_SILENCE_MS, NOTE_RATE, NOTE_BURST, ITEMS_MAX, TOILET_SHELF_ITEM, toiletFull, NOTE_HELD_MAX, SEAT_CHANGES_PER_10S, DUNGEON_INSTANCE, goingOut, LOOK_COLORS, underground, MAX_CALL_SIZE, LATER_MAX, MEETING_ROOM_ID, MAX_CHAT_LEN, normalizeMeetLink, REACTIONS, ROOM_VOICE_MAX,
+  CALL_SILENCE_MS, NOTE_RATE, NOTE_BURST, TOILET_SHELF_ITEM, toiletFull, NOTE_HELD_MAX, SEAT_CHANGES_PER_10S, DUNGEON_INSTANCE, goingOut, LOOK_COLORS, underground, MAX_CALL_SIZE, LATER_MAX, MEETING_ROOM_ID, MAX_CHAT_LEN, normalizeMeetLink, REACTIONS, ROOM_VOICE_MAX,
   CUP_ITEMS, BOOK_ITEM, BOOKWORM_READS, EDITOR_READERS, dayNumber, isTimeZone, plantDead, BOTANIST_KINDS, PLANT_KINDS, PLANT_STAGES, presentScope, type Plant,
   type ChatMsg, type ClientMsg, type Door, type Effect, type Knock, type LaterItem, type LayoutEdit, type Look, type Presence, type PublicUser, type Reaction, type RtcSignal, type ServerMsg,
 } from '../../shared/protocol';
+import {
+  PRISON_HAT, PRISON_MS, STORAGE_LOG_MAX, canCarry, holdsForever, isHatItem, isThrowable, itemDef, newContainer, pocketProblem,
+  type ContainerRef, type ItemContainer,
+} from '../../shared/items';
 import { FOOD_ITEMS, LUNCH_MS, PLATE_PREFIX, picnicSeat, type Eating } from '../../shared/lunch';
 import { INSTRUMENTS, validNote } from '../../shared/instruments';
 import { phrase } from '../../shared/phrases';
@@ -44,7 +48,9 @@ export interface User extends PublicUser {
   dungeonTimers?: Partial<Record<'fall' | 'key' | 'door' | 'opening', DungeonTimer>>;
   path: Tile[] | null; // path of the current move (server-side bookkeeping)
   danced?: number;     // ms spent dancing in Berghain, in total (saved; toward the `raver` achievement)
-  items: string[];     // inventory (what the bouncer sold you); only sent to the owner
+  items: string[];     // pockets (shared/items.ts: at most POCKET_MAX that count, hats are free); only sent to the owner
+  storage?: ItemContainer; // desk storage (the plant on your home desk): no size limit; its log says who took what (owner only)
+  prisonUntil?: number;    // a thief's prison hat can't come off before this (saved); only office admins can take it off earlier
   email?: string;       // identity from NetBird; never broadcast
   meetLink?: string;    // personal reusable Google Meet room; only shared with knock partners
   google?: GoogleLink;  // Connect Google: encrypted refresh token; never leaves the server
@@ -61,7 +67,14 @@ const knockCall = (c?: Call) => !!c && !c.room;
 interface Instance { id: string; end: number; members: Set<string>; talk: Set<string>; out: Set<string>; meet?: string; meetBusy?: boolean; note?: string } // talk: on the room's voice (private rooms: everyone, calendar meetings: who opted in); out: left it on purpose; meet: the room's shared Meet link
 
 // data/state.json format; bump it with a migration in load that checks data.version
-export const STATE_VERSION = 5;
+/** A container read from state.json: only strings and well-formed log lines survive. */
+function cleanContainer(c: unknown): ItemContainer {
+  const raw = c as Partial<ItemContainer> | undefined, out = newContainer();
+  if (Array.isArray(raw?.items)) out.items = raw!.items.filter((i): i is string => typeof i === 'string');
+  if (Array.isArray(raw?.log)) out.log = raw!.log.filter(l => l && typeof l.by === 'string' && typeof l.item === 'string' && typeof l.at === 'number').map(l => ({ by: l.by, name: String(l.name ?? ''), item: l.item, at: l.at })).slice(-STORAGE_LOG_MAX);
+  return out;
+}
+export const STATE_VERSION = 6; // 6: desk storage, prison hats, held items and containers (all additive: older files load with defaults)
 const WALK_HOME_AFTER_MS = 5 * 60_000; // back within this: return to where you were, else your home desk
 
 const { skin: SKINS, hair: HAIRS, shirt: SHIRTS, pants: PANTS } = LOOK_COLORS;
@@ -84,6 +97,9 @@ const LEAVE_GRACE_MS = 5000; // a dropped tab or quick re-login shouldn't send a
 const DOOR_PAUSE_MS = 400;   // a beat at the door before vanishing
 const FOLLOW_LAG_MS = 300;   // followers set off a beat after the person they follow
 const HOLD_MS = 3 * 60_000;  // a snack or book you never put down is gone after this long (drinks follow shared/drinks.ts)
+const PROP_TTL_MS = 15 * 60_000;  // a thrown or dropped item lies about this long before it vanishes (the cleaner may tidy it sooner)
+const THROW_RANGE = 10;           // tiles: how far you can throw something at someone
+const STORAGE_REACH = 4;          // tiles from the desk's chair: how close you must stand to open its storage
 const BOT_SIP_MS = 20_000;   // bots and offline beach walkers have no Drink button: a cocktail sips itself
 const USE_MS = { take: 1200, toggle: 150, toilet: 300, dealer: 350, bell: 100, presentation: 100, room_start: 100, tickets: 100 }; // brewing a coffee vs flicking a switch
 const ARRIVAL_SLACK_MS = 50; // timers can fire a millisecond before the walk is over
@@ -234,23 +250,18 @@ export class World {
     for (const l of this.listeners) { if (l.wire) l.wire(json ??= JSON.stringify(msg)); else l.send(msg); }
   }
   /** Private settings for the user themselves. */
-  me(u: User): ServerMsg { return { t: 'me', meetLink: u.meetLink ?? '', email: u.email, google: googleEnabled ? u.google?.email ?? null : undefined, calendar: !!u.google?.scopes.includes(CALENDAR_SCOPE), admin: this.isAdmin(u) || undefined, sysadmin: this.isSysadmin(u) || undefined, items: u.items.length ? u.items : undefined }; }
+  me(u: User): ServerMsg { return { t: 'me', meetLink: u.meetLink ?? '', email: u.email, google: googleEnabled ? u.google?.email ?? null : undefined, calendar: !!u.google?.scopes.includes(CALENDAR_SCOPE), admin: this.isAdmin(u) || undefined, sysadmin: this.isSysadmin(u) || undefined, items: u.items.length ? u.items : undefined, prisonUntil: this.prisonActive(u) ? u.prisonUntil : undefined }; }
   isAdmin(u: User) { return listed(ADMINS, u); }
   /** Only sysadmins may walk into the Admin room (access: 'admins'); the other office admins are locked out like everyone else. */
   isSysadmin(u: User) { return listed(SYSADMINS, u); }
   hasItem(u: User, item: string) { return u.items.includes(item); }
-  /** Put one in the inventory (at most ITEMS_MAX of a kind) and tell the owner. */
+  /** Put one in the pockets (limits: shared/items.ts) and tell the owner. */
   addItem(u: User, item: string) {
-    const max = hatOf(item) ? 1 : ITEMS_MAX;
-    if (u.items.filter(i => i === item).length >= max) { this.sendTo(u.id, { t: 'notice', text: hatOf(item) ? 'You already have that hat' : 'Your pockets are full' }); return false; }
-    u.items = [...u.items, item]; this.sendTo(u.id, this.me(u));
+    const problem = this.moveItem(item, { kind: 'void' }, { kind: 'pockets', id: u.id }, null);
+    if (problem) { this.sendTo(u.id, { t: 'notice', text: problem }); return false; }
     return true;
   }
-  takeItem(u: User, item: string) {
-    const i = u.items.indexOf(item); if (i < 0) return false;
-    u.items = u.items.filter((_, j) => j !== i); this.sendTo(u.id, this.me(u));
-    return true;
-  }
+  takeItem(u: User, item: string) { return this.moveItem(item, { kind: 'pockets', id: u.id }, { kind: 'void' }, u) === null; }
   layout(): Layout { return { objects: this.map.objects, rugs: this.map.rugs }; }
   sendTo(userId: string, msg: ServerMsg) { for (const s of this.sockets.get(userId)?.values() ?? []) s(msg); }
   private sendOwner(userId: string, msg: ServerMsg) {
@@ -265,7 +276,7 @@ export class World {
       jukebox: Object.fromEntries([...this.jukeboxes].map(([id, j]) => [id, j.state])) };
   }
   private toPublic = (u: User): PublicUser => {
-    const { path: _p, email: _e, meetLink: _m, google: _g, offlineAt: _o, lastSpot: _l, resume: _rs, presenceBeforeCall: _b, prev: _v, returnTo: _r, walkSeq: _s, dungeon: _d, lastKeySpot: _k, dungeonTimers: _t, items: _i, ...pub } = u;
+    const { path: _p, email: _e, meetLink: _m, google: _g, offlineAt: _o, lastSpot: _l, resume: _rs, presenceBeforeCall: _b, prev: _v, returnTo: _r, walkSeq: _s, dungeon: _d, lastKeySpot: _k, dungeonTimers: _t, items: _i, storage: _st, prisonUntil: _pu, ...pub } = u;
     return pub;
   };
 
@@ -898,10 +909,17 @@ export class World {
    *  with your hands free, goes back into your hand (empty) instead. Plates stay: someone may still be eating. */
   takeCup(u: User, cupId: string) {
     const cup = this.creatures.cups.find(c => c.id === cupId);
-    if (!cup || !CUP_ITEMS.includes(cup.item) || u.bot || u.instance || goingOut(u) || u.presence === 'offline') return;
+    if (!cup || !(CUP_ITEMS.includes(cup.item) || canCarry(cup.item)) || u.bot || u.instance || goingOut(u) || u.presence === 'offline') return;
     this.atTable(u, cup.tile, () => {
       if (!this.creatures.cups.some(c => c.id === cupId)) return; // the cleaner (or someone) got there first
       const now = Date.now();
+      if (!CUP_ITEMS.includes(cup.item)) { // a thrown or dropped item: into your hands, else your pockets
+        const to: ContainerRef = u.holding ? { kind: 'pockets', id: u.id } : { kind: 'hands', id: u.id };
+        const problem = this.moveItem(cup.item, { kind: 'void' }, to, null);
+        if (problem) return void this.sendTo(u.id, { t: 'notice', text: u.holding ? `${problem} (and your hands are full)` : problem });
+        this.creatures.removeCup(cupId);
+        return;
+      }
       this.creatures.removeCup(cupId);
       if (cup.by === u.id && !u.holding) { this.setHolding(u, emptyOf(cup.item)); return; } // picked your own cup back up
       if (this.creatures.praise(this.roomOf(u)?.id, now) && !u.achievements.tidy) { this.award(u, 'tidy', now); this.plantChanged(u); }
@@ -1080,8 +1098,10 @@ export class World {
     this.broadcast({ t: 'object', id, ...this.objectState(id), by: by.id });
   }
   give(u: User, to: User) {
-    if (u.instance !== to.instance || !u.holding || isEmpty(u.holding) || to.id === u.id || to.holding || to.presence === 'offline' || goingOut(to)) return;
+    if (u.instance !== to.instance || !u.holding || isEmpty(u.holding) || to.id === u.id || to.presence === 'offline' || goingOut(to)) return;
     const item = u.holding;
+    if (isThrowable(item)) return this.throwItem(u, to, item); // pocketable: thrown, lands in their pockets (else at their feet)
+    if (to.holding) return;
     this.setHolding(u, null);
     this.setHolding(to, item, undefined, u.id);
     this.onGiven(to, item, u);
@@ -1101,7 +1121,7 @@ export class World {
       const auto = rule.autoSipMs ?? (u.bot || u.presence === 'offline' ? BOT_SIP_MS : undefined);
       if (auto !== undefined) later(auto, () => this.drink(u));
     } else if (isEmpty(item)) later(effectOf(u.effects, 'drunk') ? EMPTY_DROP_DRUNK_MS : EMPTY_DROP_MS, () => this.dropCup(u));
-    else later(HOLD_MS, () => this.setHolding(u, null));
+    else if (!holdsForever(item)) later(HOLD_MS, () => this.setHolding(u, null)); // pocketable things stay in hand until stowed, dropped or thrown
   }
   /** Drink what you're holding: `holding` with phase 'drinking' for the sip, then its effect, then the empty cup
    *  (or nothing). Handing it over or dropping it mid-sip cancels the sip (setHolding clears it). */
@@ -1129,6 +1149,178 @@ export class World {
       for (const t of [here, ...this.creatures.beside(here)]) if (typeof this.creatures.addCup(t, drink, now, { floor: true, by: u.id }) === 'object') break;
     }
     this.setHolding(u, null);
+  }
+
+  // ---------- items & containers (v2) ----------
+  // Every item move is `moveItem(item, from, to, by)`: limits are checked first, then the item leaves one place and enters
+  // the other in the same tick, so it can't be in two places (or none). Pockets, hands, desk storage and generic
+  // containers (`shelves`: future shelves and the trophy case) are all refs; shared/items.ts has the rules and the registry.
+  private shelves = new Map<string, ItemContainer>();
+  private storageViewers = new Map<string, string>(); // viewer id -> owner id whose desk storage they have open (memory only)
+  shelf(id: string) { let c = this.shelves.get(id); if (!c) this.shelves.set(id, c = newContainer()); return c; }
+  desk(u: User) { return (u.storage ??= newContainer()); }
+  private slot(ref: ContainerRef): { items: string[]; check(item: string): string | null; take(item: string): void; put(item: string): void } | null {
+    const removeOne = (a: string[], item: string) => { const i = a.indexOf(item); return i < 0 ? a : a.filter((_, j) => j !== i); };
+    if (ref.kind === 'void') return { items: [], check: () => null, take: () => {}, put: () => {} };
+    if (ref.kind === 'shelf') {
+      const c = this.shelf(ref.id);
+      return { items: c.items, check: i => (canCarry(i) ? null : 'That doesn\'t fit'), take: i => { c.items = removeOne(c.items, i); }, put: i => { c.items = [...c.items, i]; } };
+    }
+    const u = this.users.get(ref.id); if (!u) return null;
+    if (ref.kind === 'desk') {
+      const c = this.desk(u);
+      return { items: c.items, check: i => (canCarry(i) ? null : 'That doesn\'t fit'), take: i => { c.items = removeOne(c.items, i); }, put: i => { c.items = [...c.items, i]; } };
+    }
+    if (ref.kind === 'hands') {
+      return { items: u.holding ? [u.holding] : [], check: () => (u.holding ? 'Your hands are full' : null), take: () => this.setHolding(u, null), put: i => this.setHolding(u, i) };
+    }
+    return { items: u.items, check: i => pocketProblem(u.items, i), take: i => { u.items = removeOne(u.items, i); this.sendTo(u.id, this.me(u)); }, put: i => { u.items = [...u.items, i]; this.sendTo(u.id, this.me(u)); } };
+  }
+  /** Move one item between places. Returns why it can't be done, or null when it was. `by`: who did it (a theft is `by` someone other than a desk's owner). */
+  moveItem(item: string, from: ContainerRef, to: ContainerRef, by: User | null, now = Date.now()): string | null {
+    const src = this.slot(from), dst = this.slot(to);
+    if (!src || !dst || !itemDef(item)) return 'Not there';
+    if (from.kind !== 'void' && !src.items.includes(item)) return 'Not there';
+    if (from.kind !== 'void' && from.kind === to.kind && 'id' in from && 'id' in to && from.id === to.id) return 'Already there';
+    const problem = dst.check(item);
+    if (problem) return problem;
+    if (from.kind === 'pockets' && isHatItem(item) && to.kind !== 'pockets') { // a hat leaving the pockets comes off the head
+      const owner = this.users.get(from.id), style = hatOf(item);
+      if (owner && effectOf(owner.effects, 'hat')?.data?.style === style) this.removeEffect(owner, 'hat', now);
+    }
+    src.take(item); dst.put(item);
+    for (const ref of [from, to]) if (ref.kind === 'desk') this.storageChanged(ref.id);
+    if (from.kind === 'desk' && by && by.id !== from.id) this.stolen(this.users.get(from.id), by, item, now);
+    return null;
+  }
+  /** `thief` took `item` out of `owner`'s desk: the owner's log says who and what, and the thief wears the prison hat. */
+  private stolen(owner: User | undefined, thief: User, item: string, now: number) {
+    if (!owner) return;
+    const c = this.desk(owner);
+    c.log = [...c.log, { by: thief.id, name: thief.name, item, at: now }].slice(-STORAGE_LOG_MAX);
+    this.storageChanged(owner.id);
+    this.sendTo(owner.id, { t: 'notice', text: `👀 ${thief.name} took your ${itemDef(item)?.label.toLowerCase() ?? item} from your desk` });
+    this.imprison(thief, now);
+  }
+  private gmItemsMsg(target: User): ServerMsg { return { t: 'gm_items', targetId: target.id, items: target.items, ...(this.prisonActive(target) ? { prisonUntil: target.prisonUntil } : {}) }; }
+  prisonActive(u: User, now = Date.now()) { return u.prisonUntil !== undefined && u.prisonUntil > now; }
+  /** The prison hat goes on and stays for PRISON_MS (a second theft doesn't extend it). */
+  private imprison(u: User, now = Date.now()) {
+    if (this.prisonActive(u, now)) return;
+    u.prisonUntil = now + PRISON_MS;
+    this.addEffect(u, 'hat', { data: { style: PRISON_HAT } }, now);
+    this.sendTo(u.id, this.me(u));
+    this.sendTo(u.id, { t: 'notice', text: '⛓️ Caught red-handed: the prison hat stays on for 2 days, unless an admin takes it off' });
+  }
+  releasePrison(u: User) {
+    if (u.prisonUntil === undefined) return;
+    u.prisonUntil = undefined;
+    if (effectOf(u.effects, 'hat')?.data?.style === PRISON_HAT) this.removeEffect(u, 'hat');
+    this.sendTo(u.id, this.me(u));
+  }
+  /** Pockets -> hands: an item must be in your hands before you can throw it or give it. */
+  private takeOut(u: User, item: string) {
+    if (u.holding) return void this.sendTo(u.id, { t: 'notice', text: 'Your hands are full' });
+    if (itemDef(item)?.pocket !== 'counts') return;
+    const problem = this.moveItem(item, { kind: 'pockets', id: u.id }, { kind: 'hands', id: u.id }, u);
+    if (problem) this.sendTo(u.id, { t: 'notice', text: problem });
+  }
+  private stow(u: User) {
+    if (!u.holding || !holdsForever(u.holding)) return void this.sendTo(u.id, { t: 'notice', text: 'That doesn\'t fit in your pockets' });
+    const problem = this.moveItem(u.holding, { kind: 'hands', id: u.id }, { kind: 'pockets', id: u.id }, u);
+    if (problem) this.sendTo(u.id, { t: 'notice', text: problem });
+  }
+  /** Where `item` ends up for `target`: their pockets, else on the floor beside them (a prop, with `from` as its owner). Null: nowhere. */
+  private land(target: User, item: string, from: User | null): 'pockets' | 'floor' | null {
+    if (itemDef(item)?.pocket !== 'no' && !this.moveItem(item, { kind: 'void' }, { kind: 'pockets', id: target.id }, null)) return 'pockets';
+    if (target.instance || target.presence === 'offline' || !onMap(target)) return null;
+    const here = this.position(target).tile, now = Date.now();
+    for (const t of [here, ...this.creatures.beside(here)]) if (typeof this.creatures.addCup(t, item, now, { floor: true, by: from?.id ?? target.id, ttl: PROP_TTL_MS }) === 'object') return 'floor';
+    return null;
+  }
+  /** Give = throw: a short arc to them, then their pockets if there's room, else the floor beside them. */
+  private throwItem(u: User, to: User, item: string) {
+    const a = this.position(u).tile, b = this.position(to).tile, say = (text: string) => this.sendTo(u.id, { t: 'notice', text });
+    if (!onMap(u) || !onMap(to)) return;
+    if (Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y)) > THROW_RANGE) return say('Too far to throw');
+    const landed = this.land(to, item, u);
+    if (!landed) return say('Nowhere for it to land');
+    this.setHolding(u, null);
+    const def = itemDef(item);
+    this.broadcast({ t: 'thrown', fromId: u.id, toId: to.id, item, landed });
+    this.sendTo(to.id, { t: 'notice', text: landed === 'pockets' ? `${def?.icon ?? '🎁'} ${u.name} threw you a ${def?.label.toLowerCase() ?? item} · in your pockets 🎒` : `${def?.icon ?? '🎁'} ${u.name} threw you a ${def?.label.toLowerCase() ?? item}: your pockets are full, it's at your feet` });
+    this.onHit(def?.onHit, u, to);
+    this.onGiven(to, item, u);
+  }
+  private onHit(hooks: readonly { effect: string; ms?: number; on: 'self' | 'target' | 'both' }[] | undefined, from: User, to: User) {
+    for (const h of hooks ?? []) {
+      if (h.on !== 'self') this.addEffect(to, h.effect, { ms: h.ms });
+      if (h.on !== 'target') this.addEffect(from, h.effect, { ms: h.ms });
+    }
+  }
+  /** An empty-handed drop of something pocketable: it lies on the floor where you stand (or goes back in your pockets where props can't be). */
+  private dropHeld(u: User) {
+    const item = u.holding; if (!item) return;
+    if (!u.instance && u.presence !== 'offline' && !goingOut(u)) {
+      const here = this.position(u).tile, now = Date.now();
+      for (const t of [here, ...this.creatures.beside(here)]) if (typeof this.creatures.addCup(t, item, now, { floor: true, by: u.id, ttl: PROP_TTL_MS }) === 'object') return void this.setHolding(u, null);
+    }
+    this.stow(u);
+  }
+  /** An office admin gives anyone any registry item: pockets (or floor beside them when full); things you can't pocket go in their hands. */
+  private gmGive(u: User, msg: Extract<ClientMsg, { t: 'gm_give' }>) {
+    const target = this.users.get(String(msg.targetId)), item = String(msg.item ?? ''), def = itemDef(item), say = (text: string) => this.sendTo(u.id, { t: 'notice', text });
+    if (!this.isAdmin(u) || !target || target.bot || !def) return;
+    let done = false;
+    if (def.pocket === 'no') {
+      if (target.holding || target.presence === 'offline') return say(`${target.name.split(' ')[0]}'s hands are full`);
+      this.setHolding(target, item, undefined, u.id); done = true;
+    } else done = !!this.land(target, item, u);
+    if (!done) return say(`${target.name.split(' ')[0]} can't take it now`);
+    this.sendTo(u.id, this.gmItemsMsg(target));
+    if (target.id !== u.id) this.sendTo(target.id, { t: 'notice', text: `🎁 ${u.name} gave you ${def.label.toLowerCase()}` });
+  }
+
+  // ---------- desk storage ----------
+  private storageChanged(ownerId: string) {
+    const owner = this.users.get(ownerId); if (!owner) return;
+    for (const [viewer, id] of this.storageViewers) if (id === ownerId) { const v = this.users.get(viewer); if (v) this.sendStorage(v, owner); }
+  }
+  private sendStorage(viewer: User, owner: User, spotted?: boolean) {
+    const c = this.desk(owner);
+    this.sendTo(viewer.id, { t: 'storage', ownerId: owner.id, items: c.items, log: viewer.id === owner.id ? c.log : undefined, ...(spotted ? { spotted: true } : {}) });
+  }
+  /** Click the plant on a desk. Your own: opens. Someone else's: needs `ack` after the warning; if anyone else is in the room you're spotted (`snoop`). */
+  private storageOpen(u: User, ownerId: string, ack: boolean) {
+    const owner = this.users.get(ownerId), say = (text: string) => this.sendTo(u.id, { t: 'notice', text });
+    if (!owner || u.bot || !owner.homeDesk || u.instance || owner.instance || u.presence === 'offline' || goingOut(u)) return;
+    const a = this.position(u).tile, d = owner.homeDesk;
+    if (Math.max(Math.abs(a.x - d.x), Math.abs(a.y - d.y)) > STORAGE_REACH) return say('Walk up to the plant first');
+    let spotted = false;
+    if (owner.id !== u.id) {
+      if (!ack) return void this.sendTo(u.id, { t: 'storage_warn', ownerId });
+      const room = roomAt(this.map, d.x, d.y)?.id;
+      spotted = [...this.users.values()].some(o => o.id !== u.id && o.presence !== 'offline' && !o.instance && onMap(o) && this.roomOf(o)?.id === room);
+      if (spotted) {
+        const now = Date.now();
+        if (!u.achievements.snoop) { this.award(u, 'snoop', now); this.plantChanged(u); }
+        say('👀 Someone saw you going through that desk');
+        this.sendTo(owner.id, { t: 'notice', text: `👀 ${u.name} is going through your desk` });
+      }
+    }
+    this.storageViewers.set(u.id, ownerId);
+    this.sendStorage(u, owner, spotted);
+  }
+  private storageMove(u: User, ownerId: string, item: string, dir: 'in' | 'out') {
+    const owner = this.users.get(ownerId), say = (text: string) => this.sendTo(u.id, { t: 'notice', text });
+    if (!owner || !owner.homeDesk || this.storageViewers.get(u.id) !== ownerId) return;
+    const a = this.position(u).tile, d = owner.homeDesk;
+    if (u.instance || Math.max(Math.abs(a.x - d.x), Math.abs(a.y - d.y)) > STORAGE_REACH) { this.storageViewers.delete(u.id); return void this.sendTo(u.id, { t: 'storage_closed', ownerId }); }
+    if (dir === 'in' && owner.id !== u.id) return say('Only the owner can put things in');
+    const problem = dir === 'in'
+      ? this.moveItem(item, { kind: 'pockets', id: u.id }, { kind: 'desk', id: ownerId }, u)
+      : this.moveItem(item, { kind: 'desk', id: ownerId }, { kind: 'pockets', id: u.id }, u);
+    if (problem) say(problem);
   }
 
   // ---------- effects ----------
@@ -1201,6 +1393,7 @@ export class World {
   }
   effectsTick(now = Date.now()) {
     for (const u of this.users.values()) {
+      if (u.prisonUntil !== undefined && u.prisonUntil <= now) this.releasePrison(u);
       const dance = u.effects.find(e => e.kind === 'dance');
       if (dance) {
         if (!this.danceSince.has(u.id)) this.danceSince.set(u.id, now);
@@ -1271,13 +1464,14 @@ export class World {
   private gmItems(u: User, msg: Extract<ClientMsg, { t: 'gm_items' }>) {
     const target = this.users.get(String(msg.targetId));
     if (!this.isAdmin(u) || !target) return;
-    this.sendTo(u.id, { t: 'gm_items', targetId: target.id, items: target.items });
+    this.sendTo(u.id, this.gmItemsMsg(target));
   }
   /** An admin gifts a hat: it goes into the person's pockets (even offline) and straight onto their head. */
   private giftHat(u: User, msg: Extract<ClientMsg, { t: 'gift_hat' }>) {
     const target = this.users.get(String(msg.targetId)), style = String(msg.style ?? '');
     if (!this.isAdmin(u) || !target || target.bot || !(ALL_HATS as readonly string[]).includes(style)) return;
     const item = hatItem(style);
+    if (this.prisonActive(target)) this.releasePrison(target);
     if (!target.items.includes(item)) { target.items = [...target.items, item]; this.sendTo(target.id, this.me(target)); }
     this.addEffect(target, 'hat', { data: { style } });
     this.sendTo(u.id, { t: 'gm_items', targetId: target.id, items: target.items });
@@ -1290,6 +1484,11 @@ export class World {
     if (!rule || !target || target.presence === 'offline') return;
     const gm = this.isAdmin(u);
     if (!gm && (target.id !== u.id || rule.who !== 'self')) return;
+    if (kind === 'hat' && this.prisonActive(target)) { // a thief's hat stays on; only a GM can take it off
+      if (!gm) return void this.sendTo(u.id, { t: 'notice', text: '⛓️ The prison hat stays on until an admin takes it off' });
+      this.releasePrison(target);
+      if (!msg.on) return;
+    }
     if (!msg.on) return this.removeEffect(target, kind);
     let data: Record<string, unknown> | undefined;
     if (rule.styles) {
@@ -2399,7 +2598,15 @@ export class World {
       case 'read_start': if (typeof msg.articleId === 'string') this.startReading(u, msg.articleId); break;
       case 'read_done': this.stopReading(u); break;
       case 'use': this.use(u, String(msg.objectId), msg.item === undefined ? undefined : String(msg.item)); break;
-      case 'drop': if (isEmpty(u.holding)) this.dropCup(u); else if (u.holding) this.setHolding(u, null); break;
+      case 'drop': if (isEmpty(u.holding)) this.dropCup(u); else if (u.holding && holdsForever(u.holding)) this.dropHeld(u); else if (u.holding) this.setHolding(u, null); break;
+      // ---------- items & storage ----------
+      case 'take_out': this.takeOut(u, String(msg.item)); break;
+      case 'stow': this.stow(u); break;
+      case 'storage_open': this.storageOpen(u, String(msg.ownerId), !!msg.ack); break;
+      case 'storage_close': this.storageViewers.delete(u.id); break;
+      case 'storage_move': this.storageMove(u, String(msg.ownerId), String(msg.item), msg.dir === 'in' ? 'in' : 'out'); break;
+      case 'gm_give': this.gmGive(u, msg); break;
+      case 'prison_release': { const t = this.users.get(String(msg.targetId)); if (t && this.isAdmin(u)) { this.releasePrison(t); this.sendTo(u.id, this.gmItemsMsg(t)); } break; }
       case 'drink': this.drink(u); break;
       case 'pet': this.petCreature(u, String(msg.creatureId)); break;
       case 'dev_bat': if (this.creatures.batAlways) { this.creatures.batBackAt = 0; this.creatures.wantBat(Date.now()); } break;
@@ -2445,7 +2652,7 @@ export class World {
       version: STATE_VERSION,
       roomModes: { ...this.roomModes },
       users: [...this.users.values()].map(u => {
-        return { id: u.id, name: u.name, nameSet: u.nameSet, email: u.email, meetLink: u.meetLink, google: u.google, vacation: u.vacation, homeDesk: u.homeDesk, look: u.look, banner: u.banner, lookSet: u.lookSet, tile: underground(u) ? this.dungeonExit(false) : u.tile, dir: u.dir, status: u.status, presence: u.presence, bot: u.bot, plant: u.plant, bloomed: u.bloomed, achievements: u.achievements, effects: u.effects.filter(e => e.until === undefined), items: u.items, danced: u.danced,
+        return { id: u.id, name: u.name, nameSet: u.nameSet, email: u.email, meetLink: u.meetLink, google: u.google, vacation: u.vacation, homeDesk: u.homeDesk, look: u.look, banner: u.banner, lookSet: u.lookSet, tile: underground(u) ? this.dungeonExit(false) : u.tile, dir: u.dir, status: u.status, presence: u.presence, bot: u.bot, plant: u.plant, bloomed: u.bloomed, achievements: u.achievements, effects: u.effects.filter(e => e.until === undefined), items: u.items, storage: u.storage, prisonUntil: u.prisonUntil, held: u.holding && holdsForever(u.holding) ? u.holding : undefined, danced: u.danced,
           resume: (!u.bot && u.presence !== 'offline' && !goingOut(u) && !u.instance && !this.toilets.inside(u.id)) || undefined }; // meetings and stalls don't survive a restart
       }),
       objects: Object.fromEntries(this.objectOn),
@@ -2454,7 +2661,8 @@ export class World {
       retro: this.retro.dump(),
       layout: this.layoutEdited ? this.layout() : undefined,
       chats: Object.fromEntries(this.chats),
-      cups: this.creatures.cups,
+      cups: this.creatures.cups, // the props layer: cups, plates and thrown items
+      containers: Object.fromEntries(this.shelves),
       library: this.library.dump(),
       tickets: this.tickets.dump(),
     };
@@ -2513,7 +2721,7 @@ export class World {
       const tile = this.inDungeon(d.tile) ? this.dungeonExit(false) : isWalkable(this.map, d.tile.x, d.tile.y) || seatAt(this.map, d.tile.x, d.tile.y) ? d.tile : { ...this.map.spawn };
       const legacy = lookFor(d.name);
       const look = { ...legacy, ...d.look, eyes: d.look?.eyes ?? legacy.eyes, shoes: d.look?.shoes ?? legacy.shoes, top: d.look?.top ?? 0, bottom: d.look?.bottom ?? 0, glasses: d.look?.glasses ?? 0, hat: d.look?.hat ?? 0, beard: d.look?.beard ?? 0, mustache: d.look?.mustache ?? 0, glassesColor: d.look?.glassesColor ?? legacy.glassesColor, hatColor: d.look?.hatColor ?? legacy.hatColor };
-      this.users.set(d.id, { ...d, vacation: d.vacation && d.vacation.until > now ? d.vacation : null, look, lookSet: d.lookSet ?? false, homeDesk: d.homeDesk ?? null, plant: d.plant ?? null, bloomed: d.bloomed ?? [], achievements: d.achievements ?? {}, items: Array.isArray(d.items) ? d.items.filter((i: unknown): i is string => typeof i === 'string') : [], effects: (d.effects ?? []).filter(e => Object.prototype.hasOwnProperty.call(EFFECTS, e.kind) && e.until === undefined), tile, move: null, path: null, emote: null, door: null, callId: null, deafened: false, hand: false, muted: false, following: null, holding: null, meeting: null, reading: null, listening: null, instance: null, game: null, table: null, presence: d.bot ? d.presence : 'offline' });
+      this.users.set(d.id, { ...d, vacation: d.vacation && d.vacation.until > now ? d.vacation : null, look, lookSet: d.lookSet ?? false, homeDesk: d.homeDesk ?? null, plant: d.plant ?? null, bloomed: d.bloomed ?? [], achievements: d.achievements ?? {}, items: Array.isArray(d.items) ? d.items.filter((i: unknown): i is string => typeof i === 'string') : [], effects: (d.effects ?? []).filter(e => Object.prototype.hasOwnProperty.call(EFFECTS, e.kind) && e.until === undefined), storage: cleanContainer(d.storage), prisonUntil: typeof d.prisonUntil === 'number' ? d.prisonUntil : undefined, tile, move: null, path: null, emote: null, door: null, callId: null, deafened: false, hand: false, muted: false, following: null, holding: typeof d.held === 'string' && holdsForever(d.held) ? d.held : null, meeting: null, reading: null, listening: null, instance: null, game: null, table: null, presence: d.bot ? d.presence : 'offline' });
       // back within WALK_HOME_AFTER_MS of the restart (a reconnect takes seconds): their spot, not their desk
       const u = this.users.get(d.id)!;
       if (d.resume && !d.bot && tile === d.tile) { u.lastSpot = { ...tile }; u.offlineAt = now; u.resume = true; } else u.resume = undefined;
@@ -2527,7 +2735,8 @@ export class World {
       if (this.jukeboxes.has(id) && o?.use?.kind === 'jukebox') this.jukeboxes.set(id, Jukebox.load(tracksFor(o.use.genres), saved, now));
     }
     for (const [key, msgs] of Object.entries(data.chats ?? {})) this.chats.set(key, msgs);
-    this.creatures.cups = (data.cups ?? []).filter(c => this.creatures.tableAt(c.tile));
+    this.creatures.cups = (data.cups ?? []).filter(c => this.creatures.tableAt(c.tile) || (c.floor && canCarry(c.item))); // floor cups are swept at a restart, floor items are kept
+    for (const [id, c] of Object.entries(data.containers ?? {})) this.shelves.set(id, cleanContainer(c));
     this.library.load(data.library);
     this.tickets.load(data.tickets);
   }

@@ -50,7 +50,6 @@ export const TOILET_DRAIN_MS = 3 * 60_000;
 export const TOILET_SHELF_MAX = 4;
 /** What racking a line on the shelf takes from your inventory (the bouncer sells it). */
 export const TOILET_SHELF_ITEM = 'drugs';
-export const ITEMS_MAX = 3; // of one kind in your inventory
 export const toiletFull = (s?: ToiletState) => !!s && s.fill >= TOILET_FULL;
 /** A toggle object's shared state. */
 export interface ObjectState { on: boolean }
@@ -150,6 +149,7 @@ export const ACHIEVEMENTS: Achievement[] = [
   { id: 'happy_hour', icon: '🍹', title: 'Happy hour', how: 'Get tipsy on a drink from the bar.', secret: 'The beach bar does more than coconuts.' },
   { id: 'closing_time', icon: '🥴', title: 'Closing time', how: 'Have three rounds and get properly wasted.', secret: 'One more round… and one more after that.' },
   { id: 'designated', icon: '🚗', title: 'Designated driver', how: 'Hand a full drink from the bar to someone else instead of drinking it.', secret: 'Not every cocktail is for you.' },
+  { id: 'snoop', icon: '👀', title: 'Caught snooping', how: 'Open someone else\'s desk storage while somebody is in the room to see it.', secret: 'Some plants hide more than flowers.' },
   { id: 'event', icon: '🎉', title: 'Party person', how: 'Be in the office during an office event.', soon: true },
 ];
 
@@ -212,7 +212,11 @@ export interface Creature {
   say?: string;  // and now and then says something short (a speech bubble for a few seconds)
 }
 /** A cup someone left on a table (or dropped on the floor: `floor`); the cleaner takes it away. by: who left it. */
-export interface Cup { id: string; tile: Tile; item: string; at: number; floor?: true; by?: string }
+/** A prop: anything placed in the world: a cup on a table, a thrown item on the floor. `by` is its owner; `ttl` (ms, from `at`) overrides the default lifetime. */
+export interface Cup { id: string; tile: Tile; item: string; at: number; floor?: true; by?: string; ttl?: number }
+export type Prop = Cup;
+/** One entry of who took what from a desk storage (seen by its owner). */
+export interface StorageTake { by: string; name: string; item: string; at: number }
 export const MAX_CUPS = 12; // table and floor cups together; past it the oldest cup vanishes when one is dropped
 export const CUP_ITEMS = ['coffee', 'tea', 'cocktail', 'beer', 'wine']; // drinks that leave a cup or glass behind (see shared/drinks.ts)
 /** Furniture you can put a cup on. */
@@ -344,7 +348,7 @@ export type ServerMsg =
   | { t: 'knock_reply'; knockId: string; fromId: string; toId: string; reply: 'accept' | 'later' | 'blocked'; link?: string; reason?: string; cancelled?: boolean; kept?: boolean /* in the target's Later list: no "missed" toast */ }
   // private settings, only to the user themselves. google: the connected Google account (null = not connected),
   // absent when this instance has no Google sign-in
-  | { t: 'me'; meetLink: string; email?: string; google?: string | null; calendar?: boolean; admin?: boolean; sysadmin?: boolean; items?: string[] } // calendar: Calendar access granted; admin: may rearrange the office; sysadmin: may also walk into the Admin room
+  | { t: 'me'; meetLink: string; email?: string; google?: string | null; calendar?: boolean; admin?: boolean; sysadmin?: boolean; items?: string[]; prisonUntil?: number } // calendar: Calendar access granted; admin: may rearrange the office; sysadmin: may also walk into the Admin room
   | { t: 'google_auth'; url: string; calendar?: boolean } // open this to connect Google (in the system browser from the Mac app)
   | { t: 'calendar'; events?: CalEvent[]; error?: string } // my own events, only to me
   | { t: 'agenda'; items: AgendaItem[] } // my calendar meetings now and soon, only to me
@@ -376,7 +380,12 @@ export type ServerMsg =
   | { t: 'chat_history'; withId: string; messages: ChatMsg[] }
   | { t: 'deafen'; userId: string; on: boolean }
   | { t: 'hand'; userId: string; up: boolean }
-  | { t: 'gm_items'; targetId: string; items: string[] } // to the asking admin only
+  | { t: 'gm_items'; targetId: string; items: string[]; prisonUntil?: number } // to the asking admin only (prisonUntil: the hat can't come off before then)
+  // ---------- items & storage ----------
+  | { t: 'thrown'; fromId: string; toId: string; item: string; landed: 'pockets' | 'floor' } // an item flew from one person to another (everyone plays the arc)
+  | { t: 'storage_warn'; ownerId: string } // opening someone else's storage: confirm first (they may be spotted)
+  | { t: 'storage'; ownerId: string; items: string[]; log?: StorageTake[]; spotted?: boolean } // to the person looking: what the desk holds; log only for the owner
+  | { t: 'storage_closed'; ownerId: string }
   | { t: 'teleport'; userId: string; from: Tile; to: Tile } // an admin stepped through a portal: everyone plays it (the server has already moved them)
   | { t: 'notice'; text: string }
   | { t: 'later'; items: LaterItem[] }  // only to the person knocked on: their kept Later list, on connect and on every change
@@ -469,7 +478,15 @@ export type ClientMsg =
   | { t: 'use'; objectId: string; item?: string } // walk over to an object and use it
   | { t: 'drop' }                    // finish what you're holding (an empty cup: drop it on the floor where you stand)
   | { t: 'drink' }                   // drink what you're holding: the sip, then its effect (shared/drinks.ts), then an empty cup in hand
-  | { t: 'give'; targetId: string } // hand it to someone with empty hands
+  | { t: 'give'; targetId: string } // pocketable item: throw it at someone (pockets, else the floor beside them); anything else: hand it to someone with empty hands
+  // ---------- items & storage ----------
+  | { t: 'take_out'; item: string }  // pockets -> hands (hands must be empty)
+  | { t: 'stow' }                    // hands -> pockets
+  | { t: 'storage_open'; ownerId: string; ack?: boolean } // open a desk storage (your own, or someone's: needs ack after the warning)
+  | { t: 'storage_close' }
+  | { t: 'storage_move'; ownerId: string; item: string; dir: 'in' | 'out' } // pockets <-> that desk's storage
+  | { t: 'gm_give'; targetId: string; item: string } // office admins only: give anyone any registry item
+  | { t: 'prison_release'; targetId: string }  // office admins only: take the prison hat off
   | { t: 'bite'; targetId: string } // a vampire walks up to someone and bites: they're a vampire too, for BITE_MS
   | { t: 'deafen'; on: boolean }
   | { t: 'hand'; up: boolean }

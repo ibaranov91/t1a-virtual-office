@@ -2,6 +2,8 @@
 // Coffee and tea sip themselves after a while (people who never click still get their buff); alcohol only on
 // a deliberate `drink`, so carrying a cocktail to a friend never gets you drunk by accident.
 
+import { ITEM_DEFS } from './items';
+
 export interface DrinkRule {
   effect: 'speed' | 'refreshment'; // when the sip ends: the coffee buff, or World.refreshment (drunk levels, coconut, ice cream)
   sipMs: number;              // how long drinking takes (the sip animation)
@@ -11,15 +13,8 @@ export interface DrinkRule {
   cup?: true;                 // leaves an empty cup or glass in hand (CUP_ITEMS); without it the drink is just gone
 }
 
-export const DRINKS: Record<string, DrinkRule> = {
-  coffee: { effect: 'speed', sipMs: 2500, autoSipMs: 60_000, cup: true },
-  tea: { effect: 'speed', sipMs: 2500, autoSipMs: 60_000, cup: true },
-  cocktail: { effect: 'refreshment', sipMs: 2500, alcohol: true, glass: true, cup: true },
-  beer: { effect: 'refreshment', sipMs: 2500, alcohol: true, glass: true, cup: true },
-  wine: { effect: 'refreshment', sipMs: 2500, alcohol: true, glass: true, cup: true },
-  coconut: { effect: 'refreshment', sipMs: 2500, autoSipMs: 60_000 },
-  icecream: { effect: 'refreshment', sipMs: 2500, autoSipMs: 60_000 },
-};
+// The rules live on the registry (shared/items.ts); this is the same table, keyed by drink id.
+export const DRINKS: Record<string, DrinkRule> = Object.fromEntries(Object.values(ITEM_DEFS).flatMap(d => (d.drink ? [[d.id, d.drink]] : [])));
 export const DRINK_ITEMS = Object.keys(DRINKS);
 export const ALCOHOL_ITEMS = DRINK_ITEMS.filter(id => DRINKS[id].alcohol);
 
