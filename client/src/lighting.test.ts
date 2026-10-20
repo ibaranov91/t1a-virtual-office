@@ -57,6 +57,7 @@ test('the lightmap cache key changes with the hour bucket only every two minutes
   assert.notEqual(hourBucket(21.0), hourBucket(21.1));
 });
 
-test('no moving lights yet: personLight is 0 until the glow stick is wired in', () => {
-  assert.equal(personLight({ id: 'x', holding: 'glow_stick' } as unknown as ClientUser), 0);
+test('moving lights: a glow stick in hand is a light, empty hands are not', () => {
+  assert.equal(personLight({ id: 'x', holding: 'glow_stick' } as unknown as ClientUser), 3);
+  assert.equal(personLight({ id: 'y' } as unknown as ClientUser), 0);
 });
