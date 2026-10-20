@@ -68,7 +68,8 @@ npm run dev:mesh     # also on this machine's NordVPN Meshnet IP over self-signe
 npm run typecheck    # run before every commit or deploy
 ```
 - In dev you're signed in automatically as `Dev`. Use `?as=Kim` for another person, for example a second tab.
-- Bots are opt-in: `npm run dev` turns them on (`BOTS=0` disables, `BOT_COUNT` sets how many, default 4; demo gets 10), test
+- Bots are opt-in: `npm run dev` turns them on (`BOTS=0` disables, `BOT_COUNT` sets how many, default 4; demo gets 10 and
+  `BOT_NAME_SUFFIX=(BOT)`, so they show as "Maya (BOT)"), test
   instances have `BOTS=1`, and prod never has bots (deploy.sh removes the setting). Bots only knock on other bots, never on people.
 - `VITE_PORT` / `DECK_PORT` run a second copy beside the first. Port 5174 may be held by another worktree's
   session, so leave other sessions' processes alone and pick a free port.
@@ -97,8 +98,13 @@ npm run typecheck    # run before every commit or deploy
   relays only to NetBird peers), so it works for everyone on NetBird (prod) and can't be reached from the internet.
   `DECK_TURN_PASSWORD` in an instance's env file turns it on: prod's deploy installs and configures coturn, and every
   deploy derives `DECK_ICE_SERVERS` (STUN + the TURN entry) from it, which `/api/config` hands to clients
-  (`client/src/voice.ts` passes it to every `RTCPeerConnection`). No password, no relay: the public demo stays STUN-only
-  on purpose, since its users have no NetBird. The password is in 1Password, never in git. Check:
+  (`client/src/voice.ts` passes it to every `RTCPeerConnection`). No password, no relay. The password is in 1Password,
+  never in git. **Public instances** (users without NetBird, e.g. the demo at an event): two NetBird reverse-proxy L4
+  services, UDP and TCP, forward port 3478 to the box, and the instance's env file names them in `DECK_TURN_HOST` /
+  `DECK_TURN_TCP_HOST` next to `DECK_TURN_PASSWORD` (the env file on the box is where both live); both phones then
+  relay and coturn joins the two allocations on the box, so the relay ports stay private. The password reaches every
+  signed-in client, so keep those services only while needed, delete them afterwards and rotate the password (change
+  it in the env files, redeploy). Check:
   `curl -s http://<netbird-ip>:<port>/api/config` shows a `turn:` entry; `systemctl status coturn` and
   `journalctl -u coturn` on the box. A NetBird policy narrowed from "all ports" must still allow users → box on
   UDP 3478 and 50000-50199 (and TCP 3478), both directions, besides TCP 8080-8084 for the instances.
