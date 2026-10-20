@@ -91,6 +91,10 @@ const DEFS: ItemDef[] = [
   ...ALL_HATS.map((style): ItemDef => ({ id: hatItem(style), label: HAT_NAMES[style] ?? style, icon: '🎩', kind: 'hat', pocket: 'free', stack: 1, actions: [] })),
 ];
 
+// Pixel art for what people hold and drop (scripts/gen-assets.mjs, `item_<id>`); anything else (stickers) stays an emoji.
+const ITEM_ART = ['coffee', 'tea', 'cocktail', 'beer', 'wine', 'coconut', 'icecream', 'juice', 'snack', 'sandwich', 'ramen', 'salad', 'pizza', 'onigiri',
+  'cup_noodles', 'hot_noodles', 'slurpee', 'energy_drink', 'party_popper', 'umbrella', 'postcard', 'bubble_gum', 'book', 'drugs', 'sewn_hat'];
+for (const d of DEFS) if (!d.sprite && ITEM_ART.includes(d.id)) d.sprite = `item_${d.id}`;
 export const ITEM_DEFS: Record<string, ItemDef> = Object.fromEntries(DEFS.map(d => [d.id, d]));
 /** Registry lookup; hats of any style are found even when the style isn't listed yet. */
 export function itemDef(id: string | null | undefined): ItemDef | undefined {

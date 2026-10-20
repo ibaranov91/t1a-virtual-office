@@ -55,7 +55,9 @@ const SIT_FRAME = 5;
 type PlacedPlant = { u: ClientUser; x: number; y: number; base: number };
 const FRONT: Record<string, [number, number]> = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
 
-type BubbleKind = 'bubble_game' | 'bubble_watch' | 'bubble_bang' | 'bubble_headset' | 'bubble_zzz' | 'bubble_meeting' | 'bubble_think' | 'bubble_talk' | 'bubble_phone' | 'bubble_hand' | 'bubble_deaf' | 'bubble_mute_deaf';
+const BUBBLE_DX = 6;      // bubbles float beside the head, not centred on it
+const BUBBLE_SCALE = 0.75; // bubble pixels are about ¾ of an art pixel, rounded to whole screen pixels so they stay crisp
+type BubbleKind = 'bubble_tomato' | 'bubble_dots' | 'bubble_game' | 'bubble_watch' | 'bubble_bang' | 'bubble_headset' | 'bubble_zzz' | 'bubble_meeting' | 'bubble_think' | 'bubble_talk' | 'bubble_phone' | 'bubble_hand' | 'bubble_deaf' | 'bubble_mute_deaf';
 // where the bag hangs when carried, per facing; behind = drawn before the body
 const BAG_HAND: Record<string, { dx: number; behind: boolean }> = {
   down: { dx: 10, behind: false }, up: { dx: -3, behind: false }, left: { dx: 7, behind: true }, right: { dx: -1, behind: true },
@@ -357,6 +359,13 @@ export class Engine {
 
   // ---------- frames ----------
   private f(name: string): Frame { return this.assets.atlas.frames[name]; }
+  /** A bubble drawn with its own whole-number pixel size (about BUBBLE_SCALE of an art pixel; at most 1), anchored at its
+   *  tail tip: (tx, ty) is where the tail touches, column 5 of the frame, below its last row. */
+  private blitBubble(ctx: CanvasRenderingContext2D, name: string, tx: number, ty: number) {
+    const fr = this.f(name); if (!fr) return;
+    const z = Math.max(1, Math.round(this.px)), s = Math.max(1, Math.round(BUBBLE_SCALE * z)) / z; // art pixels per bubble pixel
+    ctx.drawImage(this.assets.world, fr.x, fr.y, fr.w, fr.h, Math.round(tx) - 5 * s, Math.round(ty) - fr.h * s, fr.w * s, fr.h * s);
+  }
   private blit(ctx: CanvasRenderingContext2D, name: string, x: number, y: number) {
     const fr = this.f(name); if (!fr) return;
     ctx.drawImage(this.assets.world, fr.x, fr.y, fr.w, fr.h, Math.round(x), Math.round(y), fr.w, fr.h);
@@ -1434,8 +1443,7 @@ export class Engine {
     const jump = now % 25000;
     if (jump < 1400) {
       const phase = jump / 1400;
-      ctx.font = '8px system-ui, sans-serif'; ctx.textAlign = 'center';
-      ctx.fillText('🐟', fx + 8 - phase * 12, fy + 4 - Math.sin(phase * Math.PI) * 14);
+      this.blit(ctx, 'icon_fish', Math.round(fx + 2 - phase * 12), Math.round(fy - Math.sin(phase * Math.PI) * 14)); // a koi jumps
     }
     ctx.restore();
   }
@@ -1535,7 +1543,7 @@ export class Engine {
       const ix = x + dx + ih.dx + (8 - ih.dx) * 0.4 * sip, iy = baseY + ih.dy + bob + (p.walking ? swing : 0) - 5 * sip + (sip === 1 ? Math.round(Math.sin(sipT * Math.PI * 4)) : 0);
       ctx.fillStyle = '#000'; ctx.font = '7px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; // emoji take the fill alpha
       if (isEmpty(u.holding)) ctx.globalAlpha = 0.45; // an empty cup: dimmed
-      const spr = itemDef(u.holding!)?.sprite, sf = spr ? this.f(spr) : undefined; // a registry sprite, else the emoji
+      const spr = itemDef(emptyDrink(u.holding) ?? u.holding)?.sprite, sf = spr ? this.f(spr) : undefined; // a registry sprite (an empty cup uses its drink's), else the emoji
       if (spr && sf) this.blit(ctx, spr, Math.round(ix - sf.w / 2), Math.round(iy - sf.h / 2)); else ctx.fillText(icon, ix, iy);
       ctx.globalAlpha = 1;
       if (sip) { ctx.font = 'bold 5px system-ui, sans-serif'; ctx.lineWidth = 2; ctx.strokeStyle = '#2a1e1a'; ctx.strokeText('sip', x - 2, top + 7); ctx.fillStyle = '#fff'; ctx.fillText('sip', x - 2, top + 7); }
@@ -1545,17 +1553,11 @@ export class Engine {
     if (u.eating && seat) { // fork down to the plate and up to the mouth; 💬 when they don't mind company
       const up = Math.floor(ms / 450) % 2, fx = seat.dir === 'left' ? x + 4 : seat.dir === 'right' ? x + 11 : x + 11;
       if (seat.dir !== 'up') { ctx.fillStyle = '#e8e8f0'; ctx.fillRect(fx, baseY - (up ? 11 : 7), 1, 3); ctx.fillStyle = '#6a6a76'; ctx.fillRect(fx, baseY - (up ? 8 : 4), 1, 1); }
-      if (u.eating.open) { ctx.font = '7px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = '#000'; ctx.fillText('💬', x + 14, top + 2); ctx.textAlign = 'start'; ctx.textBaseline = 'alphabetic'; }
     }
     ctx.restore();
     if (water) this.drawSwim(ctx, x, baseY, terrain === 'deep', ms + hash(u.id));
     if (fishing) this.drawFishing(ctx, x, baseY, this.store.now() + hash(u.id));
-    if (summit && Math.floor((ms + hash(u.id)) / 600) % 2 === 0) {
-      ctx.save(); ctx.font = '9px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.fillText('👋', x + 8, baseY - 29 + bob); ctx.restore();
-    }
-    if (u.pomodoro?.phase === 'focus') { // a personal pomodoro is running: a tomato over the head (public)
-      ctx.save(); ctx.globalAlpha = 1; ctx.fillStyle = '#000'; ctx.font = '9px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.fillText('🍅', x + 8, baseY - 36 + bob); ctx.restore();
-    }
+
     // facing a desk: the chair's backrest is in front of the sitter
     if (seat?.dir === 'up' && (seat.type === 'chair' || seat.type === 'leader_chair') && this.f(`${seat.type}_up_back`)) {
       this.blit(ctx, `${seat.type}_up_back`, seat.x * TS, seat.y * TS);
@@ -1616,6 +1618,8 @@ export class Engine {
   }
 
   private bubbleFor(u: ClientUser): BubbleKind | null {
+    const v = MAP.vacation?.summit, p = v && this.store.pose(u);
+    if (p && !p.walking && p.tile.x === v.x && p.tile.y === v.y) return 'bubble_bang'; // hello from the summit
     if (u.hand) return 'bubble_hand';
     if (u.door === 'thinking') return 'bubble_think';
     if (u.door === 'leaving') return null;
@@ -1625,6 +1629,8 @@ export class Engine {
     if (u.game && !u.speaking && (!u.callId || u.callId.startsWith('room:'))) return u.game.role === 'player' ? 'bubble_game' : 'bubble_watch';
     if (u.callId) return u.deafened ? u.muted ? 'bubble_mute_deaf' : 'bubble_deaf' : this.apartTalk(u) ? 'bubble_phone' : 'bubble_talk';
     if (!underground(u) && (u.instance || u.meeting)) return 'bubble_meeting'; // a real calendar meeting, not just standing in the Meeting room; beats a manual "In a call"
+    if (u.pomodoro?.phase === 'focus') return 'bubble_tomato'; // a personal pomodoro is running
+    if (u.eating?.open) return 'bubble_dots';                   // eating, and glad of company
     if (u.presence === 'in_call') return 'bubble_headset';
     if (u.presence === 'away') return 'bubble_zzz';
     return null;
@@ -1694,16 +1700,17 @@ export class Engine {
     if (!kind) return;
     const age = ms - (this.bubbleState.get(u.id)?.at ?? 0);
     let dy = age < 70 ? -3 : age < 140 ? 1 : 0;
+    const tx = x + BUBBLE_DX + 5, ty = baseY - 23 - this.hatLift(u); // where the tail touches: just above the head (and any hat), right of centre
     if (kind === 'bubble_talk' || kind === 'bubble_phone') {
       const speaking = this.isSpeaking(u);
       const pre = kind === 'bubble_phone' && this.f('bubble_phone_0') ? 'bubble_phone' : 'bubble_talk'; // talk frames until the phone art lands
       const frame = u.muted ? (pre === 'bubble_phone' ? 'bubble_phone_muted' : 'bubble_muted') : speaking ? (Math.floor(ms / 140) % 2 ? `${pre}_1` : `${pre}_2`) : `${pre}_0`;
-      this.blit(ctx, frame, x + 9, baseY - 24 - 12 + dy + (speaking ? -(Math.floor(ms / 280) % 2) : 0));
+      this.blitBubble(ctx, frame, tx, ty + dy + (speaking ? -(Math.floor(ms / 280) % 2) : 0));
       return;
     }
     if (kind === 'bubble_bang') dy += Math.floor(ms / 180) % 2 ? -1 : 0;
     else dy += Math.floor((ms + hash(u.id) * 13) / 600) % 2 ? 0 : -1;
-    this.blit(ctx, kind, x + (kind === 'bubble_mute_deaf' ? 4 : 9), baseY - 24 - 12 + dy); // the wide bubble shifts left so its tail stays over the head
+    this.blitBubble(ctx, kind, tx, ty + dy); // up and to the right of the head; every bubble's tail is on its left, over the head
   }
 
   /** Fake turn-taking for two people on a call, from server time so every viewer sees the same conversation. */

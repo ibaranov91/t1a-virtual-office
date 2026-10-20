@@ -3,6 +3,7 @@ import { Icon } from './Icon';
 import type { Store } from './net';
 import { itemDef } from '../../shared/items';
 import { SHOP_DAILY_MAX, shopStock } from '../../shared/shop';
+import { ItemSprite } from './ItemSprite';
 
 export function ShopPanel({ store }: { store: Store }) {
   const left = Math.max(0, SHOP_DAILY_MAX - store.shopTaken.length), close = () => store.openShop(false);
@@ -14,7 +15,7 @@ export function ShopPanel({ store }: { store: Store }) {
         {shopStock().map(d => {
           const n = store.shopTaken.filter(i => i === d.id).length;
           return <li key={d.id}>
-            <span className="shop-icon" aria-hidden>{d.icon}</span>
+            <span className="shop-icon" aria-hidden><ItemSprite item={d.id} fallback={d.icon} /></span>
             <span className="shop-name">{d.label}{n > 0 && <small> · {n} taken</small>}</span>
             <button type="button" disabled={!left} onClick={() => store.takeFromShop(d.id)}>Take</button>
           </li>;
