@@ -1646,13 +1646,15 @@ export class Engine {
     let plate = this.nameplates.get(key);
     if (!plate) {
       const lines = plateLines(u.name);
-      const prefix = mark ? 9 : 0;
+      const prefix = mark ? 10 : 0;
       const w = Math.max(...lines.map(textWidth)) + 4 + prefix, h = Math.max(lines.length * 7 + 1, prefix);
       plate = document.createElement('canvas'); plate.width = w; plate.height = h;
       const pc = plate.getContext('2d')!;
       pc.fillStyle = isMe ? 'rgba(90,50,20,0.85)' : 'rgba(30,18,22,0.72)';
       pc.fillRect(1, 0, w - 2, h); pc.fillRect(0, 1, w, h - 2);
-      if (prefix) { pc.font = '8px system-ui, sans-serif'; pc.fillText(mark, 1, 7); }
+      const mf = prefix ? this.f(u.vacation ? 'mark_palm' : 'mark_moon') : undefined; // a pixel palm (vacation) or moon (DND)
+      if (mf) pc.drawImage(this.assets.world, mf.x, mf.y, mf.w, mf.h, 0, Math.floor((h - mf.h) / 2), mf.w, mf.h);
+      else if (prefix) { pc.font = '8px system-ui, sans-serif'; pc.fillText(mark, 1, 7); }
       lines.forEach((l, i) => drawText(pc, l, prefix + Math.floor((w - prefix - textWidth(l)) / 2), 1 + i * 7, isMe ? '#ffe08a' : '#fff4e0'));
       this.nameplates.set(key, plate);
     }
