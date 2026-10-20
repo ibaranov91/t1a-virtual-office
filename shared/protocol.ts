@@ -511,7 +511,7 @@ export type ClientMsg =
   | { t: 'use'; objectId: string; item?: string } // walk over to an object and use it
   | { t: 'drop' }                    // finish what you're holding (an empty cup: drop it on the floor where you stand)
   | { t: 'drink' }                   // drink what you're holding: the sip, then its effect (shared/drinks.ts), then an empty cup in hand
-  | { t: 'give'; targetId: string } // pocketable item: throw it at someone (pockets, else the floor beside them); anything else: hand it to someone with empty hands
+  | { t: 'give'; targetId: string } // a ball: throw it at someone in range; anything else: walk over and hand it over (pockets, else hands, else their feet; a drink needs empty hands)
   // ---------- items & storage ----------
   | { t: 'take_out'; item: string }  // pockets -> hands (hands must be empty)
   | { t: 'stow' }                    // hands -> pockets

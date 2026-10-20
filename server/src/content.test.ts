@@ -115,6 +115,7 @@ test('postcards: the line is cleaned and capped, then thrown into their pockets 
   assert.equal(postcardOf(a.u.holding), 'See you at the standup — Ann');
   send(w, a, { t: 'postcard_write', text: 'rewrite' }); // already written: ignored
   assert.equal(postcardOf(a.u.holding), 'See you at the standup — Ann');
+  b.u.tile = { x: a.u.tile.x + 1, y: a.u.tile.y }; // given up close
   send(w, a, { t: 'give', targetId: b.u.id });
   assert.deepEqual(b.u.items.map(postcardOf), ['See you at the standup — Ann']);
   assert.equal(itemDef(b.u.items[0])?.label, 'Postcard');
@@ -268,7 +269,7 @@ test('sewing: an hour of standing still makes a hand-sewn beanie; walking, dropp
   assert.ok(a.u.items.includes(hatItem('handsewn')) && effectOf(a.u.effects, 'hat')?.data?.style === 'handsewn');
 });
 
-test('sewing refuses while walking and a sewn beanie can be thrown to a friend', t => {
+test('sewing refuses while walking and a sewn beanie can be given to a friend', t => {
   const { w, add, notices } = setup(t), a = add('A', ROW), b = add('B', { x: 35, y: 12 });
   w.setHolding(a.u, 'sewing_kit');
   send(w, a, { t: 'move', to: { x: 36, y: 13 } });
@@ -276,6 +277,7 @@ test('sewing refuses while walking and a sewn beanie can be thrown to a friend',
   assert.ok(!has(a.u, 'sewing') && notices(a.messages).includes('Stand still to sew'));
   a.u.items = ['sewn_hat']; w.setHolding(a.u, null);
   a.u.tile = ROW; a.u.move = null;
+  b.u.tile = { x: ROW.x + 1, y: ROW.y };
   send(w, a, { t: 'take_out', item: 'sewn_hat' }); send(w, a, { t: 'give', targetId: b.u.id });
   assert.deepEqual(b.u.items, ['sewn_hat']);
 });

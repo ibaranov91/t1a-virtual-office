@@ -33,7 +33,7 @@ test('registry: drinks derive from it, hats are free, and every drink/food has a
   assert.equal(itemDef('hat:never-heard-of')?.kind, 'hat', 'any hat:<style> is a hat');
   assert.equal(itemDef('nonsense'), undefined);
   for (const id of ['coffee', 'sandwich', 'snack', 'juice', 'book', 'drugs']) assert.ok(ITEM_DEFS[id], id);
-  assert.ok(isThrowable('drugs') && !isThrowable('coffee') && !isThrowable('hat:top'));
+  assert.ok(isThrowable('snowball') && !isThrowable('drugs') && !isThrowable('coffee') && !isThrowable('hat:top'));
   assert.ok(canCarry('drugs') && canCarry('hat:top') && !canCarry('coffee'));
   assert.deepEqual(heldActions('coffee'), ['drink']);
   assert.deepEqual(heldActions('coffee', true), ['drop']);
@@ -94,30 +94,42 @@ test('held items: take out of pockets, stow, drop to the floor; pocketables neve
   assert.equal(b.u.holding, 'drugs'); assert.equal(w.creatures.cups.some(c => c.item === 'drugs'), false);
 });
 
-test('give = throw: lands in their pockets, else at their feet; far away or offline is refused; a drink is still handed over', t => {
-  const { w, add, notices } = setup(t), a = add('A', { x: 32, y: 12 }), b = add('B', { x: 35, y: 12 });
-  a.u.items = ['drugs'];
-  send(w, a, { t: 'take_out', item: 'drugs' });
-  send(w, a, { t: 'give', targetId: b.u.id });
-  assert.deepEqual([a.u.holding, b.u.items], [null, ['drugs']]);
+test('give: walk-up hand-over lands in pockets, hands or floor; onigiri into hands; empty cup refused; bots receive', t => {
+  const { w, add } = setup(t), a = add('A', { x: 32, y: 12 }), b = add('B', { x: 33, y: 12 });
+  const hand = (item: string, to = b) => { w.setHolding(a.u, null); a.u.items = [item]; send(w, a, { t: 'take_out', item }); send(w, a, { t: 'give', targetId: to.u.id }); };
+  for (const id of ['sewing_kit', 'train', 'remote_car', 'party_popper', 'bubble_gum', 'glow_stick', 'umbrella', 'cup_noodles', 'sewn_hat', 'postcard:hi']) {
+    assert.ok(!isThrowable(id), id); assert.ok(itemDef(id)!.actions.includes('give'), id);
+    b.u.items = []; hand(id);
+    assert.deepEqual([a.u.holding, b.u.items], [null, [id]], id);
+  }
+  b.u.items = Array(POCKET_MAX).fill('drugs'); b.u.holding = null; hand('umbrella');
+  assert.deepEqual([a.u.holding, b.u.holding], [null, 'umbrella']); // pockets full -> empty hands
+  b.u.items = Array(POCKET_MAX).fill('drugs'); b.u.holding = 'coffee'; hand('umbrella');
+  assert.equal(a.u.holding, null); assert.ok(w.creatures.cups.some(c => c.item === 'umbrella' && c.floor)); // hands full too -> feet
+  b.u.holding = null; b.u.items = [];
+  w.setHolding(a.u, 'onigiri'); send(w, a, { t: 'give', targetId: b.u.id });
+  assert.deepEqual([a.u.holding, b.u.holding], [null, 'onigiri']);
+  w.setHolding(b.u, null); w.setHolding(a.u, 'empty:coffee'); send(w, a, { t: 'give', targetId: b.u.id });
+  assert.equal(a.u.holding, 'empty:coffee'); w.setHolding(a.u, null);
+  const bot = add('Bot', { x: 31, y: 12 }); bot.u.bot = true; bot.u.items = [];
+  hand('sewing_kit', bot);
+  assert.deepEqual([a.u.holding, bot.u.items], [null, ['sewing_kit']]);
+});
+
+test('a ball is thrown from range (arc, pockets else feet); too far is refused; a drink is handed over', t => {
+  const { w, add, notices } = setup(t), a = add('A', { x: 32, y: 12 }), b = add('B', { x: 38, y: 12 });
+  assert.ok(isThrowable('snowball') && !isThrowable('sewing_kit'));
+  a.u.items = ['snowball']; send(w, a, { t: 'take_out', item: 'snowball' }); send(w, a, { t: 'give', targetId: b.u.id });
+  assert.deepEqual([a.u.holding, b.u.items.includes('snowball')], [null, true]);
   const flight = last(b.messages, 'thrown')!;
-  assert.deepEqual([flight.fromId, flight.toId, flight.item, flight.landed], [a.u.id, b.u.id, 'drugs', 'pockets']);
-  assert.ok(notices(b.messages).some(n => n.includes('threw you')));
-  // pockets full: it lands beside them as a prop
-  b.u.items = Array(POCKET_MAX).fill('drugs'); a.u.items = ['drugs'];
-  send(w, a, { t: 'take_out', item: 'drugs' }); send(w, a, { t: 'give', targetId: b.u.id });
+  assert.deepEqual([flight.fromId, flight.toId, flight.item, flight.landed], [a.u.id, b.u.id, 'snowball', 'pockets']);
+  b.u.items = Array(POCKET_MAX).fill('drugs'); a.u.items = ['snowball'];
+  send(w, a, { t: 'take_out', item: 'snowball' }); send(w, a, { t: 'give', targetId: b.u.id });
   assert.equal(last(b.messages, 'thrown')!.landed, 'floor');
-  assert.equal(b.u.items.length, POCKET_MAX);
-  const prop = w.creatures.cups.find(c => c.item === 'drugs')!;
-  assert.ok(Math.abs(prop.tile.x - 35) + Math.abs(prop.tile.y - 12) <= 1 && prop.floor && prop.by === a.u.id);
-  // too far
-  const far = add('Far', { x: 60, y: 12 }); a.u.items = ['drugs'];
-  send(w, a, { t: 'take_out', item: 'drugs' }); send(w, a, { t: 'give', targetId: far.u.id });
-  assert.equal(a.u.holding, 'drugs'); assert.ok(notices(a.messages).includes('Too far to throw'));
-  // a coffee is handed over, not thrown
-  const c = add('C', { x: 33, y: 12 });
-  w.setHolding(a.u, 'coffee');
-  send(w, a, { t: 'give', targetId: c.u.id });
+  const far = add('Far', { x: 60, y: 12 }); a.u.items = ['snowball'];
+  send(w, a, { t: 'take_out', item: 'snowball' }); send(w, a, { t: 'give', targetId: far.u.id });
+  assert.equal(a.u.holding, 'snowball'); assert.ok(notices(a.messages).includes('Too far to throw'));
+  const c = add('C', { x: 33, y: 12 }); w.setHolding(a.u, 'coffee'); send(w, a, { t: 'give', targetId: c.u.id });
   assert.deepEqual([a.u.holding, c.u.holding], [null, 'coffee']);
 });
 

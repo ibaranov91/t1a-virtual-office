@@ -120,7 +120,7 @@ hammocks also swing. `seatAt` identifies the seat; use the current layout object
 | 4. Moving it: always `World.moveItem(item, from, to, by)` with a `ContainerRef` (`pockets`, `hands`, `desk`, `shelf`, `void`); never edit `u.items` / `holding` directly (limits, duplicates, theft log, worn-hat removal live there) | server/src/world.ts | `moveItem(item: string` |
 | 5. Placed in the world (floor, table): a prop, i.e. a `Cup` with `by` and optional `ttl` in `creatures.cups`; saved as `cups` | server/src/creatures.ts | `addCup(` |
 
-The wheel derives from the registry: `heldActions` (your own held item) and `throw` / `give` (on someone else's wheel) in `ActionWheel`.
+The wheel derives from the registry: `heldActions` (your own held item) and `give` (any pocketable item, walk-up) or `throw` (balls only; on someone else's wheel) in `ActionWheel`.
 Pocketable items (`pocket: 'counts'`) stay in the hand until stowed, dropped or thrown; drinks and meals still fade or sip as before.
 Desk storage and theft rules: AGENTS.md "Pockets (inventory)".
 
