@@ -141,6 +141,7 @@ What already shipped into `v2` is listed at the end.
 |---|---|---|---|---|---|---|---|
 | EN-1 | Per-person progress store: flags, counters, timers and puzzle steps, saved with the user and described as data. Replaces ad-hoc state (Berghain lines, sewing time, reading counts) | todo | | M | | local | unblocks puzzles, scholar hat, birthdays, fishing |
 | EN-2 | Item abilities: one use flow for items that do something (teleport, unlock, start a ritual) | todo | | M | | local | first user: IT-7 |
+| EN-3 | Idle power: use `requestAnimationFrame` only while drawing at ~30 fps; in the idle tiers (~8 fps ambient, 2 fps unfocused) schedule frames with a timer instead, so the page stops waking at the display rate (60/120 Hz); back to rAF on input, movement or a server change | todo | | S | | local | check before/after in Activity Monitor's energy column; `client/src/engine.ts` `frame`/`skipFrame` |
 
 ## 14. Possibly bad ideas
 | ID | Task | Status | Owner | Size | Depends on | Test | Notes |
