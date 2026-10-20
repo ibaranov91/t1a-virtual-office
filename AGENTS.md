@@ -6,23 +6,26 @@ glance. Product intent and design rules are in `REQUIREMENTS.md`; read it before
 the overview for newcomers and hackathon judges, and `docs/FEATURES.md` maps every feature to its code and tests.
 Hackathon project: favor small, working, demo-able steps.
 
-## Now: building v2 on a local `v2` branch (from 2026-10-17)
+## Now: building v2 on the `v2` branch (from 2026-10-17)
 The hackathon version is frozen: `main`, `origin/main` and prod stay as they are until the hackathon is over.
 Everything new goes into **v2**, one big release we ship after the hackathon. The plan and the decisions behind it are in
 [docs/superpowers/specs/2026-10-17-v2-plan.md](docs/superpowers/specs/2026-10-17-v2-plan.md); what's left, split into tasks to claim,
 is [docs/v2-backlog.md](docs/v2-backlog.md). Until the release:
-- **`v2` is the temporary main.** It is a local branch only, checked out in its own worktree at `../deck-v2`
-  (`git worktree add ../deck-v2 v2` if it is missing). Branch every change off `v2` in a worktree
+- **`v2` is the temporary main, on GitHub as `origin/v2`.** Keep it checked out in its own worktree at `../deck-v2`
+  (`git fetch origin && git worktree add ../deck-v2 v2` if it is missing; it tracks `origin/v2`). Bring it up to date before you
+  start or land anything: `git -C ../deck-v2 pull --ff-only`. Branch every change off `v2` in a worktree
   (`git worktree add -b <branch> <path> v2`) and commit there.
-- **Landing a change:** rebase onto `v2` if it moved (`git rebase v2`), run `npm test`, `npm run typecheck` and
-  `npm run build -w client`, then merge it from the v2 worktree: `git -C ../deck-v2 merge --no-ff <branch>`.
-- **Never push** (`git push`, `--force-with-lease`, new remote branches), never open or merge pull requests
-  (`gh pr …`), and never push `v2` or merge it into `main`. Leave `main` alone: it must keep matching `origin/main`.
+- **Landing a change:** `git -C ../deck-v2 pull --ff-only`, rebase your branch onto `v2` if it moved (`git rebase v2`), run
+  `npm test`, `npm run typecheck` and `npm run build -w client`, merge it from the v2 worktree
+  (`git -C ../deck-v2 merge --no-ff <branch>`), then **push v2**: `git -C ../deck-v2 push origin v2`. If the push is rejected because
+  someone else pushed first, `git -C ../deck-v2 pull --no-rebase`, re-run the checks, and push again. Never force-push `v2`.
+- **Push only `v2`.** Never push `main`, never open or merge pull requests (`gh pr …`), and never merge `v2` into `main`. Feature
+  branches stay local. Leave `main` alone: it must keep matching `origin/main`.
 - A hotfix for the hackathon version is the one exception: it goes to `main` through the normal PR flow below, only when
-  the user asks, and is then merged into `v2` (`git -C ../deck-v2 merge main`) so v2 doesn't lose it.
+  the user asks, and is then merged into `v2` (`git -C ../deck-v2 merge main`, then push `v2`) so v2 doesn't lose it.
 - **Never deploy prod from `v2`**, and don't touch the other instances unless their owner asks. Test v2 locally
   (`npm run dev`).
-- After the hackathon `v2` is pushed and lands in `main` as one PR, through "Landing a PR and deploying prod" below.
+- After the hackathon `v2` lands in `main` as one PR, through "Landing a PR and deploying prod" below.
 
 ## Start here
 1. **[docs/MAP.md](docs/MAP.md)**: generated floor plans (rooms, furniture, doorways, dungeon), the rooms table, every
@@ -443,5 +446,5 @@ Several people and agents merge and deploy at the same time. Prod must always ru
 - Protocol changes go in `shared/protocol.ts` first. The server validates everything a client sends.
 - Keep REQUIREMENTS.md's "not now" list in mind: design for it (data, not code), don't build it.
 - **Never work in `main` and never commit to it directly.** `main` is the shared branch. During v2, branch off `v2` (in a
-  worktree) and merge into `v2`; nothing is pushed until v2 is released.
+  worktree), merge into `v2` and push `v2` (never `main`, no PRs until v2 is released).
 - Commit only when asked, and write descriptive messages.
