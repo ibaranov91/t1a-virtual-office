@@ -524,7 +524,6 @@ export type ClientMsg =
   | { t: 'postcard_write'; text: string } // a blank postcard in your hands becomes `postcard:<text>`
   | { t: 'hat_pick'; item: string }   // choose your achievement hat (shared/rewards.ts); needs a pick due
   | { t: 'car_go'; to: Tile }         // driving: send the car to this tile (it takes the path, a tile per CAR_STEP_MS)
-  | { t: 'car_dir'; dir: Dir }        // driving: one step with the arrow keys
   | { t: 'car_end'; pickup?: boolean } // End ride (pickup: and take the car back into your hands)
   | { t: 'sew_stop' }                 // stop sewing (the hour starts over)
   | { t: 'dev_time'; scale: number }  // dev only (World.devTools): speed up the sewing hour, and reset the gacha day (`dev_gacha`)

@@ -256,7 +256,7 @@ npm run typecheck    # run before every commit or deploy
   gacha-only hat; dev: `store.devGacha()`. **Daily spawns** (`dailySpawns`, started by index.ts): four toys a day on free office floor,
   seeded by the office day, props with `by: 'spawn'`, swept at the next day. **Toys** (`ItemDef.toy`) are props the cleaner skips, outside the
   cup limit (`MAX_TOYS`), kept 24 h. Snowball `onHit` = `snow` aura on both; the train makes passers-by do a client-only gesture; the
-  **remote car** is a prop moved by `car_go`/`car_dir` (small `car` messages, one tile per `CAR_STEP_MS`) while its driver has the `driving`
+  **remote car** is a prop moved by `car_go` (click where it should go) (small `car` messages, one tile per `CAR_STEP_MS`) while its driver has the `driving`
   effect (bottom-slot End ride / Pick up, derived in `contentModes`); **sewing** (`sewing` effect, `SEW_MS` = 1 h, walking stops it) makes a
   `sewn_hat`. **Achievement hats**: `picksDue` at 5/10/15 achievements → `me.hatDue` → `HatPicker` → `hat_pick`. Dev: `store.devTime(3600)`
   makes the sewing hour a second (server `devTools`, on under `npm run dev`).

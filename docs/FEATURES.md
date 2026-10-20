@@ -113,7 +113,7 @@ C→S is a `ClientMsg`, S→C is a `ServerMsg`. `notice` (S→C) is the generic 
 | Renaming | `rename` | `state`, `notice` |
 | Reception bell | `ring` | `bell`, `plant` (bellringer) |
 | Pockets, hats, effects | `effect`, `gift_hat`, `gm_items`, `use` (hat rack, bouncer) | `effects`, `gm_items`, `me` (`items`) |
-| Item content (v2) | `use_held`, `postcard_write`, `hat_pick`, `car_go`, `car_dir`, `car_end`, `sew_stop`, `dev_time`, `dev_gacha` | `popper`, `car`, `me` (`hatDue`), `cups` (props) |
+| Item content (v2) | `use_held`, `postcard_write`, `hat_pick`, `car_go`, `car_end`, `sew_stop`, `dev_time`, `dev_gacha` | `popper`, `car`, `me` (`hatDue`), `cups` (props) |
 | Vampire bite | `bite` | `effects` |
 | Vacation | none | `vacation`, `move` (walkers), `state` |
 | Lunch | `use` (food cart), `lunch`, `lunch_open`, `end_call` | `eating`, `holding`, `cups` (plates), `call` |

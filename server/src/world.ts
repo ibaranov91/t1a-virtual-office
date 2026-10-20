@@ -1568,7 +1568,7 @@ export class World {
     this.stopSewing(u);
     this.driving.set(u.id, { car: car.id, path: [], last: 0 });
     this.addEffect(u, 'driving', { data: { car: car.id } }, now);
-    this.say(u, '🏎️ You have the controller: click to steer, or use the arrow keys');
+    this.say(u, '🏎️ You have the controller: click where the car should go');
   }
   /** End ride; `pickup`: the car comes back into your hands (else pockets). */
   stopDriving(u: User, pickup = false) {
@@ -1602,14 +1602,6 @@ export class World {
     const path = findPath(this.map, car.tile, to, true);
     d.path = path.slice(1);
     if (d.path.length) this.carStep(u);
-  }
-  /** Arrow keys: one tile in that direction (at most one per CAR_STEP_MS; the car faces the way even when blocked). */
-  carDir(u: User, dir: unknown) {
-    const d = this.driving.get(u.id), car = d && this.car(d.car), v = ({ up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] } as Record<string, number[]>)[String(dir)];
-    if (!d || !car || !v || Date.now() - d.last < CAR_STEP_MS * 0.8) return;
-    clearTimeout(d.timer); d.path = []; d.last = Date.now();
-    const to = { x: car.tile.x + v[0], y: car.tile.y + v[1] };
-    this.creatures.moveCar(car.id, this.carCanEnter(to, car.id) ? to : car.tile, dir as Dir);
   }
 
   // ---------- daily spawns ----------
@@ -3085,7 +3077,6 @@ export class World {
       case 'postcard_write': this.writePostcard(u, msg.text); break;
       case 'hat_pick': this.hatPick(u, String(msg.item)); break;
       case 'car_go': if (msg.to && typeof msg.to === 'object') this.carGo(u, { x: msg.to.x | 0, y: msg.to.y | 0 }); break;
-      case 'car_dir': this.carDir(u, msg.dir); break;
       case 'car_end': this.stopDriving(u, !!msg.pickup); break;
       case 'sew_stop': this.stopSewing(u); break;
       case 'dev_time': if (this.devTools) this.timeScale = Math.max(1, Math.min(10_000, Number(msg.scale) || 1)); break;

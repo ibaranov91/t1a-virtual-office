@@ -924,7 +924,7 @@ function contentModes(store: Store): Mode[] {
   const me = store.users.get(store.me);
   if (!me) return [];
   const modes: Mode[] = [];
-  if (effectOf(me.effects, 'driving')) modes.push({ id: 'ride', icon: '🏎️', text: 'Driving the car', hint: 'click to steer · arrow keys', exit: { label: 'End ride', run: () => store.carEnd() }, actions: [{ label: 'Pick up', run: () => store.carEnd(true) }] });
+  if (effectOf(me.effects, 'driving')) modes.push({ id: 'ride', icon: '🏎️', text: 'Driving the car', hint: 'click where it should go', exit: { label: 'End ride', run: () => store.carEnd() }, actions: [{ label: 'Pick up', run: () => store.carEnd(true) }] });
   const sew = effectOf(me.effects, 'sewing');
   if (sew) modes.push({ id: 'sewing', icon: '🧵', text: 'Sewing', hint: `${Math.max(0, Math.round(((sew.data?.since as number ?? store.now()) + 3600_000 - store.now()) / 60_000))} min to go · walking away stops it`, exit: { label: 'Stop sewing', run: () => store.sewStop() } });
   return modes;

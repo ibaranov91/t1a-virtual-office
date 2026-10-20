@@ -84,7 +84,6 @@ export class Engine {
   private actualDown = false;
   private held = new Map<string, [number, number]>();
   private stepPending: { to: Tile; at: number } | null = null;
-  private lastCarKey = 0; // performance.now() of the last arrow-key steer of a remote car
   private areaUnsub: () => void;
   private ctx: CanvasRenderingContext2D;
   private staticLayer: HTMLCanvasElement;
@@ -627,12 +626,7 @@ export class Engine {
     if (!this.areaDown || !this.held.size || this.falling() || !this.store.connected) return;
     if (document.activeElement?.closest('input, textarea, select, [contenteditable]')) return this.stopKeys();
     const me = this.store.users.get(this.store.me); if (!me) return;
-    if (this.store.driving) { // arrow keys steer the car, not me
-      const now = performance.now(), [kx, ky] = [...this.held.values()].at(-1)!;
-      if (now - this.lastCarKey < 110) return;
-      this.lastCarKey = now; this.store.carDir(kx < 0 ? 'left' : kx > 0 ? 'right' : ky < 0 ? 'up' : 'down');
-      return;
-    }
+    if (this.store.driving) return; // driving a remote car: you stand still, the car goes where you click
     if (this.stepPending) {
       if (me.move?.to.x === this.stepPending.to.x && me.move.to.y === this.stepPending.to.y && me.move.startedAt >= this.stepPending.at - 100) this.stepPending = null;
       else if (this.store.now() - this.stepPending.at < WALK_MS_PER_TILE * 2) return;
