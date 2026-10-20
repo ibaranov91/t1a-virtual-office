@@ -827,7 +827,7 @@ function EditPanel({ store, engine, assets, onDone }: { store: Store; engine: En
   );
 }
 
-/** What's in your pockets: hats to wear (one at a time), and things to take out into your hands (then throw, give or use them). */
+/** What's in your pockets: hats to wear (one at a time), and things to take out into your hands (then give, throw a ball, or use them). */
 function PocketsPanel({ store, me, assets, onClose }: { store: Store; me: ClientUser; assets: Assets | null; onClose: () => void }) {
   const wearing = String(effectOf(me.effects, 'hat')?.data?.style ?? '');
   const hats = store.items.flatMap(i => (hatOf(i) ? [hatOf(i)!] : []));
@@ -868,7 +868,7 @@ function PocketsPanel({ store, me, assets, onClose }: { store: Store; me: Client
         </div>
       </>}
       {postcards.length > 0 && <>
-        <h3>Postcards <small>Take one out to throw it back</small></h3>
+        <h3>Postcards <small>Take one out to give it back</small></h3>
         {postcards.map((card, k) => <p key={`${card}${k}`} className="hint">💌 “{postcardOf(card)}”</p>)}
       </>}
       {stickers.length > 0 && <>
@@ -876,10 +876,10 @@ function PocketsPanel({ store, me, assets, onClose }: { store: Store; me: Client
         <div className="palette">{stickers.map(i => { const d = itemDef(i); return <button key={i} disabled title={d?.label}><b className="gm-icon">{d?.icon}</b><span>{d?.label.replace(' sticker', '')}</span></button>; })}</div>
       </>}
       {rest.size > 0 && <>
-        <h3>Other <small>Take one out to throw or use it</small></h3>
+        <h3>Other <small>Take one out to give or use it</small></h3>
         <div className="palette">
           {[...rest].map(([i, n]) => { const d = itemDef(i); return <button key={i} disabled={!!me.holding || !d || d.pocket !== 'counts'} onClick={() => store.takeOut(i)}
-            title={me.holding ? 'Your hands are full' : i === 'drugs' ? 'Take it out: throw it at someone, or rack it on a shelf in a Berghain stall' : 'Take it out'}>
+            title={me.holding ? 'Your hands are full' : i === 'drugs' ? 'Take it out: give it to someone, or rack it on a shelf in a Berghain stall' : 'Take it out'}>
             <b className="gm-icon"><ItemSprite item={i} /></b><span>{d?.label ?? i} × {n}</span></button>; })}
         </div>
       </>}
@@ -904,7 +904,7 @@ function HatPicker({ store, assets }: { store: Store; assets: Assets | null }) {
     </div>
   );
 }
-/** A blank postcard: one short line, then throw it. */
+/** A blank postcard: one short line, then give it away. */
 function PostcardWriter({ store }: { store: Store }) {
   const [text, setText] = useState('');
   const send = () => { if (text.trim()) store.writePostcard(text); };
@@ -913,7 +913,7 @@ function PostcardWriter({ store }: { store: Store }) {
       <div className="meet-panel guided" role="dialog" aria-label="Write a postcard">
         <div className="rooms-head"><span>💌 Postcard</span><button type="button" className="ghost" aria-label="Close" onClick={() => store.openPostcard(false)}><Icon name="close" /></button></div>
         <input autoFocus value={text} maxLength={POSTCARD_MAX} placeholder="A short line…" onChange={e => setText(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') send(); else if (e.key === 'Escape') store.openPostcard(false); }} />
-        <p className="hint">{text.length}/{POSTCARD_MAX} · throw it at someone afterwards: it sits in their pockets.</p>
+        <p className="hint">{text.length}/{POSTCARD_MAX} · give it to someone afterwards: it sits in their pockets.</p>
         <div className="row"><button disabled={!text.trim()} onClick={send}>Write</button><button className="ghost" onClick={() => store.openPostcard(false)}>Cancel</button></div>
       </div>
     </div>
@@ -1450,7 +1450,7 @@ function ActionWheel({ store, engine, pick, assets, onPerson, onClose }: { store
         const name = held.label.toLowerCase(), actions = heldActions(me.holding, held.empty), art = <ItemSprite item={me.holding} fallback={held.icon} />;
         if (actions.includes('drink') && !me.sipping) items.push({ icon: art, label: 'Drink', title: `Drink your ${name}`, onClick: act(() => store.drink()) });
         if (actions.includes('use')) items.push({ icon: art, label: itemDef(me.holding)?.useLabel ?? 'Use', title: `${itemDef(me.holding)?.useLabel ?? 'Use'}: ${name}`, onClick: act(() => store.useHeld()) });
-        if (actions.includes('write')) items.push({ icon: art, label: 'Write', title: 'Write a line on the postcard, then throw it at someone', onClick: act(() => store.openPostcard()) });
+        if (actions.includes('write')) items.push({ icon: art, label: 'Write', title: 'Write a line on the postcard, then give it to someone', onClick: act(() => store.openPostcard()) });
         if (actions.includes('stow')) items.push({ icon: art, label: 'Pockets', title: `Put your ${name} back in your pockets`, onClick: act(() => store.stow()) });
         if (actions.includes('drop') && held.empty) items.push({ icon: <ItemSprite item={me.holding} fallback={held.icon} dim />, label: 'Drop', title: `Drop your ${name} on the floor (or click a table to put it down)`, onClick: act(() => store.drop()) });
         else if (actions.includes('drop')) items.push({ icon: art, label: holdsForever(me.holding) ? (isToy(me.holding) ? 'Put down' : 'Drop') : 'Finish', title: holdsForever(me.holding) ? `${isToy(me.holding) ? 'Put' : 'Drop'} your ${name} on the floor` : `Finish your ${name}`, onClick: act(() => store.drop()) });
@@ -1474,9 +1474,9 @@ function ActionWheel({ store, engine, pick, assets, onPerson, onClose }: { store
       if (!isMe && me && effectOf(me.effects, 'vampire')) { const turned = !!effectOf(u.effects, 'vampire');
         items.push({ icon: uiIcon('bite', '🧛'), label: 'Bite', disabled: turned || away || !!dungeon, title: dungeon ?? (turned ? `${u.name.split(' ')[0]} is already a vampire` : `Bite ${u.name.split(' ')[0]}: a vampire for 2 minutes`), onClick: act(() => store.bite(u.id)) }); }
       const held = me?.holding && !isEmpty(me.holding) ? heldItem(me.holding) : undefined; // an empty cup isn't a present
-      const def = me?.holding ? itemDef(me.holding) : undefined, throwIt = !!def && def.actions.includes('throw');
-      if (held && (!def || throwIt || def.actions.includes('give'))) items.push({ icon: <ItemSprite item={me!.holding} fallback={held.icon} />, label: throwIt ? 'Throw' : 'Give', disabled: (!throwIt && !!u.holding) || away || !!dungeon,
-        title: dungeon ?? (throwIt ? `Throw your ${held.label.toLowerCase()} to ${u.name.split(' ')[0]}: it lands in their pockets` : u.holding ? `${u.name.split(' ')[0]}'s hands are full` : `Give ${u.name.split(' ')[0]} your ${held.label.toLowerCase()}`),
+      const def = me?.holding ? itemDef(me.holding) : undefined, throwIt = !!def && def.actions.includes('throw'), pockets = !!def && def.pocket !== 'no'; // a ball flies; the rest is handed over
+      if (held && (!def || throwIt || def.actions.includes('give'))) items.push({ icon: <ItemSprite item={me!.holding} fallback={held.icon} />, label: throwIt ? 'Throw' : 'Give', disabled: (!throwIt && !pockets && !!u.holding) || away || !!dungeon,
+        title: dungeon ?? (throwIt ? `Throw your ${held.label.toLowerCase()} to ${u.name.split(' ')[0]}: it lands in their pockets` : pockets ? `Walk over and give ${u.name.split(' ')[0]} your ${held.label.toLowerCase()}: it goes in their pockets` : u.holding ? `${u.name.split(' ')[0]}'s hands are full` : `Give ${u.name.split(' ')[0]} your ${held.label.toLowerCase()}`),
         onClick: act(() => store.give(u.id)) });
     }
   } else {

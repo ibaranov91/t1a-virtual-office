@@ -1176,13 +1176,41 @@ export class World {
     this.objectOn.set(id, on);
     this.broadcast({ t: 'object', id, ...this.objectState(id), by: by.id });
   }
-  give(u: User, to: User) {
+  /** Give: a ball (`throw` action) flies from range; anything else is handed over up close, walking over first like a knock.
+   *  A drink goes into their hands (if empty); a pocketable item into their pockets, else their hands, else the floor at their feet. */
+  give(u: User, to: User, tries = 3) {
     if (u.instance !== to.instance || !u.holding || isEmpty(u.holding) || to.id === u.id || to.presence === 'offline' || goingOut(to)) return;
     const item = u.holding;
-    if (isThrowable(item)) return this.throwItem(u, to, item); // pocketable: thrown, lands in their pockets (else at their feet)
-    if (to.holding) return;
+    if (isThrowable(item)) return this.throwItem(u, to, item);
+    if (itemDef(item)?.pocket === 'no' && to.holding) return;
+    if (!onMap(u) || !onMap(to)) return this.handOver(u, to, item);
+    const here = this.position(u).next, there = this.position(to).dest;
+    if (Math.max(Math.abs(here.x - there.x), Math.abs(here.y - there.y)) <= 1) return this.handOver(u, to, item);
+    if (tries <= 0) return; // they keep walking away
+    const spot = this.nextTo(there, here);
+    if (!spot) return void this.sendTo(u.id, { t: 'notice', text: 'No way to get next to them' });
+    const arriveAt = this.walk(u, spot, dirBetween(spot, there));
+    if (arriveAt === null) return;
+    const seq = u.walkSeq;
+    setTimeout(() => { if (u.walkSeq === seq && u.holding === item) this.give(u, to, tries - 1); }, Math.max(0, arriveAt - Date.now()) + 50);
+  }
+  private handOver(u: User, to: User, item: string) {
+    if (u.instance !== to.instance || u.holding !== item || to.presence === 'offline' || goingOut(to)) return;
+    if (itemDef(item)?.pocket === 'no') { // a drink or meal: into their hands
+      if (to.holding) return;
+      this.setHolding(u, null);
+      this.setHolding(to, item, undefined, u.id);
+      return this.onGiven(to, item, u);
+    }
+    const def = itemDef(item);
+    let where: 'pockets' | 'hands' | 'floor' | null = null;
+    if (!this.moveItem(item, { kind: 'void' }, { kind: 'pockets', id: to.id }, null)) where = 'pockets';
+    else if (!to.holding) where = 'hands';
+    else where = this.land(to, item, u);
+    if (!where) return void this.sendTo(u.id, { t: 'notice', text: 'Nowhere for it to go' });
     this.setHolding(u, null);
-    this.setHolding(to, item, undefined, u.id);
+    if (where === 'hands') this.setHolding(to, item, undefined, u.id);
+    this.sendTo(to.id, { t: 'notice', text: `${def?.icon ?? '🎁'} ${u.name} gave you a ${def?.label.toLowerCase() ?? item} · ${where === 'pockets' ? 'in your pockets 🎒' : where === 'hands' ? 'your pockets are full, it\'s in your hands' : 'your pockets and hands are full, it\'s at your feet'}` });
     this.onGiven(to, item, u);
   }
   /** Put something in someone's hand (or empty it), cancelling any sip, and set up what happens to it next:
@@ -1318,7 +1346,7 @@ export class World {
     for (const t of [here, ...this.creatures.beside(here)]) if (typeof this.creatures.addCup(t, item, now, { floor: true, by: from?.id ?? target.id, ttl: propTtl(item) }) === 'object') return 'floor';
     return null;
   }
-  /** Give = throw: a short arc to them, then their pockets if there's room, else the floor beside them. */
+  /** A ball thrown from range: a short arc to them, then their pockets if there's room, else the floor beside them. */
   private throwItem(u: User, to: User, item: string) {
     const a = this.position(u).tile, b = this.position(to).tile, say = (text: string) => this.sendTo(u.id, { t: 'notice', text });
     if (!onMap(u) || !onMap(to)) return;
@@ -1418,13 +1446,13 @@ export class World {
   }
 
   // ---------- postcards ----------
-  /** A blank postcard in your hands gets its line (cleaned and capped); then throw it at someone: it sits in their pockets with the text. */
+  /** A blank postcard in your hands gets its line (cleaned and capped); then give it to someone: it sits in their pockets with the text. */
   writePostcard(u: User, raw: unknown) {
     if (u.holding !== POSTCARD) return;
     const text = postcardText(raw);
     if (!text) return this.say(u, 'Write a line first');
     this.setHolding(u, postcardItem(`${text} — ${u.name.split(' ')[0]}`));
-    this.say(u, '💌 Written. Throw it at someone: it lands in their pockets');
+    this.say(u, '💌 Written. Give it to someone: it goes in their pockets');
   }
 
   // ---------- sewing ----------
@@ -1446,7 +1474,7 @@ export class World {
     this.stopSewing(u);
     if (u.holding === 'sewing_kit') this.setHolding(u, null);
     const where = this.land(u, 'sewn_hat', u);
-    this.say(u, where === 'floor' ? '🧶 A hand-sewn beanie! Your pockets are full: it is at your feet' : '🧶 Done: a hand-sewn beanie. Wear it, or throw it to someone');
+    this.say(u, where === 'floor' ? '🧶 A hand-sewn beanie! Your pockets are full: it is at your feet' : '🧶 Done: a hand-sewn beanie. Wear it, or give it to someone');
   }
   /** The hand-sewn beanie becomes a hat in your pockets, and goes on. */
   private wearSewn(u: User) {

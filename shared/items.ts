@@ -55,7 +55,7 @@ export function postcardText(raw: unknown): string | null {
 }
 export const postcardItem = (text: string) => `${POSTCARD_PREFIX}${text}`;
 export const postcardOf = (item: string | null | undefined) => (item?.startsWith(POSTCARD_PREFIX) ? item.slice(POSTCARD_PREFIX.length) : null);
-const POSTCARD_DEF = { label: 'Postcard', icon: '💌', kind: 'throwable', pocket: 'counts', actions: ['stow', 'throw', 'drop'] } as const satisfies Partial<ItemDef>;
+const POSTCARD_DEF = { label: 'Postcard', icon: '💌', kind: 'throwable', pocket: 'counts', actions: ['stow', 'give', 'drop'] } as const satisfies Partial<ItemDef>;
 
 const DEFS: ItemDef[] = [
   drinkItem('coffee', 'Coffee', '☕', { effect: 'speed', sipMs: 2500, autoSipMs: 60_000, cup: true }),
@@ -68,17 +68,17 @@ const DEFS: ItemDef[] = [
   plain('juice', 'Juice', '🧃'), plain('snack', 'Snack', '🥪'),
   plain('sandwich', 'Sandwich', '🥪'), plain('ramen', 'Ramen', '🍜'), plain('salad', 'Salad', '🥗'), plain('pizza', 'Pizza', '🍕'),
   { id: 'book', label: 'Book', icon: '📖', kind: 'held', pocket: 'no', actions: ['drop'] },
-  { id: 'drugs', label: 'Drugs', icon: '💊', kind: 'throwable', pocket: 'counts', actions: ['stow', 'throw', 'drop'] },
+  { id: 'drugs', label: 'Drugs', icon: '💊', kind: 'throwable', pocket: 'counts', actions: ['stow', 'give', 'drop'] },
   // cup noodles (7/11): dry in your pockets or hands -> fill at the kitchen kettle -> hot noodles, eaten at a table (shared/lunch.ts)
-  { id: 'cup_noodles', label: 'Cup noodles', icon: '🥡', kind: 'throwable', pocket: 'counts', actions: ['stow', 'throw', 'drop'] },
+  { id: 'cup_noodles', label: 'Cup noodles', icon: '🥡', kind: 'throwable', pocket: 'counts', actions: ['stow', 'give', 'drop'] },
   plain('hot_noodles', 'Hot noodles', '🍜'),
   // ---------- 7/11 goods (v2) ----------
   { ...plain('onigiri', 'Onigiri', '🍙'), actions: ['use', 'drop', 'give'], useLabel: 'Eat', onUse: [] },
   { ...drinkItem('slurpee', 'Slurpee', '🥤', { effect: 'use', sipMs: 2500 }), onUse: [{ effect: 'freeze', on: 'self' }, { effect: 'chilled', on: 'self' }] },
   { ...drinkItem('energy_drink', 'Energy drink', '🥫', { effect: 'use', sipMs: 1800 }), onUse: [{ effect: 'speed', ms: ENERGY_MS, on: 'self', data: { boost: 2 } }] },
   { id: 'party_popper', label: 'Party popper', icon: '🎉', kind: 'held', pocket: 'counts', actions: ['use', 'stow', 'drop'], useLabel: 'Pop it', onUse: [{ effect: 'confetti', on: 'self', radius: 2 }] },
-  { id: 'glow_stick', label: 'Glow stick', icon: '🟢', kind: 'held', pocket: 'counts', sprite: 'glow_stick', actions: ['stow', 'drop', 'throw'], light: 3 },
-  { id: 'umbrella', label: 'Umbrella', icon: '☂️', kind: 'throwable', pocket: 'counts', stack: 1, actions: ['stow', 'throw', 'drop'] },
+  { id: 'glow_stick', label: 'Glow stick', icon: '🟢', kind: 'held', pocket: 'counts', sprite: 'glow_stick', actions: ['stow', 'drop', 'give'], light: 3 },
+  { id: 'umbrella', label: 'Umbrella', icon: '☂️', kind: 'throwable', pocket: 'counts', stack: 1, actions: ['stow', 'give', 'drop'] },
   { id: POSTCARD, ...POSTCARD_DEF, kind: 'held', actions: ['write', 'stow', 'drop'], useLabel: 'Write' },
   { id: 'bubble_gum', label: 'Bubble gum', icon: '🫧', kind: 'held', pocket: 'counts', actions: ['use', 'stow', 'drop'], useLabel: 'Blow a bubble', onUse: [{ effect: 'bubble', on: 'self' }] },
   // ---------- daily toys and what they make (v2) ----------
@@ -86,7 +86,7 @@ const DEFS: ItemDef[] = [
   toy({ id: 'train', label: 'Choo-choo train', icon: '🚂', kind: 'placeable', pocket: 'counts', sprite: 'toy_train', actions: ['stow', 'drop'] }),
   toy({ id: 'remote_car', label: 'Remote car', icon: '🏎️', kind: 'placeable', pocket: 'counts', sprite: 'toy_car', actions: ['use', 'stow', 'drop'], useLabel: 'Drive' }),
   toy({ id: 'sewing_kit', label: 'Sewing kit', icon: '🧵', kind: 'held', pocket: 'counts', sprite: 'toy_sewing', actions: ['use', 'stow', 'drop'], useLabel: 'Sit and sew' }),
-  { id: 'sewn_hat', label: 'Hand-sewn beanie', icon: '🧶', kind: 'throwable', pocket: 'counts', actions: ['use', 'stow', 'throw', 'drop'], useLabel: 'Wear it' },
+  { id: 'sewn_hat', label: 'Hand-sewn beanie', icon: '🧶', kind: 'throwable', pocket: 'counts', actions: ['use', 'stow', 'give', 'drop'], useLabel: 'Wear it' },
   ...STICKERS.map(sticker),
   ...ALL_HATS.map((style): ItemDef => ({ id: hatItem(style), label: HAT_NAMES[style] ?? style, icon: '🎩', kind: 'hat', pocket: 'free', stack: 1, actions: [] })),
 ];
@@ -95,8 +95,8 @@ const DEFS: ItemDef[] = [
 const ITEM_ART = ['coffee', 'tea', 'cocktail', 'beer', 'wine', 'coconut', 'icecream', 'juice', 'snack', 'sandwich', 'ramen', 'salad', 'pizza', 'onigiri',
   'cup_noodles', 'hot_noodles', 'slurpee', 'energy_drink', 'party_popper', 'umbrella', 'postcard', 'bubble_gum', 'book', 'drugs', 'sewn_hat'];
 for (const d of DEFS) if (!d.sprite && ITEM_ART.includes(d.id)) d.sprite = `item_${d.id}`;
-// Anything that fits in pockets can be given by throwing it (lands in their pockets, else at their feet): derived, so a new item can't forget it.
-for (const d of DEFS) if (d.pocket === 'counts' && !d.actions.includes('throw')) d.actions = d.actions.includes('stow') ? d.actions.flatMap(a => (a === 'stow' ? [a, 'throw' as const] : [a])) : [...d.actions, 'throw'];
+// Anything that fits in pockets is handed over ('give'); only balls (a 'throw' action, today the snowball) fly. Derived, so a new item can't forget it.
+for (const d of DEFS) if (d.pocket === 'counts' && !d.actions.includes('throw') && !d.actions.includes('give')) d.actions = d.actions.includes('stow') ? d.actions.flatMap(a => (a === 'stow' ? [a, 'give' as const] : [a])) : [...d.actions, 'give'];
 export const ITEM_DEFS: Record<string, ItemDef> = Object.fromEntries(DEFS.map(d => [d.id, d]));
 /** Registry lookup; hats of any style are found even when the style isn't listed yet. */
 export function itemDef(id: string | null | undefined): ItemDef | undefined {
@@ -130,8 +130,8 @@ export function heldActions(id: string | null | undefined, empty = false): ItemA
   if (empty) return ['drop'];
   return [...(itemDef(id)?.actions ?? ['drop'])];
 }
-/** Can it be thrown (and so land in pockets)? Anything else is handed over. */
-export const isThrowable = (id: string) => { const d = itemDef(id); return !!d && d.pocket === 'counts' && d.actions.includes('throw'); };
+/** Balls fly (a ranged arc, landing in pockets or at the feet); everything else is handed over up close. */
+export const isThrowable = (id: string) => { const d = itemDef(id); return !!d && d.actions.includes('throw'); };
 
 /** A pocketable item in hand stays until you put it away or drop it; the rest fade after a while (server HOLD_MS). */
 export const holdsForever = (id: string) => itemDef(id)?.pocket === 'counts';

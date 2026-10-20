@@ -241,8 +241,8 @@ npm run typecheck    # run before every commit or deploy
 - **Reception bell** (Lobby, `use.kind: 'bell'`, `onTop` so it shares the counter's tile): `ring` → `bell` broadcast, one ring a second per person; from farther away the server walks you over first; the first ring earns `bellringer`. Bots never ring. The sound is panned and faded by `Soundscape.ringBell` (never silent: a faint carry from other rooms).
 - **Items v2** (`shared/items.ts`, `server/src/world.ts` §items & containers): one `ItemDef` registry (drinks, snacks, books, drugs, hats; `DRINKS` derives from it).
   **Pocket limit `POCKET_MAX` = 6**, hats are free (one of each). An item must be **in your hands** (`take_out`, `stow`, `drop`) to be used or given;
-  pocketable items stay in hand (saved as `held`) and **`give` throws them** (`thrown` arc; lands in the target's pockets, else a prop on the floor beside them);
-  drinks and meals are still handed over. Every move is `World.moveItem(item, from, to, by)` over `ContainerRef`s (pockets, hands, desk, shelf, void): limits, no
+  pocketable items stay in hand (saved as `held`) and **`give` hands them over**: you walk up beside the person, and it goes into their pockets, else their hands if empty, else a prop at their feet; only balls (`throw` action, the snowball) fly as a ranged `thrown` arc (`THROW_RANGE`);
+  drinks and meals go into their hands. Every move is `World.moveItem(item, from, to, by)` over `ContainerRef`s (pockets, hands, desk, shelf, void): limits, no
   duplicates. **Desk storage** (`User.storage`, no limit): click your home desk's plant within 4 tiles. Someone else's needs `ack` after a warning; anyone else in the
   room (even the owner) means `snoop` (bad achievement); taking from it logs `{by, name, item, at}` on the container (owner sees it), tells the owner and puts the **prison hat**
   on the thief for 2 days (`User.prisonUntil`; only an office admin removes it: GM panel Release, `prison_release`, or any GM hat change; a second theft doesn't extend it).
