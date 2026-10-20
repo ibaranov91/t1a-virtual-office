@@ -708,24 +708,30 @@ export class Engine {
     const hat = u.effects?.find(e => e.kind === 'hat');
     return hat ? HAT_H[String(hat.data?.style)] ?? 10 : u.look.hat ? 3 : 0;
   }
-  /** A hood (rain jacket) or an umbrella over a person outdoors in the rain. `top` is the sprite's top edge. */
-  private drawRainGear(ctx: CanvasRenderingContext2D, u: ClientUser, x: number, top: number, dir: string, seated: boolean, layer: 'hood' | 'umbrella') {
-    // the head is 12 px wide, rows top+2 … top+12 of the 16×24 frame
-    if (layer === 'umbrella') {
-      if (!u.umbrella) return;
-      // open umbrella over the head, held at the side; stays up while they eat
-      const colors = ['#d9534f', '#3f7fbf', '#e0b13a', '#4f9d6b'], c = colors[hash(u.id) % colors.length];
-      ctx.fillStyle = c; ctx.fillRect(x + 6, top - 5, 4, 1); ctx.fillRect(x + 4, top - 4, 8, 1); ctx.fillRect(x + 2, top - 3, 12, 1); ctx.fillRect(x, top - 2, 16, 1); ctx.fillRect(x - 2, top - 1, 20, 1);
-      ctx.fillStyle = 'rgba(0,0,0,0.3)'; for (const px of [-2, 2, 6, 10, 14]) ctx.fillRect(x + px, top, 2, 1); // scalloped rim
-      ctx.fillStyle = 'rgba(255,255,255,0.45)'; ctx.fillRect(x + 6, top - 4, 2, 1); ctx.fillRect(x + 4, top - 3, 2, 1);
-      ctx.fillStyle = '#2e2118'; ctx.fillRect(x + 8, top - 6, 1, 1); ctx.fillRect(x + 16, top + 1, 1, seated ? 9 : 12); // the tip, and the shaft held at the side
-      return;
+  private umbrellaSprites = new Map<number, HTMLCanvasElement>();
+  /** An open umbrella over the head: a round striped dome with dark ribs and a scalloped rim (cached per colour). The pole is
+   *  drawn behind the person (see drawSprite), so it only shows in the gap above a hat. */
+  private drawUmbrella(ctx: CanvasRenderingContext2D, u: ClientUser, x: number, top: number) {
+    const PAL = [['#d9534f', '#f4978b', '#a23834'], ['#3f7fbf', '#86b8ea', '#2b5688'], ['#e0b13a', '#f8dc7e', '#a8791c'], ['#4f9d6b', '#8dd3a6', '#34704a']];
+    const k = hash(u.id) % PAL.length;
+    let sprite = this.umbrellaSprites.get(k);
+    if (!sprite) {
+      const [main, light, dark] = PAL[k], W = 23, C = 11, widths = [5, 11, 15, 19, 21, 23], OUT = '#2a1f26';
+      const c = document.createElement('canvas'); c.width = W; c.height = 8;
+      const g = c.getContext('2d')!, px = (cx: number, cy: number, col: string) => { g.fillStyle = col; g.fillRect(cx, cy, 1, 1); };
+      widths.forEach((w, r) => {
+        const x0 = C - (w >> 1);
+        for (let i = 0; i < w; i++) {
+          const cx = x0 + i, rib = r > 0 && (cx === C || cx === C - 5 || cx === C + 5 || (r < 3 && false)), panel = cx < C - 5 ? 0 : cx < C ? 1 : cx < C + 5 ? 2 : 3;
+          px(cx, r, r === 0 || i === 0 || i === w - 1 ? OUT : rib ? dark : panel % 2 ? light : main);
+        }
+        if (r >= 1 && r <= 3) px(x0 + 2, r, light); // a highlight on the left shoulder
+      });
+      for (let cx = 0; cx < W; cx++) px(cx, 6, cx % 4 === 1 || cx % 4 === 2 ? (cx < C - 5 || (cx > C && cx < C + 5) ? main : light) : OUT); // scallops: a coloured flap between dark notches
+      for (let cx = 0; cx < W; cx++) if (cx % 4 === 1 || cx % 4 === 2) px(cx, 7, OUT);
+      this.umbrellaSprites.set(k, sprite = c);
     }
-    if (seated || u.umbrella) return;
-    const hood = '#4c6a7c', shade = '#37505f';
-    ctx.fillStyle = hood; ctx.fillRect(x + 2, top + 2, 12, 4); ctx.fillRect(x + 2, top + 6, 2, 6); ctx.fillRect(x + 12, top + 6, 2, 6);
-    ctx.fillStyle = shade; ctx.fillRect(x + 4, top + 5, 8, 1); ctx.fillRect(x + 2, top + 11, 2, 1); ctx.fillRect(x + 12, top + 11, 2, 1);
-    if (dir === 'up') { ctx.fillStyle = hood; ctx.fillRect(x + 2, top + 2, 12, 11); ctx.fillStyle = shade; ctx.fillRect(x + 2, top + 12, 12, 1); ctx.fillRect(x + 7, top + 6, 2, 6); }
+    ctx.drawImage(sprite, x + 8 - 11, top - 6);
   }
   private myInstance() { return this.falling() ? null : this.store.users.get(this.store.me)?.instance ?? null; }
   private userAt(wx: number, wy: number): string | null {
@@ -1430,9 +1436,7 @@ export class Engine {
       ctx.beginPath(); ctx.ellipse(x + 8, baseY - 1.5, 5.5, 2, 0, 0, Math.PI * 2); ctx.fill();
     }
     const rainy = this.store.sky === 'rain' && !lie && !water && !this.areaDown && isOutdoor(MAP, p.tile.x, p.tile.y);
-    const hooded = rainy && !u.umbrella && !seat; // a hood replaces whatever is on the head (the everyday cap and any hat)
-    const base = u.effects?.length ? effectLook(u.look, u.effects) : u.look;
-    const sheet = this.assets.sheet(hooded && base.hat ? { ...base, hat: 0 } : base);
+    const sheet = this.assets.sheet(u.effects?.length ? effectLook(u.look, u.effects) : u.look);
     let frame = 0, bob = 0, dx = 0;
     const presenting = this.store.presentation?.presenter === u.id && !this.store.presentation.away;
     const dozing = this.dozing(u, p);
@@ -1468,7 +1472,7 @@ export class Engine {
       ctx.rotate(-Math.PI / 2); ctx.translate(-x - 8, -baseY + 1);
     }
     // effects: a sway for the whole figure, then layers behind and in front of the body (see effects.ts)
-    const fx = (hooded ? u.effects?.filter(e => e.kind !== 'hat') : u.effects)?.length ? (hooded ? u.effects.filter(e => e.kind !== 'hat') : u.effects) : null, seed = hash(u.id);
+    const fx = u.effects?.length ? u.effects : null, seed = hash(u.id);
     const sway = fx && !lie ? effectSway(fx, ms, seed, p) : null;
     if (sway && (sway.dx || sway.rot || sway.dy)) { ctx.save(); ctx.translate(x + 8 + sway.dx, baseY + sway.dy); ctx.rotate(sway.rot); ctx.translate(-x - 8, -baseY); }
     const top = baseY - c.frameH + bob + walkBob - 1 + (seat ? 2 : 0);
@@ -1479,14 +1483,14 @@ export class Engine {
     if (backpack && p.dir === 'down') drawBackpack();
     // at the door: already half out
     ctx.globalAlpha = u.door === 'leaving' && !p.walking ? 0.45 : dozing ? 0.72 : u.presence === 'away' ? 0.8 : 1;
+    if (rainy && u.umbrella) { const lift = this.hatLift(u); ctx.fillStyle = '#2a1f26'; ctx.fillRect(x + dx + 8, top - lift + 1, 1, lift + 14); } // the pole, behind the person
     ctx.drawImage(sheet, frame * c.frameW, row * c.frameH, c.frameW, c.frameH, x + dx, baseY - c.frameH + bob + walkBob - 1, c.frameW, c.frameH);
     if (backpack && p.dir !== 'down') drawBackpack();
     if (backpack && p.dir === 'down') { ctx.fillStyle = '#8b613d'; ctx.fillRect(x + dx + 4, top + 10, 1, 5); ctx.fillRect(x + dx + 11, top + 10, 1, 5); }
     if (carrying && !hand.behind) drawBag();
     ctx.globalAlpha = 1;
-    if (hooded) this.drawRainGear(ctx, u, x + dx, top, p.dir, !!seat, 'hood'); // hood up (under any hat) ...
     if (fxCtx) drawEffects('front', fxCtx, fx);
-    if (rainy) this.drawRainGear(ctx, u, x + dx, top - this.hatLift(u), p.dir, !!seat, 'umbrella'); // ... or the umbrella, over the hat
+    if (rainy && u.umbrella) this.drawUmbrella(ctx, u, x + dx, top - this.hatLift(u)); // over the hat
     if (sway && (sway.dx || sway.rot || sway.dy)) ctx.restore();
     const icon = u.holding && !carrying ? ITEM_ICON.get(u.holding) : undefined;
     if (icon) {

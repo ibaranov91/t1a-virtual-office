@@ -269,8 +269,8 @@ npm run typecheck    # run before every commit or deploy
   (returns 0 until the glow stick is wired). Weather (`clear|rain|fog`) is server state: scheduled in 2 h office-time blocks (`scheduledWeather`), admin override
   via GM panel (`gm_weather`, only the override is saved), broadcast as `weather`; `store.devWeather` forces a sky locally. Outdoors = `isOutdoor`. Rain is a scrolling
   pattern over outdoor rooms in view (~30 fps only while visible, focused and used within 10 min, else frozen at the 8 fps ambient cadence); fog is a cached radial
-  sprite plus drifting noise around you, and `fogHides` hides people past 6.5 tiles outdoors. Hood by default in rain outdoors; `umbrella` in pockets is public
-  (`PublicUser.umbrella`, `umbrella` message) and opens the umbrella. Windows are `toggle` objects (open/closed, shared and saved; they never reject a layout);
+  sprite plus drifting noise around you, and `fogHides` hides people past 6.5 tiles outdoors. `umbrella` in pockets is public
+  (`PublicUser.umbrella`, `umbrella` message) and opens a striped umbrella over the head (above any hat, pole behind the person). Windows are `toggle` objects (open/closed, shared and saved; they never reject a layout);
   open ones show rain/fog. `beach_flag` turns black in rain. Berghain's roof (found by room id) covers it unless you're inside.
 - **Room behavior is data.** Knock rules, meeting links and home-desk rooms live in `tilemap.json`
   (from `gen-map.mjs`), not in code.
