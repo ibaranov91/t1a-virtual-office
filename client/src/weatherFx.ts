@@ -1,6 +1,7 @@
 // Weather drawn on the floor: rain (a scrolling pattern clipped to the open sky), fog (one cached radial sprite that
-// follows your character), rain through open windows. Everything is cheap by construction: rain is a handful of
-// pattern fills over the outdoor rooms that are in view, fog is a single drawImage, and nothing allocates per frame.
+// follows your character, faded out toward the walls by a cached edge mask), rain through open windows. Everything is
+// cheap by construction: rain is a handful of pattern fills over the outdoor rooms that are in view, fog is a few
+// drawImage calls into one reused layer, and nothing allocates per frame.
 import type { Rect, TileMap } from '../../shared/map';
 import { FOG_CLEAR, FOG_FULL, FOG_MAX_ALPHA, OUTDOOR_ROOMS } from '../../shared/weather';
 
@@ -22,6 +23,9 @@ function rainTile(streaks: number, alpha: number, seed: number) {
   }
   return c;
 }
+
+/** How far in from the edge of the open sky the fog reaches full strength, in tiles. */
+const FOG_EDGE = 3;
 
 /** A tileable cloud of fog: three octaves of value noise, posterised into soft pixel-art steps, white-grey with varying alpha. */
 const FOG_SIZE = 128;
@@ -54,9 +58,35 @@ export class WeatherFx {
   readonly sky: Rect[];
   private near: CanvasPattern | null = null; private far: CanvasPattern | null = null; private pane: CanvasPattern | null = null; private clouds: CanvasPattern[] = [];
   private fogSprite: HTMLCanvasElement | null = null;
-  private skyPath: Path2D | null = null;
+  private fogMask: HTMLCanvasElement | null = null;   // one pixel per tile: how much fog that tile gets (0 by walls, 1 in the open)
+  private fogLayer: HTMLCanvasElement | null = null;  // the fog is drawn here, masked, then copied onto the floor
+  private readonly mapW: number; private readonly mapH: number;
   constructor(map: TileMap) {
     this.sky = map.rooms.filter(r => OUTDOOR_ROOMS.has(r.id)).map(r => ({ x: r.rect.x * TS, y: r.rect.y * TS, w: r.rect.w * TS, h: r.rect.h * TS }));
+    this.mapW = map.width; this.mapH = map.height;
+  }
+
+  /** The fog's edge mask: each outdoor tile's distance to the nearest wall or indoor tile (up to FOG_EDGE) sets its
+   *  alpha, with a little per-tile jitter so the edge is ragged like a cloud. Scaled up smoothly, it fades the fog out
+   *  over the last few tiles instead of stopping at the room's rectangle. */
+  private edgeMask() {
+    const W = this.mapW, H = this.mapH, open = new Uint8Array(W * H);
+    for (const r of this.sky) for (let y = r.y / TS; y < (r.y + r.h) / TS; y++) for (let x = r.x / TS; x < (r.x + r.w) / TS; x++) open[y * W + x] = 1;
+    const isOpen = (x: number, y: number) => x < 0 || y < 0 || x >= W || y >= H || open[y * W + x] === 1; // the world's edge is more sky
+    const c = document.createElement('canvas'); c.width = W; c.height = H;
+    const g = c.getContext('2d')!, img = g.createImageData(W, H);
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      if (!open[y * W + x]) continue;
+      let d = FOG_EDGE;
+      for (let r = 1; r <= FOG_EDGE && d === FOG_EDGE; r++) {
+        for (let j = -r; j <= r && d === FOG_EDGE; j++) for (let i = -r; i <= r; i++) if ((Math.abs(i) === r || Math.abs(j) === r) && !isOpen(x + i, y + j)) { d = r - 1; break; }
+      }
+      const h = (Math.imul(x * 73856093 ^ y * 19349663, 2654435761) >>> 0) / 4294967296; // jitter, fixed per tile
+      const a = Math.max(0, Math.min(1, d / FOG_EDGE + (d < FOG_EDGE ? (h - 0.5) * 0.35 : 0)));
+      img.data[(y * W + x) * 4 + 3] = Math.round(a * a * 255); // eased: thin at the edge, thickening inward
+    }
+    g.putImageData(img, 0, 0);
+    return c;
   }
 
   /** Does any open sky show in `view` (world pixels)? */
@@ -108,22 +138,34 @@ export class WeatherFx {
       g.fillStyle = gr; g.fillRect(0, 0, S, S);
     }
     const x = Math.round(cx - R), y = Math.round(cy - R);
-    if (!this.skyPath) { this.skyPath = new Path2D(); for (const r of this.sky) this.skyPath.rect(r.x, r.y, r.w, r.h); }
-    ctx.save(); ctx.clip(this.skyPath);
-    ctx.drawImage(this.fogSprite, x, y);
-    ctx.fillStyle = `rgba(196,206,214,${FOG_MAX_ALPHA})`;
-    ctx.fillRect(v.x0, v.y0, v.x1 - v.x0, y - v.y0); // above
-    ctx.fillRect(v.x0, y + S, v.x1 - v.x0, v.y1 - y - S); // below
-    ctx.fillRect(v.x0, y, x - v.x0, S); // left
-    ctx.fillRect(x + S, y, v.x1 - x - S, S); // right
+    // draw the fog for the whole view into a layer (world pixels), then keep only what the edge mask lets through
+    const vx = Math.floor(v.x0), vy = Math.floor(v.y0), vw = Math.ceil(v.x1) - vx, vh = Math.ceil(v.y1) - vy;
+    if (vw <= 0 || vh <= 0) return;
+    this.fogMask ??= this.edgeMask();
+    const layer = this.fogLayer ??= document.createElement('canvas');
+    if (layer.width < vw || layer.height < vh) { layer.width = Math.max(layer.width, vw); layer.height = Math.max(layer.height, vh); }
+    const l = layer.getContext('2d')!;
+    l.setTransform(1, 0, 0, 1, 0, 0); l.globalCompositeOperation = 'source-over'; l.globalAlpha = 1;
+    l.clearRect(0, 0, vw, vh);
+    l.setTransform(1, 0, 0, 1, -vx, -vy);
+    l.drawImage(this.fogSprite, x, y);
+    l.fillStyle = `rgba(196,206,214,${FOG_MAX_ALPHA})`;
+    l.fillRect(vx, vy, vw, y - vy); // above
+    l.fillRect(vx, y + S, vw, vy + vh - y - S); // below
+    l.fillRect(vx, y, x - vx, S); // left
+    l.fillRect(x + S, y, vx + vw - x - S, S); // right
     // drifting banks of fog over all of it: two clouds sliding past each other, thicker where the haze already is
-    if (!this.clouds.length) for (const [seed, scale] of [[5, 4], [77, 2]]) { const p = ctx.createPattern(fogTile(seed, scale), 'repeat'); if (p) this.clouds.push(p); }
+    if (!this.clouds.length) for (const [seed, scale] of [[5, 4], [77, 2]]) { const p = l.createPattern(fogTile(seed, scale), 'repeat'); if (p) this.clouds.push(p); }
     this.clouds.forEach((pat, i) => {
       const dx = (ms * (0.006 + i * 0.004)) % FOG_SIZE, dy = (ms * 0.002 * (i + 1)) % FOG_SIZE;
-      ctx.save(); ctx.translate(-dx, dy * (i ? -1 : 1)); ctx.fillStyle = pat; ctx.globalAlpha = i ? 0.55 : 0.8;
-      ctx.fillRect(v.x0 + dx, v.y0 - dy * (i ? -1 : 1), v.x1 - v.x0, v.y1 - v.y0);
-      ctx.restore();
+      l.save(); l.translate(-dx, dy * (i ? -1 : 1)); l.fillStyle = pat; l.globalAlpha = i ? 0.55 : 0.8;
+      l.fillRect(vx + dx, vy - dy * (i ? -1 : 1), vw, vh);
+      l.restore();
     });
-    ctx.restore();
+    // the edge mask, scaled up smoothly from one pixel per tile: no fog indoors, a soft ragged fade by the walls
+    l.globalCompositeOperation = 'destination-in'; l.imageSmoothingEnabled = true; l.imageSmoothingQuality = 'high';
+    l.drawImage(this.fogMask, 0, 0, this.mapW * TS, this.mapH * TS);
+    l.globalCompositeOperation = 'source-over';
+    ctx.drawImage(layer, 0, 0, vw, vh, vx, vy, vw, vh);
   }
 }
