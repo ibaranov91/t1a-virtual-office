@@ -64,7 +64,7 @@ const BAG_HAND: Record<string, { dx: number; behind: boolean }> = {
 };
 
 /** What a click landed on; the action wheel opens for it. */
-export type Pick = { kind: 'user' | 'object'; id: string };
+export type Pick = { kind: 'user' | 'object' | 'creature'; id: string }; // creature: the cleaner, when you hold an empty cup
 /** Something an admin can pick up in edit mode: a piece of furniture or a rug. */
 type Item = { id: string; x: number; y: number; w: number; h: number; type?: string; wall?: boolean; dir?: string; color?: string; pattern?: string };
 
@@ -286,6 +286,11 @@ export class Engine {
   anchor(p: Pick) {
     const k = this.px / (this.canvas.width / this.canvas.getBoundingClientRect().width);
     if (p.kind === 'user') { const s = this.screenPos(p.id); return s && { ...s, r: 13 * k }; }
+    if (p.kind === 'creature') { // tidy: the cleaner
+      const c = this.store.creatures.get(p.id); if (!c) return null;
+      const cp = creaturePose(c, this.store.now()), r = this.canvas.getBoundingClientRect();
+      return { x: r.left + (cp.x * TS + 8 - this.cam.x) * k, y: r.top + (cp.y * TS + TS - 12 - this.cam.y) * k, r: 12 * k };
+    }
     const o = objectById(MAP, p.id), fr = o && this.f(o.type);
     if (!o || !fr) return null;
     const r = this.canvas.getBoundingClientRect();
@@ -982,6 +987,7 @@ export class Engine {
     const plant = inside || this.areaDown ? null : this.plantAt(w.x, w.y);
     if (plant && this.nearDesk(plant.u)) { this.onPick?.(null); this.manualCam = false; return this.store.openStorage(plant.u.id); } // the desk plant is the storage
     const critter = inside || this.areaDown ? null : this.critters.at(w.x, w.y, this.store.now());
+    if (critter?.id && this.store.creatures.get(critter.id)?.kind === 'cleaner' && isEmpty(this.store.users.get(this.store.me)?.holding)) return this.onPick?.({ kind: 'creature', id: critter.id }); // hand her the empty cup (wheel)
     if (critter?.id) { this.onPick?.(null); this.manualCam = false; return this.store.pet(critter.id); }
     const cupHit = inside || this.areaDown ? null : this.critters.cupAt(w.x, w.y);
     if (cupHit) { this.onPick?.(null); this.manualCam = false; return this.store.takeCup(cupHit.id); }
@@ -1742,6 +1748,10 @@ export class Engine {
     if (sel.kind === 'user') {
       const p = poses.get(sel.id); if (!p) return;
       cx = p.x * TS + 8; cy = p.y * TS + TS - 1.5; rx = 7;
+    } else if (sel.kind === 'creature') {
+      const c = this.store.creatures.get(sel.id); if (!c) return;
+      const cp = creaturePose(c, this.store.now());
+      cx = cp.x * TS + 8; cy = cp.y * TS + TS - 1.5; rx = 7;
     } else {
       const o = objectById(MAP, sel.id); if (!o) return;
       cx = (o.x + o.w / 2) * TS; cy = (o.y + o.h) * TS - 1; rx = o.w * 8 + 1;

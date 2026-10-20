@@ -121,3 +121,68 @@ test('handing a full cocktail to someone makes you the designated driver', t => 
   w.setHolding(a.u, 'cocktail'); w.give(a.u, b.u);
   assert.equal(b.u.holding, 'cocktail'); assert.ok(a.u.achievements.designated);
 });
+
+// ---------- tidying: bring the cup back ----------
+test('an empty cup goes back to the coffee machine (tidy, no cleaner needed); the beer glass is refused there', t => {
+  const { w, tick, person, machine } = setup(t), a = person('A');
+  w.setHolding(a.u, 'empty:tea');
+  a.send({ t: 'cup_return', objectId: machine.id }); tick(10_000);
+  assert.equal(a.u.holding, null);
+  assert.ok(a.u.achievements.tidy);
+  assert.ok(a.messages.some(m => m.t === 'notice' && m.text.includes('Cup returned')));
+  const b = person('B', { x: 33, y: 8 });
+  w.setHolding(b.u, 'empty:beer');
+  b.send({ t: 'cup_return', objectId: machine.id }); tick(10_000);
+  assert.equal(b.u.holding, 'empty:beer', 'the coffee machine does not serve beer');
+  assert.equal(b.u.achievements.tidy, undefined);
+  b.send({ t: 'cup_return', objectId: 'nope' }); b.send({ t: 'cup_return' }); b.send({ t: 'cup_return', objectId: machine.id, creatureId: 'x' });
+  tick(1000);
+  assert.equal(b.u.holding, 'empty:beer');
+});
+
+test('an empty glass goes back to the beach bar', t => {
+  const { w, tick, person, bar } = setup(t), a = person('A');
+  w.setHolding(a.u, 'empty:beer');
+  a.send({ t: 'cup_return', objectId: bar.id }); tick(60_000);
+  assert.equal(a.u.holding, null);
+  assert.ok(a.u.achievements.tidy);
+  assert.ok(a.messages.some(m => m.t === 'notice' && m.text.includes('Glass returned')));
+});
+
+test('returning an empty and taking a new drink is one click', t => {
+  const { w, tick, person, machine } = setup(t), a = person('A');
+  w.setHolding(a.u, 'empty:coffee');
+  a.send({ t: 'use', objectId: machine.id, item: 'tea' }); tick(10_000);
+  assert.equal(a.u.holding, 'tea');
+  assert.ok(a.u.achievements.tidy);
+});
+
+test('handing an empty to the cleaner empties your hands and earns tidy; the cat and dog do nothing', t => {
+  const { w, tick, person } = setup(t), a = person('A'), b = person('B', { x: 33, y: 8 });
+  const lobby = w.map.rooms.find(r => r.id === 'lobby')!;
+  const lady = w.creatures.add('cleaner', 'Cleaning lady', lobby.stand[0]);
+  const cat = w.creatures.add('cat', 'Biscuit', { x: 34, y: 8 });
+  w.setHolding(a.u, 'empty:coffee'); w.setHolding(b.u, 'empty:coffee');
+  b.send({ t: 'cup_return', creatureId: cat.id }); tick(10_000);
+  assert.equal(b.u.holding, 'empty:coffee'); assert.equal(b.u.achievements.tidy, undefined);
+  a.send({ t: 'cup_return', creatureId: lady.id }); tick(20_000);
+  assert.equal(a.u.holding, null);
+  assert.ok(a.u.achievements.tidy);
+  assert.ok(lady.say, 'she says thanks');
+});
+
+test('clearing someone else\'s cup earns tidy with no cleaner about; your own cup earns nothing; bots never earn it', t => {
+  const { w, tick, person, machine } = setup(t), a = person('A'), b = person('B', { x: 33, y: 8 });
+  const cup = w.creatures.addCup(COUNTER, 'coffee', Date.now(), { by: b.u.id });
+  assert.ok(typeof cup === 'object');
+  a.send({ t: 'cup_take', cupId: cup.id }); tick(10_000);
+  assert.ok(a.u.achievements.tidy);
+  a.u.tile = { x: 32, y: 8 }; a.u.move = null; a.u.path = null; // out of the way
+  w.setHolding(b.u, 'empty:tea'); b.send({ t: 'cup_put', tile: COUNTER }); tick(10_000);
+  b.send({ t: 'cup_take', cupId: w.creatures.cups.at(-1)!.id }); tick(10_000);
+  assert.equal(b.u.holding, 'empty:tea'); assert.equal(b.u.achievements.tidy, undefined, 'picking your own cup up is only step one');
+  const bot = w.addUser('Bot', true, { x: 31, y: 8 }); bot.presence = 'online';
+  w.setHolding(bot, 'empty:coffee');
+  w.use(bot, machine.id, 'tea'); tick(10_000);
+  assert.equal(bot.holding, 'tea'); assert.equal(bot.achievements.tidy, undefined);
+});

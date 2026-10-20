@@ -348,6 +348,8 @@ export class Store {
   drink() { this.send({ t: 'drink' }); }
   putCup(tile: Tile) { this.send({ t: 'cup_put', tile }); }
   takeCup(cupId: string) { this.send({ t: 'cup_take', cupId }); }
+  /** Bring the empty cup/glass in your hand back to a counter, or hand it to the cleaner. */
+  returnCup(to: { objectId: string } | { creatureId: string }) { this.send({ t: 'cup_return', ...to }); }
   pet(creatureId: string) { this.send({ t: 'pet', creatureId }); }
   devBat() { this.send({ t: 'dev_bat' }); }
   lunch(tile: Tile, open: boolean) { this.send({ t: 'lunch', tile, open }); }

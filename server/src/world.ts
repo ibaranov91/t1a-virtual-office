@@ -732,12 +732,12 @@ export class World {
 
   // ---------- objects ----------
   /** Walk over to an object and use it: take something from it, or flip it on/off. */
-  use(u: User, objectId: string, itemId?: string) {
+  use(u: User, objectId: string, itemId?: string, returnOnly = false) {
     this.cancelSeatWalk(u.id);
     const o = this.map.objects.find(o => o.id === objectId);
     if (!o || !routes(o.use, 'use') || goingOut(u) || (u.instance && (underground(u) || o.use.kind !== 'presentation')) || u.presence === 'offline' || ((o.use.kind === 'arcade' || o.use.kind === 'table' || o.use.kind === 'retro' || o.use.kind === 'presentation' || o.use.kind === 'room_start' || o.use.kind === 'tickets' || o.use.kind === 'shop' || o.use.kind === 'cashier' || o.use.kind === 'kettle' || o.use.kind === 'gacha') && u.bot)) return;
-    const item = o.use.kind === 'take' ? (itemId === undefined ? o.use.items[0] : o.use.items.find(i => i.id === itemId)) : null;
-    if (o.use.kind === 'take' && !item) return;
+    const item = o.use.kind === 'take' && !returnOnly ? (itemId === undefined ? o.use.items[0] : o.use.items.find(i => i.id === itemId)) : null;
+    if (o.use.kind === 'take' && !item && !returnOnly) return;
     if (o.use.kind === 'toilet') return this.useToilet(u, o);
     this.setFollowing(u, null);
     clearTimeout(this.errands.get(u.id));
@@ -789,8 +789,15 @@ export class World {
         const hat = hatOf(want);
         if (this.addItem(u, want)) this.sendTo(u.id, { t: 'notice', text: hat ? `${HAT_NAMES[hat] ?? hat} · in your pockets 🎒` : phrase('bouncer', 'deal') });
       }
-      else if (item) {
-        if (current.use.kind !== 'take' || !current.use.items.some(i => i.id === item.id)) return;
+      else if (current.use.kind === 'take') {
+        // v2 tidy: an empty cup or glass this counter serves goes back first (then the new drink, if one was asked for)
+        const empty = emptyDrink(u.holding);
+        if (empty && current.use.items.some(i => i.id === empty)) {
+          this.setHolding(u, null);
+          this.sendTo(u.id, { t: 'notice', text: DRINKS[empty]?.glass ? '🍸 Glass returned' : '☕ Cup returned' });
+          this.tidied(u, Date.now());
+        }
+        if (!item || !current.use.items.some(i => i.id === item.id)) return;
         this.setHolding(u, item.id, o.id); // a drink does its thing when it's drunk (sip), not when it's taken
       }
     }, Math.max(0, at - Date.now()) + (o.use.kind === 'arcade' || o.use.kind === 'table' || o.use.kind === 'retro' ? 0 : USE_MS[o.use.kind])));
@@ -993,9 +1000,59 @@ export class World {
         return;
       }
       this.creatures.removeCup(cupId);
-      if (cup.by === u.id && !u.holding) { this.setHolding(u, emptyOf(cup.item)); return; } // picked your own cup back up
-      if (this.creatures.praise(this.roomOf(u)?.id, now) && !u.achievements.tidy) { this.award(u, 'tidy', now); this.plantChanged(u); }
+      if (cup.by === u.id && !u.holding) { this.setHolding(u, emptyOf(cup.item)); return; } // picked your own cup back up: step one of tidying
+      this.creatures.praise(this.roomOf(u)?.id, now); // she says so if she's in the room; the award doesn't need her
+      this.tidied(u, now);
     });
+  }
+  /** Tidy soul: awarded once, for bringing a cup back, handing it to the cleaner or clearing someone else's. Never for bots. */
+  private tidied(u: User, now: number) {
+    if (u.bot || u.achievements.tidy) return;
+    this.award(u, 'tidy', now); this.plantChanged(u);
+  }
+  /** `cup_return`: bring the empty cup or glass in your hand back to a counter that serves it, or hand it to the cleaner. */
+  returnCup(u: User, objectId?: string, creatureId?: string) {
+    if ((objectId === undefined) === (creatureId === undefined)) return;
+    const drink = emptyDrink(u.holding);
+    if (!drink || u.bot || u.instance || goingOut(u) || u.presence === 'offline') return;
+    if (objectId !== undefined) {
+      const o = this.map.objects.find(o => o.id === objectId);
+      if (o?.use?.kind !== 'take' || !o.use.items.some(i => i.id === drink)) return;
+      return this.use(u, objectId, undefined, true);
+    }
+    const c = this.creatures.list.get(creatureId!);
+    if (c?.kind !== 'cleaner') return;
+    const held = u.holding;
+    this.toCreature(u, c.id, () => {
+      if (u.holding !== held) return;
+      this.setHolding(u, null);
+      this.creatures.thank(Date.now());
+      this.tidied(u, Date.now());
+    });
+  }
+  /** Walk to a spot beside a creature and, if you got there and it's still within a tile, do `then`. */
+  private toCreature(u: User, creatureId: string, then: () => void) {
+    const c = this.creatures.list.get(creatureId);
+    if (!c) return;
+    const near = (t: Tile) => Math.max(Math.abs(t.x - c.tile.x), Math.abs(t.y - c.tile.y)) <= 1;
+    const finish = () => { const cur = this.creatures.list.get(creatureId); if (cur && near(this.position(u).dest) && !u.instance) then(); };
+    const here = this.position(u).next;
+    if (near(here)) { this.cancelSeatWalk(u.id); return finish(); }
+    const occ = this.occupied();
+    const spots = this.creatures.beside(c.tile).filter(s => !occ.has(`${s.x},${s.y}`))
+      .map(s => ({ s, len: findPath(this.map, here, s).length })).filter(p => p.len);
+    spots.sort((a, b) => a.len - b.len);
+    const spot = spots[0]?.s;
+    if (!spot) return;
+    this.cancelSeatWalk(u.id); this.setFollowing(u, null);
+    clearTimeout(this.errands.get(u.id));
+    const at = this.walk(u, spot, dirBetween(spot, c.tile)) ?? Date.now();
+    this.errands.set(u.id, setTimeout(() => {
+      this.errands.delete(u.id);
+      const d = this.position(u).dest;
+      if (d.x !== spot.x || d.y !== spot.y || u.instance) return;
+      finish();
+    }, Math.max(0, at - Date.now()) + 200));
   }
   /** Walk to the nearest free spot beside a table tile, face it, then (if still there) do `then`. */
   private atTable(u: User, tile: Tile, then: () => void) {
@@ -3016,6 +3073,7 @@ export class World {
       case 'pomodoro': this.pomodoro(u, msg.op === 'start' ? 'start' : 'stop', msg.focus, msg.rest); break;
       case 'cup_put': if (msg.tile) this.putCup(u, { x: msg.tile.x | 0, y: msg.tile.y | 0 }); break;
       case 'cup_take': this.takeCup(u, String(msg.cupId)); break;
+      case 'cup_return': this.returnCup(u, msg.objectId === undefined ? undefined : String(msg.objectId), msg.creatureId === undefined ? undefined : String(msg.creatureId)); break;
       case 'give': { const to = this.users.get(String(msg.targetId)); if (to) this.give(u, to); break; }
       case 'bite': this.bite(u, String(msg.targetId)); break;
       case 'present_slide': this.present?.slide(u.id, msg.slide); break;

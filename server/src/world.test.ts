@@ -1435,7 +1435,7 @@ test('ringing the bell the first time earns the bellringer achievement, once', t
   assert.equal(a.u.achievements.bellringer, earned, 'earned once, when first rung');
 });
 
-test('clicking a cup walks you over and clears it; the cleaner praises you (and you earn tidy) only from the same room', t => {
+test('clicking a cup walks you over and clears it; the cleaner praises you (and you earn tidy) (praise only in the same room)', t => {
   const { w, person, tick } = people(t);
   const counter = { x: 30, y: 3 }, lobby = w.map.rooms.find(r => r.id === 'lobby')!;
   const a = person('A', undefined, { x: 32, y: 8 });
@@ -1450,7 +1450,7 @@ test('clicking a cup walks you over and clears it; the cleaner praises you (and 
   assert.equal(a.u.holding, null, 'not picked up: tidied away');
   assert.ok(Math.max(Math.abs(a.u.tile.x - counter.x), Math.abs(a.u.tile.y - counter.y)) <= 1, 'walked over to it');
   assert.equal(lady.say, undefined, 'the cleaner was in the Lobby: nobody saw');
-  assert.equal(a.u.achievements.tidy, undefined);
+  assert.ok(a.u.achievements.tidy, 'tidy needs no audience');
 
   w.creatures.list.get('cleaner')!.tile = w.map.rooms.find(r => r.id === 'coffee')!.stand[0];
   const second = cupOn({ x: 28, y: 3 });
