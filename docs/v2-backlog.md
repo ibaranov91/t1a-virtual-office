@@ -88,6 +88,8 @@ What already shipped into `v2` is listed at the end.
 | IT-6 | Better inventory UI | todo | | M | | local | |
 | IT-7 | Item powers: an `ability` on items with one simple use flow; first one a portal gun that teleports you to someone | todo | | M | EN-2 | local | temporary admin-like powers for everyone |
 | IT-8 | More toys (see NP-6, NP-7) | idea | | | | | |
+| IT-9 | You can't pick up (or be given, or take from the shop or gacha) an item you already have one of; refuse with a notice instead of letting a copy vanish | todo | | S | | local | today one-of-a-kind items can silently disappear |
+| IT-10 | Admins can delete items lying on the floor (wheel action or GM panel) | todo | | S | | local | |
 
 ## 8. Events and social
 | ID | Task | Status | Owner | Size | Depends on | Test | Notes |
