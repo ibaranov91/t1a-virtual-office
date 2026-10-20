@@ -3,8 +3,8 @@ import { BannerStore, BannerError, validateBanner } from './banners';
 import { ticketNo, type Banner, type Ticket } from '../../shared/protocol';
 import { randomUUID } from 'node:crypto';
 import {
-  adminOnly, applyEdit, inRect, stallDoor, stallLine, stallVoiceId, tableVoiceId, applyLayout, besideObject, playSpots, dirBetween, doorwayTiles, KEEP_TYPES, migrateBeach, resetBeach, migrateEastWing, layoutProblem, objectName, voiceRooms, findPath, isWalkable, pathDuration, pathTo, roomAt, routes, sampleMove, seatAt, uniqueIds, withLayout, WALK_MS_PER_TILE,
-  type MapObject, type Dir, type Layout, type Room, type Spot, type TileMap, type Tile,
+  adminOnly, applyEdit, inRect, stallDoor, stallLine, stallVoiceId, tableVoiceId, applyLayout, besideObject, playSpots, dirBetween, doorwayTiles, KEEP_TYPES, migrateBeach, resetBeach, migrateEastWing, migratePlaces, layoutProblem, objectName, voiceRooms, findPath, isWalkable, pathDuration, pathTo, roomAt, routes, sampleMove, seatAt, uniqueIds, withLayout, WALK_MS_PER_TILE,
+  type MapObject, type ObjectUse, type Dir, type Layout, type Room, type Spot, type TileMap, type Tile,
 } from '../../shared/map';
 import {
   CALL_SILENCE_MS, NOTE_RATE, NOTE_BURST, TOILET_SHELF_ITEM, toiletFull, NOTE_HELD_MAX, SEAT_CHANGES_PER_10S, DUNGEON_INSTANCE, goingOut, LOOK_COLORS, underground, MAX_CALL_SIZE, LATER_MAX, MEETING_ROOM_ID, MAX_CHAT_LEN, normalizeMeetLink, REACTIONS, ROOM_VOICE_MAX,
@@ -15,9 +15,11 @@ import {
   PRISON_HAT, PRISON_MS, STORAGE_LOG_MAX, canCarry, holdsForever, isHatItem, isThrowable, itemDef, newContainer, pocketProblem,
   type ContainerRef, type ItemContainer,
 } from '../../shared/items';
-import { FOOD_ITEMS, LUNCH_MS, PLATE_PREFIX, picnicSeat, type Eating } from '../../shared/lunch';
+import { FOOD_ITEMS, KITCHEN_TABLES, LUNCH_MS, PLATE_PREFIX, eatSpot, picnicSeat, type Eating } from '../../shared/lunch';
 import { INSTRUMENTS, validNote } from '../../shared/instruments';
-import { phrase } from '../../shared/phrases';
+import { phrase, keikoCheckout } from '../../shared/phrases';
+import { shopProblem, shopTake, takenToday, type ShopTaken } from '../../shared/shop';
+import { advancePomodoro, startPomodoro } from '../../shared/pomodoro';
 import { ALCOHOL_ITEMS, DRINKS, EMPTY_DROP_DRUNK_MS, EMPTY_DROP_MS, emptyDrink, emptyOf, isEmpty } from '../../shared/drinks';
 import { ADMIN_HAT, ALL_HATS, BAT_HAT, BITE_MS, DANCE_ROOM, DRUNK_MAX_LEVEL, DRUNK_MAX_MS, DRUNK_MISWALK, DRUNK_NAMES, EFFECTS, HAT_NAMES, MAX_EFFECTS, RAVER_MS, drunkLevel, effectOf, hatItem, hatOf, walkMs } from '../../shared/effects';
 import { tracksFor } from '../../shared/music';
@@ -51,6 +53,7 @@ export interface User extends PublicUser {
   danced?: number;     // ms spent dancing in Berghain, in total (saved; toward the `raver` achievement)
   items: string[];     // pockets (shared/items.ts: at most POCKET_MAX that count, hats are free); only sent to the owner
   storage?: ItemContainer; // desk storage (the plant on your home desk): no size limit; its log says who took what (owner only)
+  shop?: ShopTaken;        // what this person took from the 7/11 shelves today (office day; saved, owner only)
   prisonUntil?: number;    // a thief's prison hat can't come off before this (saved); only office admins can take it off earlier
   email?: string;       // identity from NetBird; never broadcast
   meetLink?: string;    // personal reusable Google Meet room; only shared with knock partners
@@ -102,7 +105,7 @@ const PROP_TTL_MS = 15 * 60_000;  // a thrown or dropped item lies about this lo
 const THROW_RANGE = 10;           // tiles: how far you can throw something at someone
 const STORAGE_REACH = 4;          // tiles from the desk's chair: how close you must stand to open its storage
 const BOT_SIP_MS = 20_000;   // bots and offline beach walkers have no Drink button: a cocktail sips itself
-const USE_MS = { take: 1200, toggle: 150, toilet: 300, dealer: 350, bell: 100, presentation: 100, room_start: 100, tickets: 100 }; // brewing a coffee vs flicking a switch
+const USE_MS = { take: 1200, toggle: 150, toilet: 300, dealer: 350, bell: 100, presentation: 100, room_start: 100, tickets: 100, shop: 100, cashier: 100, kettle: 500, gacha: 100 }; // brewing a coffee vs flicking a switch
 const ARRIVAL_SLACK_MS = 50; // timers can fire a millisecond before the walk is over
 
 /** Office admins rearrange the furniture: NetBird emails, or (only for name logins, so dev) plain names. */
@@ -244,7 +247,7 @@ export class World {
     for (const o of map.objects) if (o.use?.kind === 'toggle') this.objectOn.set(o.id, o.on ?? true);
     this.syncJukeboxes();
     setInterval(() => this.beach.tick(), 1000).unref();
-    setInterval(() => { const now = Date.now(); this.voiceTick(now); this.jukeboxTick(now); this.instrumentTick(now); this.effectsTick(now); this.lunchTick(now); this.laterTick(now); this.toilets.tick(now); this.present?.tick(); }, 250).unref();
+    setInterval(() => { const now = Date.now(); this.voiceTick(now); this.jukeboxTick(now); this.instrumentTick(now); this.effectsTick(now); this.lunchTick(now); this.pomodoroTick(now); this.laterTick(now); this.toilets.tick(now); this.present?.tick(); }, 250).unref();
   }
 
   // ---------- transport ----------
@@ -279,7 +282,7 @@ export class World {
       jukebox: Object.fromEntries([...this.jukeboxes].map(([id, j]) => [id, j.state])) };
   }
   private toPublic = (u: User): PublicUser => {
-    const { path: _p, email: _e, meetLink: _m, google: _g, offlineAt: _o, lastSpot: _l, resume: _rs, presenceBeforeCall: _b, prev: _v, returnTo: _r, walkSeq: _s, dungeon: _d, lastKeySpot: _k, dungeonTimers: _t, items: _i, storage: _st, prisonUntil: _pu, ...pub } = u;
+    const { path: _p, email: _e, meetLink: _m, google: _g, offlineAt: _o, lastSpot: _l, resume: _rs, presenceBeforeCall: _b, prev: _v, returnTo: _r, walkSeq: _s, dungeon: _d, lastKeySpot: _k, dungeonTimers: _t, items: _i, storage: _st, prisonUntil: _pu, shop: _sh, ...pub } = u;
     return pub;
   };
 
@@ -719,7 +722,7 @@ export class World {
   use(u: User, objectId: string, itemId?: string) {
     this.cancelSeatWalk(u.id);
     const o = this.map.objects.find(o => o.id === objectId);
-    if (!o || !routes(o.use, 'use') || goingOut(u) || (u.instance && (underground(u) || o.use.kind !== 'presentation')) || u.presence === 'offline' || ((o.use.kind === 'arcade' || o.use.kind === 'table' || o.use.kind === 'retro' || o.use.kind === 'presentation' || o.use.kind === 'room_start' || o.use.kind === 'tickets') && u.bot)) return;
+    if (!o || !routes(o.use, 'use') || goingOut(u) || (u.instance && (underground(u) || o.use.kind !== 'presentation')) || u.presence === 'offline' || ((o.use.kind === 'arcade' || o.use.kind === 'table' || o.use.kind === 'retro' || o.use.kind === 'presentation' || o.use.kind === 'room_start' || o.use.kind === 'tickets' || o.use.kind === 'shop' || o.use.kind === 'cashier' || o.use.kind === 'kettle' || o.use.kind === 'gacha') && u.bot)) return;
     const item = o.use.kind === 'take' ? (itemId === undefined ? o.use.items[0] : o.use.items.find(i => i.id === itemId)) : null;
     if (o.use.kind === 'take' && !item) return;
     if (o.use.kind === 'toilet') return this.useToilet(u, o);
@@ -763,6 +766,10 @@ export class World {
       else if (current.use.kind === 'presentation') { if (!u.bot) this.sendTo(u.id, { t: 'present_open', objectId: current.id }); }
       else if (current.use.kind === 'room_start') { if (!u.bot) this.sendTo(u.id, { t: 'room_open' }); }
       else if (current.use.kind === 'tickets') { if (!u.bot) this.sendTo(u.id, { t: 'terminal_open', objectId: current.id }); }
+      else if (current.use.kind === 'shop') this.sendTo(u.id, { t: 'shop_open', taken: takenToday(u.shop) });
+      else if (current.use.kind === 'cashier') this.cashierTalk(u, current);
+      else if (current.use.kind === 'kettle') this.fillNoodles(u, current);
+      else if (current.use.kind === 'gacha') this.gachaUse(u, current);
       else if (o.use!.kind === 'toggle') this.setObject(o.id, !this.objectOn.get(o.id), u);
       else if (current.use.kind === 'dealer') {
         const want = itemId && current.use.items.includes(itemId) ? itemId : current.use.items[0];
@@ -775,6 +782,55 @@ export class World {
       }
     }, Math.max(0, at - Date.now()) + (o.use.kind === 'arcade' || o.use.kind === 'table' || o.use.kind === 'retro' ? 0 : USE_MS[o.use.kind])));
   }
+  // ---------- v2 places: the 7/11, the kettle, the pomodoro ----------
+  /** Standing beside an object of this kind (you walked up to it). */
+  private besideKind(u: User, kind: ObjectUse['kind']) {
+    const here = this.position(u).dest;
+    return !u.instance && this.map.objects.some(o => o.use?.kind === kind && besideObject(this.map, o).some(s => s.x === here.x && s.y === here.y));
+  }
+  /** Keiko speaks: a bubble over her for everyone. */
+  private keikoSays(text: string) { const k = this.map.objects.find(o => o.type === 'keiko'); if (k) this.broadcast({ t: 'npc_say', objectId: k.id, text }); }
+  /** Take one free thing off the shelves: SHOP_DAILY_MAX per person per office day, into the pockets (else the hands). */
+  shopTake(u: User, item: string, now = Date.now()) {
+    if (u.bot || u.presence === 'offline' || u.instance || !this.besideKind(u, 'shop')) return;
+    const say = (text: string) => this.sendTo(u.id, { t: 'notice', text });
+    const problem = shopProblem(u.shop, item, now), def = itemDef(item);
+    if (problem || !def) return say(problem ?? 'Not on the shelves');
+    let full = def.pocket === 'no' ? '' : this.moveItem(item, { kind: 'void' }, { kind: 'pockets', id: u.id }, null); // pockets first, then the hands
+    if (full !== null) full = this.moveItem(item, { kind: 'void' }, { kind: 'hands', id: u.id }, null);
+    if (full) return say(def.pocket === 'no' ? full : 'Your pockets and hands are full');
+    u.shop = shopTake(u.shop, item, now);
+    const taken = takenToday(u.shop, now);
+    this.sendTo(u.id, { t: 'shop', taken });
+    this.keikoSays(keikoCheckout(taken, taken.map(i => itemDef(i)?.label ?? i)));
+  }
+  /** Click the counter: Keiko says something. */
+  private cashierTalk(u: User, _o: MapObject) { if (!u.bot) this.keikoSays(phrase('keiko', 'talk')); }
+  /** The kettle fills the dry cup noodles in your hands (or takes them out of your pockets first). */
+  private fillNoodles(u: User, o: MapObject) {
+    if (u.holding !== 'cup_noodles' && !u.holding && u.items.includes('cup_noodles')) this.takeOut(u, 'cup_noodles');
+    if (u.holding !== 'cup_noodles') return void this.sendTo(u.id, { t: 'notice', text: '🥡 Hold dry cup noodles to fill them (the 7/11 has them)' });
+    this.setHolding(u, 'hot_noodles', o.id);
+    this.sendTo(u.id, { t: 'notice', text: '🍜 Hot noodles: eat them at a table' });
+  }
+  /** Your personal pomodoro: start (25/5 by default) or stop. Public while it runs. */
+  pomodoro(u: User, op: 'start' | 'stop', focus?: unknown, rest?: unknown, now = Date.now()) {
+    if (u.bot) return;
+    if (op === 'stop') { if (u.pomodoro) { delete u.pomodoro; this.broadcast({ t: 'pomodoro', userId: u.id, pomodoro: null }); } return; }
+    u.pomodoro = startPomodoro(now, focus, rest);
+    this.broadcast({ t: 'pomodoro', userId: u.id, pomodoro: u.pomodoro });
+  }
+  pomodoroTick(now = Date.now()) {
+    for (const u of this.users.values()) {
+      if (!u.pomodoro) continue;
+      const r = advancePomodoro(u.pomodoro, now); if (!r) continue;
+      if (r.next) u.pomodoro = r.next; else delete u.pomodoro;
+      this.broadcast({ t: 'pomodoro', userId: u.id, pomodoro: r.next, chime: r.next ? 'break' : 'done' });
+    }
+  }
+  // ---------- gacha (placeholder: the item session replaces this body) ----------
+  private gachaUse(u: User, _o: MapObject) { if (!u.bot) this.sendTo(u.id, { t: 'notice', text: '🎰 Out of order' }); }
+
   // ---------- bug terminal ----------
   /** Everyone who can see this ticket (its author and every office admin) gets their fresh list. */
   private ticketsChanged(t: Ticket) {
@@ -995,8 +1051,15 @@ export class World {
   /** Eat the food you're holding in this picnic chair: walk over, sit, and for LUNCH_MS you're eating (a plate on the table). */
   lunch(u: User, tile: Tile, open: boolean) {
     if (!u.holding || !FOOD_ITEMS.includes(u.holding) || u.instance || goingOut(u) || u.presence === 'offline') return;
-    const spot = picnicSeat(this.map, tile);
-    if (!spot) return this.sendTo(u.id, { t: 'notice', text: 'Eat at a chair by a picnic table' });
+    let spot = eatSpot(this.map, tile);
+    if (!spot) { // a click on a kitchen table itself: the free tile beside it closest to you
+      const table = this.map.objects.find(o => KITCHEN_TABLES.includes(o.type) && inRect(o, tile.x, tile.y)), me = this.position(u).next, occ = this.occupied();
+      const free = table ? besideObject(this.map, table).filter(s => eatSpot(this.map, s) && (!occ.has(`${s.x},${s.y}`) || (s.x === me.x && s.y === me.y))) : [];
+      free.sort((a, b) => Math.abs(a.x - me.x) + Math.abs(a.y - me.y) - Math.abs(b.x - me.x) - Math.abs(b.y - me.y));
+      if (free[0]) { tile = { x: free[0].x, y: free[0].y }; spot = eatSpot(this.map, tile); }
+    }
+    if (!spot) return this.sendTo(u.id, { t: 'notice', text: 'Eat at a picnic table or beside a kitchen table' });
+    const kitchen = !picnicSeat(this.map, tile);
     const here = this.position(u).next, mine = here.x === tile.x && here.y === tile.y;
     if (!mine && this.occupied().has(`${tile.x},${tile.y}`)) return this.sendTo(u.id, { t: 'notice', text: 'Someone is sitting there' });
     this.setFollowing(u, null);
@@ -1010,7 +1073,7 @@ export class World {
       if (d.x !== tile.x || d.y !== tile.y || u.holding !== item || u.instance || u.presence === 'offline' || goingOut(u)) return; // changed their mind
       this.setHolding(u, null);
       const now = Date.now();
-      this.setEating(u, { item, until: now + LUNCH_MS, open });
+      this.setEating(u, { item, until: now + LUNCH_MS, open: kitchen ? true : open }); // the kitchen is open talk already: knocks welcome, but no table voice (tableOf only knows picnic tables)
       const { table, front } = spot, tiles = [front];
       for (let y = table.y; y < table.y + table.h; y++) for (let x = table.x; x < table.x + table.w; x++) tiles.push({ x, y });
       for (const t of tiles) if (typeof this.creatures.addCup(t, PLATE_PREFIX + item, now) !== 'string') break; // in front of you, else anywhere free on the table
@@ -2656,6 +2719,8 @@ export class World {
       case 'dev_bat': if (this.creatures.batAlways) { this.creatures.batBackAt = 0; this.creatures.wantBat(Date.now()); } break;
       case 'lunch': if (msg.tile) this.lunch(u, { x: msg.tile.x | 0, y: msg.tile.y | 0 }, !!msg.open); break;
       case 'lunch_open': this.lunchOpen(u, !!msg.open); break;
+      case 'shop_take': this.shopTake(u, String(msg.item)); break;
+      case 'pomodoro': this.pomodoro(u, msg.op === 'start' ? 'start' : 'stop', msg.focus, msg.rest); break;
       case 'cup_put': if (msg.tile) this.putCup(u, { x: msg.tile.x | 0, y: msg.tile.y | 0 }); break;
       case 'cup_take': this.takeCup(u, String(msg.cupId)); break;
       case 'give': { const to = this.users.get(String(msg.targetId)); if (to) this.give(u, to); break; }
@@ -2696,7 +2761,7 @@ export class World {
       version: STATE_VERSION,
       roomModes: { ...this.roomModes },
       users: [...this.users.values()].map(u => {
-        return { id: u.id, name: u.name, nameSet: u.nameSet, email: u.email, meetLink: u.meetLink, google: u.google, vacation: u.vacation, homeDesk: u.homeDesk, look: u.look, banner: u.banner, lookSet: u.lookSet, tile: underground(u) ? this.dungeonExit(false) : u.tile, dir: u.dir, status: u.status, presence: u.presence, bot: u.bot, plant: u.plant, bloomed: u.bloomed, achievements: u.achievements, effects: u.effects.filter(e => e.until === undefined), items: u.items, storage: u.storage, prisonUntil: u.prisonUntil, held: u.holding && holdsForever(u.holding) ? u.holding : undefined, danced: u.danced, dnd: u.dnd || undefined,
+        return { id: u.id, name: u.name, nameSet: u.nameSet, email: u.email, meetLink: u.meetLink, google: u.google, vacation: u.vacation, homeDesk: u.homeDesk, look: u.look, banner: u.banner, lookSet: u.lookSet, tile: underground(u) ? this.dungeonExit(false) : u.tile, dir: u.dir, status: u.status, presence: u.presence, bot: u.bot, plant: u.plant, bloomed: u.bloomed, achievements: u.achievements, effects: u.effects.filter(e => e.until === undefined), items: u.items, storage: u.storage, prisonUntil: u.prisonUntil, held: u.holding && holdsForever(u.holding) ? u.holding : undefined, shop: u.shop, danced: u.danced, dnd: u.dnd || undefined,
           resume: (!u.bot && u.presence !== 'offline' && !goingOut(u) && !u.instance && !this.toilets.inside(u.id)) || undefined }; // meetings and stalls don't survive a restart
       }),
       objects: Object.fromEntries(this.objectOn),
@@ -2724,7 +2789,7 @@ export class World {
     if (version > STATE_VERSION) console.warn(`state.json is version ${version}, newer than this build (${STATE_VERSION}); unknown fields are dropped on the next save`);
     // saved in the radio days: the radio goes (withNewFixtures then brings in the jukebox)
     // ... and the Meeting room's whiteboard: the screen is its one board now (withNewFixtures then reshapes the screen into its spot)
-    if (data.layout) data.layout = { ...data.layout, objects: data.layout.objects.filter(o => o.type !== 'radio' && o.type !== 'whiteboard') };
+    if (data.layout) data.layout = { ...data.layout, objects: data.layout.objects.filter(o => o.type !== 'radio' && o.type !== 'whiteboard' && o.type !== 'terminal' && o.type !== 'pomodoro_timer') }; // v2: the bug terminal is the suggestions board, the pomodoro is a timer in your strip
     // The Music TV replaces the right window, keeping all other saved furniture in place.
     if (version < 2 && data.layout) {
       const objects = data.layout.objects.filter(o => !(o.type === 'window' && o.x === 60 && o.y === 1));
@@ -2743,7 +2808,7 @@ export class World {
         if (!covers(r)) return true;
         console.warn(`saved ${r.color} rug dropped: covers the hole or hatch`); return false;
       });
-      let migrated = migrateBookClub(migrateLibrary(migrateEastWing({ objects, rugs }, this.baseLayout), this.baseLayout, this.map), this.baseLayout, this.map);
+      let migrated = migratePlaces(migrateBookClub(migrateLibrary(migrateEastWing({ objects, rugs }, this.baseLayout), this.baseLayout, this.map), this.baseLayout, this.map), this.baseLayout);
       if (version < 3) migrated = migrateBeach(migrated, this.baseLayout, this.map);
       if (version < 4) migrated = resetBeach(migrated, this.baseLayout, this.map);
       if (version < 5) migrated = resetBeach(migrated, this.baseLayout, this.map);

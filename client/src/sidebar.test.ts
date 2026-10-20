@@ -19,9 +19,9 @@ function view(...us: ClientUser[]): View {
     callPeers(u) { return [...this.users.values()].filter(p => p.id !== u.id && !!u.callId && p.callId === u.callId); },
     names: us => us.map(u => u.name).join(' and '), clock: () => '14:30', instruments: {}, jukebox: {}, presentation: null, sysadmin: false };
 }
-test('all 18 rooms derive their groups from rules, in map order', () => {
-  const expected = { voice: ['Coffee', 'Music', 'Arcade', 'Book Club'], knock: ['Lobby', 'Co-working', 'Desks', 'Orangery', 'Garden', 'Admin', 'Berghain', 'Terrace', 'Mountains', 'Beach'], quiet: ['Focus', 'Meeting', 'Studio', 'Library'] };
-  assert.equal(map.rooms.length, 18);
+test('all 20 rooms derive their groups from rules, in map order', () => {
+  const expected = { voice: ['Coffee', 'Music', 'Arcade', 'Book Club'], knock: ['Lobby', 'Co-working', 'Desks', 'Orangery', 'Garden', 'Admin', 'Berghain', 'Terrace', 'Mountains', 'Beach', '7/11', 'Terminal'], quiet: ['Focus', 'Meeting', 'Studio', 'Library'] };
+  assert.equal(map.rooms.length, 20);
   for (const [id, names] of Object.entries(expected)) assert.deepEqual(map.rooms.filter(r => roomGroup(r) === id).map(r => r.name).sort(), names.sort());
   const tree = channelTree(view(), map);
   assert.deepEqual(tree.map(g => g.id), ['voice', 'knock', 'quiet']);
@@ -96,7 +96,8 @@ test('every activity branch, precedence and status joining', () => {
   assert.equal(activityLine(v, { ...base, reading: 'a' }), '📖 reading');
 });
 test('room things include wall fixtures, dedupe clocks and exclude on-site actions', () => {
-  const expected: Record<string, string[]> = { music: ['jukebox', 'youtube'], cowork: ['meetings', 'clock', 'calendar'], lobby: ['achievements', 'link', 'tickets'], arcade: ['records'], library: ['library'], focus: [], coffee: ['calendar'], berghain: ['jukebox'], meeting: ['room_start'] };
+  const expected: Record<string, string[]> = { music: ['jukebox', 'youtube'], cowork: ['meetings', 'clock', 'calendar', 'achievements'], // the trophy case
+    lobby: ['achievements', 'link', 'tickets'], arcade: ['records'], library: ['library'], focus: [], coffee: ['calendar'], berghain: ['jukebox'], meeting: ['room_start'] };
   for (const [id, kinds] of Object.entries(expected)) assert.deepEqual(roomThings(map, room(id)).map(o => o.use!.kind).sort(), kinds.sort(), id);
   const box = roomThings(map, room('music')).find(o => o.use.kind === 'jukebox')!;
   const duplicate = { ...box, id: 'second-box' };

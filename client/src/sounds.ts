@@ -255,3 +255,11 @@ export function playMuteBlip(muted: boolean) {
   } catch { /* audio unavailable */ }
 }
 export const playDeafenBlip = playMuteBlip;
+
+/** The pomodoro's chime: a soft rising pair for "break time", a gentle falling triple when everything is done. */
+export function playPomodoro(kind: 'break' | 'done') {
+  try {
+    const c = audio(), dest = categoryOutput('effects'), at = c.currentTime + .01;
+    (kind === 'break' ? [880, 1175] : [1047, 784, 523]).forEach((hz, i) => tone(c, dest, at + i * .16, { hz, level: .05, attack: .01, decay: .6 }));
+  } catch { /* audio unavailable: stay silent */ }
+}

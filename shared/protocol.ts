@@ -11,6 +11,7 @@ import type { CabinetSummary } from './arcade/types';
 
 import { inRect, type Dir, type Layout, type Move, type Tile } from './map';
 import type { Eating } from './lunch';
+import type { Pomodoro } from './pomodoro';
 
 export const NOTE_RATE = 40;
 export const NOTE_BURST = 64;
@@ -189,7 +190,8 @@ export interface PublicUser {
   holding: string | null;   // a UseItem id (coffee, snack…) in hand for a while
   listening?: 'lofi' | null; // an audible Lofi TV in one of this person's open pages; never persisted
   reading: string | null;   // library article id they're reading at a reading desk; knocks go to Later
-  eating?: Eating;          // having lunch at a picnic table (see shared/lunch.ts)
+  eating?: Eating;          // having lunch at a picnic table or a kitchen table (see shared/lunch.ts)
+  pomodoro?: Pomodoro;      // a personal pomodoro is running (public: a 🍅 over the sprite while the phase is focus); memory only
   vacation?: { until: number; back?: string } | null; // on vacation now, per their calendar
   meeting: number | null;   // in a calendar meeting until then (ms); knocks go to Later
   instance: string | null;  // meeting room or dungeon: only people in the same instance see each other
@@ -221,7 +223,7 @@ export interface StorageTake { by: string; name: string; item: string; at: numbe
 export const MAX_CUPS = 12; // table and floor cups together; past it the oldest cup vanishes when one is dropped
 export const CUP_ITEMS = ['coffee', 'tea', 'cocktail', 'beer', 'wine']; // drinks that leave a cup or glass behind (see shared/drinks.ts)
 /** Furniture you can put a cup on. */
-export const CUP_TABLES = ['table_long', 'table_round', 'table_big', 'desk', 'counter', 'table_picnic'];
+export const CUP_TABLES = ['table_long', 'table_round', 'table_big', 'desk', 'counter', 'table_picnic', 'bar_table'];
 export const cupTableAt = <O extends { type: string; x: number; y: number; w: number; h: number }>(objects: O[], t: Tile) =>
   objects.find(o => CUP_TABLES.includes(o.type) && inRect(o, t.x, t.y));
 export type CreatureServerMsg =
@@ -377,6 +379,11 @@ export type ServerMsg =
   | { t: 'to_meet'; fromId: string } // someone in your call opened its Meet room; come along
   | { t: 'follow'; userId: string; targetId: string | null }
   | { t: 'eating'; userId: string; eating: Eating | null }
+  // ---------- v2 places ----------
+  | { t: 'pomodoro'; userId: string; pomodoro: Pomodoro | null; chime?: 'break' | 'done' } // chime: a phase ended by itself (not a stop)
+  | { t: 'shop_open'; taken: string[] }  // only to you, at the 7/11 shelves: what you took today (office day)
+  | { t: 'shop'; taken: string[] }       // only to you: the same after you took something
+  | { t: 'npc_say'; objectId: string; text: string } // a map-object NPC (Keiko) says a line: a bubble over her for everyone
   | { t: 'holding'; userId: string; item: string | null; objectId?: string; fromId?: string; phase?: 'drinking' } // objectId: just taken; fromId: handed over; phase: sipping it now (the item stays until the sip ends)
   | { t: 'jukebox'; id: string; state: JukeboxState }
   | { t: 'object'; id: string; on: boolean; by: string }
@@ -431,6 +438,9 @@ export type ClientMsg =
   | ArcadeOutgoing
   | { t: 'lunch'; tile: Tile; open: boolean } // eat the food you're holding in this picnic chair; open: knocks from the table are welcome
   | { t: 'lunch_open'; open: boolean }       // change that while eating
+  // ---------- v2 places ----------
+  | { t: 'shop_take'; item: string }         // take one free thing off the 7/11 shelves (SHOP_DAILY_MAX a day)
+  | { t: 'pomodoro'; op: 'start' | 'stop'; focus?: number; rest?: number } // your personal pomodoro (minutes, default 25/5)
   | { t: 'cup_put'; tile: Tile } // put the coffee or tea you're holding down on this table tile
   | { t: 'cup_take'; cupId: string } // walk over to a cup left on a table and clear it away
   | { t: 'pet'; creatureId: string } // pet the cat or dog, or try to catch the hanging bat (walks you over first)

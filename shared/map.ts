@@ -24,7 +24,7 @@ export interface Room {
 /** Something you can hold for a while, taken from an object (a coffee from the machine). */
 export interface UseItem { id: string; label: string; icon: string }
 /** What clicking an object offers: take something from it, flip it on/off, or look at your calendar on it. */
-export type ObjectUse = { kind: 'wellness'; activity: 'water' | 'stretch' | 'pomodoro'; label: string } | { kind: 'take'; items: UseItem[] } | { kind: 'toggle'; label: string } | { kind: 'calendar'; label: string }
+export type ObjectUse = { kind: 'wellness'; activity: 'water' | 'stretch'; label: string } | { kind: 'take'; items: UseItem[] } | { kind: 'toggle'; label: string } | { kind: 'calendar'; label: string }
   | { kind: 'instrument'; instrument: InstrumentKind; label: string }
   | { kind: 'jukebox'; label: string; genres?: string[] } // genres: play only these (the club's DJ booth); without it, everything but the club-only genres
   | { kind: 'youtube'; label: string; room: string }
@@ -41,8 +41,15 @@ export type ObjectUse = { kind: 'wellness'; activity: 'water' | 'stretch' | 'pom
   | { kind: 'link'; label: string; url: string } // opens a page in a new tab (the safe: the vault)
   | { kind: 'dealer'; label: string; items: string[] } // hands out items into your inventory (the bouncer, the hat stand)
   | { kind: 'bell'; label: string } // the Lobby reception bell: ring it from beside the desk
-  | { kind: 'tickets'; label: string } // the Lobby bug terminal: file bugs, read replies (admins: the queue)
+  | { kind: 'tickets'; label: string } // the Lobby suggestions board: suggestions and bug reports, replies (admins: the queue)
   | { kind: 'vacations' }
+  // ---------- v2 places ----------
+  | { kind: 'shop'; label: string }    // the 7/11 shelves: pick up to SHOP_DAILY_MAX free items a day (shared/shop.ts)
+  | { kind: 'cashier'; label: string } // the 7/11 counter: Keiko talks
+  | { kind: 'kettle'; label: string }  // the kitchen kettle: fills the cup noodles in your hands
+  | { kind: 'mirror'; label: string }  // opens Edit look
+  | { kind: 'photos'; label: string }  // the Lobby photo wall (placeholder until the photos batch)
+  | { kind: 'gacha'; label: string }   // the 7/11 gacha machine (placeholder handler: out of order; the item session implements it)
   | { kind: 'toilet'; label: string }; // a stall: occupied for a while, fills up with use (see Toilets on the server)
 export type UseKind = ObjectUse['kind'];
 /** How a click on each use.kind is routed. A new kind fails typecheck until it has a row (docs/ADDING-A-FEATURE.md).
@@ -65,7 +72,12 @@ export const USE_KINDS = {
   vacations: {}, calendar: {}, jukebox: {}, youtube: {}, dance: {}, records: {}, meetings: {}, achievements: {}, clock: {}, link: {},
   presentation: { use: true, reach: true }, // walk to the board first; the panel opens on arrival
   room_start: { use: true, reach: true }, // the Meeting room's wall sign: walk over, then the server offers a private room
-  tickets: { use: true, reach: true }, // the bug terminal: walk over, then the server opens its screen
+  tickets: { use: true, reach: true }, // the suggestions board: walk over, then the server opens its screen
+  shop: { use: true, reach: true }, // the 7/11 shelves: walk over, then the server opens the shop panel
+  cashier: { use: true, reach: true }, // the 7/11 counter: walk over, then Keiko says something
+  kettle: { use: true, reach: true }, // walk over, then the server fills the noodles in your hands
+  mirror: {}, photos: {}, // client-only: the click opens Edit look / says "coming soon"
+  gacha: { use: true, reach: true }, // walk over, then the server says "out of order" (placeholder)
 } as const satisfies Record<UseKind, { wheel?: true; use?: true; reach?: true }>;
 type KindsWith<F extends string> = { [K in UseKind]: (typeof USE_KINDS)[K] extends Record<F, true> ? K : never }[UseKind];
 /** True when this use's kind has that flag in USE_KINDS; narrows the use to those kinds. */
@@ -108,7 +120,7 @@ export interface TileMap {
 
 export const WALK_MS_PER_TILE = 250; // 4 tiles/s
 
-export const SEAT_TYPES = new Set(['chair', 'stool']);
+export const SEAT_TYPES = new Set(['chair', 'stool', 'leader_chair']);
 /**
  * Per-tile lookups, built once per map: the map is read many times a frame (every sprite, every path), so
  * walkable/room/seat are flat typed arrays indexed by `y * width + x` instead of scans over rooms and objects.
@@ -411,10 +423,10 @@ export function layoutProblem(m: TileMap, checkDungeonReach = true): string | nu
 
 /** What to call an object type in the UI: "big table", not table_big. */
 export const objectName = (type: string) => ({ palm: 'palm', pine: 'pine', lounger: 'lounger', umbrella: 'umbrella', hammock: 'hammock', beach_bar: 'beach bar', vacation_sign: 'sign', summit_flag: 'flag', sandcastle: 'sandcastle', shells: 'shells', beach_ball: 'beach ball', retro_tobu: 'Tobu Tobu Girl', retro_lobster: 'Shock Lobster', table_long: 'long table', table_big: 'big table', table_round: 'round table', plant_shelf: 'plant shelf',
-  wellness_cooler: 'water cooler', stretch_mat: 'stretching mat', pomodoro_timer: 'Pomodoro timer', painting_small: 'small painting', coffee_machine: 'coffee machine', meetings_board: 'meetings board', noticeboard: 'notice board', table_picnic: 'picnic table', food_cart: 'food cart', exit_door: 'exit door', server_rack: 'server rack', dj_booth: 'DJ booth', neon_sign: 'neon sign', bookshelf_tall: 'tall bookshelf', terminal: 'bug terminal' } as Record<string, string>)[type] ?? type.replace(/_/g, ' ');
+  wellness_cooler: 'water cooler', stretch_mat: 'stretching mat', painting_small: 'small painting', coffee_machine: 'coffee machine', meetings_board: 'meetings board', noticeboard: 'notice board', table_picnic: 'picnic table', food_cart: 'food cart', exit_door: 'exit door', server_rack: 'server rack', dj_booth: 'DJ booth', neon_sign: 'neon sign', bookshelf_tall: 'tall bookshelf', terminal: 'bug terminal', suggestions_board: 'suggestions board', shop_shelf: 'shelves', shop_counter: 'counter', shop_tv: 'TV', shop_sign: 'neon sign', gacha_machine: 'gacha machine', trophy_case: 'trophy case', photo_wall: 'photo wall', leader_chair: 'leader\'s chair', leader_desk: 'leader\'s desk', bar_table: 'bar table', keiko: 'Keiko' } as Record<string, string>)[type] ?? type.replace(/_/g, ' ');
 
 /** Types that are one of a kind (the way out, the coffee machine…): they can be moved but not removed. */
-export const KEEP_TYPES = new Set(['out_of_office_sign', 'wellness_cooler', 'stretch_mat', 'pomodoro_timer', 'vacation_sign', 'lofi_tv', 'exit_door', 'coffee_machine', 'fridge', 'jukebox', 'arcade', 'game_table', 'retro_tobu', 'retro_lobster', 'records', 'meetings_board', 'noticeboard', 'clock_nyc', 'clock_berlin', 'clock_moscow', 'safe', 'keyboard', 'drum_kit', 'bass_amp', 'screen', 'room_start', 'toilet', 'bouncer', 'hat_rack', 'bell', 'food_cart', 'dj_booth', 'terminal']);;
+export const KEEP_TYPES = new Set(['out_of_office_sign', 'wellness_cooler', 'stretch_mat', 'vacation_sign', 'lofi_tv', 'exit_door', 'coffee_machine', 'fridge', 'jukebox', 'arcade', 'game_table', 'retro_tobu', 'retro_lobster', 'records', 'meetings_board', 'noticeboard', 'clock_nyc', 'clock_berlin', 'clock_moscow', 'safe', 'keyboard', 'drum_kit', 'bass_amp', 'screen', 'room_start', 'toilet', 'bouncer', 'hat_rack', 'bell', 'food_cart', 'dj_booth', 'suggestions_board', 'gacha_machine', 'shop_counter', 'keiko', 'kettle', 'trophy_case', 'photo_wall', 'leader_chair', 'leader_desk', 'bar_table']);
 /** Types that stay exactly where they are. */
 export const FIXED_TYPES = new Set(['exit_door']);
 export const RUG_MIN = 2, RUG_MAX = 24;
@@ -513,6 +525,19 @@ export function uniqueIds(l: Layout, base: Layout): Layout {
     used.add(o.id = `${o.id}-${n}`);
   }
   return out;
+}
+
+/** v2 moved Berghain beside the Admin room, put the 7/11 and the Terminal room under them and turned the Book Club chairs round:
+ *  a layout saved before that (no 7/11 counter yet) gets the generated furniture for those three areas, and mirrors become clickable.
+ *  The Admin room's own furniture stays. */
+export function migratePlaces(saved: Layout, base: Layout): Layout {
+  if (saved.objects.some(o => o.type === 'shop_counter')) return saved;
+  const areas: Rect[] = [{ x: 65, y: 11, w: 19, h: 12 }, { x: 75, y: 0, w: 9, h: 11 }, { x: 75, y: 25, w: 9, h: 8 }];
+  const touches = (o: Rect) => areas.some(a => o.x < a.x + a.w && o.x + o.w > a.x && o.y < a.y + a.h && o.y + o.h > a.y);
+  return uniqueIds({
+    objects: [...saved.objects.filter(o => !touches(o)).map(o => (o.type === 'mirror' && !o.use ? { ...o, use: { kind: 'mirror' as const, label: 'mirror' } } : o)), ...structuredClone(base.objects.filter(touches))],
+    rugs: [...saved.rugs.filter(r => !touches(r)), ...structuredClone(base.rugs.filter(touches))],
+  }, base);
 }
 
 /** A layout saved before the beach gets the generated wing furniture. The caller gates this by state version (so an

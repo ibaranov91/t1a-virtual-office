@@ -7,11 +7,11 @@ const map: TileMap = JSON.parse(readFileSync(new URL('../../shared/tilemap.json'
 
 test('vacation wing extends the office and appends two terrain rooms', () => {
   assert.equal(map.office.h, 44);
-  assert.deepEqual(map.rooms.slice(-2).map(r => [r.id, r.rect, r.type, r.capacity, r.rules]), [
+  assert.deepEqual(map.rooms.filter(r => r.type === 'vacation').map(r => [r.id, r.rect, r.type, r.capacity, r.rules]), [
     ['mountains', { x: 1, y: 34, w: 24, h: 9 }, 'vacation', 30, { knock: 'allow', label: 'mountains · knock to talk' }],
     ['beach', { x: 25, y: 34, w: 59, h: 9 }, 'vacation', 30, { knock: 'allow', label: 'beach · knock to talk' }],
   ]);
-  for (const r of map.rooms.slice(-2)) {
+  for (const r of map.rooms.filter(r => r.type === 'vacation')) {
     assert.ok(r.stand.length >= 4 && r.stand.length <= 6);
     for (const s of r.stand) assert.ok(findPath(map, map.spawn, s).length);
   }
@@ -32,7 +32,8 @@ test('the building keeps its bottom edge; the hedge has one gate and wing furnit
   // Later features append their own fixtures too, preserving all pre-existing object ids.
   const original = map.objects.filter(o => o.use?.kind !== 'wellness');
   const first = original.findIndex(o => inWing(map, o.x, o.y));
-  assert.ok(first > 0 && original.slice(first).every(o => inWing(map, o.x, o.y)));
+  const sign = original.findIndex(o => o.type === 'out_of_office_sign'); // v2 places are appended after the wing's last object
+  assert.ok(first > 0 && sign > first && original.slice(first, sign + 1).every(o => inWing(map, o.x, o.y)));
 });
 
 test('every fixed vacation destination is walkable and reachable from spawn', () => {

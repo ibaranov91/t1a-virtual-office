@@ -5,12 +5,12 @@ import { World } from './world';
 import { applyEdit, layoutProblem, routes, type TileMap } from '../../shared/map';
 const base: TileMap = JSON.parse(readFileSync(new URL('../../shared/tilemap.json', import.meta.url), 'utf8'));
 
-test('all three personal timer objects are clickable and appear in existing saved offices', t => {
+test('both personal reminder objects are clickable and appear in existing saved offices', t => {
   t.mock.timers.enable({ apis: ['setInterval', 'setTimeout', 'Date'], now: 100_000 });
   const map = structuredClone(base), world = new World(map);
   const old = structuredClone(base.objects.filter(o => o.use?.kind !== 'wellness'));
   world.load({ ...world.dump(), layout: { objects: old, rugs: structuredClone(base.rugs) } });
-  for (const activity of ['water', 'stretch', 'pomodoro']) {
+  for (const activity of ['water', 'stretch']) { // the pomodoro is a timer in the sidebar strip now, no object
     const object = map.objects.find(o => o.use?.kind === 'wellness' && o.use.activity === activity);
     assert.ok(object, `${activity} object is missing`);
     assert.equal(routes(object.use, 'wheel'), false);

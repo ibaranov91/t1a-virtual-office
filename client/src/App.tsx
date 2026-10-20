@@ -43,6 +43,7 @@ import { ALL_HATS, DANCE_ROOM, EFFECTS, HAT_NAMES, REFRESHMENT_HINTS, effectOf, 
 import { FIXED_TYPES, KEEP_TYPES, objectName, RUG_COLORS, RUG_MAX, RUG_MIN, RUG_PATTERNS, SEAT_TYPES, routes, rugFrame, seatAt } from '../../shared/map';
 import { picnicSeat } from '../../shared/lunch';
 import { BugReportForm, LogViewer } from './LogViewer';
+import { ShopPanel } from './Shop';
 import { installErrorReporting } from './reports';
 
 // The game table (and chess.js) loads the first time someone sits down at it.
@@ -221,7 +222,10 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
       if (use?.kind === 'clock') { setPick(null); return store.openClock(); }
       if (use?.kind === 'vacations') { setPick(null); return store.openVacations(); }
       if (use?.kind === 'meetings') { setPick(null); return store.openMeetings(); }
-      if (use?.kind === 'achievements') { setPick(null); return store.openEmployeeBoard(); }
+      if (use?.kind === 'achievements') { setPick(null); return p && MAP.objects.find(o => o.id === p.id)?.type === 'trophy_case' ? store.openAchievements(true) : store.openEmployeeBoard(); } // the trophy case is your own achievements
+      if ((use?.kind === 'shop' || use?.kind === 'cashier' || use?.kind === 'kettle' || use?.kind === 'gacha') && p) { setPick(null); return store.use(p.id); } // walks over; the server answers on arrival
+      if (use?.kind === 'mirror') { setPick(null); return setShowAppearance(true); } // same as "Edit look" in the sidebar
+      if (use?.kind === 'photos') { setPick(null); return store.toast({ kind: 'info', slot: 'over', text: '📷 Photo wall · coming soon', expires: 3000 }); }
       if (use?.kind === 'tickets' && p) { setPick(null); return store.use(p.id); } // walks to the terminal; the server opens its screen on arrival
       if (use?.kind === 'presentation' && p) { setPick(null); return store.use(p.id); } // walks to the board; the server opens the panel on arrival
       if (use?.kind === 'room_start' && p) { setPick(null); return store.use(p.id); } // walks to the sign; the server sends room_open on arrival
@@ -278,7 +282,8 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
           onCloseSheet={() => setShowRooms(false)} onPerson={openPerson} onRoom={at => { setPersonMenu(null); setRoomMenu(at); }} onProfile={openProfile} surfaceOpen={!!(personMenu || roomMenu || profileOpener)} />}
         {editing && store.admin && !down && engine && <EditPanel store={store} engine={engine} assets={assets} onDone={() => setEditing(false)} />}
         {gmOpen && store.admin && !editing && <GmPanel store={store} picked={pick?.kind === 'user' ? pick.id : null} assets={assets} onClose={() => setGmOpen(false)} onReport={() => setLogDialog('report')} onLogs={() => setLogDialog('logs')} />}
-        {logDialog === 'report' && <BugReportForm store={store} capture={() => engineRef.current?.captureFrame() ?? Promise.resolve(null)} onClose={() => setLogDialog(null)} />}
+        {store.shopOpen && <ShopPanel store={store} />}
+        {(logDialog === 'report' || store.bugReportOpen) && <BugReportForm store={store} capture={() => engineRef.current?.captureFrame() ?? Promise.resolve(null)} onClose={() => { setLogDialog(null); store.openBugReport(false); }} />}
         {logDialog === 'logs' && store.admin && <LogViewer store={store} onClose={() => setLogDialog(null)} />}
         {pocketsOpen && me && !store.storage && <PocketsPanel store={store} me={me} assets={assets} onClose={() => setPocketsOpen(false)} />}
         {store.storage && me && <StoragePanel store={store} me={me} assets={assets} />}
@@ -332,7 +337,7 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
         {roomMenu && <RoomMenu key={`room:${roomMenu.id}`} store={store} engine={engine} at={roomMenu} compact={isCompact} onTv={setTv}
           onClose={() => setRoomMenu(null)} onAction={() => { setRoomMenu(null); setShowRooms(false); sidebarRef.current?.close(); }} />}
         {store.seat && <InstrumentPanel key={`seat:${store.seat}`} store={store} id={store.seat}
-          dialogOpen={!!(store.wellnessOpen || store.table || showAppearance || showMeet || store.calendarOpen || store.laterOpen || store.meetingsOpen || store.vacationsOpen || store.clockOpen || store.jukeboxOpen || store.libraryOpen || store.terminalOpen || !!me?.reading || store.achievementsOpen || store.employeeOpen || store.presentOpen || store.roomOpen || store.chatWith || personMenu || roomMenu || profileOpener || pick)} />}
+          dialogOpen={!!(store.wellnessOpen || store.shopOpen || store.bugReportOpen || store.table || showAppearance || showMeet || store.calendarOpen || store.laterOpen || store.meetingsOpen || store.vacationsOpen || store.clockOpen || store.jukeboxOpen || store.libraryOpen || store.terminalOpen || !!me?.reading || store.achievementsOpen || store.employeeOpen || store.presentOpen || store.roomOpen || store.chatWith || personMenu || roomMenu || profileOpener || pick)} />}
         <Dock store={store} voice={voice} engine={engine} roomsOpen={showRooms} onRooms={() => setShowRooms(s => !s)} />
         {me && <Wellness key={`wellness:${me.id}`} store={store} userId={me.id} />}
       </div>
