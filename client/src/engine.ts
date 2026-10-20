@@ -22,6 +22,7 @@ import { itemDef } from '../../shared/items';
 import { fogHides, isOutdoor } from '../../shared/weather';
 import { hourBucket, lightmapKey, lightWeight, LM, paintLightmap } from './lighting';
 import { personLight } from './personLight';
+import { REACTION_FRAME } from './reactionArt';
 import { WeatherFx } from './weatherFx';
 import { ITEMS, MAP, PORTAL_MS, type ClientUser, type Pose, type PortalFx, type Store, type DungeonFx } from './net';
 
@@ -1772,7 +1773,9 @@ export class Engine {
         x = to.x + ((n % 3) - 1) * 7 + Math.sin(f * 9 + n) * 1.5; y = to.y - 4 - f * 16; a = f < 0.7 ? 1 : 1 - (f - 0.7) / 0.3;
       }
       ctx.globalAlpha = Math.max(0, a);
-      ctx.fillText(r.emoji, Math.round(x), Math.round(y));
+      const art = r.item ? itemDef(emptyDrink(r.item) ?? r.item)?.sprite ?? 'item_box' : REACTION_FRAME[r.emoji], af = art ? this.f(art) : undefined; // pixel art, else the emoji
+      if (af) this.blit(ctx, art!, Math.round(x - af.w / 2), Math.round(y - af.h / 2));
+      else ctx.fillText(r.emoji, Math.round(x), Math.round(y));
     }
     ctx.globalAlpha = 1; ctx.textAlign = 'start'; ctx.textBaseline = 'alphabetic';
   }

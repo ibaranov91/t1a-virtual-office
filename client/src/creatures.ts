@@ -112,12 +112,11 @@ export class CreatureLayer {
     }
     ctx.globalAlpha = 1;
   }
-  /** A ♪ that bobs and sways over the head, drawn in code. */
+  /** A pixel ♪ that bobs and sways over the head. */
   private note(cx: number, y: number, ms: number) {
     const ctx = this.ctx(), ph = (ms / 900) % 1;
-    ctx.save(); ctx.globalAlpha = Math.min(1, 2 - ph * 2); ctx.font = 'bold 8px system-ui, sans-serif'; ctx.textAlign = 'center';
-    ctx.fillStyle = '#2a1a22'; ctx.fillText('♪', Math.round(cx + 5 + Math.sin(ms / 300) * 2) + 0.4, Math.round(y - ph * 5) + 0.4);
-    ctx.fillStyle = '#ffd86a'; ctx.fillText('♪', Math.round(cx + 5 + Math.sin(ms / 300) * 2), Math.round(y - ph * 5));
+    ctx.save(); ctx.globalAlpha = Math.min(1, 2 - ph * 2);
+    this.blit('ui_note', Math.round(cx + 5 + Math.sin(ms / 300) * 2) - 4, Math.round(y - ph * 5) - 8); // a pixel ♪
     ctx.restore();
   }
   /** A small speech bubble with a tail, centred over the head. */
@@ -227,11 +226,7 @@ export class CreatureLayer {
       if (!CUP_ITEMS.includes(cup.item) && canCarry(cup.item)) { // a thrown or dropped item: its sprite if it has one, else its emoji on the floor
         const def = itemDef(cup.item), frame = def?.sprite && this.f(def.sprite) ? def.sprite : null;
         out.push({ base, draw: () => {
-          if (frame) return this.blit(frame, x, y);
-          const ctx = this.ctx();
-          ctx.fillStyle = 'rgba(0,0,0,.25)'; ctx.fillRect(x + 1, y + 4, 8, 2);
-          ctx.fillStyle = '#000'; ctx.font = '8px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-          ctx.fillText(def?.icon ?? '📦', x + 5, y + 2); ctx.textAlign = 'start'; ctx.textBaseline = 'alphabetic';
+          this.blit(frame ?? 'item_box', x, y); // its own art, or a little box
         } });
         continue;
       }

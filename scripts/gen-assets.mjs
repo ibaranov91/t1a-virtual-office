@@ -2579,6 +2579,25 @@ for (const black of [false, true]) { // beach_flag(_black): a pole in the sand, 
   ui('door', t => { t.rect(2, 0, 8, 12, '#a8693a'); t.rect(3, 1, 6, 4, '#c88a52'); t.rect(3, 6, 6, 5, '#c88a52'); t.px(8, 6, '#f0c040'); });
   ui('toilet', t => { t.rect(2, 0, 7, 3, W); t.hline(2, 2, 7, '#d8dce4'); t.rect(1, 4, 10, 3, W); t.hline(1, 4, 10, '#c8ccd4'); t.rect(3, 7, 6, 4, '#e4e4ec'); t.hline(2, 11, 8, '#c8ccd4'); });
   ui('window', t => { t.rect(0, 0, 12, 12, '#f0e6d2'); t.rect(1, 1, 10, 10, '#9ec3d8'); t.rect(1, 1, 10, 3, '#b9dbe9'); t.vline(5, 1, 10, '#f0e6d2'); t.vline(6, 1, 10, '#f0e6d2'); t.hline(1, 5, 10, '#f0e6d2'); t.hline(1, 6, 10, '#f0e6d2'); });
+  // reactions (the wheel and the little icons that float up): wave, thumbs up, heart, laugh; 🎉 and ☕ use the item art
+  ui('wave', t => { // an open hand leaning left, three fingers and a thumb, with motion marks
+    const rows = ['....S.S.S...', '...S.S.S....', '...S.S.S..S.', '..SSSSSSSSS.', '..SSSSSSSS..', '..SSSSSSS...', '...SSSSs....', '....ssss....'];
+    rows.forEach((r, y) => [...r].forEach((ch, x) => { if (ch !== '.') t.px(x, y + 2, ch === 'S' ? S : SD); }));
+    t.px(0, 3, '#c8b8b0'); t.px(1, 2, '#c8b8b0'); t.px(10, 0, '#c8b8b0'); t.px(11, 1, '#c8b8b0');
+  });
+  ui('thumbs', t => { // a fist with the thumb up
+    t.rect(4, 0, 2, 5, S); t.px(4, 0, '#f8dcb8'); t.rect(2, 5, 8, 6, S); t.hline(3, 6, 7, SD); t.hline(3, 8, 7, SD); t.vline(2, 5, 6, SD);
+    t.rect(0, 6, 2, 5, '#5577a8');
+  });
+  ui('heart', t => { const H = '#e8506a'; t.hline(1, 1, 4, H); t.hline(7, 1, 4, H); t.rect(0, 2, 12, 4, H); t.hline(1, 6, 10, H); t.hline(2, 7, 8, H); t.hline(3, 8, 6, H); t.hline(4, 9, 4, H); t.hline(5, 10, 2, H); t.rect(2, 2, 2, 2, '#f8a0b0'); });
+  ui('laugh', t => { // a yellow face laughing so hard it cries
+    t.ellipse(6, 6, 5.6, 5.6, '#f0c040'); t.px(3, 4, OUT); t.px(4, 3, OUT); t.px(5, 4, OUT); t.px(6, 4, OUT); t.px(7, 3, OUT); t.px(8, 4, OUT);
+    t.rect(3, 6, 6, 3, '#8a2030'); t.hline(3, 6, 6, W); t.hline(4, 8, 4, '#e8506a'); t.rect(0, 5, 2, 3, '#5ab0f0'); t.rect(10, 5, 2, 3, '#5ab0f0');
+  });
+  ui('lamp_on', t => { t.ellipse(6, 4.5, 4.2, 4.2, '#f8e070'); t.rect(4, 2, 2, 2, '#fff8c8'); t.rect(4, 8, 4, 3, '#8a8a9a'); t.hline(4, 9, 4, '#6a6a7a'); t.px(0, 2, '#f8e070'); t.px(11, 2, '#f8e070'); t.px(1, 7, '#f8e070'); t.px(10, 7, '#f8e070'); });
+  ui('lamp_off', t => { t.ellipse(6, 4.5, 4.2, 4.2, '#5a5a6a'); t.rect(4, 2, 2, 2, '#7a7a8a'); t.rect(4, 8, 4, 3, '#8a8a9a'); t.hline(4, 9, 4, '#6a6a7a'); });
+  { const t = new Img(9, 11); t.ellipse(3, 7.6, 2.3, 1.7, '#ffd86a'); t.vline(5, 1, 7, '#ffd86a'); t.px(6, 1, '#ffd86a'); t.px(7, 2, '#ffd86a'); t.px(7, 3, '#ffd86a'); frames.ui_note = t.outline(); } // the cleaner's hum
+  { const t = new Img(11, 9); t.rect(1, 2, 9, 6, '#c8955a'); t.hline(1, 2, 9, '#dcae74'); t.vline(5, 2, 6, '#e8d8b0'); t.hline(1, 7, 9, '#a87440'); frames.item_box = t.outline(); } // something on the floor without its own art
   // name-tag marks: a small moon (do not disturb) and a palm (on vacation)
   { const t = new Img(9, 9); t.ellipse(4.5, 4.5, 3.6, 3.6, '#f4d860'); t.ellipse(6.4, 3.2, 3, 3, [0, 0, 0, 0]); t.px(2, 4, '#fff0a0'); frames.mark_moon = t.outline(); } // a crescent
   { const t = new Img(9, 9); const L = '#4f9d6b', D = '#3e7a52'; t.vline(4, 3, 5, '#8a5a30'); t.hline(1, 2, 7, L); t.px(0, 3, L); t.px(8, 3, L); t.hline(2, 1, 2, D); t.hline(5, 1, 2, D); t.px(4, 2, D); frames.mark_palm = t.outline(); }

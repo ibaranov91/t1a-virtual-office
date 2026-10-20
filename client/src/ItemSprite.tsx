@@ -4,6 +4,7 @@ import { useEffect, useRef } from 'react';
 import type { Assets } from './assets';
 import { itemDef } from '../../shared/items';
 import { emptyDrink } from '../../shared/drinks';
+import { REACTION_FRAME } from './reactionArt';
 
 let art: Assets | null = null;
 /** loadAssets hands the atlas over once it has loaded. */
@@ -39,3 +40,5 @@ export function Sprite({ frame, fallback, scale = 2 }: { frame: string; fallback
 }
 /** A wheel action's pixel icon (`ui_<name>`), the emoji until the art has loaded. */
 export const uiIcon = (name: string, emoji: string) => <Sprite frame={name.startsWith('item_') ? name : `ui_${name}`} fallback={emoji} />;
+/** A reaction's pixel art, the emoji itself until the art has loaded (or for one without art). */
+export const reactionIcon = (emoji: string) => REACTION_FRAME[emoji] ? <Sprite frame={REACTION_FRAME[emoji]} fallback={emoji} /> : emoji;
