@@ -3,15 +3,16 @@
 // What lives where: `User.items` are pockets (strings), `holding` is the hands, `User.storage` is the desk
 // storage, and a thing put down in the world is a prop (`Cup` in protocol.ts, the saved `cups` layer).
 import type { DrinkRule } from './drinks';
-import { ALL_HATS, HAT_NAMES, hatItem, hatOf } from './effects';
+import { ALL_HATS, ENERGY_MS, HAT_NAMES, hatItem, hatOf } from './effects';
+import { STICKERS, STICKER_ICONS, stickerItem } from './gacha';
 
 export type ItemKind = 'hat' | 'held' | 'placeable' | 'consumable' | 'throwable';
 /** What the action wheel may offer for a held item. */
-export type ItemAction = 'drink' | 'drop' | 'stow' | 'throw' | 'give' | 'put_down';
+export type ItemAction = 'drink' | 'drop' | 'stow' | 'throw' | 'give' | 'put_down' | 'use' | 'write';
 /** How an item counts in pockets: toward the limit, free (hats), or never carried there (drinks, books, meals). */
 export type PocketRule = 'counts' | 'free' | 'no';
 /** Data instead of code for `onUse` / `onHit`: apply an effect (shared/effects.ts) to whoever used it or was hit. */
-export interface ItemEffect { effect: string; ms?: number; on: 'self' | 'target' | 'both' }
+export interface ItemEffect { effect: string; ms?: number; on: 'self' | 'target' | 'both'; radius?: number; data?: Record<string, unknown> } // radius (onUse): also everyone within that many tiles
 
 export interface ItemDef {
   id: string;
@@ -24,8 +25,11 @@ export interface ItemDef {
   sprite?: string;            // world-atlas frame drawn as the held layer / world prop instead of the emoji
   actions: readonly ItemAction[];
   drink?: DrinkRule;          // sipping it: shared/drinks.ts derives DRINKS from this
-  onUse?: readonly ItemEffect[];
+  onUse?: readonly ItemEffect[];  // 'use' on the wheel (and the end of a sip for drinks with `effect: 'use'`): World.useHeld applies these
   onHit?: readonly ItemEffect[]; // when thrown at someone and it lands
+  useLabel?: string;          // the wheel's word for 'use' (default "Use")
+  light?: number;             // held or placed, it is a small light of this radius in tiles (the atmosphere pass reads it)
+  toy?: true;                 // a toy: lies on the floor until picked up (owner kept), never tidied by the cleaner
 }
 
 export const POCKET_MAX = 6;       // items in pockets; hats don't count
@@ -37,6 +41,21 @@ export const PRISON_NOTE = 'Taken from a desk · only an admin can take this off
 const drinkItem = (id: string, label: string, icon: string, drink: DrinkRule): ItemDef =>
   ({ id, label, icon, kind: 'consumable', pocket: 'no', actions: ['drink'], drink }); // empty cups are 'drop' (heldActions)
 const plain = (id: string, label: string, icon: string): ItemDef => ({ id, label, icon, kind: 'held', pocket: 'no', actions: ['drop', 'give'] });
+
+/** Toys the cleaner leaves alone; they persist on the floor (long ttl) and don't count against the cup limit. */
+const toy = (d: ItemDef): ItemDef => ({ ...d, toy: true });
+const sticker = (design: string): ItemDef => ({ id: stickerItem(design), label: `${design[0].toUpperCase()}${design.slice(1)} sticker`, icon: STICKER_ICONS[design as keyof typeof STICKER_ICONS], kind: 'held', pocket: 'free', stack: 1, actions: [] });
+export const POSTCARD = 'postcard';
+export const POSTCARD_PREFIX = `${POSTCARD}:`;
+export const POSTCARD_MAX = 80;
+/** A written postcard is its text in the id: `postcard:<text>`. Cleans a line a person typed (control characters out, one line, capped); null if empty. */
+export function postcardText(raw: unknown): string | null {
+  const text = String(raw ?? '').replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, POSTCARD_MAX).trim();
+  return text || null;
+}
+export const postcardItem = (text: string) => `${POSTCARD_PREFIX}${text}`;
+export const postcardOf = (item: string | null | undefined) => (item?.startsWith(POSTCARD_PREFIX) ? item.slice(POSTCARD_PREFIX.length) : null);
+const POSTCARD_DEF = { label: 'Postcard', icon: '💌', kind: 'throwable', pocket: 'counts', actions: ['stow', 'throw', 'drop'] } as const satisfies Partial<ItemDef>;
 
 const DEFS: ItemDef[] = [
   drinkItem('coffee', 'Coffee', '☕', { effect: 'speed', sipMs: 2500, autoSipMs: 60_000, cup: true }),
@@ -53,6 +72,22 @@ const DEFS: ItemDef[] = [
   // cup noodles (7/11): dry in your pockets or hands -> fill at the kitchen kettle -> hot noodles, eaten at a table (shared/lunch.ts)
   { id: 'cup_noodles', label: 'Cup noodles', icon: '🥡', kind: 'throwable', pocket: 'counts', actions: ['stow', 'throw', 'drop'] },
   plain('hot_noodles', 'Hot noodles', '🍜'),
+  // ---------- 7/11 goods (v2) ----------
+  { ...plain('onigiri', 'Onigiri', '🍙'), actions: ['use', 'drop', 'give'], useLabel: 'Eat', onUse: [] },
+  { ...drinkItem('slurpee', 'Slurpee', '🥤', { effect: 'use', sipMs: 2500 }), onUse: [{ effect: 'freeze', on: 'self' }, { effect: 'chilled', on: 'self' }] },
+  { ...drinkItem('energy_drink', 'Energy drink', '🥫', { effect: 'use', sipMs: 1800 }), onUse: [{ effect: 'speed', ms: ENERGY_MS, on: 'self', data: { boost: 2 } }] },
+  { id: 'party_popper', label: 'Party popper', icon: '🎉', kind: 'held', pocket: 'counts', actions: ['use', 'stow', 'drop'], useLabel: 'Pop it', onUse: [{ effect: 'confetti', on: 'self', radius: 2 }] },
+  { id: 'glow_stick', label: 'Glow stick', icon: '🟢', kind: 'held', pocket: 'counts', sprite: 'glow_stick', actions: ['stow', 'drop', 'throw'], light: 3 },
+  { id: 'umbrella', label: 'Umbrella', icon: '☂️', kind: 'throwable', pocket: 'counts', stack: 1, actions: ['stow', 'throw', 'drop'] },
+  { id: POSTCARD, ...POSTCARD_DEF, kind: 'held', actions: ['write', 'stow', 'drop'], useLabel: 'Write' },
+  { id: 'bubble_gum', label: 'Bubble gum', icon: '🫧', kind: 'held', pocket: 'counts', actions: ['use', 'stow', 'drop'], useLabel: 'Blow a bubble', onUse: [{ effect: 'bubble', on: 'self' }] },
+  // ---------- daily toys and what they make (v2) ----------
+  toy({ id: 'snowball', label: 'Snowball', icon: '❄️', kind: 'throwable', pocket: 'counts', sprite: 'toy_snowball', actions: ['stow', 'throw', 'drop'], onHit: [{ effect: 'snow', on: 'both' }] }),
+  toy({ id: 'train', label: 'Choo-choo train', icon: '🚂', kind: 'placeable', pocket: 'counts', sprite: 'toy_train', actions: ['stow', 'drop'] }),
+  toy({ id: 'remote_car', label: 'Remote car', icon: '🏎️', kind: 'placeable', pocket: 'counts', sprite: 'toy_car', actions: ['use', 'stow', 'drop'], useLabel: 'Drive' }),
+  toy({ id: 'sewing_kit', label: 'Sewing kit', icon: '🧵', kind: 'held', pocket: 'counts', sprite: 'toy_sewing', actions: ['use', 'stow', 'drop'], useLabel: 'Sit and sew' }),
+  { id: 'sewn_hat', label: 'Hand-sewn beanie', icon: '🧶', kind: 'throwable', pocket: 'counts', actions: ['use', 'stow', 'throw', 'drop'], useLabel: 'Wear it' },
+  ...STICKERS.map(sticker),
   ...ALL_HATS.map((style): ItemDef => ({ id: hatItem(style), label: HAT_NAMES[style] ?? style, icon: '🎩', kind: 'hat', pocket: 'free', stack: 1, actions: [] })),
 ];
 
@@ -61,10 +96,12 @@ export const ITEM_DEFS: Record<string, ItemDef> = Object.fromEntries(DEFS.map(d 
 export function itemDef(id: string | null | undefined): ItemDef | undefined {
   if (!id) return undefined;
   if (Object.prototype.hasOwnProperty.call(ITEM_DEFS, id)) return ITEM_DEFS[id];
+  if (id.startsWith(POSTCARD_PREFIX)) return { id, ...POSTCARD_DEF, label: 'Postcard' };
   const style = hatOf(id);
   return style ? { id, label: HAT_NAMES[style] ?? style, icon: '🎩', kind: 'hat', pocket: 'free', stack: 1, actions: [] } : undefined;
 }
 export const isHatItem = (id: string) => itemDef(id)?.kind === 'hat';
+export const isToy = (id: string) => !!itemDef(id)?.toy;
 /** Can this go in pockets / desk storage at all? */
 export const canCarry = (id: string) => { const d = itemDef(id); return !!d && d.pocket !== 'no'; };
 
@@ -75,7 +112,7 @@ export const pocketCount = (items: readonly string[]) => items.filter(i => itemD
 export function pocketProblem(items: readonly string[], item: string): string | null {
   const d = itemDef(item);
   if (!d || d.pocket === 'no') return 'That doesn\'t fit in your pockets';
-  if (d.pocket === 'free') return items.includes(item) ? 'You already have that hat' : null;
+  if (d.pocket === 'free') return items.includes(item) ? (d.kind === 'hat' ? 'You already have that hat' : 'You already have that one') : null;
   if (pocketCount(items) >= POCKET_MAX) return 'Your pockets are full';
   if (d.stack !== undefined && items.filter(i => i === item).length >= d.stack) return 'Your pockets are full';
   return null;

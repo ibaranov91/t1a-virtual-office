@@ -26,7 +26,8 @@ import { Soundscape } from './soundscape';
 import { needsGesture, resume } from './audio';
 import { prefs, savePrefs } from './prefs';
 import { ITEMS, MAP, Store, heldItem, type ClientUser } from './net';
-import { ITEM_DEFS, POCKET_MAX, heldActions, holdsForever, itemDef, pocketCount } from '../../shared/items';
+import { ITEM_DEFS, POCKET_MAX, POSTCARD_MAX, heldActions, holdsForever, isToy, itemDef, pocketCount, postcardOf } from '../../shared/items';
+import { hatChoices } from '../../shared/rewards';
 import { slurBy } from './slur';
 import { isEmpty } from '../../shared/drinks';
 import { inNativeApp, syncNative } from './native';
@@ -288,6 +289,8 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
         {pocketsOpen && me && !store.storage && <PocketsPanel store={store} me={me} assets={assets} onClose={() => setPocketsOpen(false)} />}
         {store.storage && me && <StoragePanel store={store} me={me} assets={assets} />}
         {store.storageWarn && <StorageWarning store={store} />}
+        {store.hatPickerOpen && store.hatDue > 0 && <HatPicker store={store} assets={assets} />}
+        {store.postcardOpen && me?.holding === 'postcard' && <PostcardWriter store={store} />}
         {store.calendarOpen && <CalendarPanel store={store} />}
         {store.laterOpen && <LaterPanel store={store} />}
         {store.activityOpen && <ActivityPanel store={store} />}
@@ -321,7 +324,7 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
         </div>
         <Toasts store={store} voice={voice} />
         <OverNotices store={store} engine={engine} />
-        <ModeBar store={store} extra={dungeonMode(store)} />
+        <ModeBar store={store} extra={[...dungeonMode(store), ...contentModes(store)]} />
         {pick && engineRef.current && <ActionWheel key={`${pick.kind}:${pick.id}`} store={store} engine={engineRef.current} pick={pick} assets={assets} onPerson={openPerson} onClose={() => setPick(null)} />}
         <div className="self-stack">
           {store.chatWith && <ChatPanel key={store.chatWith} store={store} withId={store.chatWith} />}
@@ -826,8 +829,13 @@ function EditPanel({ store, engine, assets, onDone }: { store: Store; engine: En
 function PocketsPanel({ store, me, assets, onClose }: { store: Store; me: ClientUser; assets: Assets | null; onClose: () => void }) {
   const wearing = String(effectOf(me.effects, 'hat')?.data?.style ?? '');
   const hats = store.items.flatMap(i => (hatOf(i) ? [hatOf(i)!] : []));
-  const rest = new Map<string, number>();
-  for (const i of store.items) if (!hatOf(i)) rest.set(i, (rest.get(i) ?? 0) + 1);
+  const rest = new Map<string, number>(), stickers: string[] = [], postcards: string[] = [];
+  for (const i of store.items) {
+    if (hatOf(i)) continue;
+    if (postcardOf(i) !== null) postcards.push(i);
+    else if (itemDef(i)?.pocket === 'free') stickers.push(i);
+    else rest.set(i, (rest.get(i) ?? 0) + 1);
+  }
   const locked = !!store.prisonUntil && store.prisonUntil > store.now();
   const held = me.holding ? itemDef(me.holding) : undefined;
   useEffect(() => {
@@ -839,6 +847,8 @@ function PocketsPanel({ store, me, assets, onClose }: { store: Store; me: Client
     <div className="edit-panel gm-panel">
       <div className="rooms-head"><span><Icon name="backpack" /> Pockets <small>{pocketCount(store.items)}/{POCKET_MAX}</small></span><button className="ghost" onClick={onClose} aria-label="Close"><Icon name="close" /></button></div>
       {!store.items.length && !held && <p className="hint">Nothing yet. Hats hang on the stand in the Lobby.</p>}
+      {store.hatDue > 0 && <div className="palette"><button onClick={() => store.openHatPicker()} title="You earned a hat: choose it">
+        <b className="gm-icon">🎁</b><span>Pick a hat{store.hatDue > 1 ? ` (${store.hatDue})` : ''}</span></button></div>}
       {held && <>
         <h3>In your hands</h3>
         <div className="palette">
@@ -855,6 +865,14 @@ function PocketsPanel({ store, me, assets, onClose }: { store: Store; me: Client
           </button>)}
         </div>
       </>}
+      {postcards.length > 0 && <>
+        <h3>Postcards <small>Take one out to throw it back</small></h3>
+        {postcards.map((card, k) => <p key={`${card}${k}`} className="hint">💌 “{postcardOf(card)}”</p>)}
+      </>}
+      {stickers.length > 0 && <>
+        <h3>Stickers <small>From the gacha machine</small></h3>
+        <div className="palette">{stickers.map(i => { const d = itemDef(i); return <button key={i} disabled title={d?.label}><b className="gm-icon">{d?.icon}</b><span>{d?.label.replace(' sticker', '')}</span></button>; })}</div>
+      </>}
       {rest.size > 0 && <>
         <h3>Other <small>Take one out to throw or use it</small></h3>
         <div className="palette">
@@ -865,6 +883,49 @@ function PocketsPanel({ store, me, assets, onClose }: { store: Store; me: Client
       </>}
     </div>
   );
+}
+
+// ---------- item content (v2): achievement hats, postcards, ride and sewing modes ----------
+/** At 5, 10 and 15 achievements: pick any hat from the pool that you don't own yet. */
+function HatPicker({ store, assets }: { store: Store; assets: Assets | null }) {
+  const choices = hatChoices(store.items);
+  return (
+    <div className="modal-backdrop" {...backdropClose(() => store.openHatPicker(false))}>
+      <div className="meet-panel guided" role="dialog" aria-label="Pick a hat">
+        <div className="rooms-head"><span>🎁 Pick a hat{store.hatDue > 1 ? ` · ${store.hatDue} to pick` : ''}</span><button type="button" className="ghost" aria-label="Close" onClick={() => store.openHatPicker(false)}><Icon name="close" /></button></div>
+        <p>Your achievements earned a hat. Choose any one you don't have yet; it goes in your pockets.</p>
+        <div className="palette">
+          {choices.map(item => { const style = hatOf(item)!; return <button key={item} onClick={() => store.hatPick(item)} title={`Take the ${HAT_NAMES[style]?.toLowerCase() ?? style}`}><HatSprite assets={assets} style={style} /><span>{HAT_NAMES[style] ?? style}</span></button>; })}
+          {!choices.length && <p className="hint">You have every hat in the pool.</p>}
+        </div>
+      </div>
+    </div>
+  );
+}
+/** A blank postcard: one short line, then throw it. */
+function PostcardWriter({ store }: { store: Store }) {
+  const [text, setText] = useState('');
+  const send = () => { if (text.trim()) store.writePostcard(text); };
+  return (
+    <div className="modal-backdrop" {...backdropClose(() => store.openPostcard(false))}>
+      <div className="meet-panel guided" role="dialog" aria-label="Write a postcard">
+        <div className="rooms-head"><span>💌 Postcard</span><button type="button" className="ghost" aria-label="Close" onClick={() => store.openPostcard(false)}><Icon name="close" /></button></div>
+        <input autoFocus value={text} maxLength={POSTCARD_MAX} placeholder="A short line…" onChange={e => setText(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') send(); else if (e.key === 'Escape') store.openPostcard(false); }} />
+        <p className="hint">{text.length}/{POSTCARD_MAX} · throw it at someone afterwards: it sits in their pockets.</p>
+        <div className="row"><button disabled={!text.trim()} onClick={send}>Write</button><button className="ghost" onClick={() => store.openPostcard(false)}>Cancel</button></div>
+      </div>
+    </div>
+  );
+}
+/** Bottom slot (derived from state): driving a remote car, or sewing. */
+function contentModes(store: Store): Mode[] {
+  const me = store.users.get(store.me);
+  if (!me) return [];
+  const modes: Mode[] = [];
+  if (effectOf(me.effects, 'driving')) modes.push({ id: 'ride', icon: '🏎️', text: 'Driving the car', hint: 'click to steer · arrow keys', exit: { label: 'End ride', run: () => store.carEnd() }, actions: [{ label: 'Pick up', run: () => store.carEnd(true) }] });
+  const sew = effectOf(me.effects, 'sewing');
+  if (sew) modes.push({ id: 'sewing', icon: '🧵', text: 'Sewing', hint: `${Math.max(0, Math.round(((sew.data?.since as number ?? store.now()) + 3600_000 - store.now()) / 60_000))} min to go · walking away stops it`, exit: { label: 'Stop sewing', run: () => store.sewStop() } });
+  return modes;
 }
 
 // ---------- desk storage ----------
@@ -1377,9 +1438,11 @@ function ActionWheel({ store, engine, pick, assets, onPerson, onClose }: { store
       else if (held && me?.holding) { // what the registry lets you do with what you hold (shared/items.ts)
         const name = held.label.toLowerCase(), actions = heldActions(me.holding, held.empty);
         if (actions.includes('drink') && !me.sipping) items.push({ icon: held.icon, label: 'Drink', title: `Drink your ${name}`, onClick: act(() => store.drink()) });
+        if (actions.includes('use')) items.push({ icon: held.icon, label: itemDef(me.holding)?.useLabel ?? 'Use', title: `${itemDef(me.holding)?.useLabel ?? 'Use'}: ${name}`, onClick: act(() => store.useHeld()) });
+        if (actions.includes('write')) items.push({ icon: held.icon, label: 'Write', title: 'Write a line on the postcard, then throw it at someone', onClick: act(() => store.openPostcard()) });
         if (actions.includes('stow')) items.push({ icon: held.icon, label: 'Pockets', title: `Put your ${name} back in your pockets`, onClick: act(() => store.stow()) });
         if (actions.includes('drop') && held.empty) items.push({ icon: <span style={{ opacity: 0.45 }}>{held.icon}</span>, label: 'Drop', title: `Drop your ${name} on the floor (or click a table to put it down)`, onClick: act(() => store.drop()) });
-        else if (actions.includes('drop')) items.push({ icon: held.icon, label: holdsForever(me.holding) ? 'Drop' : 'Finish', title: holdsForever(me.holding) ? `Drop your ${name} on the floor` : `Finish your ${name}`, onClick: act(() => store.drop()) });
+        else if (actions.includes('drop')) items.push({ icon: held.icon, label: holdsForever(me.holding) ? (isToy(me.holding) ? 'Put down' : 'Drop') : 'Finish', title: holdsForever(me.holding) ? `${isToy(me.holding) ? 'Put' : 'Drop'} your ${name} on the floor` : `Finish your ${name}`, onClick: act(() => store.drop()) });
       }
       if (isMe && me?.following) items.push({ icon: '🛑', label: 'Stop following', onClick: act(() => store.follow(null)) });
     } else {

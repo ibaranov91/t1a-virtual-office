@@ -2343,6 +2343,84 @@ for (const on of [false, true]) {
   t.rect(2, 1, 4, 4, '#e8484a'); t.hline(2, 1, 4, '#f4f0e6'); t.px(3, 0, '#c8d8e0'); t.px(5, 0, '#c8d8e0');
   frames.plate_hot_noodles = t.outline();
 }
+// ---------- item content (v2): achievement hats, gacha hats, the hand-sewn beanie, toys, glow stick ----------
+// Hats (bottom row on the head's row 4; heights in client/src/effects.ts HAT_H) and floor/held sprites for the toys (shared/items.ts `sprite`).
+{
+  const hat = (name, h, draw) => { const t = new Img(16, h); draw(t); frames[`hat_${name}`] = t.outline(); };
+  hat('shark', 11, t => { // a grey shark hood: dorsal fin, a toothy grin along the brow, small eyes
+    t.rect(3, 4, 10, 5, '#7c93ad'); t.hline(4, 3, 8, '#7c93ad'); t.hline(5, 9, 6, '#7c93ad');
+    t.px(8, 0, '#6a8099'); t.hline(7, 1, 3, '#6a8099'); t.hline(6, 2, 5, '#6a8099'); t.hline(5, 3, 7, '#6a8099');
+    t.hline(4, 4, 8, '#93a9c0'); t.px(5, 6, '#101820'); t.px(10, 6, '#101820');
+    t.hline(3, 9, 10, '#f4f4f8'); for (const x of [4, 6, 8, 10, 12]) t.px(x, 10, '#f4f4f8'); t.hline(3, 8, 10, '#b84a50');
+  });
+  hat('catears', 8, t => { // an orange headband with two pointed ears, pink inside
+    for (const [x, dir] of [[3, 1], [10, -1]]) { t.px(x + (dir > 0 ? 1 : 2), 0, '#e8a060'); t.hline(x + 1, 1, 3, '#e8a060'); t.hline(x, 2, 4, '#e8a060'); t.hline(x, 3, 4, '#e8a060'); t.px(x + (dir > 0 ? 1 : 2), 2, '#f2a0b0'); t.px(x + (dir > 0 ? 1 : 2), 3, '#f2a0b0'); }
+    t.hline(3, 4, 10, '#e8a060'); t.hline(3, 5, 10, '#c8803c');
+  });
+  hat('foxears', 9, t => { // taller orange ears, white tips, a dark inside; a rust band
+    for (const x of [3, 10]) { t.px(x + 1, 0, '#f4f0e8'); t.hline(x + 1, 1, 2, '#f4f0e8'); t.hline(x, 2, 4, '#e07830'); t.hline(x, 3, 4, '#e07830'); t.hline(x, 4, 4, '#e07830'); t.px(x + 1, 3, '#3a2a28'); t.px(x + 2, 3, '#3a2a28'); t.px(x + 1, 4, '#3a2a28'); }
+    t.hline(3, 5, 10, '#e07830'); t.hline(3, 6, 10, '#b4561e'); t.hline(5, 6, 6, '#f4f0e8');
+  });
+  hat('frog', 8, t => { // a green dome with two big eyes on top
+    t.rect(3, 3, 10, 5, '#5aa850'); t.hline(4, 2, 8, '#5aa850'); t.hline(4, 3, 8, '#78c468');
+    for (const x of [3, 9]) { t.rect(x, 0, 4, 4, '#f4f4f0'); t.hline(x, 0, 4, '#5aa850'); t.rect(x + 1, 1, 2, 2, '#101820'); t.px(x + 1, 1, '#ffffff'); }
+    t.hline(3, 7, 10, '#3e8038');
+  });
+  hat('onigiri', 9, t => { // a triangle of rice with a nori band and a pink plum
+    for (let y = 0; y < 6; y++) t.hline(8 - y, y, y * 2, '#f8f8f0');
+    t.rect(3, 6, 10, 3, '#f8f8f0'); t.rect(4, 6, 8, 3, '#1e3a2a'); t.hline(5, 6, 6, '#2c5238');
+    t.px(7, 3, '#e8607a'); t.px(8, 3, '#e8607a'); t.px(7, 4, '#f4f4e8'); t.vline(3, 6, 3, '#d8d8cc'); t.vline(12, 6, 3, '#d8d8cc');
+  });
+  hat('apple', 9, t => { // a red apple, stalk and leaf
+    t.ellipse(8, 5.2, 5.2, 4, '#d8403a'); t.rect(4, 8, 8, 1, '#b02e2c');
+    t.px(8, 1, '#6a4a2a'); t.px(8, 0, '#6a4a2a'); t.hline(9, 1, 3, '#5aa850'); t.px(11, 0, '#5aa850');
+    t.px(5, 4, '#f08a80'); t.px(5, 5, '#f08a80'); t.hline(8, 2, 1, '#b02e2c');
+  });
+  hat('coffeecup', 10, t => { // a white mug worn upside up: coffee on top, a handle, steam
+    t.rect(4, 4, 8, 6, '#f4f0e8'); t.hline(4, 4, 8, '#6a4228'); t.hline(5, 5, 6, '#8a5a38'); t.vline(11, 5, 5, '#d4cfc4');
+    t.px(13, 5, '#f4f0e8'); t.px(13, 6, '#f4f0e8'); t.px(13, 7, '#f4f0e8'); t.px(12, 8, '#f4f0e8'); t.px(12, 4, '#f4f0e8');
+    t.hline(4, 7, 8, '#b4473a');
+    t.px(7, 2, '#d8d8e0'); t.px(8, 1, '#e8e8f0'); t.px(7, 0, '#d8d8e0'); t.px(9, 3, '#e8e8f0');
+  });
+  hat('mushroom', 10, t => { // a red cap with white spots over a pale gill rim
+    t.hline(6, 1, 4, '#d8403a'); t.hline(4, 2, 8, '#d8403a'); t.hline(3, 3, 10, '#d8403a'); t.rect(2, 4, 12, 4, '#d8403a'); t.hline(2, 8, 12, '#b02e2c'); t.hline(3, 9, 10, '#e8d8b8');
+    for (const [x, y, w] of [[5, 2, 2], [9, 3, 2], [3, 5, 2], [7, 5, 3], [11, 6, 2]]) t.rect(x, y, w, w > 2 ? 2 : 1, '#f8f4ec');
+  });
+  hat('capsule', 11, t => { // the top half of a gacha capsule: a glassy red dome over a white seam
+    t.hline(6, 1, 4, '#e8505a'); t.hline(4, 2, 8, '#e8505a'); t.hline(3, 3, 10, '#e8505a'); t.rect(2, 4, 12, 5, '#e8505a');
+    t.px(4, 3, '#ffb0b4'); t.px(4, 4, '#ffb0b4'); t.px(5, 2, '#ffb0b4'); t.vline(12, 4, 4, '#c03a46');
+    t.hline(2, 9, 12, '#f4f4f8'); t.hline(3, 10, 10, '#c8c8d4');
+  });
+  hat('tinycrown', 6, t => { // a very small gold crown with three gems
+    t.px(5, 1, '#f0c030'); t.px(8, 0, '#f0c030'); t.px(11, 1, '#f0c030'); t.px(8, 1, '#f0c030');
+    t.rect(5, 2, 7, 3, '#f0c030'); t.hline(5, 4, 7, '#b88a20'); t.px(6, 3, '#40a0e8'); t.px(8, 3, '#e8403a'); t.px(10, 3, '#40d070');
+  });
+  hat('handsewn', 8, t => { // a patchwork beanie with running stitches, a pompom and a folded cuff
+    const PATCH = ['#d8603a', '#f0c850', '#5a8ad0', '#6ab060'];
+    for (const [y, x0, w] of [[2, 6, 4], [3, 4, 8], [4, 3, 10], [5, 3, 10], [6, 3, 10]]) for (let x = x0; x < x0 + w; x++) t.px(x, y, PATCH[((x >> 1) + (y >> 1)) % 4]);
+    for (let x = 4; x < 12; x += 2) t.px(x, 4, '#f4ecd8'); for (let x = 5; x < 11; x += 2) t.px(x, 6, '#f4ecd8');
+    t.ellipse(8, 1, 1.6, 1.4, '#f4ecd8'); t.rect(2, 7, 12, 1, '#c8a070');
+  });
+  // toys: what lies on the floor and what is held (a frame named like the ItemDef.sprite)
+  { const t = new Img(8, 8); t.ellipse(4, 4, 3, 3, '#f4fbff'); t.px(5, 5, '#b8d8f0'); t.px(4, 5, '#b8d8f0'); t.px(5, 4, '#b8d8f0'); t.px(3, 3, '#ffffff'); frames.toy_snowball = t.outline(); }
+  { const t = new Img(14, 10); // a little steam engine facing right
+    t.rect(1, 4, 8, 3, '#3a3a48'); t.rect(8, 2, 4, 5, '#c8403a'); t.hline(8, 2, 4, '#a02e2c'); t.rect(2, 1, 2, 3, '#2a2a34'); t.hline(1, 1, 4, '#5a5a70');
+    t.px(11, 4, '#f2d060'); t.hline(1, 7, 11, '#6a2a2a');
+    for (const x of [3, 6, 10]) { t.ellipse(x + 0.5, 8, 1.5, 1.5, '#e8d8a0'); t.px(x, 8, '#2a2a34'); }
+    t.px(2, 0, '#e8e8f0'); t.px(3, 0, '#d0d0dc'); frames.toy_train = t.outline(); }
+  { const t = new Img(12, 8); // a red remote car, side view, with an antenna
+    t.rect(1, 3, 10, 2, '#d8403a'); t.rect(3, 2, 5, 1, '#d8403a'); t.hline(4, 2, 3, '#9ad0f0'); t.hline(1, 3, 10, '#f06858'); t.hline(1, 5, 10, '#a02e2c');
+    for (const x of [2, 8]) { t.rect(x, 5, 2, 2, '#26262e'); t.px(x, 5, '#4a4a58'); }
+    t.px(9, 1, '#5a5a70'); t.px(9, 0, '#7ad08a'); frames.toy_car = t.outline(); }
+  { const t = new Img(8, 12); // the same car from the front or back
+    t.rect(1, 2, 6, 8, '#d8403a'); t.rect(2, 3, 4, 2, '#9ad0f0'); t.hline(1, 2, 6, '#f06858'); t.hline(1, 9, 6, '#a02e2c');
+    for (const y of [2, 8]) { t.rect(0, y, 1, 2, '#26262e'); t.rect(7, y, 1, 2, '#26262e'); }
+    t.px(5, 1, '#5a5a70'); t.px(5, 0, '#7ad08a'); frames.toy_car_v = t.outline(); }
+  { const t = new Img(10, 8); // a pink sewing box with a spool of thread on top
+    t.rect(1, 3, 8, 4, '#c85a7a'); t.hline(1, 3, 8, '#e87a9a'); t.hline(1, 6, 8, '#a03a5a'); t.px(4, 4, '#f4ecd8'); t.px(5, 4, '#f4ecd8');
+    t.rect(2, 1, 2, 2, '#f2d060'); t.px(2, 1, '#e8e8f0'); t.px(3, 2, '#e8e8f0'); t.vline(7, 0, 3, '#c8c8d4'); frames.toy_sewing = t.outline(); }
+  { const t = new Img(5, 9); t.rect(1, 1, 3, 7, '#58e07a'); t.vline(2, 1, 7, '#b8ffc8'); t.rect(1, 1, 3, 1, '#2a8a4a'); t.rect(1, 7, 3, 1, '#2a8a4a'); frames.glow_stick = t.outline(); }
+}
 
 // ---------- pack world atlas (shelf packer) ----------
 const names = Object.keys(frames).sort((a, b) => frames[b].h - frames[a].h || frames[b].w - frames[a].w);

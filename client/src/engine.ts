@@ -77,6 +77,7 @@ export class Engine {
   private actualDown = false;
   private held = new Map<string, [number, number]>();
   private stepPending: { to: Tile; at: number } | null = null;
+  private lastCarKey = 0; // performance.now() of the last arrow-key steer of a remote car
   private areaUnsub: () => void;
   private ctx: CanvasRenderingContext2D;
   private staticLayer: HTMLCanvasElement;
@@ -594,6 +595,12 @@ export class Engine {
     if (!this.areaDown || !this.held.size || this.falling() || !this.store.connected) return;
     if (document.activeElement?.closest('input, textarea, select, [contenteditable]')) return this.stopKeys();
     const me = this.store.users.get(this.store.me); if (!me) return;
+    if (this.store.driving) { // arrow keys steer the car, not me
+      const now = performance.now(), [kx, ky] = [...this.held.values()].at(-1)!;
+      if (now - this.lastCarKey < 110) return;
+      this.lastCarKey = now; this.store.carDir(kx < 0 ? 'left' : kx > 0 ? 'right' : ky < 0 ? 'up' : 'down');
+      return;
+    }
     if (this.stepPending) {
       if (me.move?.to.x === this.stepPending.to.x && me.move.to.y === this.stepPending.to.y && me.move.startedAt >= this.stepPending.at - 100) this.stepPending = null;
       else if (this.store.now() - this.stepPending.at < WALK_MS_PER_TILE * 2) return;
@@ -871,6 +878,7 @@ export class Engine {
       else this.select(this.itemAt(w.x, w.y)?.id ?? null);
       return;
     }
+    if (this.store.driving) return this.store.carGo({ x: Math.floor(w.x / TS), y: Math.floor(w.y / TS) }); // the controller is in my hands: the floor steers the car
     const hit = this.userAt(w.x, w.y);
     if (hit) return this.onPick?.({ kind: 'user', id: hit });
     const inside = this.myInstance();
@@ -952,11 +960,12 @@ export class Engine {
     const now = this.store.now(), users = [...this.store.users.values()];
     const near = (x: number, y: number) => this.onScreen(x * TS - TS, y * TS - TS, 3 * TS, 3 * TS);
     if (this.store.portalFx.some(f => ms - f.at < PORTAL_MS)) return FAST_MS;
+    if ([...this.store.carFx.values()].some(f => performance.now() - f.at < 200)) return FAST_MS; // a remote car gliding to its next tile
     if (users.some(u => { if (!u.move) return false; const p = this.store.pose(u, now); return p.walking && this.visible(u) && near(p.x, p.y); })) return FAST_MS;
     if (!this.areaDown && !this.store.users.get(this.store.me)?.instance && [...this.store.creatures.values()].some(c => { if (!c.walk) return false; const p = creaturePose(c, now); return p.walking && near(p.x, p.y); })) return FAST_MS;
     if (this.areaDown || this.store.reactions.length || this.instrumentNotes.length || this.partyOnScreen() || this.store.dungeonFx.some(f => ms - f.at < 700)
       || this.store.objectFx.some(f => performance.now() - f.at < 4000)
-      || users.some(u => this.visible(u) && (u.effects?.some(e => e.kind !== 'hat') || u.speaking))) return FAST_MS;
+      || users.some(u => this.visible(u) && (u.effects?.some(e => e.kind !== 'hat' && e.kind !== 'sewing' && e.kind !== 'driving') || u.speaking))) return FAST_MS; // sewing and driving only step every 300+ ms: the ambient rate is enough
     return document.hasFocus() ? 124 : 499;
   }
   /** A room with its jukebox playing (disco ball, notes, dancers) is in view. */
@@ -1331,6 +1340,16 @@ export class Engine {
     ctx.restore();
   }
 
+  /** Walking past a toy train: chugging arms and a "choo choo" over the head. Same for everyone who sees it. */
+  private drawChooChoo(u: ClientUser, x: number, top: number, ms: number) {
+    const ctx = this.ctx, k = Math.floor(ms / 170) % 2, label = Math.floor(ms / 680) % 2 ? 'CHOO CHOO' : 'CHOO';
+    ctx.fillStyle = u.look.skin;
+    ctx.fillRect(x + (k ? 0 : 1), top + 10 + k, 3, 2); ctx.fillRect(x + (k ? 12 : 13), top + 11 - k, 3, 2); // forearms pumping like pistons
+    const w = textWidth(label) + 4, bx = x + 8 - Math.floor(w / 2), by = top - 10;
+    ctx.fillStyle = '#513b36'; ctx.fillRect(bx - 1, by - 1, w + 2, 9);
+    ctx.fillStyle = '#fff4e0'; ctx.fillRect(bx, by, w, 7);
+    drawText(ctx, label, bx + 2, by + 1, '#513b36');
+  }
   private drawSprite(u: ClientUser, p: Pose, ms: number) {
     const ctx = this.ctx, c = this.assets.atlas.character;
     const sheet = this.assets.sheet(u.effects?.length ? effectLook(u.look, u.effects) : u.look);
@@ -1398,7 +1417,13 @@ export class Engine {
     ctx.globalAlpha = 1;
     if (fxCtx) drawEffects('front', fxCtx, fx);
     if (sway && (sway.dx || sway.rot || sway.dy)) ctx.restore();
-    const icon = u.holding && !carrying ? ITEM_ICON.get(u.holding) : undefined;
+    if (p.walking && this.store.cups.some(c => c.item === 'train' && Math.max(Math.abs(c.tile.x - p.tile.x), Math.abs(c.tile.y - p.tile.y)) <= 1)) this.drawChooChoo(u, x, top, ms); // passing a toy train
+    if (u.holding === 'glow_stick') { // a small green glow around the stick in their hand
+      const ih = ITEM_HAND[p.dir] ?? ITEM_HAND.down, gx = x + dx + ih.dx, gy = baseY + ih.dy + bob, g = ctx.createRadialGradient(gx, gy, 0, gx, gy, 9);
+      g.addColorStop(0, 'rgba(120,255,150,0.45)'); g.addColorStop(1, 'rgba(120,255,150,0)');
+      ctx.fillStyle = g; ctx.fillRect(gx - 9, gy - 9, 18, 18);
+    }
+    const icon = u.holding && !carrying ? ITEM_ICON.get(u.holding) ?? itemDef(u.holding)?.icon : undefined;
     if (icon) {
       const ih = seat ? ITEM_HAND.down : ITEM_HAND[p.dir] ?? ITEM_HAND.down;
       // a sip: the cup goes up to the mouth and tips twice, with a little "sip" over the head

@@ -49,7 +49,7 @@ export type ObjectUse = { kind: 'wellness'; activity: 'water' | 'stretch'; label
   | { kind: 'kettle'; label: string }  // the kitchen kettle: fills the cup noodles in your hands
   | { kind: 'mirror'; label: string }  // opens Edit look
   | { kind: 'photos'; label: string }  // the Lobby photo wall (placeholder until the photos batch)
-  | { kind: 'gacha'; label: string }   // the 7/11 gacha machine (placeholder handler: out of order; the item session implements it)
+  | { kind: 'gacha'; label: string }   // the 7/11 gacha machine: one capsule per person per office day (World.gachaPull)
   | { kind: 'toilet'; label: string }; // a stall: occupied for a while, fills up with use (see Toilets on the server)
 export type UseKind = ObjectUse['kind'];
 /** How a click on each use.kind is routed. A new kind fails typecheck until it has a row (docs/ADDING-A-FEATURE.md).
@@ -77,7 +77,7 @@ export const USE_KINDS = {
   cashier: { use: true, reach: true }, // the 7/11 counter: walk over, then Keiko says something
   kettle: { use: true, reach: true }, // walk over, then the server fills the noodles in your hands
   mirror: {}, photos: {}, // client-only: the click opens Edit look / says "coming soon"
-  gacha: { use: true, reach: true }, // walk over, then the server says "out of order" (placeholder)
+  gacha: { use: true, reach: true }, // walk up to the machine; the server hands out the day's capsule on arrival
 } as const satisfies Record<UseKind, { wheel?: true; use?: true; reach?: true }>;
 type KindsWith<F extends string> = { [K in UseKind]: (typeof USE_KINDS)[K] extends Record<F, true> ? K : never }[UseKind];
 /** True when this use's kind has that flag in USE_KINDS; narrows the use to those kinds. */

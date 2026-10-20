@@ -2,13 +2,16 @@
 // who takes away the cups people leave on tables. They are not users: their own `creatures` message, never knocked on,
 // never counted. Cups are server state, saved with the rest.
 import { terrainAt } from '../../shared/beach';
-import { dirBetween, findPath, isWalkable, roomAt, type Tile, type TileMap } from '../../shared/map';
+import { dirBetween, findPath, isWalkable, roomAt, type Dir, type Tile, type TileMap } from '../../shared/map';
+import { isToy } from '../../shared/items';
+import { SPAWN_BY } from '../../shared/spawns';
 import { isPlate, LUNCH_MS, MAX_PLATES } from '../../shared/lunch';
 import { phrase, type Speaker } from '../../shared/phrases';
 import { cupTableAt, MAX_CUPS, type Creature, type CreatureKind, type CreaturePose, type Cup, type ServerMsg } from '../../shared/protocol';
 
 export const CUP_LINGER_MS = 12_000;       // the cleaner leaves a fresh cup alone for a bit
 export const CUP_TTL_MS = 30 * 60_000;     // with no cleaner around (PETS=0), cups vanish on their own
+export const MAX_TOYS = 24;                // toys put down around the office (spawns not yet collected don't count); past it the oldest goes
 export const CLEAN_MS = 1800;              // pausing at the table
 export const STALL_CLEAN_MS = 5000;        // scrubbing an overflowed stall takes longer
 export const STALL_LINGER_MS = 20_000;     // a stall stays out of order this long before she turns up
@@ -119,7 +122,7 @@ export class Creatures {
     const plate = isPlate(item);
     if (!floor && !this.tableAt(t)) return plate ? 'Plates go on a table' : 'Cups go on a table';
     if (this.cups.some(c => c.tile.x === t.x && t.y === c.tile.y)) return 'There\'s a cup there already';
-    if (!floor && this.cups.filter(c => isPlate(c.item) === plate).length >= (plate ? MAX_PLATES : MAX_CUPS)) return plate ? 'The tables are full of plates: wait for the cleaner' : 'The tables are full of cups: wait for the cleaner';
+    if (!floor && this.cups.filter(c => isPlate(c.item) === plate && !isToy(c.item)).length >= (plate ? MAX_PLATES : MAX_CUPS)) return plate ? 'The tables are full of plates: wait for the cleaner' : 'The tables are full of cups: wait for the cleaner';
     return null;
   }
   /** Walkable tiles touching this tile, from where you can reach across to it. */
@@ -130,10 +133,20 @@ export class Creatures {
     const problem = this.cupProblem(t, item, !!opts.floor);
     if (problem) return problem;
     let cups = this.cups;
-    if (opts.floor) while (cups.filter(c => !isPlate(c.item)).length >= MAX_CUPS) { const oldest = cups.filter(c => !isPlate(c.item)).sort((a, b) => a.at - b.at)[0]; cups = cups.filter(c => c !== oldest); }
+    const litter = (c: Cup) => !isPlate(c.item) && !isToy(c.item); // toys live apart from the cup limit
+    if (opts.floor && !isToy(item)) while (cups.filter(litter).length >= MAX_CUPS) { const oldest = cups.filter(litter).sort((a, b) => a.at - b.at)[0]; cups = cups.filter(c => c !== oldest); }
+    if (isToy(item)) while (cups.filter(c => isToy(c.item) && c.by !== SPAWN_BY).length >= MAX_TOYS) { const oldest = cups.filter(c => isToy(c.item) && c.by !== SPAWN_BY).sort((a, b) => a.at - b.at)[0]; cups = cups.filter(c => c !== oldest); }
     const cup: Cup = { id: `cup${now.toString(36)}${(this.seq++).toString(36)}`, tile: { x: t.x, y: t.y }, item, at: now, ...(opts.floor ? { floor: true as const } : {}), ...(opts.by ? { by: opts.by } : {}), ...(opts.ttl ? { ttl: opts.ttl } : {}) };
     this.cups = [...cups, cup]; this.announceCups();
     return cup;
+  }
+  /** A remote car moved: its prop changes in place and clients get the small `car` message, not the whole layer. Returns the new prop. */
+  moveCar(id: string, tile: Tile, dir: Dir): Cup | null {
+    const i = this.cups.findIndex(c => c.id === id); if (i < 0) return null;
+    const car: Cup = { ...this.cups[i], tile: { x: tile.x, y: tile.y }, dir };
+    this.cups = this.cups.map((c, j) => (j === i ? car : c));
+    this.host.broadcast({ t: 'car', id, tile: car.tile, dir });
+    return car;
   }
   removeCup(id: string) {
     const before = this.cups.length;
@@ -363,6 +376,7 @@ export class Creatures {
   planClean(from: Tile, now: number) {
     let best: { cup: Cup; spot: Tile; path: Tile[] } | null = null;
     for (const cup of this.cups) {
+      if (isToy(cup.item)) continue; // toys stay where their owner left them
       if (now - cup.at < CUP_LINGER_MS + (isPlate(cup.item) ? LUNCH_MS : 0)) continue; // a plate stays while its owner eats
       if (best?.cup.floor && !cup.floor) continue;
       const spots = cup.floor && isWalkable(this.map, cup.tile.x, cup.tile.y) ? [cup.tile] : this.beside(cup.tile);

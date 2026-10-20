@@ -216,7 +216,7 @@ export interface Creature {
 }
 /** A cup someone left on a table (or dropped on the floor: `floor`); the cleaner takes it away. by: who left it. */
 /** A prop: anything placed in the world: a cup on a table, a thrown item on the floor. `by` is its owner; `ttl` (ms, from `at`) overrides the default lifetime. */
-export interface Cup { id: string; tile: Tile; item: string; at: number; floor?: true; by?: string; ttl?: number }
+export interface Cup { id: string; tile: Tile; item: string; at: number; floor?: true; by?: string; ttl?: number; dir?: Dir } // dir: which way a remote car faces
 export type Prop = Cup;
 /** One entry of who took what from a desk storage (seen by its owner). */
 export interface StorageTake { by: string; name: string; item: string; at: number }
@@ -229,7 +229,8 @@ export const cupTableAt = <O extends { type: string; x: number; y: number; w: nu
 export type CreatureServerMsg =
   | { t: 'creatures'; creatures: Creature[] } // everyone, on connect and when one appears or leaves
   | { t: 'creature'; creature: Creature; by?: string }     // one of them set off, sat down, fell asleep…
-  | { t: 'cups'; cups: Cup[] };
+  | { t: 'cups'; cups: Cup[] }
+  | { t: 'car'; id: string; tile: Tile; dir: Dir }; // a remote car moved: only its prop changes (a stream of these while someone drives)
 
 /** Quick reactions you can toss at someone; they float up over their head for everyone to see. */
 export const REACTIONS = ['👋', '👍', '❤️', '😂', '🎉', '☕'] as const;
@@ -357,7 +358,7 @@ export type ServerMsg =
   | { t: 'knock_reply'; knockId: string; fromId: string; toId: string; reply: 'accept' | 'later' | 'blocked'; link?: string; reason?: string; cancelled?: boolean; kept?: boolean /* in the target's Later list: no "missed" toast */ }
   // private settings, only to the user themselves. google: the connected Google account (null = not connected),
   // absent when this instance has no Google sign-in
-  | { t: 'me'; meetLink: string; email?: string; google?: string | null; calendar?: boolean; admin?: boolean; sysadmin?: boolean; items?: string[]; prisonUntil?: number } // calendar: Calendar access granted; admin: may rearrange the office; sysadmin: may also walk into the Admin room
+  | { t: 'me'; meetLink: string; email?: string; google?: string | null; calendar?: boolean; admin?: boolean; sysadmin?: boolean; items?: string[]; prisonUntil?: number; hatDue?: number } // hatDue: achievement-hat picks waiting (shared/rewards.ts); calendar: Calendar access granted; admin: may rearrange the office; sysadmin: may also walk into the Admin room
   | { t: 'google_auth'; url: string; calendar?: boolean } // open this to connect Google (in the system browser from the Mac app)
   | { t: 'calendar'; events?: CalEvent[]; error?: string } // my own events, only to me
   | { t: 'agenda'; items: AgendaItem[] } // my calendar meetings now and soon, only to me
@@ -396,6 +397,8 @@ export type ServerMsg =
   | { t: 'hand'; userId: string; up: boolean }
   | { t: 'gm_items'; targetId: string; items: string[]; prisonUntil?: number } // to the asking admin only (prisonUntil: the hat can't come off before then)
   // ---------- items & storage ----------
+  // ---------- item content (v2) ----------
+  | { t: 'popper'; userId: string; tile: Tile } // a party popper went off (everyone near hears it; the confetti is an effect on whoever was within 2 tiles)
   | { t: 'thrown'; fromId: string; toId: string; item: string; landed: 'pockets' | 'floor' } // an item flew from one person to another (everyone plays the arc)
   | { t: 'storage_warn'; ownerId: string } // opening someone else's storage: confirm first (they may be spotted)
   | { t: 'storage'; ownerId: string; items: string[]; log?: StorageTake[]; spotted?: boolean } // to the person looking: what the desk holds; log only for the owner
@@ -508,6 +511,16 @@ export type ClientMsg =
   | { t: 'storage_close' }
   | { t: 'storage_move'; ownerId: string; item: string; dir: 'in' | 'out' } // pockets <-> that desk's storage
   | { t: 'gm_give'; targetId: string; item: string } // office admins only: give anyone any registry item
+  // ---------- item content (v2) ----------
+  | { t: 'use_held' }                 // the wheel's Use on what you hold: its onUse (shared/items.ts), or the item's own action (sew, drive, wear)
+  | { t: 'postcard_write'; text: string } // a blank postcard in your hands becomes `postcard:<text>`
+  | { t: 'hat_pick'; item: string }   // choose your achievement hat (shared/rewards.ts); needs a pick due
+  | { t: 'car_go'; to: Tile }         // driving: send the car to this tile (it takes the path, a tile per CAR_STEP_MS)
+  | { t: 'car_dir'; dir: Dir }        // driving: one step with the arrow keys
+  | { t: 'car_end'; pickup?: boolean } // End ride (pickup: and take the car back into your hands)
+  | { t: 'sew_stop' }                 // stop sewing (the hour starts over)
+  | { t: 'dev_time'; scale: number }  // dev only (World.devTools): speed up the sewing hour, and reset the gacha day (`dev_gacha`)
+  | { t: 'dev_gacha' }
   | { t: 'prison_release'; targetId: string }  // office admins only: take the prison hat off
   | { t: 'bite'; targetId: string } // a vampire walks up to someone and bites: they're a vampire too, for BITE_MS
   | { t: 'deafen'; on: boolean }

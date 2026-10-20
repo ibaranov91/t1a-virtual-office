@@ -248,6 +248,18 @@ npm run typecheck    # run before every commit or deploy
   on the thief for 2 days (`User.prisonUntil`; only an office admin removes it: GM panel Release, `prison_release`, or any GM hat change; a second theft doesn't extend it).
   Admins `gm_give` any registry item. Generic containers (`World.shelf(id)`, saved as `containers`) are for shelves and the trophy case. The saved `cups` layer is now the
   **props layer** (`Cup` = prop: `by` owner, optional `ttl`): cups, plates and thrown/dropped items; the cleaner tidies them all, anyone can pick an item prop up.
+- **Item content (v2)** (`World` §item content, `shared/gacha.ts`, `spawns.ts`, `rewards.ts`, `officeTime.ts`): the wheel's **Use** is `use_held` →
+  `World.useHeld`, which runs the item's `onUse` data (effects on you and, with `radius`, on people within N tiles) or its own action
+  (`sewing_kit`, `remote_car`, `sewn_hat`); slurpee and energy drink sip first (`DrinkRule.effect: 'use'`). Energy drink is `speed` with
+  `data.boost` (then `crash`). Postcards are `postcard:<text>` item ids (text capped at `POSTCARD_MAX`, thrown into pockets). **Gacha**
+  (`use.kind: 'gacha'` → `gachaPull`): one capsule per person per **office day** (`officeDay`, Europe/Berlin), ~75% sticker / 20% toy / 5%
+  gacha-only hat; dev: `store.devGacha()`. **Daily spawns** (`dailySpawns`, started by index.ts): four toys a day on free office floor,
+  seeded by the office day, props with `by: 'spawn'`, swept at the next day. **Toys** (`ItemDef.toy`) are props the cleaner skips, outside the
+  cup limit (`MAX_TOYS`), kept 24 h. Snowball `onHit` = `snow` aura on both; the train makes passers-by do a client-only gesture; the
+  **remote car** is a prop moved by `car_go`/`car_dir` (small `car` messages, one tile per `CAR_STEP_MS`) while its driver has the `driving`
+  effect (bottom-slot End ride / Pick up, derived in `contentModes`); **sewing** (`sewing` effect, `SEW_MS` = 1 h, walking stops it) makes a
+  `sewn_hat`. **Achievement hats**: `picksDue` at 5/10/15 achievements → `me.hatDue` → `HatPicker` → `hat_pick`. Dev: `store.devTime(3600)`
+  makes the sewing hour a second (server `devTools`, on under `npm run dev`).
 - **Pockets (inventory)** are `User.items` (strings): `drugs` from the bouncer and hats as `hat:<style>` from the Lobby hat rack by reception
   (`use.kind: 'dealer'` hands out one of its `items`; one of each hat). The 🎒 button lists them; wearing a hat is the `hat`
   effect, and a non-GM may only wear a hat that's in their pockets. Office admins find `hat:admin` in their

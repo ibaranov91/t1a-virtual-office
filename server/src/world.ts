@@ -8,11 +8,11 @@ import {
 } from '../../shared/map';
 import {
   CALL_SILENCE_MS, NOTE_RATE, NOTE_BURST, TOILET_SHELF_ITEM, toiletFull, NOTE_HELD_MAX, SEAT_CHANGES_PER_10S, DUNGEON_INSTANCE, goingOut, LOOK_COLORS, underground, MAX_CALL_SIZE, LATER_MAX, MEETING_ROOM_ID, MAX_CHAT_LEN, normalizeMeetLink, REACTIONS, ROOM_VOICE_MAX,
-  CUP_ITEMS, BOOK_ITEM, BOOKWORM_READS, EDITOR_READERS, dayNumber, isTimeZone, plantDead, BOTANIST_KINDS, PLANT_KINDS, PLANT_STAGES, presentScope, type Plant,
-  type ChatMsg, type ClientMsg, type Door, type Effect, type Knock, type LaterItem, type LayoutEdit, type Look, type Presence, type PublicUser, type Reaction, type RtcSignal, type ServerMsg,
+  ACHIEVEMENTS, CUP_ITEMS, BOOK_ITEM, BOOKWORM_READS, EDITOR_READERS, dayNumber, isTimeZone, plantDead, BOTANIST_KINDS, PLANT_KINDS, PLANT_STAGES, presentScope, type Plant,
+  type ChatMsg, type ClientMsg, type Cup, type Door, type Effect, type Knock, type LaterItem, type LayoutEdit, type Look, type Presence, type PublicUser, type Reaction, type RtcSignal, type ServerMsg,
 } from '../../shared/protocol';
 import {
-  PRISON_HAT, PRISON_MS, STORAGE_LOG_MAX, canCarry, holdsForever, isHatItem, isThrowable, itemDef, newContainer, pocketProblem,
+  PRISON_HAT, PRISON_MS, STORAGE_LOG_MAX, canCarry, holdsForever, isHatItem, isThrowable, isToy, itemDef, newContainer, pocketProblem, postcardItem, postcardText, POSTCARD,
   type ContainerRef, type ItemContainer,
 } from '../../shared/items';
 import { FOOD_ITEMS, KITCHEN_TABLES, LUNCH_MS, PLATE_PREFIX, eatSpot, picnicSeat, type Eating } from '../../shared/lunch';
@@ -21,8 +21,12 @@ import { phrase, keikoCheckout } from '../../shared/phrases';
 import { shopProblem, shopTake, takenToday, type ShopTaken } from '../../shared/shop';
 import { advancePomodoro, startPomodoro } from '../../shared/pomodoro';
 import { ALCOHOL_ITEMS, DRINKS, EMPTY_DROP_DRUNK_MS, EMPTY_DROP_MS, emptyDrink, emptyOf, isEmpty } from '../../shared/drinks';
-import { ADMIN_HAT, ALL_HATS, BAT_HAT, BITE_MS, DANCE_ROOM, DRUNK_MAX_LEVEL, DRUNK_MAX_MS, DRUNK_MISWALK, DRUNK_NAMES, EFFECTS, HAT_NAMES, MAX_EFFECTS, RAVER_MS, drunkLevel, effectOf, hatItem, hatOf, walkMs } from '../../shared/effects';
+import { ADMIN_HAT, ALL_HATS, SEWN_HAT, BAT_HAT, BITE_MS, DANCE_ROOM, DRUNK_MAX_LEVEL, DRUNK_MAX_MS, DRUNK_MISWALK, DRUNK_NAMES, EFFECTS, HAT_NAMES, MAX_EFFECTS, RAVER_MS, drunkLevel, effectOf, hatItem, hatOf, walkMs } from '../../shared/effects';
 import { tracksFor } from '../../shared/music';
+import { officeDay } from '../../shared/officeTime';
+import { rollGacha } from '../../shared/gacha';
+import { planSpawns, SPAWN_BY } from '../../shared/spawns';
+import { hatChoices, picksDue } from '../../shared/rewards';
 import { Arcade } from './arcade';
 import { Table } from './table';
 import { Retro } from './retro';
@@ -31,7 +35,7 @@ import { Library } from './library';
 import { Tickets } from './tickets';
 import { Journal } from './journal';
 import { migrateBookClub, migrateLibrary, readingSeats } from '../../shared/library';
-import { onMap } from '../../shared/beach';
+import { onMap, terrainAt } from '../../shared/beach';
 import type { Vacation } from '../../shared/vacation';
 import { Vacations } from './vacations';
 import { Beach } from './beach';
@@ -54,6 +58,8 @@ export interface User extends PublicUser {
   items: string[];     // pockets (shared/items.ts: at most POCKET_MAX that count, hats are free); only sent to the owner
   storage?: ItemContainer; // desk storage (the plant on your home desk): no size limit; its log says who took what (owner only)
   shop?: ShopTaken;        // what this person took from the 7/11 shelves today (office day; saved, owner only)
+  gachaDay?: string;       // the office day (shared/officeTime.ts) of this person's last gacha capsule (saved)
+  hatPicks?: number;       // achievement-hat picks already taken (saved; shared/rewards.ts)
   prisonUntil?: number;    // a thief's prison hat can't come off before this (saved); only office admins can take it off earlier
   email?: string;       // identity from NetBird; never broadcast
   meetLink?: string;    // personal reusable Google Meet room; only shared with knock partners
@@ -102,10 +108,16 @@ const DOOR_PAUSE_MS = 400;   // a beat at the door before vanishing
 const FOLLOW_LAG_MS = 300;   // followers set off a beat after the person they follow
 const HOLD_MS = 3 * 60_000;  // a snack or book you never put down is gone after this long (drinks follow shared/drinks.ts)
 const PROP_TTL_MS = 15 * 60_000;  // a thrown or dropped item lies about this long before it vanishes (the cleaner may tidy it sooner)
+const TOY_TTL_MS = 24 * 3600_000; // a toy put down stays this long (the cleaner leaves it alone)
+const SPAWN_TTL_MS = 26 * 3600_000; // an uncollected daily spawn; the next office day sweeps it sooner
+export const SEW_MS = 3600_000;   // an hour of sewing makes a hat
+const CAR_STEP_MS = 130;          // a remote car covers a tile this fast
+const CAR_RANGE = 16;             // tiles: how far from the car you can take the controller
 const THROW_RANGE = 10;           // tiles: how far you can throw something at someone
 const STORAGE_REACH = 4;          // tiles from the desk's chair: how close you must stand to open its storage
 const BOT_SIP_MS = 20_000;   // bots and offline beach walkers have no Drink button: a cocktail sips itself
-const USE_MS = { take: 1200, toggle: 150, toilet: 300, dealer: 350, bell: 100, presentation: 100, room_start: 100, tickets: 100, shop: 100, cashier: 100, kettle: 500, gacha: 100 }; // brewing a coffee vs flicking a switch
+const USE_MS = { take: 1200, toggle: 150, toilet: 300, dealer: 350, bell: 100, presentation: 100, room_start: 100, tickets: 100, shop: 100, cashier: 100, kettle: 500, gacha: 300 }; // brewing a coffee vs flicking a switch
+const propTtl = (item: string) => (isToy(item) ? TOY_TTL_MS : PROP_TTL_MS);
 const ARRIVAL_SLACK_MS = 50; // timers can fire a millisecond before the walk is over
 
 /** Office admins rearrange the furniture: NetBird emails, or (only for name logins, so dev) plain names. */
@@ -247,7 +259,7 @@ export class World {
     for (const o of map.objects) if (o.use?.kind === 'toggle') this.objectOn.set(o.id, o.on ?? true);
     this.syncJukeboxes();
     setInterval(() => this.beach.tick(), 1000).unref();
-    setInterval(() => { const now = Date.now(); this.voiceTick(now); this.jukeboxTick(now); this.instrumentTick(now); this.effectsTick(now); this.lunchTick(now); this.pomodoroTick(now); this.laterTick(now); this.toilets.tick(now); this.present?.tick(); }, 250).unref();
+    setInterval(() => { const now = Date.now(); this.voiceTick(now); this.jukeboxTick(now); this.instrumentTick(now); this.effectsTick(now); this.lunchTick(now); this.pomodoroTick(now); this.laterTick(now); this.toilets.tick(now); this.present?.tick(); this.contentTick(now); }, 250).unref();
   }
 
   // ---------- transport ----------
@@ -256,7 +268,7 @@ export class World {
     for (const l of this.listeners) { if (l.wire) l.wire(json ??= JSON.stringify(msg)); else l.send(msg); }
   }
   /** Private settings for the user themselves. */
-  me(u: User): ServerMsg { return { t: 'me', meetLink: u.meetLink ?? '', email: u.email, google: googleEnabled ? u.google?.email ?? null : undefined, calendar: !!u.google?.scopes.includes(CALENDAR_SCOPE), admin: this.isAdmin(u) || undefined, sysadmin: this.isSysadmin(u) || undefined, items: u.items.length ? u.items : undefined, prisonUntil: this.prisonActive(u) ? u.prisonUntil : undefined }; }
+  me(u: User): ServerMsg { return { t: 'me', meetLink: u.meetLink ?? '', email: u.email, google: googleEnabled ? u.google?.email ?? null : undefined, calendar: !!u.google?.scopes.includes(CALENDAR_SCOPE), admin: this.isAdmin(u) || undefined, sysadmin: this.isSysadmin(u) || undefined, items: u.items.length ? u.items : undefined, prisonUntil: this.prisonActive(u) ? u.prisonUntil : undefined, hatDue: this.hatDue(u) || undefined }; }
   isAdmin(u: User) { return listed(ADMINS, u); }
   /** Only sysadmins may walk into the Admin room (access: 'admins'); the other office admins are locked out like everyone else. */
   isSysadmin(u: User) { return listed(SYSADMINS, u); }
@@ -765,11 +777,11 @@ export class World {
       if (current.use.kind === 'bell') this.ringBell(u, current);
       else if (current.use.kind === 'presentation') { if (!u.bot) this.sendTo(u.id, { t: 'present_open', objectId: current.id }); }
       else if (current.use.kind === 'room_start') { if (!u.bot) this.sendTo(u.id, { t: 'room_open' }); }
+      else if (current.use.kind === 'gacha') this.gachaPull(u);
       else if (current.use.kind === 'tickets') { if (!u.bot) this.sendTo(u.id, { t: 'terminal_open', objectId: current.id }); }
       else if (current.use.kind === 'shop') this.sendTo(u.id, { t: 'shop_open', taken: takenToday(u.shop) });
       else if (current.use.kind === 'cashier') this.cashierTalk(u, current);
       else if (current.use.kind === 'kettle') this.fillNoodles(u, current);
-      else if (current.use.kind === 'gacha') this.gachaUse(u, current);
       else if (o.use!.kind === 'toggle') this.setObject(o.id, !this.objectOn.get(o.id), u);
       else if (current.use.kind === 'dealer') {
         const want = itemId && current.use.items.includes(itemId) ? itemId : current.use.items[0];
@@ -829,7 +841,6 @@ export class World {
     }
   }
   // ---------- gacha (placeholder: the item session replaces this body) ----------
-  private gachaUse(u: User, _o: MapObject) { if (!u.bot) this.sendTo(u.id, { t: 'notice', text: '🎰 Out of order' }); }
 
   // ---------- bug terminal ----------
   /** Everyone who can see this ticket (its author and every office admin) gets their fresh list. */
@@ -969,6 +980,7 @@ export class World {
   takeCup(u: User, cupId: string) {
     const cup = this.creatures.cups.find(c => c.id === cupId);
     if (!cup || !(CUP_ITEMS.includes(cup.item) || canCarry(cup.item)) || u.bot || u.instance || goingOut(u) || u.presence === 'offline') return;
+    if (cup.item === 'remote_car' && cup.by !== SPAWN_BY) return this.startDriving(u, cup); // a car someone put down: take the controller (End ride has Pick up)
     this.atTable(u, cup.tile, () => {
       if (!this.creatures.cups.some(c => c.id === cupId)) return; // the cleaner (or someone) got there first
       const now = Date.now();
@@ -1199,7 +1211,8 @@ export class World {
     this.sips.set(u.id, setTimeout(() => {
       this.sips.delete(u.id);
       if (u.holding !== item) return;
-      if (rule.effect === 'speed') this.addEffect(u, 'speed');
+      if (rule.effect === 'speed') { if (!effectOf(u.effects, 'speed')?.data?.boost) this.addEffect(u, 'speed'); } // coffee doesn't cancel an energy drink's boost
+      else if (rule.effect === 'use') this.runUse(u, item);
       else this.refreshment(u, item);
       this.setHolding(u, rule.cup ? emptyOf(item) : null);
     }, rule.sipMs));
@@ -1301,7 +1314,7 @@ export class World {
     if (itemDef(item)?.pocket !== 'no' && !this.moveItem(item, { kind: 'void' }, { kind: 'pockets', id: target.id }, null)) return 'pockets';
     if (target.instance || target.presence === 'offline' || !onMap(target)) return null;
     const here = this.position(target).tile, now = Date.now();
-    for (const t of [here, ...this.creatures.beside(here)]) if (typeof this.creatures.addCup(t, item, now, { floor: true, by: from?.id ?? target.id, ttl: PROP_TTL_MS }) === 'object') return 'floor';
+    for (const t of [here, ...this.creatures.beside(here)]) if (typeof this.creatures.addCup(t, item, now, { floor: true, by: from?.id ?? target.id, ttl: propTtl(item) }) === 'object') return 'floor';
     return null;
   }
   /** Give = throw: a short arc to them, then their pockets if there's room, else the floor beside them. */
@@ -1329,7 +1342,7 @@ export class World {
     const item = u.holding; if (!item) return;
     if (!u.instance && u.presence !== 'offline' && !goingOut(u)) {
       const here = this.position(u).tile, now = Date.now();
-      for (const t of [here, ...this.creatures.beside(here)]) if (typeof this.creatures.addCup(t, item, now, { floor: true, by: u.id, ttl: PROP_TTL_MS }) === 'object') return void this.setHolding(u, null);
+      for (const t of [here, ...this.creatures.beside(here)]) if (typeof this.creatures.addCup(t, item, now, { floor: true, by: u.id, ttl: propTtl(item) }) === 'object') return void this.setHolding(u, null);
     }
     this.stow(u);
   }
@@ -1345,6 +1358,228 @@ export class World {
     if (!done) return say(`${target.name.split(' ')[0]} can't take it now`);
     this.sendTo(u.id, this.gmItemsMsg(target));
     if (target.id !== u.id) this.sendTo(target.id, { t: 'notice', text: `🎁 ${u.name} gave you ${def.label.toLowerCase()}` });
+  }
+
+  // ---------- item content (v2): 7/11 goods, gacha, daily toys, achievement hats ----------
+  devTools = false;   // index.ts turns it on for `npm run dev`: dev_time (sewing hour speed-up) and dev_gacha (a new capsule)
+  timeScale = 1;
+  spawnDay: string | null = null; // the office day the daily items were last scattered (saved)
+  private sewing = new Map<string, number>();     // who is sewing since when (memory only)
+  private driving = new Map<string, { car: string; path: Tile[]; last: number; timer?: NodeJS.Timeout }>(); // who drives which car
+  private still(u: User) { return !u.move || this.walkDone(u); }
+  private say(u: User, text: string) { this.sendTo(u.id, { t: 'notice', text }); }
+  /** The wheel's Use: the item's own action (sew, drive, wear), else its onUse effects, then it is used up. */
+  useHeld(u: User, now = Date.now()) {
+    const item = u.holding, def = itemDef(item);
+    if (!item || !def?.actions.includes('use') || u.bot || u.presence === 'offline' || goingOut(u) || isEmpty(item)) return;
+    if (item === 'sewing_kit') return this.startSewing(u, now);
+    if (item === 'remote_car') return this.driveFromHands(u, now);
+    if (item === 'sewn_hat') return this.wearSewn(u);
+    this.runUse(u, item, now);
+    this.setHolding(u, null);
+  }
+  /** Apply an item's onUse effects (data in shared/items.ts): to the user, and for `radius` also to everyone that close. */
+  runUse(u: User, item: string, now = Date.now()) {
+    const def = itemDef(item);
+    for (const h of def?.onUse ?? []) {
+      const who = [u];
+      if (h.radius) {
+        const a = this.position(u, now).tile;
+        for (const o of this.users.values()) {
+          if (o === u || o.instance !== u.instance || o.presence === 'offline' || !onMap(o)) continue;
+          const b = this.position(o, now).tile;
+          if (Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y)) <= h.radius) who.push(o);
+        }
+      }
+      for (const t of who) this.addEffect(t, h.effect, { ms: h.ms, data: h.data }, now);
+      if (h.effect === 'confetti') this.broadcast({ t: 'popper', userId: u.id, tile: this.position(u, now).tile });
+    }
+    const text = ({ onigiri: '🍙 Tasty. The 7/11 never lets you down.', party_popper: '🎉 Pop!', bubble_gum: '🫧 Blow…', slurpee: '🥤 Brain freeze!', energy_drink: '🥫 Wings!' } as Record<string, string>)[item];
+    if (text) this.say(u, text);
+  }
+
+  // ---------- gacha ----------
+  /** One capsule per person per office day: usually a sticker, sometimes a daily toy, rarely a gacha-only hat. */
+  gachaPull(u: User, now = Date.now()) {
+    if (u.bot || u.presence === 'offline') return;
+    const day = officeDay(now);
+    if (u.gachaDay === day) return this.say(u, '🎰 One capsule a day. Come back tomorrow!');
+    const prize = rollGacha(this.rng, u.items), def = itemDef(prize.item);
+    let got = false;
+    if (prize.kind === 'toy') {
+      got = !!this.land(u, prize.item, u);
+      if (!got && !u.holding) { this.setHolding(u, prize.item); got = true; }
+    } else got = !this.moveItem(prize.item, { kind: 'void' }, { kind: 'pockets', id: u.id }, null, now);
+    if (!got) return this.say(u, '🎰 Your hands and pockets are full: make room and try again');
+    u.gachaDay = day;
+    this.say(u, `🎰 Capsule! ${def?.icon ?? '🎁'} ${def?.label ?? prize.item}${prize.kind === 'hat' ? ' · a rare hat!' : ''}`);
+    if (prize.kind === 'hat' && !effectOf(u.effects, 'hat') && !this.prisonActive(u)) this.addEffect(u, 'hat', { data: { style: hatOf(prize.item) } }, now);
+  }
+
+  // ---------- postcards ----------
+  /** A blank postcard in your hands gets its line (cleaned and capped); then throw it at someone: it sits in their pockets with the text. */
+  writePostcard(u: User, raw: unknown) {
+    if (u.holding !== POSTCARD) return;
+    const text = postcardText(raw);
+    if (!text) return this.say(u, 'Write a line first');
+    this.setHolding(u, postcardItem(`${text} — ${u.name.split(' ')[0]}`));
+    this.say(u, '💌 Written. Throw it at someone: it lands in their pockets');
+  }
+
+  // ---------- sewing ----------
+  private startSewing(u: User, now: number) {
+    if (u.holding !== 'sewing_kit' || u.instance) return;
+    if (!this.still(u)) return this.say(u, 'Stand still to sew');
+    this.stopDriving(u);
+    this.sewing.set(u.id, now);
+    this.addEffect(u, 'sewing', { data: { since: now } }, now);
+    this.say(u, '🧵 Sewing… an hour without stopping makes a hat. Walking away stops it.');
+  }
+  stopSewing(u: User) {
+    if (!this.sewing.delete(u.id)) return;
+    this.removeEffect(u, 'sewing');
+  }
+  /** How long they have sewn without stopping (scaled by `timeScale` in dev). */
+  private sewnMs(u: User, now: number) { return Math.max(0, now - (this.sewing.get(u.id) ?? now)) * this.timeScale; }
+  private finishSewing(u: User) {
+    this.stopSewing(u);
+    if (u.holding === 'sewing_kit') this.setHolding(u, null);
+    const where = this.land(u, 'sewn_hat', u);
+    this.say(u, where === 'floor' ? '🧶 A hand-sewn beanie! Your pockets are full: it is at your feet' : '🧶 Done: a hand-sewn beanie. Wear it, or throw it to someone');
+  }
+  /** The hand-sewn beanie becomes a hat in your pockets, and goes on. */
+  private wearSewn(u: User) {
+    const hat = hatItem(SEWN_HAT), problem = pocketProblem(u.items, hat);
+    if (problem) return this.say(u, problem);
+    this.setHolding(u, null);
+    this.moveItem(hat, { kind: 'void' }, { kind: 'pockets', id: u.id }, null);
+    if (!this.prisonActive(u)) this.addEffect(u, 'hat', { data: { style: SEWN_HAT } });
+  }
+
+  // ---------- remote car ----------
+  private car(id: string) { return this.creatures.cups.find(c => c.id === id && c.item === 'remote_car'); }
+  /** Put the car down beside you and take the controller. */
+  private driveFromHands(u: User, now: number) {
+    if (u.holding !== 'remote_car' || u.instance || !onMap(u)) return;
+    if (!this.still(u)) return this.say(u, 'Stand still to put the car down');
+    const here = this.position(u, now).tile;
+    for (const t of [here, ...this.creatures.beside(here)]) {
+      const car = this.creatures.addCup(t, 'remote_car', now, { floor: true, by: u.id, ttl: TOY_TTL_MS });
+      if (typeof car !== 'object') continue;
+      this.setHolding(u, null);
+      this.creatures.moveCar(car.id, t, u.dir);
+      return this.startDriving(u, car, now);
+    }
+    this.say(u, 'No room to put the car down here');
+  }
+  startDriving(u: User, car: Cup, now = Date.now()) {
+    if (u.bot || u.instance || goingOut(u) || u.presence === 'offline' || this.driving.has(u.id)) return;
+    if (!this.car(car.id)) return;
+    if ([...this.driving.values()].some(d => d.car === car.id)) return this.say(u, 'Someone is driving that car');
+    if (!this.still(u)) return this.say(u, 'Stand still to take the controller');
+    const here = this.position(u, now).tile;
+    if (Math.max(Math.abs(here.x - car.tile.x), Math.abs(here.y - car.tile.y)) > CAR_RANGE) return this.say(u, 'The car is too far away');
+    this.stopSewing(u);
+    this.driving.set(u.id, { car: car.id, path: [], last: 0 });
+    this.addEffect(u, 'driving', { data: { car: car.id } }, now);
+    this.say(u, '🏎️ You have the controller: click to steer, or use the arrow keys');
+  }
+  /** End ride; `pickup`: the car comes back into your hands (else pockets). */
+  stopDriving(u: User, pickup = false) {
+    const d = this.driving.get(u.id); if (!d) return;
+    clearTimeout(d.timer); this.driving.delete(u.id);
+    this.removeEffect(u, 'driving');
+    if (!pickup || !this.car(d.car)) return;
+    const problem = this.moveItem('remote_car', { kind: 'void' }, u.holding ? { kind: 'pockets', id: u.id } : { kind: 'hands', id: u.id }, null);
+    if (problem) return this.say(u, `${problem}: the car stays where it is`);
+    this.creatures.removeCup(d.car);
+  }
+  /** Can the car roll onto this tile? Walkable floor in the office, outside locked rooms, with nothing else lying there. */
+  private carCanEnter(t: Tile, carId: string) {
+    return inRect(this.map.office, t.x, t.y) && isWalkable(this.map, t.x, t.y) && !adminOnly(this.map, t.x, t.y) && !this.creatures.cups.some(c => c.id !== carId && c.tile.x === t.x && c.tile.y === t.y);
+  }
+  private carStep(u: User) {
+    const d = this.driving.get(u.id), car = d && this.car(d.car);
+    if (!d || !car) return;
+    d.timer = undefined;
+    const next = d.path.shift(); if (!next) return;
+    if (!this.carCanEnter(next, car.id)) { d.path = []; return; }
+    d.last = Date.now();
+    this.creatures.moveCar(car.id, next, dirBetween(car.tile, next));
+    if (d.path.length) d.timer = setTimeout(() => this.carStep(u), CAR_STEP_MS);
+  }
+  /** Click to steer: the car follows the shortest path, a tile per CAR_STEP_MS. */
+  carGo(u: User, to: Tile) {
+    const d = this.driving.get(u.id), car = d && this.car(d.car);
+    if (!d || !car) return;
+    clearTimeout(d.timer);
+    const path = findPath(this.map, car.tile, to, true);
+    d.path = path.slice(1);
+    if (d.path.length) this.carStep(u);
+  }
+  /** Arrow keys: one tile in that direction (at most one per CAR_STEP_MS; the car faces the way even when blocked). */
+  carDir(u: User, dir: unknown) {
+    const d = this.driving.get(u.id), car = d && this.car(d.car), v = ({ up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] } as Record<string, number[]>)[String(dir)];
+    if (!d || !car || !v || Date.now() - d.last < CAR_STEP_MS * 0.8) return;
+    clearTimeout(d.timer); d.path = []; d.last = Date.now();
+    const to = { x: car.tile.x + v[0], y: car.tile.y + v[1] };
+    this.creatures.moveCar(car.id, this.carCanEnter(to, car.id) ? to : car.tile, dir as Dir);
+  }
+
+  // ---------- daily spawns ----------
+  /** Free floor in the office a daily item can appear on: in a room anyone may enter, not a seat or water. */
+  private spawnTiles(): Tile[] {
+    const out: Tile[] = [], o = this.map.office;
+    for (let y = o.y; y < o.y + o.h; y++) for (let x = o.x; x < o.x + o.w; x++) {
+      const room = roomAt(this.map, x, y);
+      if (!room || room.rules.access === 'admins' || !isWalkable(this.map, x, y) || seatAt(this.map, x, y) || ['shallow', 'deep'].includes(terrainAt(this.map, x, y) ?? '')) continue;
+      if (this.map.objects.some(ob => ob.use && inRect(ob, x, y))) continue;
+      out.push({ x, y });
+    }
+    return out;
+  }
+  /** Scatter the day's items (once per office day; a restart on the same day keeps what is lying around). */
+  dailySpawns(now = Date.now()) {
+    const day = officeDay(now);
+    if (this.spawnDay === day) return;
+    for (const c of this.creatures.cups) if (c.by === SPAWN_BY) this.creatures.removeCup(c.id); // yesterday's, uncollected
+    this.spawnDay = day;
+    for (const sp of planSpawns(day, this.spawnTiles())) this.creatures.addCup(sp.tile, sp.item, now, { floor: true, by: SPAWN_BY, ttl: SPAWN_TTL_MS });
+  }
+  startDailySpawns() { this.dailySpawns(); setInterval(() => this.dailySpawns(), 60_000).unref(); }
+
+  // ---------- achievement hats ----------
+  /** Hat picks waiting for this person: milestones reached (5, 10, 15 achievements) minus picks taken. */
+  hatDue(u: User) {
+    const earned = ACHIEVEMENTS.filter(a => !a.soon && u.achievements[a.id] !== undefined).length;
+    return picksDue(earned, u.hatPicks);
+  }
+  private hatPickDue(u: User) {
+    this.sendTo(u.id, this.me(u));
+    this.say(u, '🎁 Achievement reward: pick a hat');
+  }
+  hatPick(u: User, item: string) {
+    if (u.bot || !this.hatDue(u)) return;
+    if (!hatChoices(u.items).includes(item)) return this.say(u, 'You can\'t pick that one');
+    const problem = this.moveItem(item, { kind: 'void' }, { kind: 'pockets', id: u.id }, null);
+    if (problem) return this.say(u, problem);
+    u.hatPicks = (u.hatPicks ?? 0) + 1;
+    if (!effectOf(u.effects, 'hat') && !this.prisonActive(u)) this.addEffect(u, 'hat', { data: { style: hatOf(item) } });
+    this.sendTo(u.id, this.me(u));
+    this.say(u, `🎩 ${HAT_NAMES[hatOf(item) ?? ''] ?? 'A hat'} · in your pockets 🎒`);
+  }
+
+  /** Every 250 ms: sewing finishes, and sewing or driving stops for anyone who left, sat in a meeting or put the item down. */
+  private contentTick(now: number) {
+    for (const id of [...this.sewing.keys()]) {
+      const u = this.users.get(id);
+      if (!u || u.presence === 'offline' || u.instance || goingOut(u) || u.holding !== 'sewing_kit') { if (u) this.stopSewing(u); else this.sewing.delete(id); continue; }
+      if (this.sewnMs(u, now) >= SEW_MS) this.finishSewing(u);
+    }
+    for (const [id, d] of [...this.driving]) {
+      const u = this.users.get(id);
+      if (!u || u.presence === 'offline' || u.instance || goingOut(u) || !this.car(d.car)) { if (u) this.stopDriving(u); else { clearTimeout(d.timer); this.driving.delete(id); } }
+    }
   }
 
   // ---------- desk storage ----------
@@ -1465,9 +1700,16 @@ export class World {
         if (!this.danceSince.has(u.id)) this.danceSince.set(u.id, now);
         else this.danceTime(u, now, Math.min(now, dance.until ?? now)), this.danceSince.set(u.id, now);
       } else this.danceSince.delete(u.id);
-      if (!u.effects.some(e => e.until !== undefined && e.until <= now)) continue;
+      const expired = u.effects.filter(e => e.until !== undefined && e.until <= now);
+      if (!expired.length) continue;
       u.effects = u.effects.filter(e => e.until === undefined || e.until > now);
       this.effectsChanged(u);
+      if (expired.some(e => e.kind === 'speed' && e.data?.boost)) { // the energy drink wears off: a short slow crash
+        this.addEffect(u, 'crash', {}, now);
+        this.sendTo(u.id, { t: 'notice', text: '🥫 The energy drink wore off. Crash.' });
+      }
+      if (expired.some(e => e.kind === 'sewing')) this.stopSewing(u);
+      if (expired.some(e => e.kind === 'driving')) this.stopDriving(u);
     }
   }
   /** Office admins find the sysadmin cap in their pockets (by sign-in email). The first time, it goes straight on; later they
@@ -1672,7 +1914,12 @@ export class World {
     const pool = fresh.length ? fresh : PLANT_KINDS.filter(k => k !== u.plant?.kind);
     return { stage: 0, care, kind: pool[Math.floor(Math.random() * pool.length)] };
   }
-  private award(u: User, id: string, now: number) { if (!u.achievements[id]) u.achievements = { ...u.achievements, [id]: now }; }
+  private award(u: User, id: string, now: number) {
+    if (u.achievements[id]) return;
+    const due = this.hatDue(u);
+    u.achievements = { ...u.achievements, [id]: now };
+    if (this.hatDue(u) > due) this.hatPickDue(u);
+  }
   private plantChanged(u: User) { this.broadcast({ t: 'plant', userId: u.id, plant: u.plant, bloomed: u.bloomed, achievements: u.achievements }); }
   setPresence(u: User, presence: Presence) {
     if (u.presence === presence) return;
@@ -2526,6 +2773,7 @@ export class World {
         if (!msg.to || typeof msg.to !== 'object') break; // checked before anything changes
         let to = { x: msg.to.x | 0, y: msg.to.y | 0 };
         this.setAfk(u, false);
+        this.stopSewing(u); this.stopDriving(u); // a walk ends sewing, and puts the controller down
         for (const k of this.knocks.values()) if (k.fromId === u.id && k.state === 'walking') this.closeKnock(k, 'later', 'Knock cancelled', true);
         if (u.door === 'arriving') { this.doorTimer(u, null); this.setDoor(u, null); } // off on their own way: bag's put away
         this.setFollowing(u, null);
@@ -2713,6 +2961,16 @@ export class World {
       case 'storage_close': this.storageViewers.delete(u.id); break;
       case 'storage_move': this.storageMove(u, String(msg.ownerId), String(msg.item), msg.dir === 'in' ? 'in' : 'out'); break;
       case 'gm_give': this.gmGive(u, msg); break;
+      // ---------- item content (v2) ----------
+      case 'use_held': this.useHeld(u); break;
+      case 'postcard_write': this.writePostcard(u, msg.text); break;
+      case 'hat_pick': this.hatPick(u, String(msg.item)); break;
+      case 'car_go': if (msg.to && typeof msg.to === 'object') this.carGo(u, { x: msg.to.x | 0, y: msg.to.y | 0 }); break;
+      case 'car_dir': this.carDir(u, msg.dir); break;
+      case 'car_end': this.stopDriving(u, !!msg.pickup); break;
+      case 'sew_stop': this.stopSewing(u); break;
+      case 'dev_time': if (this.devTools) this.timeScale = Math.max(1, Math.min(10_000, Number(msg.scale) || 1)); break;
+      case 'dev_gacha': if (this.devTools) { u.gachaDay = undefined; this.gachaPull(u); } break; // dev: a fresh capsule right now (no machine needed)
       case 'prison_release': { const t = this.users.get(String(msg.targetId)); if (t && this.isAdmin(u)) { this.releasePrison(t); this.sendTo(u.id, this.gmItemsMsg(t)); } break; }
       case 'drink': this.drink(u); break;
       case 'pet': this.petCreature(u, String(msg.creatureId)); break;
@@ -2761,7 +3019,7 @@ export class World {
       version: STATE_VERSION,
       roomModes: { ...this.roomModes },
       users: [...this.users.values()].map(u => {
-        return { id: u.id, name: u.name, nameSet: u.nameSet, email: u.email, meetLink: u.meetLink, google: u.google, vacation: u.vacation, homeDesk: u.homeDesk, look: u.look, banner: u.banner, lookSet: u.lookSet, tile: underground(u) ? this.dungeonExit(false) : u.tile, dir: u.dir, status: u.status, presence: u.presence, bot: u.bot, plant: u.plant, bloomed: u.bloomed, achievements: u.achievements, effects: u.effects.filter(e => e.until === undefined), items: u.items, storage: u.storage, prisonUntil: u.prisonUntil, held: u.holding && holdsForever(u.holding) ? u.holding : undefined, shop: u.shop, danced: u.danced, dnd: u.dnd || undefined,
+        return { id: u.id, name: u.name, nameSet: u.nameSet, email: u.email, meetLink: u.meetLink, google: u.google, vacation: u.vacation, homeDesk: u.homeDesk, look: u.look, banner: u.banner, lookSet: u.lookSet, tile: underground(u) ? this.dungeonExit(false) : u.tile, dir: u.dir, status: u.status, presence: u.presence, bot: u.bot, plant: u.plant, bloomed: u.bloomed, achievements: u.achievements, effects: u.effects.filter(e => e.until === undefined), items: u.items, storage: u.storage, prisonUntil: u.prisonUntil, held: u.holding && holdsForever(u.holding) ? u.holding : undefined, shop: u.shop, gachaDay: u.gachaDay, hatPicks: u.hatPicks || undefined, danced: u.danced, dnd: u.dnd || undefined,
           resume: (!u.bot && u.presence !== 'offline' && !goingOut(u) && !u.instance && !this.toilets.inside(u.id)) || undefined }; // meetings and stalls don't survive a restart
       }),
       objects: Object.fromEntries(this.objectOn),
@@ -2775,6 +3033,7 @@ export class World {
       library: this.library.dump(),
       tickets: this.tickets.dump(),
       journal: this.journal.dump(),
+      spawnDay: this.spawnDay ?? undefined,
     };
   }
   load(data: ReturnType<World['dump']>) {
@@ -2850,5 +3109,6 @@ export class World {
     this.library.load(data.library);
     this.tickets.load(data.tickets);
     this.journal.load(data.journal);
+    this.spawnDay = typeof data.spawnDay === 'string' ? data.spawnDay : null;
   }
 }
