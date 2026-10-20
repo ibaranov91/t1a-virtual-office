@@ -570,79 +570,88 @@ for (const n of [1, 2]) {
 }
 
 // ---------- emote bubbles ----------
+// A square 16×16 body (outline included) with a 2 px tail below its left side, so the image is 16×18; it floats up and
+// to the right of the head, the tail pointing at it (Stardew-style). Icons are drawn in the 12×12 inside (coordinates 0-11), which lands at (2, 2).
+const BUB = '#fbf7ee', BUB_SHADE = '#e8e0d0';
+const bubbleBody = (w) => {
+  const t = new Img(w, 18);
+  t.rect(2, 1, w - 4, 14, BUB); t.vline(1, 2, 12, BUB); t.vline(w - 2, 2, 12, BUB); t.hline(3, 14, w - 6, BUB_SHADE);
+  t.rect(4, 15, 3, 1, BUB); t.px(5, 16, BUB); // the tail on the left: the bubble floats beside the head, pointing at it
+  return t;
+};
 const bubble = (draw) => {
-  const t = new Img(14, 14);
-  t.rect(2, 1, 10, 9, '#fff8e8'); t.rect(1, 2, 12, 7, '#fff8e8');
-  t.rect(5, 10, 3, 1, '#fff8e8'); t.px(6, 11, '#fff8e8');
-  draw(t);
+  const t = bubbleBody(16), icon = new Img(12, 12);
+  draw(icon); t.blit(icon, 2, 2);
   return t.outline();
+};
+const SLASH = (t, n = 12) => { for (let i = 0; i < n; i++) t.px(i, i, '#d8463c'); }; // crossed out
+const headphones = (t, dx = 0) => {
+  const G = '#4a4a5a', T = '#4f9a92';
+  t.hline(dx + 3, 0, 6, G); t.px(dx + 2, 1, G); t.px(dx + 9, 1, G); t.vline(dx + 1, 2, 2, G); t.vline(dx + 10, 2, 2, G);
+  t.rect(dx, 4, 3, 5, T); t.rect(dx + 9, 4, 3, 5, T); t.px(dx + 1, 5, '#7cc0b8'); t.px(dx + 10, 5, '#7cc0b8');
+};
+const mic = (t, dx = 0) => {
+  const M = '#7a6a64';
+  t.rect(dx + 4, 0, 4, 6, M); t.hline(dx + 5, 2, 2, '#9a8a84'); t.hline(dx + 5, 4, 2, '#9a8a84');
+  t.vline(dx + 2, 4, 2, M); t.vline(dx + 9, 4, 2, M); t.px(dx + 3, 6, M); t.px(dx + 8, 6, M); t.hline(dx + 4, 7, 4, M);
+  t.rect(dx + 5, 8, 2, 2, M); t.hline(dx + 3, 10, 6, M);
 };
 frames.bubble_zzz = bubble((t) => {
   const Z = (x, y, s, c) => { t.hline(x, y, s, c); for (let i = 1; i < s - 1; i++) t.px(x + s - 1 - i, y + i, c); t.hline(x, y + s - 1, s, c); };
-  Z(3, 4, 4, '#5b7fc4'); Z(8, 2, 3, '#86a6d2');
+  Z(0, 5, 6, '#5b7fc4'); Z(7, 1, 4, '#86a6d2');
 });
 frames.bubble_headset = bubble((t) => {
-  t.hline(4, 2, 6, '#4a4a5a'); t.px(3, 3, '#4a4a5a'); t.px(10, 3, '#4a4a5a');
-  t.rect(2, 4, 2, 4, '#4f9a92'); t.rect(10, 4, 2, 4, '#4f9a92');
-  t.hline(4, 8, 3, '#4a4a5a'); t.px(4, 7, '#4a4a5a');
+  headphones(t);
+  t.px(2, 9, '#4a4a5a'); t.hline(3, 10, 3, '#4a4a5a'); t.rect(6, 10, 2, 1, '#2a2a34'); // the mic boom
 });
 frames.bubble_hand = bubble((t) => {
   const c = '#d0a040';
-  t.rect(5, 4, 5, 5, c); t.vline(5, 2, 4, c); t.vline(7, 1, 5, c); t.vline(9, 2, 4, c);
-  t.rect(3, 5, 2, 2, c); t.px(4, 7, c); t.px(6, 8, '#f2c79b');
+  for (const x of [3, 5, 7, 9]) t.vline(x, x === 3 || x === 9 ? 1 : 0, 5, c); // fingers, the bubble showing between them
+  t.rect(3, 5, 7, 5, c); t.rect(1, 6, 2, 2, c); t.px(2, 8, c); t.hline(4, 10, 5, '#b08030');
 });
-frames.bubble_deaf = bubble((t) => {
-  t.hline(4, 2, 6, '#4a4a5a'); t.px(3, 3, '#4a4a5a'); t.px(10, 3, '#4a4a5a');
-  t.rect(2, 4, 2, 4, '#4f9a92'); t.rect(10, 4, 2, 4, '#4f9a92');
-  for (let i = 0; i < 8; i++) t.px(3 + i, 1 + i, '#d8463c');
-});
-frames.bubble_bang = bubble((t) => { t.rect(6, 2, 2, 4, '#d8463c'); t.rect(6, 7, 2, 2, '#d8463c'); });
+frames.bubble_deaf = bubble((t) => { headphones(t); SLASH(t); });
+frames.bubble_bang = bubble((t) => { t.rect(5, 0, 2, 8, '#d8463c'); t.rect(5, 9, 2, 2, '#d8463c'); });
 {
-  const t = new Img(14, 14); // thought cloud: "should I go?"
-  t.ellipse(7, 5, 6, 4.5, '#fff8e8'); t.ellipse(4, 6, 3.5, 3, '#fff8e8'); t.ellipse(10, 6, 3.5, 3, '#fff8e8');
-  t.rect(3, 11, 2, 2, '#fff8e8'); t.px(1, 13, '#fff8e8');
-  for (const x of [3, 6, 9]) t.rect(x, 5, 2, 2, '#9a7a70');
+  const t = new Img(16, 18); // thought cloud: "should I go?"
+  t.ellipse(8, 6, 6.5, 5.5, BUB); t.ellipse(4.5, 8, 3.6, 3.6, BUB); t.ellipse(11.5, 8, 3.6, 3.6, BUB);
+  t.rect(5, 13, 2, 2, BUB); t.px(4, 16, BUB);
+  for (const x of [4, 7, 10]) t.rect(x, 7, 2, 2, '#9a7a70');
   frames.bubble_think = t.outline();
 }
-frames.bubble_meeting = bubble((t) => {
-  t.rect(3, 3, 8, 5, '#5577a8'); t.rect(4, 4, 6, 3, '#9cc8e0'); t.hline(5, 8, 4, '#4a4a5a');
+frames.bubble_meeting = bubble((t) => { // a video call on a monitor: two heads on the screen
+  t.rect(0, 1, 12, 8, '#5577a8'); t.rect(1, 2, 10, 6, '#9cc8e0');
+  for (const x of [3, 7]) { t.rect(x, 3, 2, 2, '#5577a8'); t.hline(x - 1, 6, 4, '#5577a8'); }
+  t.rect(5, 9, 2, 1, '#4a4a5a'); t.hline(3, 10, 6, '#4a4a5a');
 });
-// muted mic in a call
-frames.bubble_muted = bubble((t) => {
-  t.rect(6, 2, 2, 4, '#7a6a64'); t.px(5, 5, '#7a6a64'); t.px(8, 5, '#7a6a64'); t.hline(5, 6, 4, '#7a6a64'); t.px(6, 7, '#7a6a64'); t.hline(5, 8, 4, '#7a6a64');
-  for (let i = 0; i < 7; i++) t.px(3 + i, 2 + i, '#d8463c');
-});
-// muted and deafened: one wide bubble, crossed-out mic on the left and crossed-out headphones on the right; tail at 10..12 (5 px right of a 14 px bubble's)
+frames.bubble_muted = bubble((t) => { mic(t); SLASH(t); }); // muted mic in a call
+// muted and deafened: one wide 26×18 bubble, crossed-out mic on the left and crossed-out headphones on the right
 {
-  const t = new Img(24, 14), c = '#fff8e8';
-  t.rect(2, 1, 20, 9, c); t.rect(1, 2, 22, 7, c); t.rect(10, 10, 3, 1, c); t.px(11, 11, c);
-  t.rect(5, 2, 2, 4, '#7a6a64'); t.px(4, 5, '#7a6a64'); t.px(7, 5, '#7a6a64'); t.hline(4, 6, 4, '#7a6a64'); t.px(5, 7, '#7a6a64'); t.hline(4, 8, 4, '#7a6a64');
-  for (let i = 0; i < 7; i++) t.px(2 + i, 2 + i, '#d8463c');
-  t.hline(14, 2, 6, '#4a4a5a'); t.px(13, 3, '#4a4a5a'); t.px(20, 3, '#4a4a5a');
-  t.rect(12, 4, 2, 4, '#4f9a92'); t.rect(20, 4, 2, 4, '#4f9a92');
-  for (let i = 0; i < 8; i++) t.px(13 + i, 1 + i, '#d8463c');
+  const t = bubbleBody(26), ic = new Img(22, 12);
+  mic(ic, -1); for (let i = 0; i < 11; i++) ic.px(i, i, '#d8463c');
+  headphones(ic, 10); for (let i = 0; i < 12; i++) ic.px(10 + i, i, '#d8463c');
+  t.blit(ic, 2, 2);
   frames.bubble_mute_deaf = t.outline();
 }
 // talking: sound bars; _1/_2 alternate while speaking, _0 is the quiet listener
-for (const [i, hs] of [[0, [1, 2, 1, 2]], [1, [2, 5, 3, 4]], [2, [4, 3, 5, 2]]]) {
+for (const [i, hs] of [[0, [2, 3, 2, 3]], [1, [4, 9, 6, 8]], [2, [8, 5, 10, 4]]]) {
   frames[`bubble_talk_${i}`] = bubble((t) => {
     const c = i === 0 ? '#9ab8b0' : '#3f8f84';
-    hs.forEach((h, k) => t.rect(3 + k * 2 + (k > 1 ? 1 : 0), 8 - h, 1, h, c));
-    if (i) t.px(2, 3, '#e8b860'); // a little spark when speaking
+    hs.forEach((h, k) => t.rect(k * 3, 11 - h, 2, h, c));
+    if (i) t.px(11, 0, '#e8b860'); // a little spark when speaking
   });
 }
-// direct talk across rooms (a phone call): same bubble, a mobile phone whose screen shows the bars; _0 quiet, _1/_2 alternate while speaking
+// direct talk across rooms (a phone call): a mobile phone whose screen shows the bars; _0 quiet, _1/_2 alternate while speaking
 const phone = (draw) => bubble((t) => {
-  t.rect(4, 2, 7, 8, '#4a4a5a'); t.rect(5, 3, 5, 5, '#cfe6ee'); t.px(7, 9, '#8a8a9a'); // body, screen, home dot
+  t.rect(3, 0, 7, 12, '#4a4a5a'); t.rect(4, 1, 5, 8, '#cfe6ee'); t.hline(5, 10, 3, '#8a8a9a'); // body, screen, home button
   draw(t);
 });
-for (const [i, hs] of [[0, [1, 1, 1]], [1, [2, 5, 3]], [2, [4, 2, 5]]]) {
+for (const [i, hs] of [[0, [1, 1, 1]], [1, [3, 7, 5]], [2, [6, 3, 7]]]) {
   frames[`bubble_phone_${i}`] = phone((t) => {
     const c = i === 0 ? '#5f9a92' : '#2f8f84';
-    hs.forEach((h, k) => t.rect(5 + k * 2, 8 - h, 1, h, c));
+    hs.forEach((h, k) => t.rect(4 + k * 2, 9 - h, 1, h, c));
   });
 }
-frames.bubble_phone_muted = phone((t) => { for (let i = 0; i < 8; i++) t.px(3 + i, 2 + i, '#d8463c'); });
+frames.bubble_phone_muted = phone((t) => SLASH(t));
 {
   const t = new Img(10, 8); // destination marker
   t.hline(1, 1, 8, '#f8d850'); t.hline(2, 2, 6, '#f8d850'); t.hline(3, 3, 4, '#f8d850'); t.hline(4, 4, 2, '#f8d850');
@@ -1089,8 +1098,8 @@ frames.arcade_on_1 = cabinet(1); frames.arcade_on_2 = cabinet(2);
   for (let y = 5; y <= 11; y += 3) { t.hline(12, y, 14, '#e8dcc8'); t.px(12, y, '#f2b45a'); }
   frames.records = t.outline();
 }
-frames.bubble_game = bubble(t => { t.rect(3, 7, 8, 2, '#4f7772'); t.vline(6, 4, 3, OUT); t.rect(5, 2, 3, 3, '#d86a5a'); t.px(9, 6, '#f2b45a'); });
-frames.bubble_watch = bubble(t => { for (const x of [3, 8]) { t.rect(x, 3, 3, 5, '#d8c8b0'); t.rect(x + 1, 4, 2, 3, '#fff'); t.vline(x + 1, 4, 2, OUT); } });
+frames.bubble_game = bubble(t => { t.rect(0, 8, 12, 3, '#4f7772'); t.hline(0, 8, 12, '#6f9792'); t.rect(5, 4, 2, 4, OUT); t.ellipse(6, 2.5, 2.6, 2.6, '#d86a5a'); t.px(5, 1, '#f0a090'); t.rect(9, 9, 2, 1, '#f2b45a'); }); // a joystick
+frames.bubble_watch = bubble(t => { for (const x of [1, 7]) { t.rect(x, 1, 4, 9, '#d8c8b0'); t.rect(x + 1, 2, 2, 7, '#fff'); t.rect(x + 1, 4, 2, 3, OUT); } }); // wide eyes, watching
 const parkTile = (name, draw, w = 16, h = 16) => { const t = new Img(w, h); draw(t); frames[`park_${name}`] = t.outline(); };
 for (const top of [true, false]) parkTile(top ? 'ground' : 'dirt', t => {
   t.rect(0, 0, 16, 16, W1D); t.hline(0, 15, 16, W1DD);
@@ -2438,6 +2447,113 @@ for (const black of [false, true]) { // beach_flag(_black): a pole in the sand, 
   t.rect(9, 5, 6, 5, c1); t.hline(9, 5, 6, c2); t.rect(9, 10, 4, 1, c1);
   if (black) { t.px(11, 6, '#e8e2d0'); t.px(12, 7, '#e8e2d0'); t.px(11, 8, '#e8e2d0'); }
   frames[black ? 'beach_flag_black' : 'beach_flag'] = t.outline();
+}
+
+// ---------- v2 item sprites: what people hold and what lies on the floor (instead of emoji); a few in-world icons ----------
+// Small on purpose (6-9 px, like the cups on tables): one strong colour and a clear silhouette each. Named item_<id>; the
+// registry (shared/items.ts `sprite`) points at them. Steam and confetti go on after the outline so they stay soft.
+{
+  const GL = '#dff2f8', GLS = '#a8ccd8', WHITE = '#f4f0e8', STEAM = '#e8e8f0';
+  const item = (name, w, h, draw, after) => { const t = new Img(w, h); draw(t); t.outline(); if (after) after(t); frames[`item_${name}`] = t; };
+  const mug = c => t => { t.rect(1, 3, 5, 5, WHITE); t.hline(1, 3, 5, c); t.vline(2, 4, 3, '#ffffff'); t.px(6, 4, WHITE); t.px(7, 5, WHITE); t.px(6, 6, WHITE); t.hline(1, 7, 5, '#c8c0b0'); };
+  const steam = t => { t.px(2, 1, STEAM); t.px(3, 0, STEAM); t.px(4, 1, STEAM); };
+  item('coffee', 9, 9, mug('#5a3420'), steam);
+  item('tea', 9, 9, mug('#b88a3a'), steam);
+  item('cocktail', 8, 11, t => { // a tall glass of something orange and pink, a slice on the rim, a blue straw
+    t.rect(2, 3, 4, 6, '#f0905a'); t.hline(2, 3, 4, '#f8c070'); t.rect(2, 6, 4, 3, '#e8506a'); t.vline(2, 4, 4, '#ffc8a0');
+    t.hline(2, 9, 4, GLS); t.px(1, 2, '#f0c040'); t.px(1, 3, '#f0c040'); t.vline(5, 0, 3, '#3aa0d8');
+  });
+  item('beer', 9, 9, t => { // a mug of lager with a head of foam
+    t.rect(1, 2, 4, 6, '#e0a838'); t.rect(1, 1, 4, 2, '#fff8e8'); t.vline(1, 3, 4, '#f4cc68'); t.hline(1, 7, 4, '#b88020');
+    t.px(5, 3, GL); t.px(6, 4, GL); t.px(6, 5, GL); t.px(5, 6, GL);
+  });
+  item('wine', 7, 10, t => { // a red wine glass: bowl, stem, foot
+    t.hline(1, 1, 5, GL); t.rect(1, 2, 5, 2, '#8a2038'); t.hline(2, 4, 3, '#8a2038'); t.px(1, 1, '#ffffff'); t.px(1, 2, '#b04060');
+    t.vline(3, 5, 3, GLS); t.hline(1, 8, 5, GL);
+  });
+  item('coconut', 10, 10, t => { // a brown coconut, the top cut off, a pink straw
+    t.ellipse(4.5, 5.5, 3.5, 3, '#7a4a28'); t.hline(2, 3, 5, '#f4f0e0'); t.px(3, 6, '#5a3218'); t.px(6, 7, '#5a3218'); t.px(2, 5, '#9a6a40');
+    t.vline(6, 0, 4, '#e8506a');
+  });
+  item('icecream', 8, 11, t => { // a pink scoop on a waffle cone
+    t.ellipse(3.5, 3, 2.8, 2.4, '#f4a8c0'); t.px(2, 2, '#ffd0e0'); t.px(5, 4, '#e080a0');
+    t.hline(1, 5, 5, '#d8a050'); t.hline(2, 6, 3, '#d8a050'); t.hline(2, 7, 3, '#d8a050'); t.px(3, 8, '#d8a050'); t.px(3, 9, '#c89040');
+    t.px(2, 5, '#b88038'); t.px(4, 5, '#b88038'); t.px(3, 6, '#b88038');
+  });
+  item('juice', 8, 10, t => { // a juice box with a bent straw
+    t.rect(1, 3, 5, 6, '#f0c040'); t.hline(1, 3, 5, '#f8d870'); t.vline(5, 4, 5, '#d0a020'); t.rect(2, 5, 3, 2, '#5aa850'); t.px(3, 5, '#e8484a');
+    t.vline(4, 1, 2, STEAM); t.px(5, 0, STEAM);
+  });
+  item('snack', 8, 10, t => { // a bag of crisps
+    t.rect(1, 2, 5, 7, '#d8403a'); t.hline(1, 1, 5, '#e86a5a'); t.rect(1, 4, 5, 2, '#f0c040'); t.px(3, 4, '#c87820'); t.hline(1, 8, 5, '#a02e2c'); t.vline(1, 2, 6, '#e8605a');
+  });
+  item('sandwich', 10, 9, t => { // a stacked sandwich: bread, lettuce, ham, bread
+    t.hline(2, 1, 5, '#c89050'); t.hline(1, 2, 7, '#e8c080'); t.hline(1, 3, 7, '#6ab050'); t.hline(1, 4, 7, '#e88a8a'); t.px(7, 4, '#f0c850');
+    t.rect(1, 5, 7, 2, '#e8c080'); t.hline(1, 6, 7, '#c89050');
+  });
+  item('ramen', 10, 9, t => { // a red bowl of noodles, half an egg, chopsticks
+    t.hline(1, 3, 7, '#f0d070'); t.px(3, 2, '#f0d070'); t.px(5, 2, '#f0d070'); t.px(2, 3, '#ffffff'); t.px(3, 3, '#f8c040');
+    t.hline(1, 4, 7, '#d8403a'); t.hline(1, 5, 7, WHITE); t.hline(2, 6, 5, '#d8403a'); t.hline(3, 7, 3, '#a02e2c');
+    t.px(6, 2, '#8a5a30'); t.px(7, 1, '#8a5a30'); t.px(8, 0, '#8a5a30'); t.px(7, 2, '#6a4224'); t.px(8, 1, '#6a4224');
+  });
+  item('salad', 10, 9, t => { // greens and tomatoes in a white bowl
+    t.px(3, 1, '#5aa850'); t.px(2, 2, '#78c468'); t.px(4, 2, '#5aa850'); t.px(5, 2, '#78c468'); t.px(6, 2, '#5aa850');
+    t.hline(1, 3, 7, '#5aa850'); t.px(3, 3, '#e8403a'); t.px(5, 3, '#e8403a'); t.px(6, 3, '#78c468');
+    t.hline(1, 4, 7, WHITE); t.hline(2, 5, 5, WHITE); t.hline(3, 6, 3, '#d8d0c0');
+  });
+  item('pizza', 9, 10, t => { // a slice, point down: crust, cheese, pepperoni
+    t.hline(1, 1, 7, '#c88a40'); t.hline(1, 2, 7, '#f0c850'); t.hline(2, 3, 5, '#f0c850'); t.hline(2, 4, 5, '#f0c850'); t.hline(3, 5, 3, '#f0c850'); t.hline(3, 6, 3, '#f0c850'); t.px(4, 7, '#f0c850');
+    t.px(2, 2, '#c8403a'); t.px(5, 3, '#c8403a'); t.px(4, 5, '#c8403a');
+  });
+  item('onigiri', 10, 10, t => { // a rice triangle with a nori band
+    t.hline(4, 1, 2, '#f8f8f0'); t.hline(3, 2, 4, '#f8f8f0'); t.hline(3, 3, 4, '#f8f8f0'); t.hline(2, 4, 6, '#f8f8f0'); t.hline(2, 5, 6, '#f8f8f0'); t.hline(1, 6, 8, '#f8f8f0'); t.hline(1, 7, 8, '#e0e0d4');
+    t.rect(3, 5, 4, 3, '#1e3a2a'); t.hline(3, 5, 4, '#2c5238'); t.px(4, 2, '#ffffff');
+  });
+  const noodleCup = (top, y0) => t => { t.rect(1, y0, 5, 9 - y0, WHITE); t.hline(1, y0, 5, top); t.rect(1, y0 + 2, 5, 2, '#d8403a'); t.px(3, y0 + 2, WHITE); t.hline(2, 8, 3, '#c8c0b0'); };
+  item('cup_noodles', 8, 10, t => { noodleCup('#e8d8a8', 2)(t); t.hline(1, 1, 5, '#c8b880'); });
+  item('hot_noodles', 8, 10, noodleCup('#f0d070', 3), t => { t.px(2, 1, STEAM); t.px(4, 0, STEAM); t.px(4, 1, STEAM); });
+  item('slurpee', 8, 11, t => { // a domed cup of blue ice with a red swirl and a straw
+    t.hline(2, 2, 3, GL); t.hline(1, 3, 5, GL); t.rect(1, 4, 5, 5, '#4aa0e8'); t.hline(1, 6, 5, '#e8484a'); t.px(3, 7, '#ffffff'); t.hline(2, 9, 3, '#3a80c8');
+    t.vline(4, 0, 2, '#e8484a');
+  });
+  item('energy_drink', 7, 10, t => { // a slim dark-green can with a lime flash
+    t.rect(1, 1, 4, 8, '#2a5a3a'); t.hline(1, 1, 4, '#c8ccd4'); t.hline(1, 8, 4, '#9aa0a8'); t.vline(3, 3, 4, '#a8e040'); t.px(2, 4, '#a8e040'); t.vline(1, 2, 6, '#3a7a4a');
+  });
+  item('party_popper', 10, 10, t => { // a striped cone, point down
+    t.hline(2, 3, 5, '#f0c040'); t.hline(2, 4, 5, '#e8484a'); t.hline(3, 5, 3, '#f0c040'); t.hline(3, 6, 3, '#e8484a'); t.px(4, 7, '#f0c040'); t.px(4, 8, '#f0c040');
+  }, t => { t.px(1, 1, '#4aa0e8'); t.px(3, 0, '#f0c040'); t.px(5, 1, '#e87ac8'); t.px(7, 0, '#7cd87c'); t.px(8, 2, '#4aa0e8'); });
+  item('umbrella', 9, 14, t => { // furled: a red spindle with its folds, a strap round the middle, a wooden crook handle
+    t.px(4, 0, '#2e2118'); t.px(4, 1, '#d9534f'); t.rect(3, 2, 3, 6, '#d9534f'); t.px(4, 8, '#d9534f');
+    t.vline(4, 2, 6, '#a23834'); t.px(3, 2, '#f4978b'); t.px(3, 3, '#f4978b'); t.hline(3, 5, 3, '#2e2118');
+    t.vline(4, 9, 2, '#2e2118'); t.px(4, 11, '#8a5a30'); t.px(3, 12, '#8a5a30'); t.px(2, 12, '#8a5a30'); t.px(1, 11, '#8a5a30');
+  });
+  item('postcard', 10, 8, t => { // a cream card, a red stamp, two lines of writing
+    t.rect(1, 1, 8, 6, '#f4ecd8'); t.rect(6, 2, 2, 2, '#e8484a'); t.hline(2, 3, 3, '#9a9080'); t.hline(2, 5, 4, '#9a9080'); t.hline(1, 6, 8, '#d8ccb0');
+  });
+  item('bubble_gum', 9, 7, t => { // a pink pack of gum
+    t.rect(1, 1, 7, 5, '#f08ab8'); t.hline(1, 1, 7, '#f8b8d8'); t.rect(3, 2, 3, 2, '#ffffff'); t.px(4, 3, '#f08ab8'); t.hline(1, 5, 7, '#c86090');
+  });
+  item('book', 9, 9, t => { // a closed book: blue cover, gold title, the page edge
+    t.rect(1, 1, 6, 7, '#3a6ea5'); t.vline(1, 1, 7, '#274a70'); t.hline(3, 3, 3, '#f0c040'); t.hline(3, 5, 2, '#8fb4dc'); t.vline(7, 2, 6, '#f4f0e6');
+  });
+  item('drugs', 10, 6, t => { // a tiny pile of white powder
+    t.hline(4, 2, 2, '#ffffff'); t.hline(3, 3, 4, '#f4f4f8'); t.hline(1, 4, 8, '#e4e4ec'); t.px(4, 3, '#ffffff'); t.hline(2, 4, 1, '#d0d0dc'); t.px(7, 4, '#d0d0dc');
+  });
+  item('sewn_hat', 10, 8, t => { // a little patchwork beanie with a pompom
+    const P = ['#d8603a', '#f0c850', '#5a8ad0', '#6ab060'];
+    t.hline(3, 2, 4, P[0]); t.px(5, 2, P[1]); t.hline(2, 3, 6, P[2]); t.px(4, 3, P[3]); t.hline(2, 4, 6, P[1]); t.px(6, 4, P[0]); t.hline(1, 5, 8, '#c8a070');
+    t.hline(4, 1, 2, '#f4ecd8');
+  });
+  // in-world icons
+  const icon = (name, w, h, draw) => { const t = new Img(w, h); draw(t); frames[`icon_${name}`] = t.outline(); };
+  icon('fish', 12, 8, t => { // a koi mid-jump: orange and white, a dorsal fin, a forked tail
+    t.ellipse(4.5, 4, 3.4, 2.1, '#ec705b'); t.hline(3, 5, 4, '#fff3d0'); t.px(4, 3, '#f4f0e8'); t.px(5, 3, '#f4f0e8'); t.px(6, 4, '#f4f0e8');
+    t.px(4, 1, '#c8503a'); t.px(5, 1, '#c8503a'); t.px(5, 2, '#c8503a'); t.px(8, 4, '#ec705b'); t.px(9, 3, '#ec705b'); t.px(10, 2, '#ec705b'); t.px(9, 5, '#ec705b'); t.px(10, 6, '#ec705b');
+    t.px(2, 3, '#101820'); t.px(1, 4, '#d0503a');
+  });
+  // new bubbles in the shared 16×16 bubble system: a pomodoro running, eating and glad of company (the summit hello reuses bubble_bang)
+  frames.bubble_tomato = bubble(t => { t.ellipse(6, 7, 5.2, 4.5, '#e8403a'); t.rect(2, 5, 2, 2, '#ff9080'); t.hline(4, 2, 4, '#5aa850'); t.px(3, 1, '#5aa850'); t.px(8, 1, '#5aa850'); t.vline(6, 0, 2, '#3e8038'); });
+  frames.bubble_dots = bubble(t => { for (const x of [0, 5, 10]) t.rect(x, 5, 2, 2, '#6a6a7a'); });
 }
 
 // ---------- pack world atlas (shelf packer) ----------

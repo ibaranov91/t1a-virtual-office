@@ -1516,3 +1516,6 @@ button:focus-visible, summary:focus-visible, input[type="range"]:focus-visible {
 @media (max-width: 560px), (max-height: 500px) {
   .shop-panel.meet-panel.guided { top: auto; bottom: 0; left: 0; transform: none; width: 100%; max-height: calc(100% - 8px); overflow-y: auto; border-radius: 14px 14px 0 0; border-width: 2px 0 0; padding-bottom: calc(12px + env(safe-area-inset-bottom)); }
 }
+
+/* item art in page UI (ItemSprite.tsx) */
+.item-sprite { image-rendering: pixelated; display: block; margin: auto; }

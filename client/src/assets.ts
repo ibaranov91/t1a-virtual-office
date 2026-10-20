@@ -1,5 +1,6 @@
 // Loads the sprite atlas and builds per-person palette-swapped character sheets.
 import type { Look } from '../../shared/protocol';
+import { setItemArt } from './ItemSprite';
 
 export interface Frame { x: number; y: number; w: number; h: number }
 export interface Atlas {
@@ -116,5 +117,7 @@ export async function loadAssets(): Promise<Assets> {
     cache.set(key, out);
     return out;
   };
-  return { atlas, world, chars, sheet };
+  const assets = { atlas, world, chars, sheet };
+  setItemArt(assets); // item art for page UI (ItemSprite.tsx)
+  return assets;
 }
