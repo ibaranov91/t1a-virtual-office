@@ -27,7 +27,7 @@ import { Soundscape } from './soundscape';
 import { needsGesture, resume } from './audio';
 import { prefs, savePrefs } from './prefs';
 import { ITEMS, MAP, Store, heldItem, type ClientUser } from './net';
-import { ItemSprite, uiIcon } from './ItemSprite';
+import { ItemSprite, reactionIcon, uiIcon } from './ItemSprite';
 import { ITEM_DEFS, POCKET_MAX, POSTCARD_MAX, heldActions, holdsForever, isToy, itemDef, pocketCount, postcardOf } from '../../shared/items';
 import { hatChoices } from '../../shared/rewards';
 import { slurBy } from './slur';
@@ -1442,7 +1442,7 @@ function ActionWheel({ store, engine, pick, assets, onPerson, onClose }: { store
     if (u.presence === 'offline') {
       items = [{ icon: uiIcon('message', '💬'), label: 'Message', onClick: act(() => store.openChat(u.id)) }];
     } else if (emoji) {
-      items = REACTIONS.map(e => ({ icon: e, label: '', onClick: act(() => store.react(u.id, e)) }));
+      items = REACTIONS.map(e => ({ icon: reactionIcon(e), label: '', onClick: act(() => store.react(u.id, e)) }));
       const held = isMe ? heldItem(me?.holding) : undefined;
       if (isMe && me?.eating) items.push({ icon: me.eating.open ? uiIcon('quiet', '🔕') : uiIcon('chat', '💬'), label: me.eating.open ? 'Quiet' : 'Chat', title: me.eating.open ? 'Go quiet: leave the table\'s talk; knocks go to Later' : 'Chat: join the talk of everyone chatting at this table (you start muted)', onClick: act(() => store.lunchOpen(!me.eating!.open)) });
       if (!isMe) items.push({ icon: uiIcon('back', '↩'), label: 'Back', onClick: () => setEmoji(false) });
@@ -1516,7 +1516,7 @@ function ActionWheel({ store, engine, pick, assets, onPerson, onClose }: { store
       title = o.use.label[0].toUpperCase() + o.use.label.slice(1);
       items = o.type === 'window'
         ? [{ icon: uiIcon('window', '🪟'), label: on ? 'Close' : 'Open', onClick: act(() => store.use(o.id)) }]
-        : [{ icon: on ? '🌑' : '💡', label: on ? 'Turn off' : 'Turn on', onClick: act(() => store.use(o.id)) }];
+        : [{ icon: on ? uiIcon('lamp_off', '🌑') : uiIcon('lamp_on', '💡'), label: on ? 'Turn off' : 'Turn on', onClick: act(() => store.use(o.id)) }];
     } else if (o.use.kind === 'take') {
       title = o.type === 'coffee_machine' ? 'Coffee machine' : o.type === 'fridge' ? 'Fridge' : o.type === 'food_cart' ? 'Food cart' : o.type === 'beach_bar' ? 'Beach bar' : o.type;
       items = o.use.items.map(i => ({ icon: <ItemSprite item={i.id} fallback={i.icon} />, label: i.label, title: REFRESHMENT_HINTS[i.id] ?? i.label, onClick: act(() => store.use(o.id, i.id)) }));

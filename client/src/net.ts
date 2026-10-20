@@ -56,7 +56,7 @@ export interface Toast {
 export interface SlackImage { id: string; name: string; mimetype: string; ts: string; user: string; at: number; url: string }
 
 /** A reaction in flight, timed with performance.now() like the render loop. */
-export interface Flying { fromId: string; toId: string; emoji: string; at: number }
+export interface Flying { fromId: string; toId: string; emoji: string; at: number; item?: string } // item: drawn with its pixel art
 
 /** Item id -> what it looks like, from whatever the map's objects hand out, plus the empty cup or glass a drink leaves. */
 const TAKEN = new Map(MAP.objects.flatMap(o => (o.use?.kind === 'take' ? o.use.items : [])).map(i => [i.id, i]));
@@ -866,7 +866,7 @@ export class Store {
         }
         const it = msg.item ? ITEMS.get(msg.item) : undefined;
         if (msg.fromId && it) { // handed over: the item hops across like a reaction
-          this.reactions.push({ fromId: msg.fromId, toId: msg.userId, emoji: it.icon, at: performance.now() });
+          this.reactions.push({ fromId: msg.fromId, toId: msg.userId, emoji: it.icon, item: msg.item ?? undefined, at: performance.now() });
           if (msg.userId === this.me) { playPop(); this.toast({ kind: 'info', slot: 'over', text: `${this.name(msg.fromId)} handed you ${it.label.toLowerCase()} ${it.icon}`, expires: 5000 }); }
         }
         if (msg.objectId && it && msg.userId === this.me && DRINKS[it.id]) this.toast({ kind: 'info', text: `${it.icon} Click yourself to drink it${CUP_ITEMS.includes(it.id) ? ', or a table to put it down' : ''}${DRINKS[it.id].autoSipMs ? ' (or just hold it: you\'ll sip it in a minute)' : ''}`, expires: 6000 });
@@ -955,7 +955,7 @@ export class Store {
       }
       case 'gm_items': this.gmItems.set(msg.targetId, msg.items); if (msg.prisonUntil) this.gmPrison.set(msg.targetId, msg.prisonUntil); else this.gmPrison.delete(msg.targetId); break;
       case 'thrown': { // the arc is the reaction flight, with the item's icon
-        this.reactions.push({ fromId: msg.fromId, toId: msg.toId, emoji: itemDef(msg.item)?.icon ?? '🎁', at: performance.now() });
+        this.reactions.push({ fromId: msg.fromId, toId: msg.toId, emoji: itemDef(msg.item)?.icon ?? '🎁', item: msg.item, at: performance.now() });
         if (msg.toId === this.me && msg.fromId !== this.me) playPop();
         return; // drawn by the engine
       }
