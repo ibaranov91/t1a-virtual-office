@@ -375,10 +375,9 @@ export class Store {
   writePostcard(text: string) { this.send({ t: 'postcard_write', text }); this.postcardOpen = false; this.emit(); }
   openHatPicker(open = true) { this.hatPickerOpen = open; this.emit(); }
   hatPick(item: string) { this.send({ t: 'hat_pick', item }); }
-  /** Driving a remote car: my `driving` effect says so; the floor and the arrow keys steer the car instead of me. */
+  /** Driving a remote car: my `driving` effect says so; a click on the floor sends the car there instead of me. */
   get driving() { return !!effectOf(this.users.get(this.me)?.effects, 'driving'); }
   carGo(to: Tile) { this.send({ t: 'car_go', to }); }
-  carDir(dir: Dir) { this.send({ t: 'car_dir', dir }); }
   carEnd(pickup = false) { this.send({ t: 'car_end', pickup }); }
   sewStop() { this.send({ t: 'sew_stop' }); }
   devTime(scale: number) { this.send({ t: 'dev_time', scale }); }

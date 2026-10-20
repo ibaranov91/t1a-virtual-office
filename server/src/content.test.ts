@@ -282,21 +282,13 @@ test('sewing refuses while walking and a sewn beanie can be given to a friend', 
   assert.deepEqual(b.u.items, ['sewn_hat']);
 });
 
-test('remote car: put it down and drive with arrow keys or clicks; End ride, and pick it up', t => {
+test('remote car: put it down and drive it by clicking; End ride, and pick it up', t => {
   const { w, add, tick, notices } = setup(t), a = add('A', ROW), b = add('B', { x: 30, y: 14 });
   w.setHolding(a.u, 'remote_car');
   send(w, a, { t: 'use_held' });
   const car = () => w.creatures.cups.find(c => c.item === 'remote_car')!;
   assert.ok(has(a.u, 'driving') && car().by === a.u.id && a.u.holding === null);
   const start = { ...car().tile };
-  // arrows: one tile each, rate limited
-  let moved: ServerMsg[] = [];
-  const b0 = b.messages.length; tick(200);
-  send(w, a, { t: 'car_dir', dir: 'right' }); send(w, a, { t: 'car_dir', dir: 'right' });
-  moved = b.messages.slice(b0).filter(m => m.t === 'car');
-  assert.equal(moved.length, 1, 'the second press came too soon');
-  assert.deepEqual(car().tile, { x: start.x + 1, y: start.y });
-  assert.equal(car().dir, 'right');
   // a click sends it along a path, a tile per step
   tick(200);
   send(w, a, { t: 'car_go', to: { x: start.x + 4, y: start.y } });
@@ -305,11 +297,11 @@ test('remote car: put it down and drive with arrow keys or clicks; End ride, and
   // someone else can't take the controller while it's busy, nor steer it
   send(w, b, { t: 'cup_take', cupId: car().id }); tick(1000);
   assert.ok(!has(b.u, 'driving') && notices(b.messages).includes('Someone is driving that car'));
-  send(w, b, { t: 'car_dir', dir: 'left' }); assert.deepEqual(car().tile, { x: start.x + 4, y: start.y });
+  send(w, b, { t: 'car_go', to: { x: start.x, y: start.y } }); tick(500); assert.deepEqual(car().tile, { x: start.x + 4, y: start.y });
   // End ride leaves the car on the floor; clicking it takes the controller again
   send(w, a, { t: 'car_end' });
   assert.ok(!has(a.u, 'driving') && w.creatures.cups.some(c => c.item === 'remote_car'));
-  send(w, a, { t: 'car_dir', dir: 'left' }); assert.deepEqual(car().tile, { x: start.x + 4, y: start.y }, 'no controller, no steering');
+  send(w, a, { t: 'car_go', to: { x: start.x, y: start.y } }); tick(500); assert.deepEqual(car().tile, { x: start.x + 4, y: start.y }, 'no controller, no steering');
   send(w, a, { t: 'cup_take', cupId: car().id });
   assert.ok(has(a.u, 'driving'));
   send(w, a, { t: 'car_end', pickup: true });
@@ -323,8 +315,8 @@ test('remote car: walls stop it, a walk or going offline puts the controller dow
   const wall = [...Array(40).keys()].map(i => ({ x: 1 + i, y: 1 })).find(p => !isWalkable(map, p.x, p.y))!;
   w.creatures.moveCar(car().id, { x: wall.x, y: wall.y + 1 }, 'down');
   const before = { ...car().tile };
-  tick(200); send(w, a, { t: 'car_dir', dir: 'up' });
-  assert.deepEqual(car().tile, before, 'blocked, but it turned');
+  tick(200); send(w, a, { t: 'car_go', to: wall }); tick(500);
+  assert.deepEqual(car().tile, before, 'a wall is no place to drive to');
   send(w, a, { t: 'move', to: { x: 33, y: 12 } });
   assert.ok(!has(a.u, 'driving'));
   send(w, a, { t: 'cup_take', cupId: car().id }); tick(1000);
