@@ -26,7 +26,7 @@ export function RoomMenu({ store, engine, at, compact, onClose, onAction, onTv }
         const label = use.kind === 'jukebox' ? `${use.label.replace(/^./, c => c.toUpperCase())}: now playing` : use.kind === 'youtube' ? `TV: ${use.label}`
           : use.kind === 'records' ? 'Arcade records' : use.kind === 'meetings' ? 'Meetings on now'
           : use.kind === 'library' ? 'Library shelf' : use.kind === 'clock' ? 'Our time zones'
-          : use.kind === 'achievements' ? (o.type === 'trophy_case' ? 'Trophy case: your achievements' : 'Employee Of the Month') : use.kind === 'calendar' ? 'Your calendar' : use.kind === 'tickets' ? 'Suggestions board: suggest or report a bug'
+          : use.kind === 'achievements' ? (o.type === 'trophy_case' ? 'Trophy case: your achievements' : 'Employee Of the Month') : use.kind === 'calendar' ? 'Your calendar' : use.kind === 'tickets' ? 'Bugs & suggestions terminal: suggest or report a bug'
           : use.kind === 'room_start' ? 'Start a private room' : `Open the ${use.label}`;
         const run = () => {
           switch (use.kind) {

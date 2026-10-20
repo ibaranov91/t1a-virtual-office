@@ -2330,14 +2330,6 @@ for (const on of [false, true]) {
   frames.trophy_case = t.outline();
 }
 {
-  const t = new Img(32, 16); // the suggestions board: cork with pinned notes
-  t.rect(1, 1, 30, 14, '#7a5232'); t.rect(2, 2, 28, 12, '#c8955a'); t.hline(2, 2, 28, '#dcae74');
-  for (const [x, y, w, h, c] of [[4, 4, 6, 5, '#f4f0e6'], [12, 3, 7, 6, '#f0d870'], [21, 5, 7, 5, '#f4f0e6'], [8, 9, 5, 4, '#9ad0e8'], [16, 10, 6, 3, '#f4a8b8']]) {
-    t.rect(x, y, w, h, c); t.hline(x + 1, y + 2, w - 2, '#9a9080'); if (h > 4) t.hline(x + 1, y + 4, w - 3, '#9a9080'); t.px(x + (w >> 1), y, '#d8383a');
-  }
-  frames.suggestions_board = t.outline();
-}
-{
   const t = new Img(32, 16); // the Lobby photo wall: framed pictures on dark panelling
   t.rect(0, 0, 32, 16, '#3a2a30'); t.hline(0, 0, 32, '#5a4048');
   for (const [x, y, w, h, c1, c2] of [[2, 2, 8, 10, '#6fa8c8', '#7cb868'], [12, 3, 8, 7, '#e8b860', '#c0643c'], [22, 2, 8, 10, '#9a7ae8', '#6fa8c8']]) {

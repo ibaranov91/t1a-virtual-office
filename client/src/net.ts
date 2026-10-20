@@ -470,7 +470,7 @@ export class Store {
   shopOpen = false;                       // the 7/11 shelves' panel
   shopTaken: string[] = [];               // what I took today (office day), as the server counts it
   npcSays = new Map<string, { text: string; at: number }>(); // map-object NPC lines (Keiko): objectId -> the latest, performance.now()
-  bugReportOpen = false;                  // the "Report a bug" form (from the suggestions board)
+  bugReportOpen = false;                  // the "Report a bug" form (from the bugs & suggestions terminal)
   openShop(open = true) { this.shopOpen = open; this.emit(); }
   openBugReport(open = true) { this.bugReportOpen = open; this.emit(); }
   takeFromShop(item: string) { this.send({ t: 'shop_take', item }); }
@@ -491,7 +491,7 @@ export class Store {
   ticketsUnread() { return this.tickets.filter(t => this.ticketUnread(t)).length; }
   terminalTip() {
     const n = this.ticketsUnread();
-    return `Suggestions board · ${n ? `${n} new ${this.admin ? 'in the queue' : n === 1 ? 'reply' : 'replies'}` : 'suggest something or report a bug'}`;
+    return `Bugs & suggestions terminal · ${n ? `${n} new ${this.admin ? 'in the queue' : n === 1 ? 'reply' : 'replies'}` : 'report a bug or suggest something'}`;
   }
   achievementsOpen = false;
   employeeOpen = false;

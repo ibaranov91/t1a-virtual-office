@@ -41,7 +41,7 @@ export type ObjectUse = { kind: 'wellness'; activity: 'water' | 'stretch'; label
   | { kind: 'link'; label: string; url: string } // opens a page in a new tab (the safe: the vault)
   | { kind: 'dealer'; label: string; items: string[] } // hands out items into your inventory (the bouncer, the hat stand)
   | { kind: 'bell'; label: string } // the Lobby reception bell: ring it from beside the desk
-  | { kind: 'tickets'; label: string } // the Lobby suggestions board: suggestions and bug reports, replies (admins: the queue)
+  | { kind: 'tickets'; label: string } // the Lobby bugs & suggestions terminal: bugs and ideas, replies (admins: the queue)
   | { kind: 'vacations' }
   // ---------- v2 places ----------
   | { kind: 'shop'; label: string }    // the 7/11 shelves: pick up to SHOP_DAILY_MAX free items a day (shared/shop.ts)
@@ -72,7 +72,7 @@ export const USE_KINDS = {
   vacations: {}, calendar: {}, jukebox: {}, youtube: {}, dance: {}, records: {}, meetings: {}, achievements: {}, clock: {}, link: {},
   presentation: { use: true, reach: true }, // walk to the board first; the panel opens on arrival
   room_start: { use: true, reach: true }, // the Meeting room's wall sign: walk over, then the server offers a private room
-  tickets: { use: true, reach: true }, // the suggestions board: walk over, then the server opens its screen
+  tickets: { use: true, reach: true }, // the bugs & suggestions terminal: walk over, then the server opens its screen
   shop: { use: true, reach: true }, // the 7/11 shelves: walk over, then the server opens the shop panel
   cashier: { use: true, reach: true }, // the 7/11 counter: walk over, then Keiko says something
   kettle: { use: true, reach: true }, // walk over, then the server fills the noodles in your hands
@@ -423,10 +423,10 @@ export function layoutProblem(m: TileMap, checkDungeonReach = true): string | nu
 
 /** What to call an object type in the UI: "big table", not table_big. */
 export const objectName = (type: string) => ({ beach_flag: 'beach flag', palm: 'palm', pine: 'pine', lounger: 'lounger', umbrella: 'umbrella', hammock: 'hammock', beach_bar: 'beach bar', vacation_sign: 'sign', summit_flag: 'flag', sandcastle: 'sandcastle', shells: 'shells', beach_ball: 'beach ball', retro_tobu: 'Tobu Tobu Girl', retro_lobster: 'Shock Lobster', table_long: 'long table', table_big: 'big table', table_round: 'round table', plant_shelf: 'plant shelf',
-  wellness_cooler: 'water cooler', stretch_mat: 'stretching mat', painting_small: 'small painting', coffee_machine: 'coffee machine', meetings_board: 'meetings board', noticeboard: 'notice board', table_picnic: 'picnic table', food_cart: 'food cart', exit_door: 'exit door', server_rack: 'server rack', dj_booth: 'DJ booth', neon_sign: 'neon sign', bookshelf_tall: 'tall bookshelf', terminal: 'bug terminal', suggestions_board: 'suggestions board', shop_shelf: 'shelves', shop_counter: 'counter', shop_tv: 'TV', shop_sign: 'neon sign', gacha_machine: 'gacha machine', trophy_case: 'trophy case', photo_wall: 'photo wall', leader_chair: 'leader\'s chair', leader_desk: 'leader\'s desk', bar_table: 'bar table', keiko: 'Keiko' } as Record<string, string>)[type] ?? type.replace(/_/g, ' ');
+  wellness_cooler: 'water cooler', stretch_mat: 'stretching mat', painting_small: 'small painting', coffee_machine: 'coffee machine', meetings_board: 'meetings board', noticeboard: 'notice board', table_picnic: 'picnic table', food_cart: 'food cart', exit_door: 'exit door', server_rack: 'server rack', dj_booth: 'DJ booth', neon_sign: 'neon sign', bookshelf_tall: 'tall bookshelf', terminal: 'bugs & suggestions terminal', shop_shelf: 'shelves', shop_counter: 'counter', shop_tv: 'TV', shop_sign: 'neon sign', gacha_machine: 'gacha machine', trophy_case: 'trophy case', photo_wall: 'photo wall', leader_chair: 'leader\'s chair', leader_desk: 'leader\'s desk', bar_table: 'bar table', keiko: 'Keiko' } as Record<string, string>)[type] ?? type.replace(/_/g, ' ');
 
 /** Types that are one of a kind (the way out, the coffee machine…): they can be moved but not removed. */
-export const KEEP_TYPES = new Set(['out_of_office_sign', 'wellness_cooler', 'stretch_mat', 'vacation_sign', 'lofi_tv', 'exit_door', 'coffee_machine', 'fridge', 'jukebox', 'arcade', 'game_table', 'retro_tobu', 'retro_lobster', 'records', 'meetings_board', 'noticeboard', 'clock_nyc', 'clock_berlin', 'clock_moscow', 'safe', 'keyboard', 'drum_kit', 'bass_amp', 'screen', 'room_start', 'toilet', 'bouncer', 'hat_rack', 'bell', 'food_cart', 'dj_booth', 'suggestions_board', 'gacha_machine', 'shop_counter', 'keiko', 'kettle', 'trophy_case', 'photo_wall', 'leader_chair', 'leader_desk', 'bar_table', 'beach_flag']);
+export const KEEP_TYPES = new Set(['out_of_office_sign', 'wellness_cooler', 'stretch_mat', 'vacation_sign', 'lofi_tv', 'exit_door', 'coffee_machine', 'fridge', 'jukebox', 'arcade', 'game_table', 'retro_tobu', 'retro_lobster', 'records', 'meetings_board', 'noticeboard', 'clock_nyc', 'clock_berlin', 'clock_moscow', 'safe', 'keyboard', 'drum_kit', 'bass_amp', 'screen', 'room_start', 'toilet', 'bouncer', 'hat_rack', 'bell', 'food_cart', 'dj_booth', 'terminal', 'gacha_machine', 'shop_counter', 'keiko', 'kettle', 'trophy_case', 'photo_wall', 'leader_chair', 'leader_desk', 'bar_table', 'beach_flag']);
 /** Types that stay exactly where they are. */
 export const FIXED_TYPES = new Set(['exit_door']);
 export const RUG_MIN = 2, RUG_MAX = 24;
