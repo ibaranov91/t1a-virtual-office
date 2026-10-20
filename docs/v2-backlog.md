@@ -11,7 +11,7 @@ What already shipped into `v2` is listed at the end.
   (needs a decision before anyone builds it) / `out` (decided against).
 - **Size:** S ≈ an hour or two, M ≈ a day, L ≈ several days or needs a design first.
 - **Depends on:** do those first, or coordinate with whoever owns them.
-- **Work as AGENTS.md says:** branch off `v2` in a worktree, merge back into `v2`, never push until v2 is released. Many tasks
+- **Work as AGENTS.md says:** pull `v2`, branch off it in a worktree, merge back into `v2` and push `v2` (`origin/v2`); never `main`, no PRs. Many tasks
   touch `world.ts`, `App.tsx`, `engine.ts` and `gen-map.mjs`: keep additions in their own marked blocks
   (docs/ADDING-A-FEATURE.md, merge rules).
 - **Testable here?** `local` = can be built and checked with `npm run dev` and the browser; `mac` = needs the Mac app;
