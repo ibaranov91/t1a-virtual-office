@@ -2556,6 +2556,34 @@ for (const black of [false, true]) { // beach_flag(_black): a pole in the sand, 
   frames.bubble_dots = bubble(t => { for (const x of [0, 5, 10]) t.rect(x, 5, 2, 2, '#6a6a7a'); });
 }
 
+// ---------- v2 UI icons: the action wheel's actions (12×12, outlined, like the bubble icons) and name-tag marks ----------
+{
+  const ui = (name, draw) => { const t = new Img(14, 14), ic = new Img(12, 12); draw(ic); t.blit(ic, 1, 1); frames[`ui_${name}`] = t.outline(); };
+  const S = '#f2c79b', SD = '#d9a073', W = '#f4f4f8', R = '#d8463c', GOLD = '#e0b13a';
+  ui('knock', t => { t.rect(3, 2, 7, 6, S); t.vline(5, 2, 3, SD); t.vline(7, 2, 3, SD); t.hline(3, 6, 5, SD); t.rect(5, 8, 4, 2, S); t.rect(5, 10, 4, 2, '#5577a8'); t.px(0, 3, '#c8b8b0'); t.px(1, 2, '#c8b8b0'); t.px(0, 6, '#c8b8b0'); t.px(1, 7, '#c8b8b0'); });
+  ui('follow', t => { const F = '#6a4a30'; t.ellipse(3.5, 8, 2, 3, F); for (const x of [2, 3, 4]) t.px(x, 4, F); t.ellipse(8.5, 4.5, 2, 3, F); for (const x of [7, 8, 9]) t.px(x, 0, F); });
+  ui('react', t => { t.ellipse(6, 6, 5.6, 5.6, '#f0c040'); t.vline(4, 3, 2, OUT); t.vline(7, 3, 2, OUT); t.px(3, 7, OUT); t.hline(4, 8, 4, OUT); t.px(8, 7, OUT); t.px(3, 2, '#f8e090'); });
+  const speech = t => { t.rect(0, 1, 12, 7, '#fbf7ee'); t.hline(1, 0, 10, '#fbf7ee'); t.rect(2, 8, 2, 1, '#fbf7ee'); t.px(2, 9, '#fbf7ee'); };
+  ui('message', t => { speech(t); for (const x of [2, 5, 8]) t.rect(x, 4, 2, 2, '#6a6a7a'); });
+  ui('chat', t => { speech(t); for (const x of [2, 5, 8]) t.rect(x, 4, 2, 2, '#3f8f84'); });
+  ui('quiet', t => { t.hline(4, 1, 4, GOLD); t.rect(3, 2, 6, 6, GOLD); t.hline(2, 8, 8, GOLD); t.rect(5, 9, 2, 1, '#a8791c'); t.vline(4, 3, 4, '#f8d870'); for (let i = 0; i < 12; i++) t.px(i, i, R); });
+  ui('dance', t => { t.vline(6, 0, 2, '#6a6a7a'); t.ellipse(6, 7, 5, 5, '#c8ccd4'); for (const y of [4, 7, 10]) t.hline(1, y, 10, '#8a90a0'); for (const x of [3, 6, 9]) t.vline(x, 2, 10, '#8a90a0'); t.px(3, 4, '#ffffff'); t.px(4, 5, '#ffffff'); t.px(8, 8, '#f8a0d8'); });
+  ui('volume', t => { const G = '#4a4a5a', C = '#3f8f84'; t.rect(0, 4, 3, 4, G); t.rect(3, 3, 1, 6, G); t.rect(4, 2, 1, 8, G); t.rect(5, 1, 1, 10, G); t.px(7, 4, C); t.vline(8, 5, 2, C); t.px(7, 7, C); t.px(9, 2, C); t.px(10, 3, C); t.vline(11, 4, 4, C); t.px(10, 8, C); t.px(9, 9, C); });
+  ui('lock', t => { t.hline(4, 0, 4, '#8a8a9a'); t.vline(3, 1, 4, '#8a8a9a'); t.vline(8, 1, 4, '#8a8a9a'); t.rect(1, 5, 10, 7, GOLD); t.vline(2, 6, 5, '#f8d870'); t.rect(5, 7, 2, 2, '#5a3a1a'); t.px(5, 9, '#5a3a1a'); t.px(6, 9, '#5a3a1a'); });
+  ui('teleport', t => { t.ellipse(6, 6, 6, 6, '#5a3aa8'); t.ellipse(6, 6, 4.6, 4.6, '#8a5ad8'); t.ellipse(6, 6, 3.2, 3.2, '#b48af0'); t.ellipse(6, 6, 1.8, 1.8, '#e8d8ff'); t.px(2, 3, '#e8d8ff'); t.px(9, 9, '#e8d8ff'); });
+  ui('bite', t => { t.ellipse(6, 6, 6, 4.5, '#8a2030'); t.rect(1, 3, 10, 2, W); t.rect(2, 5, 1, 3, W); t.rect(9, 5, 1, 3, W); t.px(9, 9, '#e8484a'); t.px(9, 10, '#e8484a'); });
+  ui('stop', t => { t.rect(3, 0, 6, 12, R); t.rect(0, 3, 12, 6, R); t.rect(1, 1, 10, 10, R); t.rect(2, 5, 8, 2, '#ffffff'); });
+  ui('back', t => { const C = '#e8e0d0'; t.hline(2, 3, 8, C); t.hline(2, 4, 8, C); t.px(1, 2, C); t.px(0, 3, C); t.px(0, 4, C); t.px(1, 5, C); t.px(2, 1, C); t.px(2, 6, C); t.vline(9, 5, 4, C); t.vline(10, 4, 5, C); t.hline(5, 9, 5, C); t.hline(5, 10, 4, C); });
+  ui('sniff', t => { for (let i = 0; i < 9; i++) { t.px(1 + i, 10 - i, '#7cb868'); t.px(2 + i, 10 - i, '#5a9a48'); } t.hline(0, 11, 5, '#f4f4f8'); });
+  ui('card', t => { t.rect(0, 2, 12, 8, '#5a8ad0'); t.hline(0, 4, 12, '#2a2a34'); t.rect(2, 6, 2, 2, GOLD); t.hline(6, 7, 4, '#a8c4ec'); t.hline(1, 2, 10, '#8ab0e8'); });
+  ui('door', t => { t.rect(2, 0, 8, 12, '#a8693a'); t.rect(3, 1, 6, 4, '#c88a52'); t.rect(3, 6, 6, 5, '#c88a52'); t.px(8, 6, '#f0c040'); });
+  ui('toilet', t => { t.rect(2, 0, 7, 3, W); t.hline(2, 2, 7, '#d8dce4'); t.rect(1, 4, 10, 3, W); t.hline(1, 4, 10, '#c8ccd4'); t.rect(3, 7, 6, 4, '#e4e4ec'); t.hline(2, 11, 8, '#c8ccd4'); });
+  ui('window', t => { t.rect(0, 0, 12, 12, '#f0e6d2'); t.rect(1, 1, 10, 10, '#9ec3d8'); t.rect(1, 1, 10, 3, '#b9dbe9'); t.vline(5, 1, 10, '#f0e6d2'); t.vline(6, 1, 10, '#f0e6d2'); t.hline(1, 5, 10, '#f0e6d2'); t.hline(1, 6, 10, '#f0e6d2'); });
+  // name-tag marks: a small moon (do not disturb) and a palm (on vacation)
+  { const t = new Img(9, 9); t.ellipse(4.5, 4.5, 3.6, 3.6, '#f4d860'); t.ellipse(6.4, 3.2, 3, 3, [0, 0, 0, 0]); t.px(2, 4, '#fff0a0'); frames.mark_moon = t.outline(); } // a crescent
+  { const t = new Img(9, 9); const L = '#4f9d6b', D = '#3e7a52'; t.vline(4, 3, 5, '#8a5a30'); t.hline(1, 2, 7, L); t.px(0, 3, L); t.px(8, 3, L); t.hline(2, 1, 2, D); t.hline(5, 1, 2, D); t.px(4, 2, D); frames.mark_palm = t.outline(); }
+}
+
 // ---------- pack world atlas (shelf packer) ----------
 const names = Object.keys(frames).sort((a, b) => frames[b].h - frames[a].h || frames[b].w - frames[a].w);
 const AW = 256; let x = 0, y = 0, rowH = 0; const rects = {};

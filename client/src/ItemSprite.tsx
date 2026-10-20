@@ -25,3 +25,17 @@ export function ItemSprite({ item, fallback, scale = 2, dim }: { item: string | 
   if (!fr) return <span style={dim ? { opacity: 0.45 } : undefined}>{fallback ?? itemDef(item)?.icon ?? '📦'}</span>;
   return <canvas ref={ref} width={fr.f.w * scale} height={fr.f.h * scale} className="item-sprite" style={dim ? { opacity: 0.45 } : undefined} aria-hidden="true" />;
 }
+
+/** Any world-atlas frame as page UI, e.g. the action wheel's `ui_*` icons (scripts/gen-assets.mjs). */
+export function Sprite({ frame, fallback, scale = 2 }: { frame: string; fallback?: string; scale?: number }) {
+  const ref = useRef<HTMLCanvasElement>(null), f = art?.atlas.frames[frame];
+  useEffect(() => {
+    const c = ref.current; if (!c || !f || !art) return;
+    const g = c.getContext('2d')!; g.imageSmoothingEnabled = false; g.clearRect(0, 0, c.width, c.height);
+    g.drawImage(art.world, f.x, f.y, f.w, f.h, 0, 0, f.w * scale, f.h * scale);
+  }, [frame, scale, f]);
+  if (!f) return <span>{fallback ?? ''}</span>;
+  return <canvas ref={ref} width={f.w * scale} height={f.h * scale} className="item-sprite" aria-hidden="true" />;
+}
+/** A wheel action's pixel icon (`ui_<name>`), the emoji until the art has loaded. */
+export const uiIcon = (name: string, emoji: string) => <Sprite frame={name.startsWith('item_') ? name : `ui_${name}`} fallback={emoji} />;
