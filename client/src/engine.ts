@@ -22,6 +22,7 @@ import { itemDef } from '../../shared/items';
 import { fogHides, isOutdoor } from '../../shared/weather';
 import { hourBucket, lightmapKey, lightWeight, LM, paintLightmap } from './lighting';
 import { personLight } from './personLight';
+import { effectOf } from '../../shared/effects';
 import { REACTION_FRAME } from './reactionArt';
 import { WeatherFx } from './weatherFx';
 import { ITEMS, MAP, PORTAL_MS, type ClientUser, type Pose, type PortalFx, type Store, type DungeonFx } from './net';
@@ -1144,9 +1145,15 @@ export class Engine {
     else if (me && !this.manualCam && (poses.get(me.id) || trips.has(me.id))) {
       const trip = trips.get(me.id); // mid-portal: the camera heads for the far side early
       const p = trip && trip.age >= 700 ? { ...this.store.pose(me, t), x: trip.fx.to.x, y: trip.fx.to.y } : poses.get(me.id) ?? this.store.pose(me, t);
+      const car = this.store.driving ? this.store.cups.find(c => c.id === effectOf(me.effects, 'driving')?.data?.car) : undefined;
+      let fx0 = p.x, fy0 = p.y;
+      if (car) { // driving a remote car: the camera follows the car (gliding a tile per 130 ms, as it's drawn)
+        const fx = this.store.carFx.get(car.id), k = fx ? Math.min(1, (performance.now() - fx.at) / 130) : 1;
+        fx0 = fx ? fx.from.x + (car.tile.x - fx.from.x) * k : car.tile.x; fy0 = fx ? fx.from.y + (car.tile.y - fx.from.y) * k : car.tile.y;
+      }
       const target = me.instance && !this.areaDown // a meeting's room: keep the room in the middle
         ? this.clampCam((MEETING.x + MEETING.w / 2) * TS - this.viewW / 2, (MEETING.y + MEETING.h / 2) * TS - this.viewH / 2)
-        : this.clampCam(p.x * TS + 8 - this.viewW / 2, p.y * TS - this.viewH / 2);
+        : this.clampCam(fx0 * TS + 8 - this.viewW / 2, fy0 * TS - this.viewH / 2);
       const dt = Math.min(100, ms - prevMs), k = this.snapped ? 1 - Math.pow(0.88, dt / 16.7) : 1; this.snapped = true; // 0.12 per 60 fps frame, whatever the frame rate
       this.cam.x += (target.x - this.cam.x) * k; this.cam.y += (target.y - this.cam.y) * k;
     }
