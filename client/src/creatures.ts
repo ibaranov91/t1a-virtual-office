@@ -1,5 +1,6 @@
 // The office animals, the cleaner, the cups on tables, and the ghost of Mazurkevich. The engine merges these into its
 // y-sorted pass; this file only knows how to place and draw them.
+import { officeMinutes } from '../../shared/officeTime';
 import { terrainAt } from '../../shared/beach';
 import { roomAt, sampleMove, WALK_MS_PER_TILE, type Dir, type Rect } from '../../shared/map';
 import { isPlate, LUNCH_MS, plateFood } from '../../shared/lunch';
@@ -30,14 +31,15 @@ export function creaturePose(c: Creature, t: number): CreaturePose {
 }
 
 // ---------- the ghost ----------
-/** Night as the floor's tint has it (deep blue): the ghost is about for a few minutes of every ten. By day he shows up
- *  for three minutes somewhere in each hour. Everyone sees the same windows (server time), each in their own night. */
+/** The ghost is about for a few minutes of every ten at night, and for three minutes somewhere in each hour by day. His
+ *  appearances are shared, so "night" is office time (Europe/Berlin, shared/officeTime.ts): everyone sees the same ghost,
+ *  whatever their own clock says (the floor's light follows the viewer's local time). */
 const seed = (n: number) => { let h = n | 0; h = Math.imul(h ^ (h >>> 16), 0x45d9f3b); h = Math.imul(h ^ (h >>> 16), 0x45d9f3b); return (h ^ (h >>> 16)) >>> 0; };
-const night = (d: Date) => { const h = d.getHours() + d.getMinutes() / 60; return h >= 21 || h < 5.5; };
-export function ghostWindow(now: number, forced: { from: number; to: number } | null, local = new Date()) {
+export const officeNight = (now: number) => { const m = officeMinutes(now); return m >= 21 * 60 || m < 5.5 * 60; };
+export function ghostWindow(now: number, forced: { from: number; to: number } | null) {
   if (forced && now >= forced.from && now < forced.to) return forced;
-  const span = night(local) ? 600_000 : 3_600_000, block = Math.floor(now / span);
-  const from = block * span + (seed(block) % (night(local) ? 6 : 57)) * 60_000, to = from + (night(local) ? 4 : 3) * 60_000;
+  const night = officeNight(now), span = night ? 600_000 : 3_600_000, block = Math.floor(now / span);
+  const from = block * span + (seed(block) % (night ? 6 : 57)) * 60_000, to = from + (night ? 4 : 3) * 60_000;
   return now >= from && now < to ? { from, to } : null;
 }
 const ROOMS = ['lobby', 'coffee'].map(id => MAP.rooms.find(r => r.id === id)!.rect);

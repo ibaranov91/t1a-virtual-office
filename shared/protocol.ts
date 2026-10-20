@@ -9,6 +9,7 @@ export { PARK_FPS, PARK_INPUT_DELAY, PARK_SERVER_LAG, PARK_SPECTATOR_DELAY, PARK
 export type { GameRole, GameEvent, GameMember, GameClear, PublicSession, ParkRecord, ParkRecords, CabinetSummary, ArcadeBoards } from './arcade/types';
 import type { CabinetSummary } from './arcade/types';
 
+import type { Weather } from './weather';
 import { inRect, type Dir, type Layout, type Move, type Tile } from './map';
 import type { Eating } from './lunch';
 import type { Pomodoro } from './pomodoro';
@@ -173,6 +174,9 @@ export interface Effect { kind: string; until?: number; data?: Record<string, un
 export const BANNER_PATTERNS = ['stripes', 'checks', 'diamond', 'dots', 'zigzag', 'plaid'] as const;
 export type Banner = { kind: 'color'; color: string } | { kind: 'pattern'; pattern: (typeof BANNER_PATTERNS)[number]; color: string } | { kind: 'image'; url: string };
 
+/** The sky now. `forced`: an admin set it, so the schedule is paused until they pick 'auto'. */
+export interface WeatherState { kind: Weather; forced: boolean }
+
 export interface PublicUser {
   id: string; name: string; look: Look;
   banner?: Banner | null;
@@ -199,6 +203,7 @@ export interface PublicUser {
   bloomed: string[];        // plant kinds they've grown to full bloom
   achievements: Record<string, number>; // achievement id → when it was earned (ms)
   effects: Effect[];        // buffs, debuffs, hats; the server adds, expires and broadcasts them
+  umbrella?: boolean;       // has an umbrella in their pockets (public: it opens in the rain; the rest of the pockets stay private)
   dnd?: boolean;            // Do not disturb (public, saved): knocks skip the pop-up and wait in Later; deafen is separate
   afk?: boolean;            // no input for AFK_MS: dozing on the floor until they're back; memory only
 }
@@ -344,7 +349,7 @@ export type ServerMsg =
   | { t: 'layout'; layout: Layout; by?: string; added?: string }
   | { t: 'hello'; you: string; serverTime: number; build?: string } // build: the client bundle the server serves (absent in dev)
   | { t: 'pong'; id: number; serverTime: number } // the answer to a clock ping, only to the socket that sent it
-  | { t: 'state'; roomModes?: RoomModes; users: PublicUser[]; objects: Record<string, ObjectState>; toilets?: Record<string, ToiletState>; jukebox?: Record<string, JukeboxState>; instruments?: Record<string, string | null>; serverTime: number }
+  | { t: 'state'; roomModes?: RoomModes; users: PublicUser[]; objects: Record<string, ObjectState>; toilets?: Record<string, ToiletState>; jukebox?: Record<string, JukeboxState>; instruments?: Record<string, string | null>; weather?: WeatherState; serverTime: number }
   | { t: 'move'; userId: string; from: Tile; to: Tile; startedAt: number; path?: Tile[]; face?: Dir; ms?: number } // ms: per tile, absent = WALK_MS_PER_TILE
   | { t: 'effects'; userId: string; effects: Effect[] }
   | { t: 'status'; userId: string; status: string }
@@ -403,6 +408,8 @@ export type ServerMsg =
   | { t: 'storage_warn'; ownerId: string } // opening someone else's storage: confirm first (they may be spotted)
   | { t: 'storage'; ownerId: string; items: string[]; log?: StorageTake[]; spotted?: boolean } // to the person looking: what the desk holds; log only for the owner
   | { t: 'storage_closed'; ownerId: string }
+  | { t: 'weather'; weather: WeatherState } // atmosphere: the sky changed (scheduled, or an admin forced it)
+  | { t: 'umbrella'; userId: string; on: boolean } // atmosphere: pockets gained or lost an umbrella
   | { t: 'teleport'; userId: string; from: Tile; to: Tile } // an admin stepped through a portal: everyone plays it (the server has already moved them)
   | { t: 'notice'; text: string }
   | { t: 'later'; items: LaterItem[] }  // only to the person knocked on: their kept Later list, on connect and on every change
@@ -537,6 +544,7 @@ export type ClientMsg =
   | { t: 'look'; look: Look; name?: string } // name: optional manual display name ("First Las")
   // put an effect on someone (on: true) or take it off. Yourself: 'self' effects; office admins (GMs): anyone, any effect.
   | { t: 'gm_items'; targetId: string } // office admins only: ask what someone carries in their pockets
+  | { t: 'gm_weather'; weather: Weather | 'auto' } // office admins only: force the weather ('auto' goes back to the schedule)
   | { t: 'teleport'; targetId: string } // office admins only: step through a portal to stand beside someone
   | { t: 'rename'; targetId: string; name: string } // office admins only: give someone another name (if theirs was taken)
   | { t: 'gift_hat'; targetId: string; style: string } // office admins only: put a hat in someone's pockets and on their head

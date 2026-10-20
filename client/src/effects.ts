@@ -316,7 +316,7 @@ function falling(c: FxCtx, frame: (i: number) => string, n: number, period: numb
   }
   ctx.globalAlpha = 1;
 }
-const HAT_H: Record<string, number> = { top: 11, party: 12, wizard: 14, cowboy: 8, crown: 8, judge: 13, laurel: 7, winged: 10, crested: 10, shark: 11, catears: 8, foxears: 9, frog: 8, onigiri: 9, apple: 9, coffeecup: 10, mushroom: 10, capsule: 11, tinycrown: 6, handsewn: 8 };
+export const HAT_H: Record<string, number> = { top: 11, party: 12, wizard: 14, cowboy: 8, crown: 8, judge: 13, laurel: 7, winged: 10, crested: 10, shark: 11, catears: 8, foxears: 9, frog: 8, onigiri: 9, apple: 9, coffeecup: 10, mushroom: 10, capsule: 11, tinycrown: 6, handsewn: 8 };
 
 function unicorns(c: FxCtx, behind: boolean) {
   for (let i = 0; i < 3; i++) {

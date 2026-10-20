@@ -643,6 +643,16 @@ obj('leader_desk', 79, 31, 1, 1);
 obj('trophy_case', 31, 22, 2, 1, { use: { kind: 'achievements', label: 'trophy case' } });
 for (const { id: _i, x: _x, y: _y, ...t } of objects.slice(firstPlaces)) catalog[t.type] ??= t;
 
+// ---------- v2 windows (atmosphere) ----------
+// Windows open and close (a toggle, so the state is shared and saved; closed to start with), and the beach gets a flag
+// that turns black in the rain. Ids stay put: the existing windows are only given a `use`.
+const firstAtmosphere = objects.length;
+// only windows someone can stand under (furniture often fills the floor below); the others stay painted shut
+const standUnder = o => [0, 1].some(i => { const x = o.x + i, y = o.y + o.h; return !walls[y]?.[x] && !objects.some(f => f !== o && !f.wall && !f.walkable && x >= f.x && x < f.x + f.w && y >= f.y && y < f.y + f.h); });
+for (const o of objects) if (o.type === 'window' && standUnder(o)) { o.use = { kind: 'toggle', label: 'window' }; o.on = false; }
+obj('beach_flag', 43, 40);
+for (const { id: _i, x: _x, y: _y, ...t } of objects.slice(firstAtmosphere)) catalog[t.type] ??= t;
+
 const map = { version: 1, width: W, height: H, tileSize: 16, office: { x: 0, y: 0, w: W, h: OFFICE_H }, dungeon, vacation, tiles, layers: { floor, walls, walkable: [] }, rooms, objects: [], rugs: [], spawn: { x: 7, y: 17 }, exit: EXIT, catalog };
 applyLayout(map, { objects, rugs });
 for (const r of rooms) for (const s of r.stand) if (!r.spots.includes(s)) throw new Error(`standing spot ${r.id} ${s.x},${s.y} is under furniture`);

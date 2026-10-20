@@ -2421,6 +2421,24 @@ for (const on of [false, true]) {
     t.rect(2, 1, 2, 2, '#f2d060'); t.px(2, 1, '#e8e8f0'); t.px(3, 2, '#e8e8f0'); t.vline(7, 0, 3, '#c8c8d4'); frames.toy_sewing = t.outline(); }
   { const t = new Img(5, 9); t.rect(1, 1, 3, 7, '#58e07a'); t.vline(2, 1, 7, '#b8ffc8'); t.rect(1, 1, 3, 1, '#2a8a4a'); t.rect(1, 7, 3, 1, '#2a8a4a'); frames.glow_stick = t.outline(); }
 }
+// ---------- atmosphere: open window, beach flag ----------
+{
+  const t = new Img(32, 32); // window_open: same frame, the sashes swung in, the sky (and the rain) comes through the gap
+  t.rect(3, 3, 26, 22, '#f0e6d2');
+  t.rect(5, 5, 22, 18, '#7fa9c4'); t.rect(5, 5, 22, 6, '#9ec3d8'); // the opening: a dim sky
+  t.rect(5, 5, 3, 18, '#b9dbe9'); t.rect(24, 5, 3, 18, '#b9dbe9'); t.vline(8, 5, 18, '#8ab4cc'); t.vline(23, 5, 18, '#8ab4cc'); // sashes folded to the sides
+  t.rect(2, 25, 28, 3, '#d8c8a8'); t.hline(2, 25, 28, '#f6eee0');
+  t.ellipse(8, 24, 3, 2, '#5f9a48'); t.ellipse(24, 24, 3, 2, '#d47a6e');
+  frames.window_open = t.outline();
+}
+for (const black of [false, true]) { // beach_flag(_black): a pole in the sand, a green flag by day and a black one in the rain
+  const t = new Img(16, 32);
+  t.rect(7, 4, 2, 26, '#e8e2d0'); t.rect(6, 29, 4, 2, '#c9b27c'); t.px(7, 3, '#f2c84b'); t.px(8, 3, '#f2c84b');
+  const c1 = black ? '#1c1a22' : '#3fa86b', c2 = black ? '#34303c' : '#5fc888';
+  t.rect(9, 5, 6, 5, c1); t.hline(9, 5, 6, c2); t.rect(9, 10, 4, 1, c1);
+  if (black) { t.px(11, 6, '#e8e2d0'); t.px(12, 7, '#e8e2d0'); t.px(11, 8, '#e8e2d0'); }
+  frames[black ? 'beach_flag_black' : 'beach_flag'] = t.outline();
+}
 
 // ---------- pack world atlas (shelf packer) ----------
 const names = Object.keys(frames).sort((a, b) => frames[b].h - frames[a].h || frames[b].w - frames[a].w);

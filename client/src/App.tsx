@@ -1,3 +1,4 @@
+import { WEATHERS, WEATHER_LABEL } from '../../shared/weather';
 import { ActivityPanel, ModeBar, OverNotices, PresenceButtons } from './NotifyUI';
 import { slotOf, type Mode } from './notify';
 import { onMap } from '../../shared/beach';
@@ -1010,6 +1011,15 @@ function GmPanel({ store, picked, assets, onClose, onReport, onLogs }: { store: 
       </select></label>
       <p className="hint">Click someone on the floor to aim at them.</p>
       <div className="gm-logs"><button className="ghost" onClick={onLogs}><Icon name="book" /> Logs</button><button className="ghost" onClick={onReport} title="Temporary entry point: Report bug moves to the suggestions board"><Icon name="message" /> Bug</button></div>
+      <h3>Weather <small>{store.weather.forced ? 'Forced by an admin until you pick Auto.' : 'Following the schedule (office time).'} Now: {WEATHER_LABEL[store.weather.kind].toLowerCase()}.</small></h3>
+      <div className="palette">
+        {(['auto', ...WEATHERS] as const).map(w => {
+          const on = w === 'auto' ? !store.weather.forced : store.weather.forced && store.weather.kind === w;
+          return <button key={w} className={on ? 'on' : ''} aria-pressed={on} onClick={() => store.gmWeather(w)}>
+            <b className="gm-icon">{w === 'auto' ? '🗓' : w === 'clear' ? '☀️' : w === 'rain' ? '🌧' : '🌫'}</b><span>{w === 'auto' ? 'Auto' : WEATHER_LABEL[w]}</span>
+          </button>;
+        })}
+      </div>
       {u.id !== store.me && <button className="ghost reset" onClick={() => store.teleport(u.id)}><Icon name="portal" /> Teleport to {u.name.split(' ')[0]}</button>}
       {!u.bot && <form className="rug-size" onSubmit={e => { e.preventDefault(); const v = renaming.trim(); if (v && v !== u.name) { store.rename(u.id, v); setRenaming(''); } }}>
         <input value={renaming} maxLength={24} onChange={e => setRenaming(e.target.value)} placeholder={`Rename ${u.name}`} aria-label={`New name for ${u.name}`} />
@@ -1503,7 +1513,9 @@ function ActionWheel({ store, engine, pick, assets, onPerson, onClose }: { store
     } else if (o.use.kind === 'toggle') {
       const on = store.objects[o.id]?.on ?? o.on ?? true;
       title = o.use.label[0].toUpperCase() + o.use.label.slice(1);
-      items = [{ icon: on ? '🌑' : '💡', label: on ? 'Turn off' : 'Turn on', onClick: act(() => store.use(o.id)) }];
+      items = o.type === 'window'
+        ? [{ icon: '🪟', label: on ? 'Close' : 'Open', onClick: act(() => store.use(o.id)) }]
+        : [{ icon: on ? '🌑' : '💡', label: on ? 'Turn off' : 'Turn on', onClick: act(() => store.use(o.id)) }];
     } else if (o.use.kind === 'take') {
       title = o.type === 'coffee_machine' ? 'Coffee machine' : o.type === 'fridge' ? 'Fridge' : o.type === 'food_cart' ? 'Food cart' : o.type === 'beach_bar' ? 'Beach bar' : o.type;
       items = o.use.items.map(i => ({ icon: i.icon, label: i.label, title: REFRESHMENT_HINTS[i.id] ?? i.label, onClick: act(() => store.use(o.id, i.id)) }));

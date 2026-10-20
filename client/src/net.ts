@@ -26,7 +26,8 @@ import type { Soundscape } from './soundscape';
 import { bestOffset, clockSample, CLOCK_SAMPLES, type ClockSample } from './clockSync';
 import { slurBy } from './slur';
 import { knockOverflow, localEntry, logsOnExit, mergeLog, overflow, slotOf, unreadCount, LOCAL_LOG_MAX, OVER_MS, type Mode, type Slot } from './notify';
-import { JOURNAL_MAX, type JournalEntry } from '../../shared/protocol';
+import { JOURNAL_MAX, type JournalEntry, type WeatherState } from '../../shared/protocol';
+import type { Weather } from '../../shared/weather';
 
 export const MAP = mapJson as unknown as TileMap;
 const baseRoomRules = Object.fromEntries(MAP.rooms.map(r => [r.id, { ...r.rules }]));
@@ -75,7 +76,7 @@ export interface DungeonFx { kind: 'fall' | 'land' | 'climb'; user: ClientUser; 
 export interface Pose { x: number; y: number; dir: Dir; walking: boolean; tile: Tile }
 
 type Listener = () => void;
-const SCENE_ONLY = new Set<ServerMsg['t']>(['move', 'speaking', 'emote', 'react', 'creatures', 'creature', 'cups', 'car', 'popper']);
+const SCENE_ONLY = new Set<ServerMsg['t']>(['move', 'speaking', 'emote', 'react', 'creatures', 'creature', 'cups', 'car', 'popper', 'umbrella']);
 
 export class Store {
   users = new Map<string, ClientUser>();
@@ -116,6 +117,8 @@ export class Store {
   build: string | undefined;  // the server's client build when this page loaded
   staleBuild = false;         // server now serves a newer build; reload when not in a call
   objects: Record<string, ObjectState> = {};
+  weather: WeatherState = { kind: 'clear', forced: false }; // the office's sky (server-owned)
+  devWeather: Weather | null = null; // dev only: look at a sky without asking the server (`__deck.store.devWeather = 'rain'`)
   toilets: Record<string, ToiletState> = {}; // Berghain's stalls
   jukebox: Record<string, JukeboxState> = {};
   instruments: Record<string, string | null> = {};
@@ -359,6 +362,10 @@ export class Store {
   cancelStorage() { this.storageWarn = null; this.emit(); }
   closeStorage() { if (this.storage) this.send({ t: 'storage_close' }); this.storage = null; this.storageWarn = null; this.emit(); }
   storageMove(ownerId: string, item: string, dir: 'in' | 'out') { this.send({ t: 'storage_move', ownerId, item, dir }); }
+  /** Office admins: force the weather, or 'auto' to go back to the schedule. */
+  gmWeather(weather: Weather | 'auto') { this.send({ t: 'gm_weather', weather }); }
+  /** The sky this page draws: the dev override, else the server's. */
+  get sky(): Weather { return this.devWeather ?? this.weather.kind; }
   gmGive(targetId: string, item: string) { this.send({ t: 'gm_give', targetId, item }); }
   // ---------- item content (v2) ----------
   useHeld() { this.send({ t: 'use_held' }); }
@@ -823,6 +830,7 @@ export class Store {
         this.users = next;
         this.setInstruments(msg.instruments ?? {});
         this.objects = msg.objects ?? {};
+        if (msg.weather) this.weather = msg.weather;
         this.toilets = msg.toilets ?? {};
         this.jukebox = msg.jukebox ?? {}; this.jukeboxReady = true;
         this.soundscape?.resetCrossings();
@@ -954,6 +962,8 @@ export class Store {
       case 'storage_warn': this.storageWarn = msg.ownerId; break;
       case 'storage': this.storageWarn = null; this.storage = { ownerId: msg.ownerId, items: msg.items, log: msg.log, spotted: msg.spotted }; break;
       case 'storage_closed': if (this.storage?.ownerId === msg.ownerId) this.storage = null; break;
+      case 'weather': this.weather = msg.weather; break;
+      case 'umbrella': { const u = this.users.get(msg.userId); if (u) { if (msg.on) u.umbrella = true; else delete u.umbrella; } break; }
       case 'teleport': {
         const at = performance.now();
         this.portalFx = [...this.portalFx.filter(f => at - f.at < PORTAL_MS && f.userId !== msg.userId), { userId: msg.userId, from: msg.from, to: msg.to, at }];

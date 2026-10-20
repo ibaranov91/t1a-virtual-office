@@ -416,17 +416,17 @@ export function layoutProblem(m: TileMap, checkDungeonReach = true): string | nu
     if (!ok({ x: s.x + step.x, y: s.y + step.y })) return `that cuts off a seat in ${r.name}`;
   }
   // you walk over to these to use them (the calendars and boards just open)
-  for (const o of m.objects) if (routes(o.use, 'reach') && !besideObject(m, o).some(ok)) return `nobody could reach the ${objectName(o.type)}`;
+  for (const o of m.objects) if (routes(o.use, 'reach') && o.type !== 'window' /* a window you can't get to just stays shut: it never rejects a layout */ && !besideObject(m, o).some(ok)) return `nobody could reach the ${objectName(o.type)}`;
   for (const o of m.objects) if (o.use?.kind === 'toilet' && !ok(stallDoor(o))) return `nobody could get into the ${objectName(o.type)}`;
   return null;
 }
 
 /** What to call an object type in the UI: "big table", not table_big. */
-export const objectName = (type: string) => ({ palm: 'palm', pine: 'pine', lounger: 'lounger', umbrella: 'umbrella', hammock: 'hammock', beach_bar: 'beach bar', vacation_sign: 'sign', summit_flag: 'flag', sandcastle: 'sandcastle', shells: 'shells', beach_ball: 'beach ball', retro_tobu: 'Tobu Tobu Girl', retro_lobster: 'Shock Lobster', table_long: 'long table', table_big: 'big table', table_round: 'round table', plant_shelf: 'plant shelf',
+export const objectName = (type: string) => ({ beach_flag: 'beach flag', palm: 'palm', pine: 'pine', lounger: 'lounger', umbrella: 'umbrella', hammock: 'hammock', beach_bar: 'beach bar', vacation_sign: 'sign', summit_flag: 'flag', sandcastle: 'sandcastle', shells: 'shells', beach_ball: 'beach ball', retro_tobu: 'Tobu Tobu Girl', retro_lobster: 'Shock Lobster', table_long: 'long table', table_big: 'big table', table_round: 'round table', plant_shelf: 'plant shelf',
   wellness_cooler: 'water cooler', stretch_mat: 'stretching mat', painting_small: 'small painting', coffee_machine: 'coffee machine', meetings_board: 'meetings board', noticeboard: 'notice board', table_picnic: 'picnic table', food_cart: 'food cart', exit_door: 'exit door', server_rack: 'server rack', dj_booth: 'DJ booth', neon_sign: 'neon sign', bookshelf_tall: 'tall bookshelf', terminal: 'bug terminal', suggestions_board: 'suggestions board', shop_shelf: 'shelves', shop_counter: 'counter', shop_tv: 'TV', shop_sign: 'neon sign', gacha_machine: 'gacha machine', trophy_case: 'trophy case', photo_wall: 'photo wall', leader_chair: 'leader\'s chair', leader_desk: 'leader\'s desk', bar_table: 'bar table', keiko: 'Keiko' } as Record<string, string>)[type] ?? type.replace(/_/g, ' ');
 
 /** Types that are one of a kind (the way out, the coffee machine…): they can be moved but not removed. */
-export const KEEP_TYPES = new Set(['out_of_office_sign', 'wellness_cooler', 'stretch_mat', 'vacation_sign', 'lofi_tv', 'exit_door', 'coffee_machine', 'fridge', 'jukebox', 'arcade', 'game_table', 'retro_tobu', 'retro_lobster', 'records', 'meetings_board', 'noticeboard', 'clock_nyc', 'clock_berlin', 'clock_moscow', 'safe', 'keyboard', 'drum_kit', 'bass_amp', 'screen', 'room_start', 'toilet', 'bouncer', 'hat_rack', 'bell', 'food_cart', 'dj_booth', 'suggestions_board', 'gacha_machine', 'shop_counter', 'keiko', 'kettle', 'trophy_case', 'photo_wall', 'leader_chair', 'leader_desk', 'bar_table']);
+export const KEEP_TYPES = new Set(['out_of_office_sign', 'wellness_cooler', 'stretch_mat', 'vacation_sign', 'lofi_tv', 'exit_door', 'coffee_machine', 'fridge', 'jukebox', 'arcade', 'game_table', 'retro_tobu', 'retro_lobster', 'records', 'meetings_board', 'noticeboard', 'clock_nyc', 'clock_berlin', 'clock_moscow', 'safe', 'keyboard', 'drum_kit', 'bass_amp', 'screen', 'room_start', 'toilet', 'bouncer', 'hat_rack', 'bell', 'food_cart', 'dj_booth', 'suggestions_board', 'gacha_machine', 'shop_counter', 'keiko', 'kettle', 'trophy_case', 'photo_wall', 'leader_chair', 'leader_desk', 'bar_table', 'beach_flag']);
 /** Types that stay exactly where they are. */
 export const FIXED_TYPES = new Set(['exit_door']);
 export const RUG_MIN = 2, RUG_MAX = 24;

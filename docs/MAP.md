@@ -4,7 +4,7 @@
 
 Grid 85×65 tiles of 16px. Office: 0,0 85×44 (camera, overview and edit mode stay inside it). Dungeon: 17,46 31×19, not connected to the office.
 Spawn 7,17, exit 12,13, garden hole 63,25, hatch 20,32.
-Coordinates are tile x,y (x right, y down). Object ids are positional (o1…o338): append new objects at the end of gen-map.mjs so saved layouts keep their ids.
+Coordinates are tile x,y (x right, y down). Object ids are positional (o1…o339): append new objects at the end of gen-map.mjs so saved layouts keep their ids.
 
 Look things up from the shell: `npm run where -- <roomId|objectType|useKind|objectId|x,y>`.
 
@@ -71,8 +71,8 @@ Each room is filled with its letter (table below) and labelled with its id. `#` 
     0         1         2         3         4         5         6         7         8    
     0123456789012345678901234567890123456789012345678901234567890123456789012345678901234
   0 #####################################################################################
-  1 ##################*****###########*########################****#####*################
-  2 ##################*****####################################****#####*################
+  1 ###**####**#######*****###########*#######**#####**####**##****#####*##**############
+  2 ###**####**#######*****###################**#####**####**##****#####*##**############
   3 #X.........XX#X...........#.XXXX*XX***X#X...........*#X........X#XXXXX....#..***...*#
   4 #.XX.XX.XX...#...h.h.h....#..s.........#.XX.XX.XX.XX.#,**.**.*..#......XX.+...s.....#
   5 #..h.h..h....#...XXXXXXh..#......s.....#.h..h..h..h..#X...**...X#X.....h.X+....****.#
@@ -110,7 +110,7 @@ Each room is filled with its letter (table below) and labelled with its id. `#` 
  37 ^.X...^^^:^^^^^^^^^^..........hh..............hh..............hh..............hh....^
  38 ^.s.^^^^^:::::::::::::s.....s.............s.........s.................s....X........^
  39 ^X.^^^^^^^^^^^^^^^^^^^^.s...............X.......XXXXXXX.......==................s...^
- 40 ^..........................................................X..==....................^
+ 40 ^..........................................X...............X..==....................^
  41 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~==~~~~~~~~~~~~~~~~~~~~^
  42 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~==~~~~~~~~~~~~~~~~~~~~^
  43 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -180,6 +180,8 @@ Every object with a `use` (wall decor counts toward the room below it). Routing 
 
 | id | type | kind | routing | x,y | w×h | room | label / details |
 | --- | --- | --- | --- | --- | --- | --- | --- |
+| o1 | `window` | `toggle` | wheel use reach | 3,1 | 2×2 | focus | window (on a wall) |
+| o2 | `window` | `toggle` | wheel use reach | 9,1 | 2×2 | focus | window (on a wall) |
 | o6 | `noticeboard` | `achievements` | — | 2,12 | 2×1 | lobby | achievements (on a wall) |
 | o7 | `photo_wall` | `photos` | — | 10,12 | 2×1 | lobby | photo wall (on a wall) |
 | o19 | `lamp` | `toggle` | wheel use reach | 1,10 | 1×1 | focus | lamp |
@@ -199,8 +201,11 @@ Every object with a `use` (wall decor counts toward the room below it). Routing 
 | o94 | `calendar` | `calendar` | — | 34,1 | 1×1 | coffee | calendar (on a wall) |
 | o95 | `calendar` | `calendar` | — | 22,12 | 1×1 | cowork | calendar (on a wall) |
 | o96 | `meetings_board` | `meetings` | — | 18,12 | 1×1 | cowork | meetings (on a wall) |
+| o97 | `window` | `toggle` | wheel use reach | 42,1 | 2×2 | studio | window (on a wall) |
+| o98 | `window` | `toggle` | wheel use reach | 49,1 | 2×2 | studio | window (on a wall) |
 | o118 | `lamp` | `toggle` | wheel use reach | 52,3 | 1×1 | studio | lamp |
 | o138 | `lamp` | `toggle` | wheel use reach | 40,16 | 1×1 | desks | lamp |
+| o139 | `window` | `toggle` | wheel use reach | 55,1 | 2×2 | music | window (on a wall) |
 | o140 | `lofi_tv` | `youtube` | — | 59,1 | 4×2 | music | Lofi Girl · YouTube Live (on a wall) |
 | o143 | `arcade` | `arcade` | use reach | 54,13 | 1×2 | arcade | Deck Park |
 | o144 | `arcade` | `arcade` | use reach | 56,13 | 1×2 | arcade | Deck Park |
@@ -213,6 +218,7 @@ Every object with a `use` (wall decor counts toward the room below it). Routing 
 | o181 | `drum_kit` | `instrument` | reach | 58,4 | 2×2 | music | drums · drums |
 | o182 | `bass_amp` | `instrument` | reach | 61,4 | 1×1 | music | bass · bass |
 | o183 | `screen` | `presentation` | use reach | 18,1 | 5×2 | meeting | screen (on a wall) |
+| o184 | `window` | `toggle` | wheel use reach | 71,1 | 2×2 | admin | window (on a wall) |
 | o199 | `dj_booth` | `jukebox` | — | 77,3 | 3×1 | berghain | DJ booth |
 | o200 | `bouncer` | `dealer` | wheel use | 83,9 | 1×1 | berghain | bouncer · drugs |
 | o201 | `lamp` | `toggle` | wheel use reach | 83,3 | 1×1 | berghain | lamp |
@@ -270,7 +276,7 @@ Kinds with no object on the map yet: none.
 | `library` | bookshelf_tall ×3, reading_desk ×2, chair ×14, reading_table ×6, fern, side_table |
 | `bookclub` | bookshelf_tall ×2, sofa, table_round, chair ×4, leader_chair, lamp ×2, plant, leader_desk |
 | `mountains` | pine ×3, summit_flag |
-| `beach` | palm ×4, lounger ×4, umbrella ×4, hammock, beach_bar, vacation_sign, sandcastle, shells, beach_ball, out_of_office_sign |
+| `beach` | palm ×4, lounger ×4, umbrella ×4, hammock, beach_bar, vacation_sign, sandcastle, shells, beach_ball, out_of_office_sign, beach_flag |
 | `shop` | shop_tv, shop_sign, gacha_machine, shop_shelf ×6, shop_counter, keiko, plant |
 | `terminal` | desk ×3, chair ×3, plant |
 
@@ -299,7 +305,7 @@ A 3×3 feature fits where both sides are ≥ 3. `layoutProblem` (shared/map.ts) 
 | `library` | 67,28 2×2 (rug) · 70,28 2×2 (rug) |
 | `bookclub` | 75,26 3×3 · 80,30 3×3 (rug) · 78,25 3×2 · 76,30 3×2 · 81,27 2×2 |
 | `mountains` | 1,40 24×3 · 3,36 3×2 · 20,36 3×2 · 23,37 2×2 |
-| `beach` | 25,41 59×2 · 36,34 10×4 · 60,39 20×2 · 69,34 9×4 · 25,39 15×2 · 48,36 14×2 · +10 smaller |
+| `beach` | 25,41 59×2 · 36,34 10×4 · 60,39 20×2 · 69,34 9×4 · 25,39 15×2 · 48,36 14×2 · +11 smaller |
 | `shop` | 80,13 2×2 · 82,14 2×2 · 66,17 2×2 |
 | `terminal` | none |
 
