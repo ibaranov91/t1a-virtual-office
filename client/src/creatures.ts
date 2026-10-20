@@ -9,6 +9,7 @@ import { DRINKS } from '../../shared/drinks';
 import { canCarry, itemDef } from '../../shared/items';
 import { phrase } from '../../shared/phrases';
 import { SPAWN_BY } from '../../shared/spawns';
+import { effectOf } from '../../shared/effects';
 import type { Frame } from './assets';
 import { itemTop } from './tableTops';
 import { MAP, type Store } from './net';
@@ -178,7 +179,11 @@ export class CreatureLayer {
   cupLabel(cup: Cup) {
     if (!CUP_ITEMS.includes(cup.item) && canCarry(cup.item)) { // a thrown or dropped item
       const def = itemDef(cup.item), who = cup.by && this.store.users.get(cup.by)?.name;
-      if (cup.item === 'remote_car' && cup.by !== SPAWN_BY) return `🏎️ ${who ? `${who}'s` : 'A'} remote car · click to take the controller`;
+      if (cup.item === 'remote_car' && cup.by !== SPAWN_BY) { // driven: only its driver may pick it up; parked: anyone may
+        const driver = [...this.store.users.values()].find(x => effectOf(x.effects, 'driving')?.data?.car === cup.id);
+        if (driver && driver.id !== this.store.me) return `🏎️ ${driver.name.split(' ')[0]} is driving this car`;
+        return `🏎️ ${who ? `${who}'s` : 'A'} remote car · click to pick it up`;
+      }
       if (cup.by === SPAWN_BY) return `${def?.icon ?? '📦'} ${def?.label ?? cup.item} · found lying around · click to pick up`;
       return `${def?.icon ?? '📦'} ${def?.label ?? cup.item}${who ? ` · from ${who}` : ''} · click to pick up`;
     }

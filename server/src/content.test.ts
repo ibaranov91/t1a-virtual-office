@@ -294,18 +294,36 @@ test('remote car: put it down and drive it by clicking; End ride, and pick it up
   send(w, a, { t: 'car_go', to: { x: start.x + 4, y: start.y } });
   for (let i = 0; i < 5; i++) tick(130); // a step at a time: the mock clock doesn't chain timers inside one tick
   assert.deepEqual(car().tile, { x: start.x + 4, y: start.y });
-  // someone else can't take the controller while it's busy, nor steer it
-  send(w, b, { t: 'cup_take', cupId: car().id }); tick(1000);
-  assert.ok(!has(b.u, 'driving') && notices(b.messages).includes('Someone is driving that car'));
+  // driven: someone else can neither pick it up nor steer it
+  send(w, b, { t: 'cup_take', cupId: car().id }); for (let i = 0; i < 12; i++) tick(250);
+  assert.ok(notices(b.messages).includes('A is driving that car') && !!car());
+  assert.ok(b.u.holding !== 'remote_car' && !b.u.items.includes('remote_car'));
   send(w, b, { t: 'car_go', to: { x: start.x, y: start.y } }); tick(500); assert.deepEqual(car().tile, { x: start.x + 4, y: start.y });
-  // End ride leaves the car on the floor; clicking it takes the controller again
+  // End ride parks it; nobody steers a parked car
   send(w, a, { t: 'car_end' });
-  assert.ok(!has(a.u, 'driving') && w.creatures.cups.some(c => c.item === 'remote_car'));
+  assert.ok(!has(a.u, 'driving') && !!car());
   send(w, a, { t: 'car_go', to: { x: start.x, y: start.y } }); tick(500); assert.deepEqual(car().tile, { x: start.x + 4, y: start.y }, 'no controller, no steering');
-  send(w, a, { t: 'cup_take', cupId: car().id });
-  assert.ok(has(a.u, 'driving'));
+  // parked: anyone may walk over and pick it up, and exactly one of them gets it
+  send(w, b, { t: 'cup_take', cupId: car().id }); send(w, a, { t: 'cup_take', cupId: car().id });
+  for (let i = 0; i < 60; i++) tick(250);
+  const got = [a, b].filter(p => p.u.holding === 'remote_car' || p.u.items.includes('remote_car'));
+  assert.equal(got.length, 1, 'one car, one owner');
+  assert.ok(!w.creatures.cups.some(c => c.item === 'remote_car'));
+});
+
+test('remote car: Pick up while driving walks you over to it; there is only ever one car', t => {
+  const { w, add, tick } = setup(t), a = add('A', ROW), b = add('B', { x: ROW.x + 1, y: ROW.y });
+  w.setHolding(a.u, 'remote_car'); send(w, a, { t: 'use_held' });
+  const car = () => w.creatures.cups.find(c => c.item === 'remote_car');
+  const start = { ...car()!.tile };
+  tick(200); send(w, a, { t: 'car_go', to: { x: start.x + 4, y: start.y } }); for (let i = 0; i < 5; i++) tick(130);
   send(w, a, { t: 'car_end', pickup: true });
-  assert.equal(a.u.holding, 'remote_car'); assert.ok(!w.creatures.cups.some(c => c.item === 'remote_car'));
+  assert.ok(!!car() && a.u.holding !== 'remote_car', 'not in hand yet: A has to walk over');
+  for (let i = 0; i < 60; i++) tick(250);
+  assert.equal(a.u.holding, 'remote_car'); assert.equal(car(), undefined);
+  // B clicking where it was gets nothing
+  const cars = () => [a, b].reduce((n, p) => n + (p.u.holding === 'remote_car' ? 1 : 0) + p.u.items.filter(i => i === 'remote_car').length, 0) + (car() ? 1 : 0);
+  assert.equal(cars(), 1);
 });
 
 test('remote car: walls stop it, a walk or going offline puts the controller down', t => {

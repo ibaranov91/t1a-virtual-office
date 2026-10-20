@@ -988,7 +988,7 @@ export class World {
   takeCup(u: User, cupId: string) {
     const cup = this.creatures.cups.find(c => c.id === cupId);
     if (!cup || !(CUP_ITEMS.includes(cup.item) || canCarry(cup.item)) || u.bot || u.instance || goingOut(u) || u.presence === 'offline') return;
-    if (cup.item === 'remote_car' && cup.by !== SPAWN_BY) return this.startDriving(u, cup); // a car someone put down: take the controller (End ride has Pick up)
+    if (cup.item === 'remote_car' && cup.by !== SPAWN_BY) return this.pickUpCar(u, cup); // a car someone put down: walk over and pick it up, unless someone else is driving it
     this.atTable(u, cup.tile, () => {
       if (!this.creatures.cups.some(c => c.id === cupId)) return; // the cleaner (or someone) got there first
       const now = Date.now();
@@ -1570,15 +1570,30 @@ export class World {
     this.addEffect(u, 'driving', { data: { car: car.id } }, now);
     this.say(u, '🏎️ You have the controller: click where the car should go');
   }
-  /** End ride; `pickup`: the car comes back into your hands (else pockets). */
+  /** End ride; `pickup`: then walk over to the car and pick it up. */
   stopDriving(u: User, pickup = false) {
     const d = this.driving.get(u.id); if (!d) return;
     clearTimeout(d.timer); this.driving.delete(u.id);
     this.removeEffect(u, 'driving');
-    if (!pickup || !this.car(d.car)) return;
-    const problem = this.moveItem('remote_car', { kind: 'void' }, u.holding ? { kind: 'pockets', id: u.id } : { kind: 'hands', id: u.id }, null);
-    if (problem) return this.say(u, `${problem}: the car stays where it is`);
-    this.creatures.removeCup(d.car);
+    const car = pickup ? this.car(d.car) : undefined;
+    if (car) this.pickUpCar(u, car);
+  }
+  /** Who has the controller of this car, if anyone. */
+  private carDriver(carId: string) { for (const [id, d] of this.driving) if (d.car === carId) return id; return null; }
+  /** A car on the floor has one state: driven (only its driver may pick it up) or parked (anyone may). Picking it up walks you
+   *  over; on arrival the car leaves the floor and goes into your hands (else pockets) in one step, so it can never be in two places. */
+  pickUpCar(u: User, cup: Cup) {
+    const busy = (id: string) => { const d = this.carDriver(id); return d && d !== u.id ? d : null; };
+    const driver = busy(cup.id);
+    if (driver) return this.say(u, `${this.users.get(driver)?.name.split(' ')[0] ?? 'Someone'} is driving that car`);
+    if (this.carDriver(cup.id) === u.id) this.stopDriving(u);
+    this.atTable(u, cup.tile, () => {
+      const car = this.car(cup.id); if (!car) return; // someone got there first
+      const now = busy(car.id); if (now) return this.say(u, `${this.users.get(now)?.name.split(' ')[0] ?? 'Someone'} is driving that car`);
+      const problem = this.moveItem('remote_car', { kind: 'void' }, u.holding ? { kind: 'pockets', id: u.id } : { kind: 'hands', id: u.id }, null);
+      if (problem) return this.say(u, `${problem}: the car stays where it is`);
+      this.creatures.removeCup(car.id);
+    });
   }
   /** Can the car roll onto this tile? Walkable floor in the office, outside locked rooms, with nothing else lying there. */
   private carCanEnter(t: Tile, carId: string) {
