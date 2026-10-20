@@ -112,7 +112,7 @@ npm run typecheck    # run before every commit or deploy
 - **Voice diagnostics** observe only: voice/audio lifecycle, devices, page/errors and in-call stats go to
   `data/diag/<date>/<userId>.jsonl` on the instance, with 3-day retention. Inspect the pending buffer with
   `window.__voiceDiag.dump()` (all builds).
-- **Render on demand** (`skipFrame`/`cadence` in `client/src/engine.ts`): the floor redraws at ~30 fps (pixel art needs no more) while something moves or animates smoothly (walking, effects other than hats,
+- **Render on demand** (`skipFrame`/`cadence` in `client/src/engine.ts`): the floor redraws at ~60 fps while something moves or animates smoothly (walking, effects other than hats,
   speech, reactions, a playing jukebox room, dungeon, object fx), you interact, zoom glides or `store.version` changes; ~8 when only ambient loops run (water, racks, breathing step in 120+ ms);
   2 when unfocused or covered; none when hidden. A new animation that needs more than 8 fps must be added to `slowCadence`.
   Dev: `__deck.engine.frameStats()` (frames in the last 10 s). `engine.captureFrame()` gives a JPEG of the floor (bug reports).
@@ -281,7 +281,7 @@ npm run typecheck    # run before every commit or deploy
   darkness by room (`indoorDark` by light count, `outdoorDark`), lamp pools clipped to their room; `personLight(user)` (tiles) is the hook for moving lights
   (the held item's `light`: a glow stick). Weather (`clear|rain|fog`) is server state: scheduled in 2 h office-time blocks (`scheduledWeather`), admin override
   via GM panel (`gm_weather`, only the override is saved), broadcast as `weather`; `store.devWeather` forces a sky locally. Outdoors = `isOutdoor`. Rain is a scrolling
-  pattern over outdoor rooms in view (~30 fps only while visible, focused and used within 10 min, else frozen at the 8 fps ambient cadence); fog is a cached radial
+  pattern over outdoor rooms in view (~60 fps only while visible, focused and used within 10 min, else frozen at the 8 fps ambient cadence); fog is a cached radial
   sprite plus drifting noise around you, and `fogHides` hides people past 6.5 tiles outdoors. `umbrella` in pockets is public
   (`PublicUser.umbrella`, `umbrella` message) and opens a striped umbrella over the head (above any hat, pole behind the person). Windows are `toggle` objects (open/closed, shared and saved; they never reject a layout);
   open ones show rain/fog. `beach_flag` turns black in rain. Berghain's roof (found by room id) covers it unless you're inside.

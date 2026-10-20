@@ -77,7 +77,7 @@ const ITEM_HAND: Record<string, { dx: number; dy: number }> = { down: { dx: 13, 
 const hash = (s: string) => { let h = 0; for (const c of s) h = (h * 31 + c.charCodeAt(0)) | 0; return Math.abs(h); };
 
 let waterMask: boolean[][] | undefined; // the floor never changes, so which tiles are water is worked out once
-const FAST_MS = 33; // the top redraw rate: ~30 fps
+const FAST_MS = 16; // the top redraw rate while something moves: ~60 fps (30 looked choppier)
 export class Engine {
   private dungeonView = new DungeonView(MAP);
   private area: Rect = MAP.office;
@@ -698,7 +698,7 @@ export class Engine {
     return false;
   }
   private windowOpen(o: MapObject) { return o.use?.kind === 'toggle' && this.isOn(o); }
-  /** Rain is falling on something in view and the page is being used: it animates (and asks for ~30 fps). */
+  /** Rain is falling on something in view and the page is being used: it animates (and asks for the top rate, ~60 fps). */
   private rainLive(ms: number) {
     if (this.store.sky !== 'rain' || this.areaDown || this.myInstance() || this.px < 1) return false;
     if (!document.hasFocus() || ms - this.lastInput > 10 * 60_000) return false; // idle or in the background: the rain stands still
@@ -1035,7 +1035,7 @@ export class Engine {
   // ---------- render ----------
   private touched = () => { this.lastInput = performance.now(); };
   /**
-   * Render on demand. Redraw gaps by what the floor is doing: ~30 fps (pixel art needs no more) while something moves, animates
+   * Render on demand. Redraw gaps by what the floor is doing: ~60 fps while something moves, animates
    * smoothly (effects, dancing, speech, floating reactions) or the user interacts, ~8 when only ambient loops run (water, blinking
    * racks, breathing: all of them step in 120+ ms), and 2 when the window is out of focus or covered. A hidden tab draws nothing.
    */
