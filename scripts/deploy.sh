@@ -147,13 +147,19 @@ setenv DECK_PUBLIC_URL $URL
 setenv DECK_INSTALL_URL $INSTALL_URL
 # no bots on prod: drop the setting entirely (bots are opt-in); test instances keep BOTS=1
 if [ "$NAME" = prod ]; then sudo sed -i '/^BOTS=/d;/^BOT_COUNT=/d' $ENVF; fi
-# the hackathon demo gets a busier floor (bots.ts has 12 names)
-if [ "$NAME" = demo ]; then setenv BOT_COUNT 10; fi
+# the hackathon demo gets a busier floor (bots.ts has 12 names), and its bots say so in their names: strangers can't
+# tell a bot from a colleague otherwise (bots.ts appends BOT_NAME_SUFFIX)
+if [ "$NAME" = demo ]; then setenv BOT_COUNT 10; setenv BOT_NAME_SUFFIX "(BOT)"; fi
 sudo sed -i '/^TOKEN_LOGIN=/d' $ENVF
 # Voice relay (TURN): coturn on this box, over NetBird only (scripts/turnserver.conf). One relay serves every
 # instance whose env file has DECK_TURN_PASSWORD (the same password everywhere; prod's deploy installs and
-# configures coturn). Without it an instance stays STUN-only, as the public demo does.
-TURN_PW=\$(sudo grep '^DECK_TURN_PASSWORD=' $ENVF | cut -d= -f2- | tr -d "'\"" || true)
+# configures coturn). Without it an instance stays STUN-only. Clients reach it at the box's NetBird address unless
+# the env file names a public way in (DECK_TURN_HOST, and DECK_TURN_TCP_HOST when TCP has its own name): NetBird
+# L4 services forwarding UDP and TCP 3478 to the box, for an instance whose users have no NetBird. See AGENTS.md.
+envval() { sudo grep "^\$1=" $ENVF | cut -d= -f2- | tr -d "'\"" || true; }
+TURN_PW=\$(envval DECK_TURN_PASSWORD)
+TURN_HOST=\$(envval DECK_TURN_HOST); TURN_HOST=\${TURN_HOST:-$BIND}
+TURN_TCP_HOST=\$(envval DECK_TURN_TCP_HOST); TURN_TCP_HOST=\${TURN_TCP_HOST:-\$TURN_HOST}
 if [ -n "\$TURN_PW" ]; then
   if [ "$NAME" = prod ]; then
     dpkg -s coturn >/dev/null 2>&1 || sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -q coturn >/dev/null
@@ -166,7 +172,7 @@ if [ -n "\$TURN_PW" ]; then
     sudo systemctl enable --now coturn >/dev/null 2>&1
     systemctl is-active coturn >/dev/null || { echo "coturn is not running" >&2; exit 1; }
   fi
-  setenv DECK_ICE_SERVERS "'[{\"urls\":\"stun:stun.l.google.com:19302\"},{\"urls\":[\"turn:$BIND:3478?transport=udp\",\"turn:$BIND:3478?transport=tcp\"],\"username\":\"deck\",\"credential\":\"\$TURN_PW\"}]'"
+  setenv DECK_ICE_SERVERS "'[{\"urls\":\"stun:stun.l.google.com:19302\"},{\"urls\":[\"turn:\$TURN_HOST:3478?transport=udp\",\"turn:\$TURN_TCP_HOST:3478?transport=tcp\"],\"username\":\"deck\",\"credential\":\"\$TURN_PW\"}]'"
 fi
 
 sudo tee /etc/systemd/system/$SVC.service >/dev/null <<UNIT

@@ -24,19 +24,26 @@ const pickWeighted = <T>(xs: T[], w: (x: T) => number) => {
   return xs[xs.length - 1];
 };
 
-export function startBots(world: World, count = 4) {
-  const map = world.map;
-  const names = NAMES.slice(0, Math.max(0, Math.min(NAMES.length, count)));
-  // drop persisted bots beyond the configured count
+/** The first `count` bot names, each with `suffix` (BOT_NAME_SUFFIX, e.g. "(BOT)") so a public demo shows who's fake. */
+export const botNames = (count: number, suffix = process.env.BOT_NAME_SUFFIX?.trim() ?? '') =>
+  NAMES.slice(0, Math.max(0, Math.min(NAMES.length, count))).map(n => (suffix ? `${n} ${suffix}` : n));
+
+/** Persisted bots with other names (a count or suffix change) are dropped; missing ones are placed at a random spot. */
+export function seedBots(world: World, names: string[]) {
   for (const u of [...world.users.values()]) if (u.bot && !names.includes(u.name)) world.users.delete(u.id);
   for (const name of names) {
     if (world.findByName(name)) continue;
     const u = world.addUser(name, true);
-    const room = pick(map.rooms);
+    const room = pick(world.map.rooms);
     const spot = pick(room.spots);
     u.tile = { x: spot.x, y: spot.y }; u.dir = spot.dir;
     u.status = pick(STATUSES);
   }
+}
+
+export function startBots(world: World, count = 4) {
+  const map = world.map;
+  seedBots(world, botNames(count));
   // bots' plants start at random ages (some long dead) so the desks and the Orangery look lived in
   const today = dayNumber(Date.now());
   for (const b of [...world.users.values()]) if (b.bot && !b.plant?.kind) b.plant = { stage: Math.floor(Math.random() * PLANT_STAGES.length), care: today - Math.floor(Math.random() * 10), kind: PLANT_KINDS[Math.floor(Math.random() * PLANT_KINDS.length)] };
