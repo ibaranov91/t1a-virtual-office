@@ -9,7 +9,8 @@ Hackathon project: favor small, working, demo-able steps.
 ## Now: building v2 on a local `v2` branch (from 2026-10-17)
 The hackathon version is frozen: `main`, `origin/main` and prod stay as they are until the hackathon is over.
 Everything new goes into **v2**, one big release we ship after the hackathon. The plan and the decisions behind it are in
-[docs/superpowers/specs/2026-10-17-v2-plan.md](docs/superpowers/specs/2026-10-17-v2-plan.md). Until the release:
+[docs/superpowers/specs/2026-10-17-v2-plan.md](docs/superpowers/specs/2026-10-17-v2-plan.md); what's left, split into tasks to claim,
+is [docs/v2-backlog.md](docs/v2-backlog.md). Until the release:
 - **`v2` is the temporary main.** It is a local branch only, checked out in its own worktree at `../deck-v2`
   (`git worktree add ../deck-v2 v2` if it is missing). Branch every change off `v2` in a worktree
   (`git worktree add -b <branch> <path> v2`) and commit there.
