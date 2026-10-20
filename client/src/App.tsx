@@ -1011,7 +1011,7 @@ function GmPanel({ store, picked, assets, onClose, onReport, onLogs }: { store: 
         {people.map(p => <option value={p.id} key={p.id}>{p.id === store.me ? `${p.name} (you)` : p.name}</option>)}
       </select></label>
       <p className="hint">Click someone on the floor to aim at them.</p>
-      <div className="gm-logs"><button className="ghost" onClick={onLogs}><Icon name="book" /> Logs</button><button className="ghost" onClick={onReport} title="Temporary entry point: Report bug moves to the suggestions board"><Icon name="message" /> Bug</button></div>
+      <div className="gm-logs"><button className="ghost" onClick={onLogs}><Icon name="book" /> Logs</button><button className="ghost" onClick={onReport} title="Report a bug (also on the bugs & suggestions terminal in the Lobby)"><Icon name="message" /> Bug</button></div>
       <h3>Weather <small>{store.weather.forced ? 'Forced by an admin until you pick Auto.' : 'Following the schedule (office time).'} Now: {WEATHER_LABEL[store.weather.kind].toLowerCase()}.</small></h3>
       <div className="palette">
         {(['auto', ...WEATHERS] as const).map(w => {

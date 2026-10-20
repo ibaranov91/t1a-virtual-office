@@ -3170,7 +3170,7 @@ export class World {
     if (version > STATE_VERSION) console.warn(`state.json is version ${version}, newer than this build (${STATE_VERSION}); unknown fields are dropped on the next save`);
     // saved in the radio days: the radio goes (withNewFixtures then brings in the jukebox)
     // ... and the Meeting room's whiteboard: the screen is its one board now (withNewFixtures then reshapes the screen into its spot)
-    if (data.layout) data.layout = { ...data.layout, objects: data.layout.objects.filter(o => o.type !== 'radio' && o.type !== 'whiteboard' && o.type !== 'terminal' && o.type !== 'pomodoro_timer') }; // v2: the bug terminal is the suggestions board, the pomodoro is a timer in your strip
+    if (data.layout) data.layout = { ...data.layout, objects: data.layout.objects.filter(o => o.type !== 'radio' && o.type !== 'whiteboard' && o.type !== 'suggestions_board' && o.type !== 'pomodoro_timer') }; // v2: the cork suggestions board is the bugs & suggestions terminal again, the pomodoro is a timer in your strip
     // The Music TV replaces the right window, keeping all other saved furniture in place.
     if (version < 2 && data.layout) {
       const objects = data.layout.objects.filter(o => !(o.type === 'window' && o.x === 60 && o.y === 1));

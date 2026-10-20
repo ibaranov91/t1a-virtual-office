@@ -582,7 +582,7 @@ obj('retro_lobster', 63, 13, 1, 2, { use: { kind: 'retro', label: 'Shock Lobster
 for (const { id: _i, x: _x, y: _y, ...t } of objects.slice(firstRetro)) catalog[t.type] ??= t;
 
 // Lobby: the bug terminal (before the wing: its furniture stays last)
-obj('suggestions_board', 4, 12, 2, 1, { wall: true, use: { kind: 'tickets', label: 'suggestions board' } }); // Lobby wall: suggestions and bug reports, the replies (admins: the queue)
+obj('terminal', 3, 14, 2, 1, { use: { kind: 'tickets', label: 'bugs & suggestions terminal' } }); // Lobby: file a bug or a suggestion, read the replies (admins: the queue)
 
 // ---------- vacation: props appended after all existing objects ----------
 const firstVacation = objects.length;

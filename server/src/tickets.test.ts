@@ -26,9 +26,9 @@ type P = { u: Parameters<World['handle']>[0]; socket: Parameters<World['handle']
 const file = (w: World, p: P, title = 'Jukebox skips') =>
   w.handle(p.u, { t: 'ticket_new', title, text: 'Every 20 s', context: CTX }, p.socket);
 
-test('the suggestions board is in the Lobby and walking up opens it', t => {
+test('the bugs & suggestions terminal is in the Lobby and walking up opens it', t => {
   const { w, add, terminal, tick } = setup(t), kim = add('Kim');
-  assert.equal(terminal.type, 'suggestions_board');
+  assert.equal(terminal.type, 'terminal');
   w.handle(kim.u, { t: 'use', objectId: terminal.id }, kim.socket);
   for (let i = 0; i < 80 && !kim.messages.some(m => m.t === 'terminal_open'); i++) tick(250);
   assert.ok(kim.messages.some(m => m.t === 'terminal_open' && m.objectId === terminal.id));

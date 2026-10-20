@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { Store } from './net';
 import { TICKET_TEXT_MAX, TICKET_TITLE_MAX, ticketNo, type Ticket } from '../../shared/protocol';
 
-/** The Lobby's suggestions board (it was the bug terminal): a green phosphor screen. Everyone posts and reads their own suggestions and bug tickets; admins get the queue; "Report a bug" sends the session report. */
+/** The Lobby's bugs & suggestions terminal: a green phosphor screen. Everyone posts and reads their own bug and suggestion tickets; admins get the queue; "Report a bug" sends the session report. */
 type View = { at: 'menu' } | { at: 'new' } | { at: 'list'; queue: boolean } | { at: 'ticket'; id: number; back: 'mine' | 'queue' };
 
 const clock = (at: number) => new Date(at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
@@ -21,9 +21,9 @@ export function TerminalPanel({ store }: { store: Store }) {
   const queue = store.tickets.filter(t => t.status === 'open').sort((a, b) => a.at - b.at);
   const unreadMine = mine.filter(t => store.ticketUnread(t)).length;
   const menu: { label: string; note?: string; go: () => void }[] = [
-    { label: 'New suggestion', go: () => setView({ at: 'new' }) },
-    { label: 'Report a bug', go: () => { close(); store.openBugReport(true); } },
-    { label: `My suggestions (${mine.length})`, note: unreadMine ? `* ${unreadMine} new repl${unreadMine === 1 ? 'y' : 'ies'}` : undefined, go: () => setView({ at: 'list', queue: false }) },
+    { label: 'New bug or suggestion', go: () => setView({ at: 'new' }) },
+    { label: 'Report a bug with a screenshot', go: () => { close(); store.openBugReport(true); } },
+    { label: `My tickets (${mine.length})`, note: unreadMine ? `* ${unreadMine} new repl${unreadMine === 1 ? 'y' : 'ies'}` : undefined, go: () => setView({ at: 'list', queue: false }) },
     ...admin ? [{ label: `Open queue (${queue.length})`, note: queue.some(t => store.ticketUnread(t)) ? '* waiting' : undefined, go: () => setView({ at: 'list', queue: true }) }] : [],
   ];
   const rows = view.at === 'list' ? (view.queue ? queue : mine) : view.at === 'menu' ? mine.slice(0, 3) : [];
@@ -51,7 +51,7 @@ export function TerminalPanel({ store }: { store: Store }) {
     window.addEventListener('keydown', onKey); return () => window.removeEventListener('keydown', onKey);
   });
 
-  const where = view.at === 'menu' ? 'Main menu' : view.at === 'new' ? 'New suggestion' : view.at === 'list' ? (view.queue ? 'Open queue' : 'My suggestions') : ticketNo(view.id);
+  const where = view.at === 'menu' ? 'Main menu' : view.at === 'new' ? 'New ticket' : view.at === 'list' ? (view.queue ? 'Open queue' : 'My tickets') : ticketNo(view.id);
   let body: ReactNode, hint = '';
   if (view.at === 'menu') {
     body = <>
@@ -76,9 +76,9 @@ export function TerminalPanel({ store }: { store: Store }) {
   }
   return (
     <div className="modal-backdrop" onClick={e => { if (e.target === e.currentTarget) close(); }}>
-      <div className="crt" role="dialog" aria-modal="true" aria-label="Suggestions board">
+      <div className="crt" role="dialog" aria-modal="true" aria-label="Bugs & suggestions terminal">
         <div className="crt-screen">
-          <div className="crt-head"><span>T1A Deck Suggestions v1.0 · {where}</span><span>{(me?.name ?? '').split(' ')[0]} · {clock(Date.now())}</span></div>
+          <div className="crt-head"><span>T1A Deck Bugs & Suggestions v1.0 · {where}</span><span>{(me?.name ?? '').split(' ')[0]} · {clock(Date.now())}</span></div>
           <div className="crt-rule" />
           <div className="crt-body" key={JSON.stringify(view)}>{body}</div>
           <div className="crt-rule" />

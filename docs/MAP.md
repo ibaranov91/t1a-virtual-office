@@ -82,9 +82,9 @@ Each room is filled with its letter (table below) and labelled with its id. `#` 
   9 #..h.....h...#.....s......#..hhh.......#.h.h....h.h..#..........#.....s...#.******.*#
  10 #*..........*#*......*...X#*..........X#............X#....s.....#.........#.******..#
  11 ######++#####*#####++###########++############++##########++######################++#
- 12 ##****++****#*####*++#*#*#*#*###++############++##########++##**##################++#
+ 12 ##**##++****#*####*++#*#*#*#*###++############++##########++##**##################++#
  13 #X..........x.X#....................s.X#.XX.XX..XX.XX#*.*....***#...................#
- 14 #.........X*X.X#..XX...XX...XX...XX....#.h..h...h..h.#*.*....***#...***.***.***.....#
+ 14 #..**.....X*X.X#..XX...XX...XX...XX....#.h..h...h..h.#*.*....***#...***.***.***.....#
  15 #X.........s...#.hXXh.hXXh.hXXh.hXXh...#.............#..........#*.....s...s....X...#
  16 #....hhh......X#.......................#*............#.s.....s..#*..***.***.******..#
  17 #...s..@s......+.........s.............+..s..hhh.....+....**....+.................s.#
@@ -237,7 +237,7 @@ Every object with a `use` (wall decor counts toward the room below it). Routing 
 | o287 | `room_start` | `room_start` | use reach | 21,10 | 1×1 | meeting | start private room |
 | o288 | `retro_tobu` | `retro` | use reach | 62,13 | 1×2 | arcade | Tobu Tobu Girl |
 | o289 | `retro_lobster` | `retro` | use reach | 63,13 | 1×2 | arcade | Shock Lobster |
-| o290 | `suggestions_board` | `tickets` | use reach | 4,12 | 2×1 | lobby | suggestions board (on a wall) |
+| o290 | `terminal` | `tickets` | use reach | 3,14 | 2×1 | lobby | bugs & suggestions terminal |
 | o307 | `beach_bar` | `take` | wheel use reach | 65,35 | 3×1 | beach | cocktail, beer, wine, coconut, icecream |
 | o308 | `vacation_sign` | `vacations` | — | 52,34 | 1×1 | beach |  |
 | o313 | `wellness_cooler` | `wellness` | — | 37,3 | 1×1 | coffee | Water cooler |
@@ -262,7 +262,7 @@ Kinds with no object on the map yet: none.
 | `focus` | window ×2, desk ×5, chair ×5, bookshelf, lamp ×2, plant, wall_shelf, wall_ivy, poster |
 | `meeting` | painting, table_long, chair ×8, plant ×2, lamp, screen, poster ×2, wall_ivy, room_start |
 | `coffee` | window ×2, counter ×6, coffee_machine, fridge, plant ×2, table_round ×2, stool ×4, sofa, lamp, calendar, wall_shelf, wall_ivy, poster, wellness_cooler, kettle, bar_table |
-| `lobby` | noticeboard, photo_wall, plant ×3, sofa, table_round, reception, safe, bookshelf, hat_rack, exit_door, lamp, bell, palm, water_cooler, coat_stand, side_table, poster, mirror, suggestions_board |
+| `lobby` | noticeboard, photo_wall, plant ×3, sofa, table_round, reception, safe, bookshelf, hat_rack, exit_door, lamp, bell, palm, water_cooler, coat_stand, side_table, poster, mirror, terminal |
 | `cowork` | clock_nyc, clock_berlin, clock_moscow, table_big ×8, chair ×16, plant ×2, lamp, calendar, meetings_board, trophy_case |
 | `studio` | window ×2, painting, desk ×8, chair ×8, plant ×2, lamp, wall_shelf, poster, wall_ivy |
 | `desks` | painting_small, desk ×8, chair ×8, sofa, plant, lamp |
@@ -291,7 +291,7 @@ A 3×3 feature fits where both sides are ≥ 3. `layoutProblem` (shared/map.ts) 
 | `focus` | 1,6 6×2 · 4,8 5×2 · 9,5 3×3 |
 | `meeting` | 15,7 3×3 · 15,3 2×3 · 23,3 3×2 · 23,6 2×2 (rug) · 22,8 2×2 (rug) |
 | `coffee` | 32,6 2×4 (rug) · 34,9 4×2 · 27,4 2×2 · 30,4 2×2 · 37,5 2×2 · 28,7 2×2 (rug) |
-| `lobby` | 9,16 5×5 (rug) · 2,14 8×2 · 4,18 2×5 (rug) · 7,18 2×5 (rug) |
+| `lobby` | 9,16 5×5 (rug) · 4,18 2×5 (rug) · 7,18 2×5 (rug) · 6,14 4×2 |
 | `cowork` | 17,16 8×3 · 26,16 12×2 (rug) · 17,21 10×2 · 36,18 2×4 (rug) · 36,14 3×2 · 25,18 3×2 (rug) · +3 smaller |
 | `studio` | 40,6 6×2 · 47,6 6×2 (rug) · 45,8 3×2 |
 | `desks` | 42,15 11×2 · 41,18 4×2 · 46,19 2×4 · 48,17 2×3 (rug) · 42,21 2×2 · 49,21 2×2 |
