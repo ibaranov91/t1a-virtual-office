@@ -327,7 +327,7 @@ function Office({ session, onLogout, onExpired }: { session: string; onLogout: (
         <Toasts store={store} voice={voice} />
         <OverNotices store={store} engine={engine} />
         <ModeBar store={store} extra={[...dungeonMode(store), ...contentModes(store)]} />
-        {pick && engineRef.current && <ActionWheel key={`${pick.kind}:${pick.id}`} store={store} engine={engineRef.current} pick={pick} assets={assets} onPerson={openPerson} onClose={() => setPick(null)} />}
+        {pick && engineRef.current && <ActionWheel key={`${pick.kind}:${pick.id}`} store={store} engine={engineRef.current} pick={pick} assets={assets} onPerson={openPerson} onPockets={() => { setPocketsOpen(true); setGmOpen(false); }} onClose={() => setPick(null)} />}
         <div className="self-stack">
           {store.chatWith && <ChatPanel key={store.chatWith} store={store} withId={store.chatWith} />}
         </div>
@@ -1417,7 +1417,7 @@ function Toasts({ store, voice }: { store: Store; voice: Voice | null }) {
 type WheelItem = { icon: React.ReactNode; label: string; onClick: () => void; disabled?: boolean; title?: string; active?: boolean; hat?: string }; // hat: draw that hat's sprite instead of the icon
 
 /** Click a person or a thing: a ring of actions around it, following it as it moves. */
-function ActionWheel({ store, engine, pick, assets, onPerson, onClose }: { store: Store; engine: Engine; pick: Pick; assets: Assets | null; onPerson: (at: PersonAnchor) => void; onClose: () => void }) {
+function ActionWheel({ store, engine, pick, assets, onPerson, onPockets, onClose }: { store: Store; engine: Engine; pick: Pick; assets: Assets | null; onPerson: (at: PersonAnchor) => void; onPockets: () => void; onClose: () => void }) {
   const ref = useRef<HTMLDivElement>(null);
   const isMe = pick.kind === 'user' && pick.id === store.me;
   const [emoji, setEmoji] = useState(isMe);
@@ -1457,10 +1457,11 @@ function ActionWheel({ store, engine, pick, assets, onPerson, onClose }: { store
         if (actions.includes('drink') && !me.sipping) items.push({ icon: art, label: 'Drink', title: `Drink your ${name}`, onClick: act(() => store.drink()) });
         if (actions.includes('use')) items.push({ icon: art, label: itemDef(me.holding)?.useLabel ?? 'Use', title: `${itemDef(me.holding)?.useLabel ?? 'Use'}: ${name}`, onClick: act(() => store.useHeld()) });
         if (actions.includes('write')) items.push({ icon: art, label: 'Write', title: 'Write a line on the postcard, then give it to someone', onClick: act(() => store.openPostcard()) });
-        if (actions.includes('stow')) items.push({ icon: art, label: 'Pockets', title: `Put your ${name} back in your pockets`, onClick: act(() => store.stow()) });
+        if (actions.includes('stow')) items.push({ icon: art, label: 'Put away', title: `Put your ${name} back in your pockets`, onClick: act(() => store.stow()) });
         if (actions.includes('drop') && held.empty) items.push({ icon: <ItemSprite item={me.holding} fallback={held.icon} dim />, label: 'Drop', title: `Drop your ${name} on the floor (or click a table to put it down)`, onClick: act(() => store.drop()) });
         else if (actions.includes('drop')) items.push({ icon: art, label: holdsForever(me.holding) ? (isToy(me.holding) ? 'Put down' : 'Drop') : 'Finish', title: holdsForever(me.holding) ? `${isToy(me.holding) ? 'Put' : 'Drop'} your ${name} on the floor` : `Finish your ${name}`, onClick: act(() => store.drop()) });
       }
+      if (isMe) items.push({ icon: uiIcon('backpack', '🎒'), label: 'Pockets', title: 'Open your pockets', onClick: act(onPockets) });
       if (isMe && me?.following) items.push({ icon: uiIcon('stop', '🛑'), label: 'Stop following', onClick: act(() => store.follow(null)) });
     } else {
       const away = goingOut(u);
