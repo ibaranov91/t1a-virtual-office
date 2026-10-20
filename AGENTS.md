@@ -277,7 +277,7 @@ npm run typecheck    # run before every commit or deploy
   *viewer's* local hour (`engine.devHour` fakes it); shared events follow office time Europe/Berlin (`officeDay`/`officeMinutes`; the ghost uses it).
   One cached lightmap (`paintLightmap`, 4 px/tile) is rebuilt only when the 2-minute hour bucket, weather, a light switch or the layout changes: tile
   darkness by room (`indoorDark` by light count, `outdoorDark`), lamp pools clipped to their room; `personLight(user)` (tiles) is the hook for moving lights
-  (returns 0 until the glow stick is wired). Weather (`clear|rain|fog`) is server state: scheduled in 2 h office-time blocks (`scheduledWeather`), admin override
+  (the held item's `light`: a glow stick). Weather (`clear|rain|fog`) is server state: scheduled in 2 h office-time blocks (`scheduledWeather`), admin override
   via GM panel (`gm_weather`, only the override is saved), broadcast as `weather`; `store.devWeather` forces a sky locally. Outdoors = `isOutdoor`. Rain is a scrolling
   pattern over outdoor rooms in view (~30 fps only while visible, focused and used within 10 min, else frozen at the 8 fps ambient cadence); fog is a cached radial
   sprite plus drifting noise around you, and `fogHides` hides people past 6.5 tiles outdoors. `umbrella` in pockets is public
