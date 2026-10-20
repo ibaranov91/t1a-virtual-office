@@ -5,6 +5,7 @@ export const PHRASES = {
     idle: ['Who left a cup AGAIN?', 'Spotless. Almost.', 'Mind the wet floor!', 'I saw that crumb.', 'Tables are not coat racks.',
       'Coffee rings: my nemesis.', 'Dust never sleeps.', 'Somebody loves their mug a bit too much.', 'Cleaner floors, calmer minds.', 'Do not feed the printer.'],
     praise: ['Oh! Thank you, dear.', 'Finally, someone with manners!', 'Look at you, tidying up!', 'I could kiss you. I won\'t.', 'A rare and beautiful sight.'], // you cleared a cup while she watched
+    thanks: ['Oh, for me? Lovely.', 'Straight into my hands. A professional.', 'Bless you, dear.', 'You can stay.', 'I will pretend this is a tip.'], // you handed her your empty cup
   },
   cat: {
     idle: ['Mrrp.', 'Meow.', 'This keyboard is warm.', 'I was here first.', 'Feed me. Again.', 'Prrrr.', 'The red dot was a lie.', 'Stare contest. You lose.'],

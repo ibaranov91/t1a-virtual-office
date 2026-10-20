@@ -215,7 +215,7 @@ npm run typecheck    # run before every commit or deploy
   everywhere, prod included (`PETS=0` turns them off). Holding a coffee or tea, click a table tile to put the cup down
   (`cup_put`; at most `MAX_CUPS`, saved in `state.json`); the cleaner paths to settled cups, wipes, takes them away. Cups
   also vanish after 30 min. Clicking someone's cup walks you over and clears it (`cup_take`, plates excluded); if the cleaner
-  is in that room she praises you (`Creatures.praise`) and you earn `tidy`. The ghost of Mazurkevich is client-only (night hours, or 3 min an hour); in dev,
+  is in that room she praises you (`Creatures.praise`); clearing someone else's cup always earns `tidy` (`World.tidied`, never bots, no cleaner needed). The ghost of Mazurkevich is client-only (night hours, or 3 min an hour); in dev,
   `__deck.engine.critters.summonGhost()` brings him out. Everything they (and the bouncer) say lives in `shared/phrases.ts`: the cleaner,
   cat and dog get an idle line every few minutes and answer a pat or a tidied cup; the bouncer is a map object, so his idle
   bubble is client-only and his hand-over line is the `notice`.
@@ -300,7 +300,9 @@ npm run typecheck    # run before every commit or deploy
   drinks leave `empty:<drink>` in hand (`emptyOf`/`emptyDrink`, never a Give): click a table (`cup_put`, the cup stored as the drink with
   `by`), Drop, or wait `EMPTY_DROP_MS` (`EMPTY_DROP_DRUNK_MS` drunk) and it slips to the floor where you stand (`Creatures.addCup(...,
   { floor: true, by })`, next tile if one's there; just put away in an instance or offline). Clicking your own cup with empty hands puts
-  it back in your hand (no `tidy`). Snacks and books still vanish after `HOLD_MS`. `DRUNK_MISWALK` is the chance a drunk walk ends a tile off.
+  it back in your hand (no `tidy`: that is step one). **Step two earns it:** bring the empty back to a `take` object whose `items` serve that drink
+  (`cup_return {objectId}` → `World.returnCup` → `use(..., returnOnly)`; the coffee machine takes cups, the beach bar glasses; picking a normal item on that wheel
+  returns the empty first, then takes the new drink) or hand it to the cleaner (`cup_return {creatureId}`, `PHRASES.cleaner.thanks`; a `creature` Pick opens her wheel). Snacks and books still vanish after `HOLD_MS`. `DRUNK_MISWALK` is the chance a drunk walk ends a tile off.
   Biscuit walks to visible drunk humans and judges them on arrival, at most once every 30 seconds (`Creatures.judge`);
   the jokes live in `PHRASES.cat.judge`. He respects petting and cancels the lecture if they sober up first.
 

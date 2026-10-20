@@ -360,6 +360,11 @@ export class Creatures {
     this.sayNow(c, phrase('cleaner', 'praise'), now);
     return true;
   }
+  /** Someone handed her their empty cup: she says thanks (wherever she is). */
+  thank(now: number) {
+    const c = [...this.list.values()].find(c => c.kind === 'cleaner');
+    if (c) this.sayNow(c, phrase('cleaner', 'thanks'), now);
+  }
   private stillDirty(target: string) {
     return target.startsWith(STALL) ? !!this.host.fullStalls?.().some(s => s.id === target.slice(STALL.length)) : this.cups.some(k => k.id === target);
   }

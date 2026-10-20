@@ -146,7 +146,7 @@ export const ACHIEVEMENTS: Achievement[] = [
   { id: 'bookworm', icon: '📚', title: 'Bookworm', how: `Finish reading ${BOOKWORM_READS} articles from the library.`, goal: BOOKWORM_READS },
   { id: 'editor', icon: '📰', title: 'Editor', how: `Publish an article that ${EDITOR_READERS} different people read.`, goal: EDITOR_READERS },
   { id: 'bellringer', icon: '🛎️', title: 'Ding!', how: 'Ring the reception bell in the Lobby.' },
-  { id: 'tidy', icon: '🧽', title: 'Tidy soul', how: 'Clear a cup off a table while the cleaner is in the room to see it.', secret: 'The cleaner notices who tidies up after themselves.' },
+  { id: 'tidy', icon: '🧽', title: 'Tidy soul', how: 'Bring a cup or glass back where it came from, hand it to the cleaner, or clear someone else\'s.', secret: 'The cleaner notices who tidies up after themselves.' },
   { id: 'bughunter', icon: '🐛', title: 'Bug hunter', how: 'Report a bug at the Lobby terminal that gets marked fixed.' },
   { id: 'happy_hour', icon: '🍹', title: 'Happy hour', how: 'Get tipsy on a drink from the bar.', secret: 'The beach bar does more than coconuts.' },
   { id: 'closing_time', icon: '🥴', title: 'Closing time', how: 'Have three rounds and get properly wasted.', secret: 'One more round… and one more after that.' },
@@ -452,6 +452,7 @@ export type ClientMsg =
   | { t: 'shop_take'; item: string }         // take one free thing off the 7/11 shelves (SHOP_DAILY_MAX a day)
   | { t: 'pomodoro'; op: 'start' | 'stop'; focus?: number; rest?: number } // your personal pomodoro (minutes, default 25/5)
   | { t: 'cup_put'; tile: Tile } // put the coffee or tea you're holding down on this table tile
+  | { t: 'cup_return'; objectId?: string; creatureId?: string } // bring the empty cup/glass in your hand back to the counter it came from (objectId), or hand it to the cleaner (creatureId): exactly one
   | { t: 'cup_take'; cupId: string } // walk over to a cup left on a table and clear it away
   | { t: 'pet'; creatureId: string } // pet the cat or dog, or try to catch the hanging bat (walks you over first)
   | { t: 'dev_bat' } // dev only (BAT=1): bring the bat out now

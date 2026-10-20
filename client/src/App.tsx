@@ -31,7 +31,7 @@ import { ItemSprite, reactionIcon, uiIcon } from './ItemSprite';
 import { ITEM_DEFS, POCKET_MAX, POSTCARD_MAX, heldActions, holdsForever, isToy, itemDef, pocketCount, postcardOf } from '../../shared/items';
 import { hatChoices } from '../../shared/rewards';
 import { slurBy } from './slur';
-import { isEmpty } from '../../shared/drinks';
+import { DRINKS, emptyDrink, isEmpty } from '../../shared/drinks';
 import { inNativeApp, syncNative } from './native';
 import { ExternalLink } from './links';
 import { fakeShare } from './share';
@@ -1435,7 +1435,13 @@ function ActionWheel({ store, engine, pick, assets, onPerson, onClose }: { store
   const me = store.users.get(store.me);
   const act = (fn: () => void) => () => { fn(); onClose(); };
   let title = '', items: WheelItem[] = [];
-  if (pick.kind === 'user') {
+  if (pick.kind === 'creature') { // tidy: hand your empty cup to the cleaner
+    const d = emptyDrink(me?.holding), c = store.creatures.get(pick.id);
+    if (!d || !c) return null;
+    const what = DRINKS[d]?.glass ? 'glass' : 'cup';
+    title = c.name;
+    items = [{ icon: <ItemSprite item={me!.holding!} fallback="🥤" />, label: `Hand over ${what}`, title: `Give her your empty ${what}`, onClick: act(() => store.returnCup({ creatureId: c.id })) }];
+  } else if (pick.kind === 'user') {
     const u = store.users.get(pick.id);
     if (!u || !onMap(u)) return null;
     title = isMe ? 'You' : u.name.split(' ')[0];
@@ -1519,7 +1525,12 @@ function ActionWheel({ store, engine, pick, assets, onPerson, onClose }: { store
         : [{ icon: on ? uiIcon('lamp_off', '🌑') : uiIcon('lamp_on', '💡'), label: on ? 'Turn off' : 'Turn on', onClick: act(() => store.use(o.id)) }];
     } else if (o.use.kind === 'take') {
       title = o.type === 'coffee_machine' ? 'Coffee machine' : o.type === 'fridge' ? 'Fridge' : o.type === 'food_cart' ? 'Food cart' : o.type === 'beach_bar' ? 'Beach bar' : o.type;
-      items = o.use.items.map(i => ({ icon: <ItemSprite item={i.id} fallback={i.icon} />, label: i.label, title: REFRESHMENT_HINTS[i.id] ?? i.label, onClick: act(() => store.use(o.id, i.id)) }));
+      items = o.use.items.map(i => ({ icon: <ItemSprite item={i.id} fallback={i.icon} />, label: i.label, title: REFRESHMENT_HINTS[i.id] ?? i.label, onClick: act(() => store.use(o.id, i.id)) })); // taking one returns an empty cup first
+      const back = emptyDrink(me?.holding);
+      if (back && o.use.items.some(i => i.id === back)) { // tidy: bring the empty cup or glass back where it came from
+        const what = DRINKS[back]?.glass ? 'glass' : 'cup';
+        items.unshift({ icon: <ItemSprite item={me!.holding!} fallback="🥤" />, label: `Return ${what}`, title: `Bring your empty ${what} back`, onClick: act(() => store.returnCup({ objectId: o.id })) });
+      }
     }
   }
   if (!at) return null;
