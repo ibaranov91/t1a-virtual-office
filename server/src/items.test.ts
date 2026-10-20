@@ -121,6 +121,23 @@ test('give = throw: lands in their pockets, else at their feet; far away or offl
   assert.deepEqual([a.u.holding, c.u.holding], [null, 'coffee']);
 });
 
+test('every pocketable item can be given (thrown); onigiri handed over; empty cups and bots', t => {
+  const { w, add } = setup(t), a = add('A', { x: 32, y: 12 }), b = add('B', { x: 34, y: 12 });
+  for (const id of ['sewing_kit', 'train', 'remote_car', 'party_popper', 'bubble_gum', 'glow_stick', 'umbrella', 'cup_noodles', 'sewn_hat', 'postcard:hi']) {
+    assert.ok(isThrowable(id), id);
+    b.u.items = []; a.u.items = [id];
+    send(w, a, { t: 'take_out', item: id }); send(w, a, { t: 'give', targetId: b.u.id });
+    assert.deepEqual([a.u.holding, b.u.items], [null, [id]], id);
+  }
+  w.setHolding(a.u, 'onigiri'); send(w, a, { t: 'give', targetId: b.u.id });
+  assert.deepEqual([a.u.holding, b.u.holding], [null, 'onigiri']);
+  w.setHolding(a.u, 'empty:coffee'); send(w, a, { t: 'give', targetId: b.u.id });
+  assert.equal(a.u.holding, 'empty:coffee');
+  w.setHolding(a.u, null); const bot = add('Bot', { x: 33, y: 12 }); bot.u.bot = true; bot.u.items = []; a.u.items = ['sewing_kit'];
+  send(w, a, { t: 'take_out', item: 'sewing_kit' }); send(w, a, { t: 'give', targetId: bot.u.id });
+  assert.deepEqual([a.u.holding, bot.u.items], [null, ['sewing_kit']]);
+});
+
 test('desk storage: own deposit and withdraw, no size limit, saved and restored', t => {
   const { w, add } = setup(t), a = add('A');
   a.u.homeDesk = { ...DESK };

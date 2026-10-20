@@ -1473,7 +1473,7 @@ function ActionWheel({ store, engine, pick, assets, onPerson, onClose }: { store
       if (store.admin && me && !me.instance && !u.instance && !away) items.push({ icon: uiIcon('teleport', '🌀'), label: 'Teleport', title: `Step through a portal to ${u.name.split(' ')[0]}`, onClick: act(() => store.teleport(u.id)) });
       if (!isMe && me && effectOf(me.effects, 'vampire')) { const turned = !!effectOf(u.effects, 'vampire');
         items.push({ icon: uiIcon('bite', '🧛'), label: 'Bite', disabled: turned || away || !!dungeon, title: dungeon ?? (turned ? `${u.name.split(' ')[0]} is already a vampire` : `Bite ${u.name.split(' ')[0]}: a vampire for 2 minutes`), onClick: act(() => store.bite(u.id)) }); }
-      const held = me?.holding && !isEmpty(me.holding) ? ITEMS.get(me.holding) : undefined; // an empty cup isn't a present
+      const held = me?.holding && !isEmpty(me.holding) ? heldItem(me.holding) : undefined; // an empty cup isn't a present
       const def = me?.holding ? itemDef(me.holding) : undefined, throwIt = !!def && def.actions.includes('throw');
       if (held && (!def || throwIt || def.actions.includes('give'))) items.push({ icon: <ItemSprite item={me!.holding} fallback={held.icon} />, label: throwIt ? 'Throw' : 'Give', disabled: (!throwIt && !!u.holding) || away || !!dungeon,
         title: dungeon ?? (throwIt ? `Throw your ${held.label.toLowerCase()} to ${u.name.split(' ')[0]}: it lands in their pockets` : u.holding ? `${u.name.split(' ')[0]}'s hands are full` : `Give ${u.name.split(' ')[0]} your ${held.label.toLowerCase()}`),

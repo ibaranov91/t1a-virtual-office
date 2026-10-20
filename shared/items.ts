@@ -95,6 +95,8 @@ const DEFS: ItemDef[] = [
 const ITEM_ART = ['coffee', 'tea', 'cocktail', 'beer', 'wine', 'coconut', 'icecream', 'juice', 'snack', 'sandwich', 'ramen', 'salad', 'pizza', 'onigiri',
   'cup_noodles', 'hot_noodles', 'slurpee', 'energy_drink', 'party_popper', 'umbrella', 'postcard', 'bubble_gum', 'book', 'drugs', 'sewn_hat'];
 for (const d of DEFS) if (!d.sprite && ITEM_ART.includes(d.id)) d.sprite = `item_${d.id}`;
+// Anything that fits in pockets can be given by throwing it (lands in their pockets, else at their feet): derived, so a new item can't forget it.
+for (const d of DEFS) if (d.pocket === 'counts' && !d.actions.includes('throw')) d.actions = d.actions.includes('stow') ? d.actions.flatMap(a => (a === 'stow' ? [a, 'throw' as const] : [a])) : [...d.actions, 'throw'];
 export const ITEM_DEFS: Record<string, ItemDef> = Object.fromEntries(DEFS.map(d => [d.id, d]));
 /** Registry lookup; hats of any style are found even when the style isn't listed yet. */
 export function itemDef(id: string | null | undefined): ItemDef | undefined {
