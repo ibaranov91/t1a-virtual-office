@@ -31,8 +31,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, 
   var slot: NSView!          // where the web view sits inside the popover
   var pinButton: NSButton!
   var window: NSWindow!      // separate window, opened from the popover
-  var desk: DeskWindow!      // pinned to the desktop
-  var arranging = false
+  var desk: DeskWindow!      // pinned: on the desktop or on top (Pin.swift)
+  var deskSlot = NSView()    // the web view's place in it, under the drag strip
+  var settings: SettingsWindow?
   var state = DeckState() { didSet { holdForCall(state.connected && state.inCall) } }
   var callActivity: NSObjectProtocol? // held during a call so App Nap doesn't throttle a hidden web view's voice
   let card = KnockCard()
@@ -57,10 +58,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, 
     get { defaults.string(forKey: "url") ?? instances[0].url }
     set { defaults.set(newValue, forKey: "url") }
   }
-  var pinned: Bool {
-    get { defaults.bool(forKey: "pinned") }
-    set { defaults.set(newValue, forKey: "pinned") }
+  var pinMode: PinMode {
+    get { defaults.string(forKey: "pinMode").flatMap(PinMode.init) ?? (defaults.bool(forKey: "pinned") ? .desktop : .off) } // "pinned" = older builds
+    set { defaults.set(newValue.rawValue, forKey: "pinMode") }
   }
+  /// The separate window is "open" while it's on screen or minimized to the Dock: either way a click on the
+  /// menu bar icon should bring it back rather than open the popover.
+  var windowOpen: Bool { window.isVisible || window.isMiniaturized }
   var popOnKnock: Bool {
     get { defaults.object(forKey: "popOnKnock") as? Bool ?? true }
     set { defaults.set(newValue, forKey: "popOnKnock") }
@@ -102,6 +106,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, 
     window.center()
     window.setFrameAutosaveName("DeckWindow")
     window.contentView = windowRoot
+    window.collectionBehavior.insert(.moveToActiveSpace) // a click on the icon brings it to the Space you're on
 
     desk = DeskWindow(contentRect: NSRect(x: 80, y: 80, width: 640, height: 420),
                       styleMask: [.borderless, .resizable], backing: .buffered, defer: false)
@@ -110,7 +115,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, 
     desk.hasShadow = true
     desk.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle]
     desk.setFrameAutosaveName("DeckDesk")
-    deskLevel()
+    let strip = DragStrip(), deskRoot = NSView()
+    strip.toolTip = "Drag to move; the edges resize"
+    for v in [strip, deskSlot] { v.translatesAutoresizingMaskIntoConstraints = false; deskRoot.addSubview(v) }
+    NSLayoutConstraint.activate([
+      strip.topAnchor.constraint(equalTo: deskRoot.topAnchor), strip.leadingAnchor.constraint(equalTo: deskRoot.leadingAnchor), strip.trailingAnchor.constraint(equalTo: deskRoot.trailingAnchor),
+      deskSlot.topAnchor.constraint(equalTo: strip.bottomAnchor), deskSlot.leadingAnchor.constraint(equalTo: deskRoot.leadingAnchor),
+      deskSlot.trailingAnchor.constraint(equalTo: deskRoot.trailingAnchor), deskSlot.bottomAnchor.constraint(equalTo: deskRoot.bottomAnchor),
+    ])
+    desk.contentView = deskRoot
+    applyPin()
 
     popover = NSPopover()
     popover.behavior = .transient
@@ -139,7 +153,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, 
 
   /// Opened again from Applications / Spotlight while already running.
   func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
-    if window.isVisible { showWindow() } else { openedByUser() } // Dock click on an open window: just focus it
+    if windowOpen { showWindow() } else { openedByUser() } // Dock click on an open window: just focus it
     return false
   }
 
@@ -197,13 +211,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, 
   /// One web view, one place at a time: the separate window if open, else the popover if shown,
   /// else the desktop (if pinned), else nowhere (still loaded and connected, just not on screen).
   func placeWeb() {
-    let onDesk = pinned && !window.isVisible && !popover.isShown
-    if window.isVisible { if web.superview !== windowRoot { web.removeFromSuperview(); fill(windowRoot, with: web) } }
+    let onDesk = pinMode != .off && !windowOpen && !popover.isShown
+    if windowOpen { if web.superview !== windowRoot { web.removeFromSuperview(); fill(windowRoot, with: web) } }
     else if popover.isShown { if web.superview !== slot { web.removeFromSuperview(); fill(slot, with: web) } }
-    else if onDesk { if web.superview !== desk.contentView { web.removeFromSuperview(); desk.contentView = web } }
+    else if onDesk { if web.superview !== deskSlot { web.removeFromSuperview(); fill(deskSlot, with: web) } }
     else { web.removeFromSuperview() }
     if onDesk { desk.orderFront(nil) } else { desk.orderOut(nil) }
-    pinButton?.state = pinned ? .on : .off
+    pinButton?.state = pinMode != .off ? .on : .off
     DispatchQueue.main.async { self.updateCovered() } // the web view's window may have just changed
   }
 
@@ -232,7 +246,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, 
     }
     let title = NSTextField(labelWithString: appName)
     title.font = .boldSystemFont(ofSize: 12)
-    pinButton = button("pin", "Pin to desktop", #selector(togglePinned))
+    pinButton = button("pin", "Pin to the desktop (right-click menu: on top instead)", #selector(togglePinned))
     updateButton = NSButton(title: "Update", target: self, action: #selector(updateClicked))
     updateButton.bezelStyle = .accessoryBarAction; updateButton.contentTintColor = .systemOrange; updateButton.isHidden = true
     pinButton.setButtonType(.pushOnPushOff)
@@ -257,30 +271,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, 
 
   func showPopover() {
     card.close()
-    if window.isVisible { return showWindow() } // it's in the window right now; just bring that forward
+    if windowOpen { return showWindow() } // it's in the window right now; just bring that forward
     guard let b = status.button else { return }
     popover.show(relativeTo: b.bounds, of: b, preferredEdge: .minY)
     popover.contentViewController?.view.window?.makeKey()
-    NSApp.activate()
+    activate()
     placeWeb()
   }
 
   func popoverDidClose(_ note: Notification) { placeWeb() }
 
-  func deskLevel() {
-    // Just above the desktop icons, below every normal window.
-    desk.level = arranging ? .floating : NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.desktopIconWindow)) + 1)
-    desk.styleMask = arranging ? [.titled, .resizable] : [.borderless, .resizable]
-    desk.title = "Drag and resize, then choose Done arranging"
-  }
-
   func showWindow() {
     if popover.isShown { popover.performClose(nil) }
     NSApp.setActivationPolicy(.regular) // in the Dock (and ⌘-Tab) while the window is open
+    if window.isMiniaturized { window.deminiaturize(nil) }
     window.makeKeyAndOrderFront(nil)
-    NSApp.activate()
+    activate()
     placeWeb()
   }
+
+  /// Come to the front. Since macOS 14 a plain activate() is only a request, which macOS declines while another
+  /// app is in front, so a click on the icon left the window behind; the click is the user's intent, and
+  /// menu bar apps use the override for exactly this.
+  func activate() { NSApp.activate(ignoringOtherApps: true) }
+
+  func windowDidDeminiaturize(_ n: Notification) { if n.object as? NSWindow === window { placeWeb() } }
 
   func windowWillClose(_ n: Notification) {
     guard n.object as? NSWindow === window else { return }
@@ -339,9 +354,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, 
     if state.busy { m.addItem(withTitle: "Quiet: away or in a call, knocks only light the icon", action: nil, keyEquivalent: "") }
     m.addItem(.separator())
     m.addItem(item("Open in a separate window", #selector(openClicked)))
-    m.addItem(item("Pin to desktop", #selector(togglePinned), on: pinned))
-    if pinned { m.addItem(item(arranging ? "Done arranging" : "Arrange desktop window…", #selector(toggleArranging))) }
+    m.addItem(item("Pin to the desktop", #selector(togglePinned), on: pinMode == .desktop))
+    m.addItem(item("Keep on top of other windows", #selector(toggleOnTop), on: pinMode == .top))
     m.addItem(item("Knock and meeting card under the icon", #selector(togglePop), on: popOnKnock))
+    m.addItem(item("Settings…", #selector(openSettings), key: ","))
     m.addItem(.separator())
     let inst = NSMenuItem(title: "Instance", action: nil, keyEquivalent: ""), sub = NSMenu()
     for (n, u) in instances {
@@ -355,26 +371,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, 
     m.addItem(item("Reload", #selector(reloadClicked), key: "r"))
     m.addItem(item("Open in browser", #selector(openInBrowser)))
     m.addItem(.separator())
+    m.addItem(withTitle: appVersion, action: nil, keyEquivalent: "")
     m.addItem(item("Quit \(appName)", #selector(quit), key: "q"))
     return m
   }
 
   @objc func openClicked() { showWindow() }
-  @objc func togglePinned() { pinned.toggle(); if !pinned { arranging = false; deskLevel() }; placeWeb() }
-  @objc func toggleArranging() {
-    arranging.toggle(); deskLevel()
-    if arranging { if popover.isShown { popover.performClose(nil) }; desk.makeKeyAndOrderFront(nil); NSApp.activate() }
+  @objc func togglePinned() { setPin(pinMode == .desktop ? .off : .desktop) }
+  @objc func toggleOnTop() { setPin(pinMode == .top ? .off : .top) }
+  @objc func togglePop() { popOnKnock.toggle(); settings?.refresh() }
+  @objc func openSettings() {
+    if settings == nil { settings = SettingsWindow(app: self) }
+    settings?.show()
   }
-  @objc func togglePop() { popOnKnock.toggle() }
   @objc func micClicked() { js("__deckNative.clickMic()") }
   func validateMenuItem(_ item: NSMenuItem) -> Bool { item.action != #selector(micClicked) || !state.soundOff }
   @objc func speakerClicked() { js("__deckNative.clickSpeaker()") }
-  @objc func pickInstance(_ sender: NSMenuItem) { if let u = sender.representedObject as? String { wellness.clear(); url = u; load() } }
+  @objc func pickInstance(_ sender: NSMenuItem) { if let u = sender.representedObject as? String { switchInstance(u) } }
+  func switchInstance(_ u: String) { wellness.clear(); url = u; load(); settings?.refresh() }
   @objc func customInstance() {
     let a = NSAlert(); a.messageText = "Deck URL"; a.addButton(withTitle: "Open"); a.addButton(withTitle: "Cancel")
     let f = NSTextField(frame: NSRect(x: 0, y: 0, width: 320, height: 24)); f.stringValue = url; a.accessoryView = f
-    NSApp.activate()
-    if a.runModal() == .alertFirstButtonReturn, URL(string: f.stringValue)?.scheme?.hasPrefix("http") == true { wellness.clear(); url = f.stringValue; load() }
+    activate()
+    if a.runModal() == .alertFirstButtonReturn, URL(string: f.stringValue)?.scheme?.hasPrefix("http") == true { switchInstance(f.stringValue) }
   }
   @objc func reloadClicked() { if pageOK { web.reload() } else { retryLoad() } } // nothing to reload after a failed first load
   @objc func openInBrowser() { if let u = URL(string: url) { NSWorkspace.shared.open(u) } }
@@ -414,13 +433,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, 
   @objc func updateClicked() {
     guard !offline else { // the download would fail halfway; say why instead
       let a = NSAlert(); a.messageText = "Can't update while offline"; a.informativeText = "Connect to \(host) (check NetBird), then try again."
-      NSApp.activate(); a.runModal(); return
+      activate(); a.runModal(); return
     }
     updater.start(in: web)
   }
 
   func openChat(_ id: String) {
-    if window.isVisible { showWindow() } else { showPopover() }
+    if windowOpen { showWindow() } else { showPopover() }
     js("__deckNative.openChat(\(json(id)))")
   }
   @objc func openChatClicked(_ sender: NSMenuItem) { if let id = sender.representedObject as? String { openChat(id) } }
@@ -483,7 +502,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, 
   /// Updates install themselves when you won't notice the restart: not in a call, no popover or window open.
   func updateIfIdle() {
     guard updater.available != nil, pageOK, state.connected, !state.inCall, state.knocks.isEmpty,
-          !popover.isShown, !window.isVisible else { return }
+          !popover.isShown, !windowOpen else { return }
     updater.startAutomatically(in: web)
   }
 
@@ -529,7 +548,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, 
       // Popover: it's transient and would close when the panel takes focus, taking the web view (and the page's file input) with it.
       let behavior = popover.behavior
       popover.behavior = .applicationDefined
-      NSApp.activate()
+      activate()
       let ok = panel.runModal() == .OK
       popover.behavior = behavior
       completionHandler(ok ? panel.urls : nil)
@@ -563,6 +582,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, 
   func editMenu() -> NSMenu {
     let main = NSMenu(), app = NSMenuItem(), a = NSMenu(title: appName)
     a.addItem(withTitle: "About \(appName)", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
+    a.addItem(withTitle: "Settings…", action: #selector(openSettings), keyEquivalent: ",").target = self
     a.addItem(.separator())
     a.addItem(withTitle: "Hide \(appName)", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
     a.addItem(withTitle: "Quit \(appName)", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")

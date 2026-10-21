@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Builds the Mac app. Needs only the Command Line Tools, not Xcode.
-#   macos/build.sh                  local build: macos/build/The Deck.app (never self-updates)
+#   macos/build.sh                  local build: macos/build/The Deck (dev).app (io.t1a.deck.dev: runs beside the
+#                                   installed app with its own settings, never self-updates; point it with
+#                                   defaults write io.t1a.deck.dev url <instance>, or the Instance menu)
 #   macos/build.sh --dist           build and write macos/dist/The-Deck.zip + manifest.json
 #                                   (served by every instance; scripts/deploy.sh runs this)
 #   macos/build.sh --build-id       print the build id the app would get, without building
@@ -19,6 +21,7 @@ BUILD=$(cat Package.swift Info.plist AppIcon.icns Sources/Deck/*.swift | shasum 
 if [ "${1:-}" = --build-id ]; then echo "$BUILD"; exit 0; fi
 
 NAME="The Deck"; ID=io.t1a.deck # as in Info.plist
+$DIST || { NAME="The Deck (dev)"; ID=io.t1a.deck.dev; } # a local build sits beside the installed one
 
 swift build -c release
 rm -rf build; mkdir -p build
@@ -31,7 +34,12 @@ P="$APP/Contents/Info.plist"
 
 plutil -replace DeckBuild -string "$BUILD" "$P"
 plutil -replace CFBundleVersion -string "$(git rev-list --count HEAD 2>/dev/null || echo 1)" "$P"
-$DIST || plutil -replace DeckDev -bool YES "$P" # local builds never self-update
+if ! $DIST; then # local builds never self-update
+  plutil -replace DeckDev -bool YES "$P"
+  plutil -replace CFBundleIdentifier -string "$ID" "$P"
+  plutil -replace CFBundleName -string "$NAME" "$P"
+  plutil -replace CFBundleDisplayName -string "$NAME" "$P"
+fi
 
 KC="${DECK_SIGNING_DIR:-$HOME/.deck-signing}/deck.keychain-db"
 if [ -f "$KC" ]; then
