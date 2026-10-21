@@ -3,6 +3,7 @@
 // borderless window pinned to the desktop, so there's only ever one page / one WebSocket.
 import AppKit
 import Network
+import ServiceManagement
 import WebKit
 
 /// "The Deck": one app for every instance; the install command points it at the instance it came from.
@@ -149,6 +150,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, 
     // A menu bar app has no Dock icon, so opening it from Applications looked like nothing happened.
     // Opening it (not a relaunch after a self-update) shows the window plus a note on where it lives.
     if !CommandLine.arguments.contains("--updated") { openedByUser() }
+    // `open -a "The Deck" --args --open-at-login`: register the login item from the command line (only the app itself may).
+    if CommandLine.arguments.contains("--open-at-login") { try? SMAppService.mainApp.register() }
   }
 
   /// Opened again from Applications / Spotlight while already running.
