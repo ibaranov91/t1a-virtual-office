@@ -38,6 +38,7 @@ What already shipped into `v2` is listed at the end.
 | MA-5 | Native Settings window (⌘,): launch at login, instance, pin mode, notifications, meeting reminders | todo | | M | | mac | decision 11 |
 | MA-6 | Launch at login | todo | | S | MA-5 | mac | |
 | MA-7 | Local testing of Mac releases: separate dev bundle id, "Local" instance, `/api/mac` served by the dev server, a release checklist | todo | | M | | mac | |
+| MA-8 | Window mode: a left click on the menu bar icon brings the open window to the front, as other menu bar apps do. The code already calls `makeKeyAndOrderFront` + `NSApp.activate()` (`showWindow`), yet the window often stays behind: check `activate(ignoringOtherApps:)` under macOS 14's cooperative activation, a minimized window (`isVisible` is false, so the popover opens instead; deminiaturize), a window on another Space or next to a full-screen app (`.moveToActiveSpace` or switching Spaces) | todo | | S | | mac | |
 
 ## 3. Meetings, calendar, projects
 | ID | Task | Status | Owner | Size | Depends on | Test | Notes |
