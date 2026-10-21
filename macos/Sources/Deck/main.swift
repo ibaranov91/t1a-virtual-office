@@ -9,14 +9,6 @@ import WebKit
 /// "The Deck": one app for every instance; the install command points it at the instance it came from.
 let appName = Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String ?? "The Deck"
 
-let instances: [(name: String, url: String)] = [
-  ("prod", "https://voffice.t1a.io"),
-  ("andr", "https://voffice-andr.pub.t1a.cloud"),
-  ("var", "https://voffice-var.pub.t1a.cloud"),
-  ("iva", "https://voffice-iva.pub.t1a.cloud"),
-  ("demo", "https://voffice-demo.pub.t1a.cloud"),
-  ("local dev", "http://localhost:5173"),
-]
 
 /// Borderless windows can't take keyboard focus unless they say so.
 final class DeskWindow: NSWindow {
@@ -56,7 +48,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, 
   var pathMonitor: NWPathMonitor?
 
   var url: String {
-    get { defaults.string(forKey: "url") ?? instances[0].url }
+    get { defaults.string(forKey: "url") ?? Instances.prod }
     set { defaults.set(newValue, forKey: "url") }
   }
   var pinMode: PinMode {
@@ -69,6 +61,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, 
   var popOnKnock: Bool {
     get { defaults.object(forKey: "popOnKnock") as? Bool ?? true }
     set { defaults.set(newValue, forKey: "popOnKnock") }
+  }
+  var openWindowAtLaunch: Bool {
+    get { defaults.object(forKey: "openWindowAtLaunch") as? Bool ?? true }
+    set { defaults.set(newValue, forKey: "openWindowAtLaunch") }
+  }
+  var keepAwakeInCalls: Bool {
+    get { defaults.object(forKey: "keepAwakeInCalls") as? Bool ?? true }
+    set { defaults.set(newValue, forKey: "keepAwakeInCalls"); holdForCall(newValue && state.connected && state.inCall) }
   }
 
   func applicationDidFinishLaunching(_ note: Notification) {
@@ -149,7 +149,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, 
     startWatchingNetwork()
     // A menu bar app has no Dock icon, so opening it from Applications looked like nothing happened.
     // Opening it (not a relaunch after a self-update) shows the window plus a note on where it lives.
-    if !CommandLine.arguments.contains("--updated") { openedByUser() }
+    if !CommandLine.arguments.contains("--updated"), openWindowAtLaunch { openedByUser() }
     // `open -a "The Deck" --args --open-at-login`: register the login item from the command line (only the app itself may).
     if CommandLine.arguments.contains("--open-at-login") { try? SMAppService.mainApp.register() }
   }
@@ -206,7 +206,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, 
   // MARK: hosting the one web view
 
   func load() {
-    Person.isTestInstance = URL(string: url)?.host != URL(string: instances[0].url)?.host
+    Person.isTestInstance = URL(string: url)?.host != URL(string: Instances.prod)?.host
     renderIcon()
     if let u = URL(string: url) { web.load(URLRequest(url: u)) }
   }
@@ -334,16 +334,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, 
     func item(_ title: String, _ sel: Selector, on: Bool = false, key: String = "") -> NSMenuItem {
       let i = NSMenuItem(title: title, action: sel, keyEquivalent: key); i.target = self; i.state = on ? .on : .off; return i
     }
+    let where_ = Instances.name(of: url)
     if offline {
       m.addItem(withTitle: "Can't reach \(host)", action: nil, keyEquivalent: "")
       m.addItem(item("Retry now", #selector(retryLoad)))
     } else {
-      m.addItem(withTitle: state.connected ? (state.inCall ? "In a call" + voiceNote : "Connected") : "Reconnecting…", action: nil, keyEquivalent: "")
-      if state.voiceMenu { // the page's mic and headphones buttons: the page flips them and reports back, so a checkmark is never a guess
-        let mic = item(state.micErr ? "Retry microphone" : state.micOff ? "Unmute microphone" : "Mute microphone", #selector(micClicked), on: state.micOff)
+      // One status line: connection · instance · voice; the items below say what a click does, so no checkmarks.
+      let status = state.connected ? (state.inCall ? "In a call" + voiceNote : "Connected") : "Reconnecting…"
+      m.addItem(withTitle: "\(status) · \(where_)", action: nil, keyEquivalent: "")
+      if state.voiceMenu { // the page's mic and headphones buttons: the page flips them and reports back
+        let mic = item(state.micErr ? "Retry microphone" : state.micOff ? "Unmute microphone" : "Mute microphone", #selector(micClicked))
         if state.soundOff { mic.title = "Mute microphone" } // no sound means no mic (validateMenuItem greys it): Enable sound brings both back
         m.addItem(mic)
-        m.addItem(item(state.soundOff ? "Enable sound" : "Disable sound (and microphone)", #selector(speakerClicked), on: state.soundOff))
+        m.addItem(item(state.soundOff ? "Enable sound" : "Disable sound (and microphone)", #selector(speakerClicked)))
       }
     }
     if let u = updater.available {
@@ -356,25 +359,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, 
     }
     if state.busy { m.addItem(withTitle: "Quiet: away or in a call, knocks only light the icon", action: nil, keyEquivalent: "") }
     m.addItem(.separator())
-    m.addItem(item("Open in a separate window", #selector(openClicked)))
-    m.addItem(item("Pin to the desktop", #selector(togglePinned), on: pinMode == .desktop))
-    m.addItem(item("Keep on top of other windows", #selector(toggleOnTop), on: pinMode == .top))
-    m.addItem(item("Knock and meeting card under the icon", #selector(togglePop), on: popOnKnock))
-    m.addItem(item("Settings…", #selector(openSettings), key: ","))
-    m.addItem(.separator())
-    let inst = NSMenuItem(title: "Instance", action: nil, keyEquivalent: ""), sub = NSMenu()
-    for (n, u) in instances {
-      let i = item("\(n)  \(u)", #selector(pickInstance(_:)), on: u == url); i.representedObject = u; sub.addItem(i)
+    let win = NSMenuItem(title: "Window", action: nil, keyEquivalent: ""), ws = NSMenu()
+    ws.addItem(item("Open in a separate window", #selector(openClicked), on: windowOpen, key: "o"))
+    ws.addItem(item("Pin to the desktop", #selector(togglePinned), on: pinMode == .desktop))
+    ws.addItem(item("Keep on top of other windows", #selector(toggleOnTop), on: pinMode == .top))
+    win.submenu = ws; m.addItem(win)
+    let inst = NSMenuItem(title: "Instance: \(where_)", action: nil, keyEquivalent: ""), sub = NSMenu()
+    for (n, i) in Instances.all.enumerated() {
+      let it = item(i.name, #selector(pickInstance(_:)), on: i.url == url, key: n < 9 ? "\(n + 1)" : ""); it.representedObject = i.url; it.toolTip = i.url; sub.addItem(it)
     }
-    if !instances.contains(where: { $0.url == url }) { sub.addItem(item(url, #selector(reloadClicked), on: true)) }
+    if !Instances.all.contains(where: { $0.url == url }) { sub.addItem(item(url, #selector(reloadClicked), on: true)) }
     sub.addItem(.separator())
     sub.addItem(item("Custom URL…", #selector(customInstance)))
+    sub.addItem(item("Edit instances…", #selector(openInstances)))
     inst.submenu = sub
     m.addItem(inst)
-    m.addItem(item("Reload", #selector(reloadClicked), key: "r"))
-    m.addItem(item("Open in browser", #selector(openInBrowser)))
+    m.addItem(item("Settings…", #selector(openSettings), key: ","))
     m.addItem(.separator())
-    m.addItem(withTitle: appVersion, action: nil, keyEquivalent: "")
+    m.addItem(withTitle: appVersionShort, action: nil, keyEquivalent: "")
     m.addItem(item("Quit \(appName)", #selector(quit), key: "q"))
     return m
   }
@@ -387,6 +389,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, 
     if settings == nil { settings = SettingsWindow(app: self) }
     settings?.show()
   }
+  @objc func openInstances() { openSettings(); settings?.show(tab: .init("instances")) }
   @objc func micClicked() { js("__deckNative.clickMic()") }
   func validateMenuItem(_ item: NSMenuItem) -> Bool { item.action != #selector(micClicked) || !state.soundOff }
   @objc func speakerClicked() { js("__deckNative.clickSpeaker()") }
@@ -396,7 +399,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, 
     let a = NSAlert(); a.messageText = "Deck URL"; a.addButton(withTitle: "Open"); a.addButton(withTitle: "Cancel")
     let f = NSTextField(frame: NSRect(x: 0, y: 0, width: 320, height: 24)); f.stringValue = url; a.accessoryView = f
     activate()
-    if a.runModal() == .alertFirstButtonReturn, URL(string: f.stringValue)?.scheme?.hasPrefix("http") == true { switchInstance(f.stringValue) }
+    if a.runModal() == .alertFirstButtonReturn, Instances.valid(f.stringValue) { switchInstance(f.stringValue) }
   }
   @objc func reloadClicked() { if pageOK { web.reload() } else { retryLoad() } } // nothing to reload after a failed first load
   @objc func openInBrowser() { if let u = URL(string: url) { NSWorkspace.shared.open(u) } }
@@ -495,7 +498,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, 
 
   /// The app is usually hidden in the menu bar, where App Nap and timer coalescing make call audio choppy.
   func holdForCall(_ on: Bool) {
-    if on, callActivity == nil {
+    if on, keepAwakeInCalls, callActivity == nil {
       callActivity = ProcessInfo.processInfo.beginActivity(options: [.userInitiated, .latencyCritical, .idleSystemSleepDisabled], reason: "Voice call")
     } else if !on, let a = callActivity {
       ProcessInfo.processInfo.endActivity(a); callActivity = nil
@@ -599,6 +602,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, 
     m.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
     m.addItem(withTitle: "Close", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
     m.addItem(withTitle: "Reload", action: #selector(reloadClicked), keyEquivalent: "r").target = self
+    m.addItem(withTitle: "Open in Browser", action: #selector(openInBrowser), keyEquivalent: "").target = self
     edit.submenu = m; main.addItem(edit)
     return main
   }
