@@ -31,14 +31,14 @@ What already shipped into `v2` is listed at the end.
 ## 2. Mac app
 | ID | Task | Status | Owner | Size | Depends on | Test | Notes |
 |---|---|---|---|---|---|---|---|
-| MA-1 | Pinned window that stays on top of every window; drop "move desktop window", drag by a strip at the top | todo | | M | | mac | |
-| MA-2 | Client version in the right-click menu | todo | | S | | mac | |
+| MA-1 | Pinned window that stays on top of every window; drop "move desktop window", drag by a strip at the top | done | Ivan | M | | mac | Window ▸ Keep on top; one borderless window, drag strip along its top edge |
+| MA-2 | Client version in the right-click menu | done | Ivan | S | | mac | short form in the menu, full in Settings ▸ General |
 | MA-3 | DND toggle in the right-click menu, in sync with the page | todo | | S | | mac | |
 | MA-4 | Meeting reminder card under the menu bar icon: Open Meet / Go to room / Both, with a setting to turn it off | todo | | M | | mac, google | |
-| MA-5 | Native Settings window (⌘,): launch at login, instance, pin mode, notifications, meeting reminders | todo | | M | | mac | decision 11 |
-| MA-6 | Launch at login | todo | | S | MA-5 | mac | |
-| MA-7 | Local testing of Mac releases: separate dev bundle id, "Local" instance, `/api/mac` served by the dev server, a release checklist | todo | | M | | mac | |
-| MA-8 | Window mode: a left click on the menu bar icon brings the open window to the front, as other menu bar apps do. The code already calls `makeKeyAndOrderFront` + `NSApp.activate()` (`showWindow`), yet the window often stays behind: check `activate(ignoringOtherApps:)` under macOS 14's cooperative activation, a minimized window (`isVisible` is false, so the popover opens instead; deminiaturize), a window on another Space or next to a full-screen app (`.moveToActiveSpace` or switching Spaces) | todo | | S | | mac | |
+| MA-5 | Native Settings window (⌘,): launch at login, instance, pin mode, notifications, meeting reminders | done | Ivan | M | | mac | decision 11; tabs General / Instances (editable table) / Notifications / Advanced. Meeting reminders toggle waits for MA-4 |
+| MA-6 | Launch at login | done | Ivan | S | MA-5 | mac | SMAppService; `open -a "The Deck" --args --open-at-login` registers it from the command line |
+| MA-7 | Local testing of Mac releases: separate dev bundle id, "Local" instance, `/api/mac` served by the dev server, a release checklist | doing | Ivan | M | | mac | done: `build.sh` makes "The Deck (dev)" (`io.t1a.deck.dev`) beside the installed app, "local dev" instance. Left: `/api/mac` from the dev server, the checklist |
+| MA-8 | Window mode: a left click on the menu bar icon brings the open window to the front, as other menu bar apps do. The code already calls `makeKeyAndOrderFront` + `NSApp.activate()` (`showWindow`), yet the window often stays behind: check `activate(ignoringOtherApps:)` under macOS 14's cooperative activation, a minimized window (`isVisible` is false, so the popover opens instead; deminiaturize), a window on another Space or next to a full-screen app (`.moveToActiveSpace` or switching Spaces) | done | Ivan | S | | mac | activate(ignoringOtherApps:), deminiaturize, moveToActiveSpace |
 
 ## 3. Meetings, calendar, projects
 | ID | Task | Status | Owner | Size | Depends on | Test | Notes |
